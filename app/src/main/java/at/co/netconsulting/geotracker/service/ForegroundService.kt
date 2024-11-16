@@ -1,23 +1,85 @@
 package at.co.netconsulting.geotracker.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
+import android.location.LocationManager.NETWORK_PROVIDER
 import android.os.IBinder
+import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
+import at.co.netconsulting.geotracker.data.LocationEvent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.greenrobot.eventbus.EventBus
 
-class ForegroundService : Service() {
-
-    companion object {
-        const val CHANNEL_ID = "ForegroundServiceChannel"
-    }
+class ForegroundService : Service(), LocationListener {
+    private var mLocation: Location? = null
+    private var locationManager: LocationManager? = null
+    private lateinit var job: Job
 
     override fun onCreate() {
         super.onCreate()
+        initializeLocation(mLocation)
+        createLocationManager()
+        createLocationUpdates()
         createNotificationChannel()
+        createBackgroundCoroutine()
+    }
+
+    private fun initializeLocation(location: Location?) {
+        mLocation = location
+    }
+
+    private fun createLocationUpdates() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        locationManager?.requestLocationUpdates(NETWORK_PROVIDER, 1000, 1000f, this)
+    }
+
+    private fun createLocationManager() {
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+    }
+
+    private fun createBackgroundCoroutine() {
+        job = GlobalScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(1000)
+
+                mLocation?.let {
+                    Log.d("ForegroundService", "Latitude: ${mLocation!!.latitude} / Longitude: ${mLocation!!.longitude}")
+                    EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude))
+                } ?: run {
+                    Log.e("ForegroundService", "mLocation is null, event not posted")
+                }
+                insertDatabase()
+            }
+        }
+    }
+
+    private fun insertDatabase() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -40,6 +102,8 @@ class ForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
 
+        // Stop infinite loop
+        job.cancel()
         // Stop foreground mode and cancel the notification immediately
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
@@ -54,5 +118,15 @@ class ForegroundService : Service() {
         )
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(channel)
+    }
+
+    //LocationListener
+    override fun onLocationChanged(location: android.location.Location) {
+        mLocation = location
+    }
+
+    // Companion
+    companion object {
+        const val CHANNEL_ID = "ForegroundServiceChannel"
     }
 }

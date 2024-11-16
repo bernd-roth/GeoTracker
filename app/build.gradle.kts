@@ -69,4 +69,5 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("androidx.compose.material3:material3:1.1.0")
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.30.1")
+    implementation("org.greenrobot:eventbus:3.3.1")
 }

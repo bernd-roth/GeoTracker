@@ -8,11 +8,13 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
 import android.util.DisplayMetrics
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -35,9 +37,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,7 +55,11 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.service.ForegroundService
+import org.greenrobot.eventbus.EventBus
+import org.greenrobot.eventbus.Subscribe
+import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -71,6 +79,8 @@ class MainActivity : ComponentActivity(), LocationListener {
     private lateinit var mapView: MapView
     private lateinit var polyline: Polyline
     private lateinit var locationManager: LocationManager
+    private var usedInFixCount = 0
+    private var satelliteCount = 0
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,11 +95,23 @@ class MainActivity : ComponentActivity(), LocationListener {
         // Request location updates
         requestLocationUpdates(context, locationManager, this, this)
 
+        // Register EventBus
+        EventBus.getDefault().register(this)
+
         setContent {
             MainScreen()
         }
     }
 
+    // Publisher/Subscriber
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onLocationEvent(event: LocationEvent) {
+        Log.d("MainActivity", "Latitude: ${event.latitude}, Longitude: ${event.longitude}")
+        latitudeState.value = event.latitude
+        longitudeState.value = event.longitude
+    }
+
+    // LocationListener
     override fun onLocationChanged(location: Location) {
         // Update state variables with new latitude and longitude
         latitudeState.value = location.latitude
@@ -125,46 +147,40 @@ class MainActivity : ComponentActivity(), LocationListener {
         listener: LocationListener,
         activity: Activity
     ) {
-        if (ActivityCompat.checkSelfPermission(
-                context,
-                ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(
-                context,
-                ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(
-                context,
-                FOREGROUND_SERVICE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(
-                context,
-                FOREGROUND_SERVICE
-            ) == PackageManager.PERMISSION_GRANTED
+        if (ActivityCompat.checkSelfPermission(context, ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(context, ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(context, FOREGROUND_SERVICE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(context, FOREGROUND_SERVICE) == PackageManager.PERMISSION_GRANTED
         ) {
+            locationManager.registerGnssStatusCallback(object : GnssStatus.Callback() {
+                override fun onSatelliteStatusChanged(status: GnssStatus) {
+                    super.onSatelliteStatusChanged(status)
+
+                    satelliteCount = status.satelliteCount
+                    usedInFixCount = (0 until satelliteCount).count { status.usedInFix(it) }
+
+                    Log.d("SatelliteInfo", "Visible Satellites: $satelliteCount")
+                    Log.d("SatelliteInfo", "Satellites Used in Fix: $usedInFixCount")
+                }
+            },null)
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 1000,
                 1f,
-                listener
-            )
+                listener)
         } else {
             ActivityCompat.requestPermissions(
-                activity,
-                arrayOf(ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION, FOREGROUND_SERVICE_LOCATION, FOREGROUND_SERVICE),
+                this,
+                arrayOf(ACCESS_FINE_LOCATION),
                 1
             )
         }
     }
 
+    // Composable
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun MainScreen() {
-        // State for controlling the top bar height
-        var topBarVisible by remember { mutableStateOf(false) }
-        val topBarHeight by animateDpAsState(if (topBarVisible) 60.dp else 0.dp)
-        val animatedHeight by animateDpAsState(targetValue = topBarHeight)
-
         // Coroutine scope to auto-hide the top bar after a delay
         val coroutineScope = rememberCoroutineScope()
 
@@ -181,16 +197,45 @@ class MainActivity : ComponentActivity(), LocationListener {
                     speedAccuracyInMeters = speedState.value,
                     altitude = altitudeState.value,
                     verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
-                    horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value
+                    horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
+                    numberOfSatellites = satelliteCount,
+                    usedNumberOfSatellites = usedInFixCount
                 )
             },
-            sheetPeekHeight = 35.dp,
+            sheetPeekHeight = 20.dp,
             sheetContentColor = Color.Transparent,
             sheetContainerColor = Color.Transparent
         ) {
             Column {
                 OpenStreetMapView()
             }
+        }
+    }
+
+    @Composable
+    fun BottomSheetContent(
+        latitude: Double,
+        longitude: Double,
+        speed: Float,
+        speedAccuracyInMeters: Float,
+        altitude: Double,
+        verticalAccuracyInMeters: Float,
+        horizontalAccuracyInMeters: Float,
+        numberOfSatellites: Int,
+        usedNumberOfSatellites: Int
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Text(text = "Latitude: ${"%.2f".format(latitude)} Longitude: ${"%.2f".format(longitude)}", fontSize = 10.sp, color = Color.Black)
+            Text("Speed: $speed km/h", fontSize = 10.sp, color = Color.Black)
+            Text("Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} m/s", fontSize = 10.sp, color = Color.Black)
+            Text("Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
+            Text("Altitude: ${"%.2f".format(altitude)} meter", fontSize = 10.sp, color = Color.Black)
+            Text("Satellites: $usedNumberOfSatellites/$numberOfSatellites ", fontSize = 10.sp, color = Color.Black)
+            //Text("Vertical accuracy: ${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 18.sp, color = Color.Black)
         }
     }
 
@@ -248,10 +293,13 @@ class MainActivity : ComponentActivity(), LocationListener {
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            // Handle recording action here
+                            // Recording action here
                             Toast.makeText(context, "Recording started!", Toast.LENGTH_SHORT).show()
                             val intent = Intent(context, ForegroundService::class.java)
                             ContextCompat.startForegroundService(context, intent)
+                            // Remove listener from MainActivity
+                            // because LocationListener is implemented in ForegroundService
+                            locationManager.removeUpdates(this@MainActivity)
                         }
                 ) {
                     Icon(
@@ -264,25 +312,11 @@ class MainActivity : ComponentActivity(), LocationListener {
         }
     }
 
+    // Override
     override fun onDestroy() {
         super.onDestroy()
         val intent = Intent(this, ForegroundService::class.java)
         stopService(intent)
+        EventBus.getDefault().unregister(this)
     }
 }
-
-    @Composable
-    fun BottomSheetContent(latitude: Double, longitude: Double, speed: Float, speedAccuracyInMeters: Float, altitude: Double, verticalAccuracyInMeters: Float, horizontalAccuracyInMeters: Float) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Text(text = "Latitude: ${"%.2f".format(latitude)} Longitude: ${"%.2f".format(longitude)}", fontSize = 18.sp, color = Color.Black)
-            Text("Speed: $speed km/h", fontSize = 18.sp, color = Color.Black)
-            Text("Speed accuracy: ${"%.2f".format(speedAccuracyInMeters)} m/s", fontSize = 18.sp, color = Color.Black)
-            Text("Horizontal accuracy: ${"%.2f".format(horizontalAccuracyInMeters)} meter", fontSize = 18.sp, color = Color.Black)
-            Text("Altitude: ${"%.2f".format(altitude)} meter", fontSize = 18.sp, color = Color.Black)
-            //Text("Vertical accuracy: ${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 18.sp, color = Color.Black)
-        }
-    }
