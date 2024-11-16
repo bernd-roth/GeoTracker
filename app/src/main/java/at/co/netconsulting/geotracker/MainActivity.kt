@@ -56,6 +56,7 @@ import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     private lateinit var locationManager: LocationManager
     private var usedInFixCount = 0
     private var satelliteCount = 0
+    private lateinit var marker: Marker
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -112,6 +114,28 @@ class MainActivity : ComponentActivity(), LocationListener {
         speedAccuracyInMetersState.value = event.speedAccuracyMetersPerSecond
         altitudeState.value = event.altitude
         verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
+
+        drawPolyline(latitudeState.value, longitudeState.value)
+    }
+
+    private fun drawPolyline(latitude: Double, longitude: Double) {
+        val size = polyline.actualPoints.size
+
+        if(size==1) {
+            createMarker()
+            polyline.addPoint(GeoPoint(latitude, longitude))
+        } else {
+            polyline.addPoint(GeoPoint(latitude, longitude))
+        }
+    }
+
+    private fun createMarker() {
+        marker.position = polyline.actualPoints[0]
+        marker.title = "Start"
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        marker.icon = ContextCompat.getDrawable(this, R.drawable.startflag)
+        mapView.overlays.add(marker)
+        mapView.invalidate()
     }
 
     // LocationListener
@@ -138,9 +162,6 @@ class MainActivity : ComponentActivity(), LocationListener {
 //        rotationGestureOverlay.isEnabled
 //        mapView.setMultiTouchControls(true)
 //        mapView.overlays.add(rotationGestureOverlay)
-
-        // Add new location to polyline
-        polyline.addPoint(GeoPoint(latitudeState.value, longitudeState.value))
 
         // Update map center to the latest location
         mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
@@ -271,7 +292,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                     }
                     overlays.add(polyline)
                 }
-
+                marker = Marker(mapView)
                 //compass
     //            var compassOverlay = CompassOverlay(applicationContext, InternalCompassOrientationProvider(applicationContext), mapView)
     //            compassOverlay.enableCompass()
