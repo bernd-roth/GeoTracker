@@ -18,7 +18,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,15 +36,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableIntState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -89,8 +82,7 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         // Initialize OSMDroid configuration
         val context = applicationContext
-        Configuration.getInstance()
-            .load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
+        Configuration.getInstance().load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
 
         // Request location updates
         requestLocationUpdates(context, locationManager, this, this)
@@ -106,9 +98,20 @@ class MainActivity : ComponentActivity(), LocationListener {
     // Publisher/Subscriber
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onLocationEvent(event: LocationEvent) {
-        Log.d("MainActivity", "Latitude: ${event.latitude}, Longitude: ${event.longitude}")
+        Log.d("MainActivity",
+            "Latitude: ${event.latitude}," +
+                " Longitude: ${event.longitude}," +
+                " Speed: ${event.speed}," +
+                " SpeedAccuracyInMeters: ${event.speedAccuracyMetersPerSecond}," +
+                " Altitude: ${event.altitude}," +
+                " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
+                " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}")
         latitudeState.value = event.latitude
         longitudeState.value = event.longitude
+        speedState.value = event.speed
+        speedAccuracyInMetersState.value = event.speedAccuracyMetersPerSecond
+        altitudeState.value = event.altitude
+        verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
     }
 
     // LocationListener
@@ -121,6 +124,14 @@ class MainActivity : ComponentActivity(), LocationListener {
         altitudeState.value = location.altitude
         speedState.value = location.speed
         speedAccuracyInMetersState.value = location.speedAccuracyMetersPerSecond
+
+        Log.d("MainActivity: onLocationChanged: ",
+            "Latitude: ${latitudeState.value}," +
+                 " Longitude: ${longitudeState.value}," +
+                 " Speed: ${speedState.value}," +
+                 " SpeedAccuracyInMeters: ${speedAccuracyInMetersState.value}," +
+                 " Altitude: ${altitudeState.value}," +
+                 " VerticalAccuracyInMeters: ${verticalAccuracyInMetersState.value}")
 
         //rotation overlay
 //        val rotationGestureOverlay = RotationGestureOverlay(mapView)
@@ -159,8 +170,8 @@ class MainActivity : ComponentActivity(), LocationListener {
                     satelliteCount = status.satelliteCount
                     usedInFixCount = (0 until satelliteCount).count { status.usedInFix(it) }
 
-                    Log.d("SatelliteInfo", "Visible Satellites: $satelliteCount")
-                    Log.d("SatelliteInfo", "Satellites Used in Fix: $usedInFixCount")
+                    Log.d("MainActivty: requestLocationUpdates(): SatelliteInfo", "Visible Satellites: $satelliteCount")
+                    Log.d("MainActivity: requestLocationUpdates(): SatelliteInfo", "Satellites Used in Fix: $usedInFixCount")
                 }
             },null)
             locationManager.requestLocationUpdates(
@@ -229,11 +240,13 @@ class MainActivity : ComponentActivity(), LocationListener {
                 .fillMaxWidth()
                 .padding(16.dp)
         ) {
-            Text(text = "Latitude: ${"%.2f".format(latitude)} Longitude: ${"%.2f".format(longitude)}", fontSize = 10.sp, color = Color.Black)
+            //Text(text = "Latitude: ${"%.2f".format(latitude)} Longitude: ${"%.2f".format(longitude)}", fontSize = 10.sp, color = Color.Black)
+            Text(text = "Latitude: $latitude Longitude: $longitude", fontSize = 10.sp, color = Color.Black)
             Text("Speed: $speed km/h", fontSize = 10.sp, color = Color.Black)
             Text("Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} m/s", fontSize = 10.sp, color = Color.Black)
-            Text("Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
             Text("Altitude: ${"%.2f".format(altitude)} meter", fontSize = 10.sp, color = Color.Black)
+            Text("Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
+            Text("Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
             Text("Satellites: $usedNumberOfSatellites/$numberOfSatellites ", fontSize = 10.sp, color = Color.Black)
             //Text("Vertical accuracy: ${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 18.sp, color = Color.Black)
         }

@@ -11,14 +11,13 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.location.LocationManager.NETWORK_PROVIDER
+import android.location.LocationManager.GPS_PROVIDER
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.LocationEvent
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
@@ -56,7 +55,7 @@ class ForegroundService : Service(), LocationListener {
         ) {
             return
         }
-        locationManager?.requestLocationUpdates(NETWORK_PROVIDER, 1000, 1000f, this)
+        locationManager?.requestLocationUpdates(GPS_PROVIDER, 1000, 1f, this)
     }
 
     private fun createLocationManager() {
@@ -70,7 +69,7 @@ class ForegroundService : Service(), LocationListener {
 
                 mLocation?.let {
                     Log.d("ForegroundService", "Latitude: ${mLocation!!.latitude} / Longitude: ${mLocation!!.longitude}")
-                    EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude))
+                    EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters))
                 } ?: run {
                     Log.e("ForegroundService", "mLocation is null, event not posted")
                 }
