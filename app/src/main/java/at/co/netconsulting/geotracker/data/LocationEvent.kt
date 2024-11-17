@@ -7,5 +7,6 @@ data class LocationEvent(
     val speedAccuracyMetersPerSecond: Float,
     val altitude: Double,
     val horizontalAccuracy: Float,
-    val verticalAccuracyMeters: Float
+    val verticalAccuracyMeters: Float,
+    val coveredDistance: Double
 )

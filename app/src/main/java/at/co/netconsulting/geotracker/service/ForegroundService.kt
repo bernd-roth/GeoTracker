@@ -1,22 +1,17 @@
 package at.co.netconsulting.geotracker.service
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
-import android.location.LocationManager.GPS_PROVIDER
-import android.location.LocationManager.NETWORK_PROVIDER
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
-import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
+import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.LocationEvent
 import kotlinx.coroutines.Dispatchers
@@ -26,56 +21,55 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
+import org.greenrobot.eventbus.Subscribe
+import org.greenrobot.eventbus.ThreadMode
 
-class ForegroundService : Service(), LocationListener {
-    private var mLocation: Location? = null
-    private var locationManager: LocationManager? = null
+class ForegroundService : Service() {
     private lateinit var job: Job
+    private lateinit var notificationManager: NotificationManager
+    private lateinit var notificationBuilder: NotificationCompat.Builder
 
     override fun onCreate() {
         super.onCreate()
-        initializeLocation(mLocation)
-        createLocationManager()
-        createLocationUpdates()
+        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        EventBus.getDefault().register(this)
         createNotificationChannel()
         createBackgroundCoroutine()
     }
 
-    private fun initializeLocation(location: Location?) {
-        mLocation = location
-    }
-
-    private fun createLocationUpdates() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            return
-        }
-        locationManager?.requestLocationUpdates(GPS_PROVIDER, 1000, 1f, this)
-    }
-
-    private fun createLocationManager() {
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    }
-
     private fun createBackgroundCoroutine() {
         job = GlobalScope.launch(Dispatchers.IO) {
+            val customLocationListener = CustomLocationListener(applicationContext)
+            customLocationListener.startListener()
             while (isActive) {
                 delay(1000)
-
-                mLocation?.let {
-                    Log.d("ForegroundService", "Latitude: ${mLocation!!.latitude} / Longitude: ${mLocation!!.longitude}")
-                    EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters))
-                } ?: run {
-                    Log.e("ForegroundService", "mLocation is null, event not posted")
-                }
                 insertDatabase()
             }
+        }
+    }
+
+    // Publisher/Subscriber
+    @Subscribe(threadMode = ThreadMode.BACKGROUND)
+    fun onLocationEvent(event: LocationEvent) {
+        Log.d("ForegroundService",
+            "Latitude: ${event.latitude}," +
+                    " Longitude: ${event.longitude}," +
+                    " Speed: ${event.speed}," +
+                    " SpeedAccuracyInMeters: ${event.speedAccuracyMetersPerSecond}," +
+                    " Altitude: ${event.altitude}," +
+                    " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
+                    " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
+                    " CoveredDistance: ${event.coveredDistance}")
+        updateNotification(
+            "Covered Distance: " + String.format("%.2f", event.coveredDistance/1000) + " Km" +
+            "\nSpeed: " + String.format("%.2f", event.speed) + " km/h"+
+            "\nAltitude: " + String.format("%.2f", event.altitude) + " meter")
+    }
+
+    private fun updateNotification(newContent: String) {
+        runOnUiThread {
+            notificationBuilder.setContentText(newContent)
+            notificationManager.notify(1, notificationBuilder.build())
         }
     }
 
@@ -83,16 +77,17 @@ class ForegroundService : Service(), LocationListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("GeoTracker Service")
-            .setContentText("Recording location...")
+        notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("GeoTracker")
+            .setContentText("Covered distance and altitude will be shown here!")
             .setSmallIcon(R.drawable.ic_launcher_background)
             .setOnlyAlertOnce(true)
             //show notification on home screen to everyone
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             //without FOREGROUND_SERVICE_IMMEDIATE, notification can take up to 10 secs to be shown
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+
+        val notification = notificationBuilder.build()
 
         startForeground(1, notification)
 
@@ -101,7 +96,7 @@ class ForegroundService : Service(), LocationListener {
 
     override fun onDestroy() {
         super.onDestroy()
-
+        EventBus.getDefault().unregister(this)
         // Stop infinite loop
         job.cancel()
         // Stop foreground mode and cancel the notification immediately
@@ -113,20 +108,22 @@ class ForegroundService : Service(), LocationListener {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Foreground Service Channel",
-            NotificationManager.IMPORTANCE_DEFAULT
+            "GeoTracker",
+            NotificationManager.IMPORTANCE_HIGH
         )
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
-    }
-
-    //LocationListener
-    override fun onLocationChanged(location: android.location.Location) {
-        mLocation = location
+        notificationManager.createNotificationChannel(channel)
     }
 
     // Companion
     companion object {
         const val CHANNEL_ID = "ForegroundServiceChannel"
+    }
+
+    private fun runOnUiThread(action: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            action()
+        } else {
+            Handler(Looper.getMainLooper()).post(action)
+        }
     }
 }

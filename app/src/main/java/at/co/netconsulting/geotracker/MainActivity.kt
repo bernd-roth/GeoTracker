@@ -21,8 +21,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,13 +34,18 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -61,6 +68,9 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 
 class MainActivity : ComponentActivity(), LocationListener {
     private var latitudeState = mutableDoubleStateOf(0.0)
@@ -70,6 +80,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var speedState = mutableFloatStateOf(0.0f)
     private var speedAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var verticalAccuracyInMetersState = mutableFloatStateOf(0.0f)
+    private var coveredDistanceState = mutableDoubleStateOf(0.0)
     private lateinit var mapView: MapView
     private lateinit var polyline: Polyline
     private lateinit var locationManager: LocationManager
@@ -107,13 +118,15 @@ class MainActivity : ComponentActivity(), LocationListener {
                 " SpeedAccuracyInMeters: ${event.speedAccuracyMetersPerSecond}," +
                 " Altitude: ${event.altitude}," +
                 " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
-                " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}")
+                " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
+                " CoveredDistance: ${event.coveredDistance}")
         latitudeState.value = event.latitude
         longitudeState.value = event.longitude
         speedState.value = event.speed
         speedAccuracyInMetersState.value = event.speedAccuracyMetersPerSecond
         altitudeState.value = event.altitude
         verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
+        coveredDistanceState.value = event.coveredDistance
 
         drawPolyline(latitudeState.value, longitudeState.value)
     }
@@ -123,8 +136,10 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         if(size==1) {
             createMarker()
+            mapView.controller.setZoom(17.0)
             polyline.addPoint(GeoPoint(latitude, longitude))
         } else {
+            mapView.controller.setZoom(18.0)
             polyline.addPoint(GeoPoint(latitude, longitude))
         }
     }
@@ -196,7 +211,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                 }
             },null)
             locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER,
                 1000,
                 1f,
                 listener)
@@ -209,7 +224,6 @@ class MainActivity : ComponentActivity(), LocationListener {
         }
     }
 
-    // Composable
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun MainScreen() {
@@ -218,6 +232,12 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         // Create a scaffold state for controlling the bottom sheet
         val scaffoldState = rememberBottomSheetScaffoldState()
+
+        // Remember the selected tab index
+        var selectedTabIndex by remember { mutableStateOf(0) }
+
+        // List of tab titles
+        val tabs = listOf("Map", "Statistics", "Settings")
 
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -231,16 +251,79 @@ class MainActivity : ComponentActivity(), LocationListener {
                     verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
                     horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
                     numberOfSatellites = satelliteCount,
-                    usedNumberOfSatellites = usedInFixCount
+                    usedNumberOfSatellites = usedInFixCount,
+                    coveredDistance = coveredDistanceState.value
                 )
             },
             sheetPeekHeight = 20.dp,
             sheetContentColor = Color.Transparent,
             sheetContainerColor = Color.Transparent
         ) {
-            Column {
-                OpenStreetMapView()
-            }
+            Scaffold(
+                topBar = {
+                    // TabRow for navigation
+                    TabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        tabs.forEachIndexed { index, title ->
+                            Tab(
+                                selected = selectedTabIndex == index,
+                                onClick = { selectedTabIndex = index },
+                                text = { Text(title) }
+                            )
+                        }
+                    }
+                },
+                content = { paddingValues ->
+                    Box(modifier = Modifier.padding(paddingValues)) {
+                        when (selectedTabIndex) {
+                            0 -> MapScreen() // The actual map
+                            1 -> StatisticsScreen() // Statistics content
+                            2 -> SettingsScreen() // Settings content
+                        }
+                    }
+                }
+            )
+        }
+    }
+
+    @Composable
+    fun MapScreen() {
+        Column {
+            OpenStreetMapView() // The map view
+        }
+    }
+
+    @Composable
+    fun StatisticsScreen() {
+        // Example UI for statistics
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Text(text = "Statistics", style = MaterialTheme.typography.bodyLarge)
+            Spacer(modifier = Modifier.height(16.dp))
+            // Add actual statistics content here
+            Text("Speed: 0.0 km/h")
+            Text("Covered Distance: 0.0 km")
+        }
+    }
+
+    @Composable
+    fun SettingsScreen() {
+        // Example UI for settings
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            Text(text = "Settings", style = MaterialTheme.typography.bodyLarge)
+            Spacer(modifier = Modifier.height(16.dp))
+            // Add actual settings content here
+            Text("Setting 1")
+            Text("Setting 2")
         }
     }
 
@@ -254,7 +337,8 @@ class MainActivity : ComponentActivity(), LocationListener {
         verticalAccuracyInMeters: Float,
         horizontalAccuracyInMeters: Float,
         numberOfSatellites: Int,
-        usedNumberOfSatellites: Int
+        usedNumberOfSatellites: Int,
+        coveredDistance: Double
     ) {
         Column(
             modifier = Modifier
@@ -269,6 +353,7 @@ class MainActivity : ComponentActivity(), LocationListener {
             Text("Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
             Text("Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
             Text("Satellites: $usedNumberOfSatellites/$numberOfSatellites ", fontSize = 10.sp, color = Color.Black)
+            Text("Covered distance: ${"%.2f".format(coveredDistance/1000)} Km", fontSize = 10.sp, color = Color.Black)
             //Text("Vertical accuracy: ${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 18.sp, color = Color.Black)
         }
     }
@@ -282,8 +367,8 @@ class MainActivity : ComponentActivity(), LocationListener {
                 mapView = MapView(context).apply {
                     setTileSource(customTileSource)
                     setMultiTouchControls(true)
-                    controller.setZoom(5.0)
-                    controller.setCenter(GeoPoint(0.0, 0.0)) // Center map on (0, 0)
+                    controller.setZoom(9.0)
+                    controller.setCenter(GeoPoint(0.0, 0.0))
 
                     // Initialize polyline for tracking locations
                     polyline = Polyline().apply {
