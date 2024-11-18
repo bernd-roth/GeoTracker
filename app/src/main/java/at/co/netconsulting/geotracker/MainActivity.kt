@@ -5,11 +5,11 @@ import android.Manifest.permission.ACCESS_FINE_LOCATION
 import android.Manifest.permission.FOREGROUND_SERVICE
 import android.Manifest.permission.FOREGROUND_SERVICE_LOCATION
 import android.app.Activity
+import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.GnssStatus
-import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
@@ -42,10 +42,13 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -56,6 +59,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -68,11 +72,9 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 
-class MainActivity : ComponentActivity(), LocationListener {
+
+class MainActivity : ComponentActivity() {
     private var latitudeState = mutableDoubleStateOf(0.0)
     private var longitudeState = mutableDoubleStateOf(0.0)
     private var horizontalAccuracyInMetersState = mutableFloatStateOf(0.0f)
@@ -97,8 +99,11 @@ class MainActivity : ComponentActivity(), LocationListener {
         val context = applicationContext
         Configuration.getInstance().load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
 
+        val intent = Intent(context, BackgroundLocationService::class.java)
+        context.startService(intent)
+
         // Request location updates
-        requestLocationUpdates(context, locationManager, this, this)
+        //requestLocationUpdates(context, locationManager, this, this)
 
         // Register EventBus
         EventBus.getDefault().register(this)
@@ -128,7 +133,32 @@ class MainActivity : ComponentActivity(), LocationListener {
         verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
         coveredDistanceState.value = event.coveredDistance
 
-        drawPolyline(latitudeState.value, longitudeState.value)
+        if(isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+            drawPolyline(latitudeState.value, longitudeState.value)
+        } else {
+            mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
+            mapView.invalidate()
+        }
+    }
+
+    private fun isServiceRunning(serviceName: String): Boolean {
+        var serviceRunning = false
+        val am = this.getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val l = am.getRunningServices(50)
+        val i: Iterator<ActivityManager.RunningServiceInfo> = l.iterator()
+        while (i.hasNext()) {
+            val runningServiceInfo = i
+                .next()
+
+            if (runningServiceInfo.service.className == serviceName) {
+                serviceRunning = true
+
+                if (runningServiceInfo.foreground) {
+                    //service run in foreground
+                }
+            }
+        }
+        return serviceRunning
     }
 
     private fun drawPolyline(latitude: Double, longitude: Double) {
@@ -136,17 +166,20 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         if(size==1) {
             createMarker()
-            mapView.controller.setZoom(17.0)
+            //mapView.controller.setZoom(17.0)
+            mapView.controller.setCenter(GeoPoint(latitude, longitude))
             polyline.addPoint(GeoPoint(latitude, longitude))
         } else {
-            mapView.controller.setZoom(18.0)
+            //mapView.controller.setZoom(17.0)
+            mapView.controller.setCenter(GeoPoint(latitude, longitude))
             polyline.addPoint(GeoPoint(latitude, longitude))
         }
+        mapView.invalidate()
     }
 
     private fun createMarker() {
         marker.position = polyline.actualPoints[0]
-        marker.title = "Start"
+        marker.title = getString(R.string.marker_title)
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         marker.icon = ContextCompat.getDrawable(this, R.drawable.startflag)
         mapView.overlays.add(marker)
@@ -154,39 +187,39 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     // LocationListener
-    override fun onLocationChanged(location: Location) {
-        // Update state variables with new latitude and longitude
-        latitudeState.value = location.latitude
-        longitudeState.value = location.longitude
-        horizontalAccuracyInMetersState.value = location.accuracy
-        verticalAccuracyInMetersState.value = location.verticalAccuracyMeters
-        altitudeState.value = location.altitude
-        speedState.value = location.speed
-        speedAccuracyInMetersState.value = location.speedAccuracyMetersPerSecond
-
-        Log.d("MainActivity: onLocationChanged: ",
-            "Latitude: ${latitudeState.value}," +
-                 " Longitude: ${longitudeState.value}," +
-                 " Speed: ${speedState.value}," +
-                 " SpeedAccuracyInMeters: ${speedAccuracyInMetersState.value}," +
-                 " Altitude: ${altitudeState.value}," +
-                 " VerticalAccuracyInMeters: ${verticalAccuracyInMetersState.value}")
-
-        //rotation overlay
-//        val rotationGestureOverlay = RotationGestureOverlay(mapView)
-//        rotationGestureOverlay.isEnabled
-//        mapView.setMultiTouchControls(true)
-//        mapView.overlays.add(rotationGestureOverlay)
-
-        // Update map center to the latest location
-        mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
-
-        //zoom to new latitude and longitude
-        mapView.controller.setZoom(18.0)
-
-        // Refresh the map view to show the updated polyline
-        mapView.invalidate()
-    }
+//    override fun onLocationChanged(location: Location) {
+//        // Update state variables with new latitude and longitude
+//        latitudeState.value = location.latitude
+//        longitudeState.value = location.longitude
+//        horizontalAccuracyInMetersState.value = location.accuracy
+//        verticalAccuracyInMetersState.value = location.verticalAccuracyMeters
+//        altitudeState.value = location.altitude
+//        speedState.value = location.speed
+//        speedAccuracyInMetersState.value = location.speedAccuracyMetersPerSecond
+//
+//        Log.d("MainActivity: onLocationChanged: ",
+//            "Latitude: ${latitudeState.value}," +
+//                 " Longitude: ${longitudeState.value}," +
+//                 " Speed: ${speedState.value}," +
+//                 " SpeedAccuracyInMeters: ${speedAccuracyInMetersState.value}," +
+//                 " Altitude: ${altitudeState.value}," +
+//                 " VerticalAccuracyInMeters: ${verticalAccuracyInMetersState.value}")
+//
+//        //rotation overlay
+////        val rotationGestureOverlay = RotationGestureOverlay(mapView)
+////        rotationGestureOverlay.isEnabled
+////        mapView.setMultiTouchControls(true)
+////        mapView.overlays.add(rotationGestureOverlay)
+//
+//        // Update map center to the latest location
+//        mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
+//
+//        //zoom to new latitude and longitude
+//        mapView.controller.setZoom(18.0)
+//
+//        // Refresh the map view to show the updated polyline
+//        mapView.invalidate()
+//    }
 
     private fun requestLocationUpdates(
         context: Context,
@@ -237,7 +270,7 @@ class MainActivity : ComponentActivity(), LocationListener {
         var selectedTabIndex by remember { mutableStateOf(0) }
 
         // List of tab titles
-        val tabs = listOf("Map", "Statistics", "Settings")
+        val tabs = listOf(getString(R.string.map), getString(R.string.statistics), getString(R.string.settings))
 
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -413,12 +446,16 @@ class MainActivity : ComponentActivity(), LocationListener {
                         .fillMaxSize()
                         .clickable {
                             // Recording action here
-                            Toast.makeText(context, "Recording started!", Toast.LENGTH_SHORT).show()
+                            Toast
+                                .makeText(context, "Recording started!", Toast.LENGTH_SHORT)
+                                .show()
+                            val stopIntent = Intent(context, BackgroundLocationService::class.java)
+                            context.stopService(stopIntent)
                             val intent = Intent(context, ForegroundService::class.java)
                             ContextCompat.startForegroundService(context, intent)
                             // Remove listener from MainActivity
-                            // because LocationListener is implemented in ForegroundService
-                            locationManager.removeUpdates(this@MainActivity)
+                            // because LocationListener is implemented in CustomLocationListener
+                            //locationManager.removeUpdates(this@MainActivity)
                         }
                 ) {
                     Icon(

@@ -38,5 +38,9 @@
             android:name=".service.ForegroundService"
             android:foregroundServiceType="location"
             android:exported="true" />
+        <service
+            android:name=".service.BackgroundLocationService"
+            android:foregroundServiceType="location"
+            android:exported="true" />
     </application>
 </manifest>

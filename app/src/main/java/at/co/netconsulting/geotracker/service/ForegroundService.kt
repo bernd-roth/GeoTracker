@@ -1,6 +1,5 @@
 package at.co.netconsulting.geotracker.service
 
-import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
@@ -11,9 +10,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.location.CustomLocationListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job

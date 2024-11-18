@@ -60,7 +60,7 @@ class CustomLocationListener: LocationListener {
                 oldLatitude = it.latitude
                 oldLongitude = it.longitude
             }
-            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance ))
+            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance))
         }
     }
 
