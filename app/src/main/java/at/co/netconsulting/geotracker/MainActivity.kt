@@ -447,7 +447,7 @@ class MainActivity : ComponentActivity() {
                         .clickable {
                             // Recording action here
                             Toast
-                                .makeText(context, "Recording started!", Toast.LENGTH_SHORT)
+                                .makeText(context, getString(R.string.recording_started), Toast.LENGTH_SHORT)
                                 .show()
                             val stopIntent = Intent(context, BackgroundLocationService::class.java)
                             context.stopService(stopIntent)
