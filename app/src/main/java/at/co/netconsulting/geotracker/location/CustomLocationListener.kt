@@ -52,15 +52,21 @@ class CustomLocationListener: LocationListener {
     override fun onLocationChanged(location: Location) {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location!!.latitude} / Longitude: ${location!!.longitude}")
-            if(oldLatitude!=0.0 && oldLongitude!=0.0) {
+            checkSpeedAndCalculateDistance(it)
+            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance))
+        }
+    }
+
+    private fun checkSpeedAndCalculateDistance(it: Location) {
+        if(oldLatitude!=0.0 && oldLongitude!=0.0) {
+            if(checkSpeed(it.speed)) {
                 coveredDistance = calculateDistance(oldLatitude, oldLongitude, it.latitude, it.longitude)
                 oldLatitude = it.latitude
                 oldLongitude = it.longitude
-            } else {
-                oldLatitude = it.latitude
-                oldLongitude = it.longitude
             }
-            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance))
+        } else {
+            oldLatitude = it.latitude
+            oldLongitude = it.longitude
         }
     }
 
@@ -81,5 +87,13 @@ class CustomLocationListener: LocationListener {
             result);
         coveredDistance += result[0]
         return coveredDistance
+    }
+
+    private fun checkSpeed(speed: Float): Boolean {
+        if(speed>=3.0) {
+            return true
+        } else {
+            return false
+        }
     }
 }
