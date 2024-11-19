@@ -11,8 +11,6 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
-import at.co.netconsulting.geotracker.domain.Event
-import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import org.greenrobot.eventbus.EventBus
 
 class CustomLocationListener: LocationListener {
@@ -21,6 +19,8 @@ class CustomLocationListener: LocationListener {
     private var oldLatitude: Double = 0.0
     private var oldLongitude: Double = 0.0
     private var coveredDistance: Double = 0.0
+    private var lapCounter : Double = 0.0
+    private var lap : Int = 0
 
     constructor(context: Context) {
         this.context = context
@@ -55,7 +55,7 @@ class CustomLocationListener: LocationListener {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location!!.latitude} / Longitude: ${location!!.longitude}")
             checkSpeedAndCalculateDistance(it)
-            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance))
+            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap))
         }
     }
 
@@ -63,12 +63,21 @@ class CustomLocationListener: LocationListener {
         if(oldLatitude!=0.0 && oldLongitude!=0.0) {
             if(checkSpeed(it.speed)) {
                 coveredDistance = calculateDistance(oldLatitude, oldLongitude, it.latitude, it.longitude)
+                calculateLap(coveredDistance)
                 oldLatitude = it.latitude
                 oldLongitude = it.longitude
             }
         } else {
             oldLatitude = it.latitude
             oldLongitude = it.longitude
+        }
+    }
+
+    private fun calculateLap(coveredDistance: Double) {
+        lapCounter += coveredDistance;
+        if(lapCounter>=1000) {
+            lap+=1;
+            lapCounter=0.0;
         }
     }
 
@@ -92,7 +101,7 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun checkSpeed(speed: Float): Boolean {
-        if(speed>=3.0) {
+        if(speed>=2.5) {
             return true
         } else {
             return false

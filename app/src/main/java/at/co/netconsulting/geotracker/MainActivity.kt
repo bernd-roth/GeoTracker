@@ -563,7 +563,7 @@ class MainActivity : ComponentActivity() {
     fun OpenStreetMapView() {
         val context = LocalContext.current
 
-        // State to manage showing the dialog
+        // State to manage showing the dialog and recording status
         var showDialog by remember { mutableStateOf(false) }
         var isRecording by remember { mutableStateOf(false) } // To track recording state
 
@@ -600,41 +600,43 @@ class MainActivity : ComponentActivity() {
                 mapView
             }, modifier = Modifier.fillMaxSize())
 
-            // Start Recording Button
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = (-16).dp, y = (-180).dp)
-                    .padding(16.dp)
-                    .size(50.dp),
-                shape = CircleShape,
-                color = Color.Red,
-                shadowElevation = 8.dp,
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
+            // Recording Button (shown only if not recording)
+            if (!isRecording) {
+                Surface(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .clickable {
-                            // Show the dialog to get event details
-                            showDialog = true
-                        }
+                        .align(Alignment.BottomEnd)
+                        .offset(x = (-16).dp, y = (-180).dp)
+                        .padding(16.dp)
+                        .size(50.dp),
+                    shape = CircleShape,
+                    color = Color.Red,
+                    shadowElevation = 8.dp,
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Start Recording",
-                        tint = Color.White
-                    )
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                // Show the dialog to get event details
+                                showDialog = true
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Start Recording",
+                            tint = Color.White
+                        )
+                    }
                 }
             }
 
-            // Stop Recording Button (overlaying the recording button)
+            // Stop Recording Button (shown only if recording)
             if (isRecording) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .offset(x = (-16).dp, y = (-250).dp) // Padding of 10.dp from the recording button
-                        .padding(10.dp)
+                        .offset(x = (-16).dp, y = (-180).dp) // Same position as the recording button
+                        .padding(16.dp)
                         .size(50.dp),
                     shape = CircleShape,
                     color = Color.Gray,
@@ -653,10 +655,6 @@ class MainActivity : ComponentActivity() {
                                 isRecording = false
                                 val stopIntent = Intent(context, ForegroundService::class.java)
                                 context.stopService(stopIntent)
-
-                                // start the background service
-                                val intent = Intent(context, BackgroundLocationService::class.java)
-                                context.startService(intent)
                             }
                     ) {
                         Icon(
@@ -673,12 +671,18 @@ class MainActivity : ComponentActivity() {
         if (showDialog) {
             RecordingButtonWithDialog(
                 context = context,
-                onSave = {
-                    // Start the foreground service when user saves the details
+                onSave = { eventName, eventDate, artOfSport, wheelSize, sprocket, comment, clothing ->
+                    // Start the foreground service with all fields as extras
                     val stopIntent = Intent(context, BackgroundLocationService::class.java)
                     context.stopService(stopIntent)
 
-                    val intent = Intent(context, ForegroundService::class.java)
+                    val intent = Intent(context, ForegroundService::class.java).apply {
+                        putExtra("eventName", eventName)
+                        putExtra("eventDate", eventDate)
+                        putExtra("artOfSport", artOfSport)
+                        putExtra("comment", comment)
+                        putExtra("clothing", clothing)
+                    }
                     ContextCompat.startForegroundService(context, intent)
 
                     // Update recording state and dismiss dialog
@@ -696,7 +700,15 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun RecordingButtonWithDialog(
         context: Context,
-        onSave: () -> Unit, // Callback for save action
+        onSave: (
+            eventName: String,
+            eventDate: String,
+            artOfSport: String,
+            wheelSize: String,
+            sprocket: String,
+            comment: String,
+            clothing: String
+        ) -> Unit, // Callback for save action
         onDismiss: () -> Unit // Callback for dismiss action
     ) {
         var eventName by remember { mutableStateOf("") }
@@ -779,14 +791,14 @@ class MainActivity : ComponentActivity() {
             confirmButton = {
                 Button(onClick = {
                     // Save the event details and trigger the foreground service
-                    onSave()
+                    onSave(eventName, eventDate, artOfSport, wheelSize, sprocket, comment, clothing)
                 }) {
                     Text("Save")
                 }
             },
             dismissButton = {
                 Button(onClick = onDismiss) {
-                    Text("Cancel")
+                    Text(getString(R.string.cancel))
                 }
             }
         )

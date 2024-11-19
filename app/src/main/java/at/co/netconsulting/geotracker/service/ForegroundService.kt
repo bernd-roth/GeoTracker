@@ -49,15 +49,13 @@ class ForegroundService : Service() {
     private var altitude: Double = 0.0
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
+    private var lap: Int = 0
 
     override fun onCreate() {
         super.onCreate()
         loadSharedPreferences()
-        displayDatabaseContents()
+        //displayDatabaseContents()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        EventBus.getDefault().register(this)
-        createNotificationChannel()
-        createBackgroundCoroutine()
     }
 
     private fun loadSharedPreferences() {
@@ -67,11 +65,11 @@ class ForegroundService : Service() {
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
         height = sharedPreferences.getString("height", "") ?: ""
         weight = sharedPreferences.getString("weight", "") ?: ""
-        eventname = sharedPreferences.getString("eventname", "") ?: ""
-        eventdate = sharedPreferences.getString("eventdate", "") ?: ""
-        artofsport = sharedPreferences.getString("artofsport", "") ?: ""
-        comment = sharedPreferences.getString("comment", "") ?: ""
-        clothing = sharedPreferences.getString("clothing", "") ?: ""
+//        eventname = sharedPreferences.getString("eventname", "") ?: ""
+//        eventdate = sharedPreferences.getString("eventdate", "") ?: ""
+//        artofsport = sharedPreferences.getString("artofsport", "") ?: ""
+//        comment = sharedPreferences.getString("comment", "") ?: ""
+//        clothing = sharedPreferences.getString("clothing", "") ?: ""
     }
 
     private val database: FitnessTrackerDatabase by lazy {
@@ -86,7 +84,9 @@ class ForegroundService : Service() {
             eventId = createNewEvent(database,userId)
             while (isActive) {
                 delay(1000)
-                insertDatabase(database)
+                if(speed>=2.5) {
+                    insertDatabase(database)
+                }
             }
         }
     }
@@ -135,6 +135,7 @@ class ForegroundService : Service() {
         latitude = event.latitude
         longitude = event.longitude
         distance = event.coveredDistance
+        lap = event.lap
     }
 
     private fun updateNotification(newContent: String) {
@@ -174,7 +175,7 @@ class ForegroundService : Service() {
                 speed = speed,
                 distance = distance,
                 cadence = 0,
-                lap = 1,
+                lap = lap,
                 timeInMilliseconds = System.currentTimeMillis(),
                 unity = "metric"
             )
@@ -212,6 +213,16 @@ class ForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        eventname = intent?.getStringExtra("eventName") ?: "Unknown Event"
+        eventdate = intent?.getStringExtra("eventDate") ?: "Unknown Date"
+        artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
+        comment = intent?.getStringExtra("comment") ?: "No Comment"
+        clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
+
+        EventBus.getDefault().register(this)
+        createNotificationChannel()
+        createBackgroundCoroutine()
+
         notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("GeoTracker")
             .setContentText("Covered distance and altitude will be shown here!")

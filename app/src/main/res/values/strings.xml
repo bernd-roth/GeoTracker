@@ -8,4 +8,6 @@
     <string name="marker_title">Start</string>
     <!--Toast messages-->
     <string name="recording_started">Recording started</string>
+    <!--Buttons-->
+    <string name="cancel">Cancel</string>
 </resources>

@@ -44,7 +44,17 @@ class BackgroundLocationService : Service(), LocationListener {
                     "Longitude: ${location.longitude}, Accuracy: ${location.accuracy}"
         )
 
-        EventBus.getDefault().post(LocationEvent(location.latitude, location.longitude, location.speed, location.speedAccuracyMetersPerSecond, location.altitude, location.accuracy, location.verticalAccuracyMeters, coveredDistance = 0.0))
+        EventBus.getDefault().post(LocationEvent(
+            location.latitude,
+            location.longitude,
+            location.speed,
+            location.speedAccuracyMetersPerSecond,
+            location.altitude,
+            location.accuracy,
+            location.verticalAccuracyMeters,
+            coveredDistance = 0.0,
+            lap = 0
+        ))
     }
 
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
