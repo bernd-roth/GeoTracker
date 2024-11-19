@@ -1,7 +1,7 @@
-package at.co.netconsulting.geotracker.dao
+package at.co.netconsulting.geotracker.repository
 
 import androidx.room.*
-import at.co.netconsulting.geotracker.db.User
+import at.co.netconsulting.geotracker.domain.User
 
 @Dao
 interface UserDao {
@@ -32,4 +32,8 @@ interface UserDao {
     // Delete all users
     @Query("DELETE FROM User")
     suspend fun deleteAllUsers()
+
+    // Get userId by firstname
+    @Query("SELECT userId FROM User WHERE firstName = :firstName and lastName = :lastName")
+    suspend fun getUserIdByFirstNameLastName(firstName: String, lastName: String): Int
 }

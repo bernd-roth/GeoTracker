@@ -1,4 +1,4 @@
-package at.co.netconsulting.geotracker.db
+package at.co.netconsulting.geotracker.domain
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -21,7 +21,7 @@ data class Metric(
     val heartRate: Int,
     val heartRateDevice: String,
     val speed: Float,
-    val distance: Float,
+    val distance: Double,
     val cadence: Int?,
     val lap: Int,
     val timeInMilliseconds: Long,

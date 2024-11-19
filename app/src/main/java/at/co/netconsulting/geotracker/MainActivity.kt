@@ -8,6 +8,7 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.location.GnssStatus
 import android.location.LocationListener
@@ -29,17 +30,28 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon
+import androidx.compose.material3.ExposedDropdownMenuDefaults.textFieldColors
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,8 +63,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -72,7 +88,6 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
-
 
 class MainActivity : ComponentActivity() {
     private var latitudeState = mutableDoubleStateOf(0.0)
@@ -97,7 +112,8 @@ class MainActivity : ComponentActivity() {
 
         // Initialize OSMDroid configuration
         val context = applicationContext
-        Configuration.getInstance().load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
+        Configuration.getInstance()
+            .load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
 
         val intent = Intent(context, BackgroundLocationService::class.java)
         context.startService(intent)
@@ -116,15 +132,17 @@ class MainActivity : ComponentActivity() {
     // Publisher/Subscriber
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onLocationEvent(event: LocationEvent) {
-        Log.d("MainActivity",
+        Log.d(
+            "MainActivity",
             "Latitude: ${event.latitude}," +
-                " Longitude: ${event.longitude}," +
-                " Speed: ${event.speed}," +
-                " SpeedAccuracyInMeters: ${event.speedAccuracyMetersPerSecond}," +
-                " Altitude: ${event.altitude}," +
-                " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
-                " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
-                " CoveredDistance: ${event.coveredDistance}")
+                    " Longitude: ${event.longitude}," +
+                    " Speed: ${event.speed}," +
+                    " SpeedAccuracyInMeters: ${event.speedAccuracyMetersPerSecond}," +
+                    " Altitude: ${event.altitude}," +
+                    " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
+                    " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
+                    " CoveredDistance: ${event.coveredDistance}"
+        )
         latitudeState.value = event.latitude
         longitudeState.value = event.longitude
         speedState.value = event.speed
@@ -133,7 +151,7 @@ class MainActivity : ComponentActivity() {
         verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
         coveredDistanceState.value = event.coveredDistance
 
-        if(isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+        if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
             drawPolyline(latitudeState.value, longitudeState.value)
         } else {
             mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
@@ -164,7 +182,7 @@ class MainActivity : ComponentActivity() {
     private fun drawPolyline(latitude: Double, longitude: Double) {
         val size = polyline.actualPoints.size
 
-        if(size==1) {
+        if (size == 1) {
             createMarker()
             //mapView.controller.setZoom(17.0)
             mapView.controller.setCenter(GeoPoint(latitude, longitude))
@@ -227,10 +245,22 @@ class MainActivity : ComponentActivity() {
         listener: LocationListener,
         activity: Activity
     ) {
-        if (ActivityCompat.checkSelfPermission(context, ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ActivityCompat.checkSelfPermission(context, ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ActivityCompat.checkSelfPermission(context, FOREGROUND_SERVICE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-                ActivityCompat.checkSelfPermission(context, FOREGROUND_SERVICE) == PackageManager.PERMISSION_GRANTED
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                ACCESS_FINE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED ||
+            ActivityCompat.checkSelfPermission(
+                context,
+                ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED ||
+            ActivityCompat.checkSelfPermission(
+                context,
+                FOREGROUND_SERVICE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED ||
+            ActivityCompat.checkSelfPermission(
+                context,
+                FOREGROUND_SERVICE
+            ) == PackageManager.PERMISSION_GRANTED
         ) {
             locationManager.registerGnssStatusCallback(object : GnssStatus.Callback() {
                 override fun onSatelliteStatusChanged(status: GnssStatus) {
@@ -239,15 +269,22 @@ class MainActivity : ComponentActivity() {
                     satelliteCount = status.satelliteCount
                     usedInFixCount = (0 until satelliteCount).count { status.usedInFix(it) }
 
-                    Log.d("MainActivty: requestLocationUpdates(): SatelliteInfo", "Visible Satellites: $satelliteCount")
-                    Log.d("MainActivity: requestLocationUpdates(): SatelliteInfo", "Satellites Used in Fix: $usedInFixCount")
+                    Log.d(
+                        "MainActivty: requestLocationUpdates(): SatelliteInfo",
+                        "Visible Satellites: $satelliteCount"
+                    )
+                    Log.d(
+                        "MainActivity: requestLocationUpdates(): SatelliteInfo",
+                        "Satellites Used in Fix: $usedInFixCount"
+                    )
                 }
-            },null)
+            }, null)
             locationManager.requestLocationUpdates(
                 LocationManager.NETWORK_PROVIDER,
                 1000,
                 1f,
-                listener)
+                listener
+            )
         } else {
             ActivityCompat.requestPermissions(
                 this,
@@ -270,7 +307,11 @@ class MainActivity : ComponentActivity() {
         var selectedTabIndex by remember { mutableStateOf(0) }
 
         // List of tab titles
-        val tabs = listOf(getString(R.string.map), getString(R.string.statistics), getString(R.string.settings))
+        val tabs = listOf(
+            getString(R.string.map),
+            getString(R.string.statistics),
+            getString(R.string.settings)
+        )
 
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -344,20 +385,119 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @Preview
     @Composable
     fun SettingsScreen() {
-        // Example UI for settings
+        val context = LocalContext.current
+        val sharedPreferences = remember {
+            context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        }
+
+        var firstName by remember {
+            mutableStateOf(
+                sharedPreferences.getString("firstname", "") ?: ""
+            )
+        }
+        var lastName by remember {
+            mutableStateOf(
+                sharedPreferences.getString("lastname", "") ?: ""
+            )
+        }
+        var birthDate by remember {
+            mutableStateOf(
+                sharedPreferences.getString("birthdate", "") ?: ""
+            )
+        }
+        var height by remember { mutableStateOf(sharedPreferences.getString("height", "") ?: "") }
+        var weight by remember { mutableStateOf(sharedPreferences.getString("weight", "") ?: "") }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            Text(text = "Settings", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            OutlinedTextField(
+                value = firstName,
+                onValueChange = { firstName = it },
+                label = { Text("Firstname") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = lastName,
+                onValueChange = { lastName = it },
+                label = { Text("Lastname") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = birthDate,
+                onValueChange = { birthDate = it },
+                label = { Text("Birthdate (YYYY-MM-DD)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = height,
+                onValueChange = { height = it },
+                label = { Text("Height (cm)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = weight,
+                onValueChange = { weight = it },
+                label = { Text("Weight (kg)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(modifier = Modifier.height(16.dp))
-            // Add actual settings content here
-            Text("Setting 1")
-            Text("Setting 2")
+
+            // Save Button
+            Button(
+                onClick = {
+                    saveToSharedPreferences(
+                        sharedPreferences,
+                        firstName,
+                        lastName,
+                        birthDate,
+                        height,
+                        weight
+                    )
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save")
+            }
         }
+    }
+
+    private fun saveToSharedPreferences(
+        sharedPreferences: SharedPreferences,
+        firstName: String,
+        lastName: String,
+        birthDate: String,
+        height: String,
+        weight: String
+    ) {
+        val editor = sharedPreferences.edit()
+        editor.putString("firstname", firstName)
+        editor.putString("lastname", lastName)
+        editor.putString("birthdate", birthDate)
+        editor.putString("height", height)
+        editor.putString("weight", weight)
+        editor.apply() // Apply changes
     }
 
     @Composable
@@ -379,14 +519,42 @@ class MainActivity : ComponentActivity() {
                 .padding(16.dp)
         ) {
             //Text(text = "Latitude: ${"%.2f".format(latitude)} Longitude: ${"%.2f".format(longitude)}", fontSize = 10.sp, color = Color.Black)
-            Text(text = "Latitude: $latitude Longitude: $longitude", fontSize = 10.sp, color = Color.Black)
+            Text(
+                text = "Latitude: $latitude Longitude: $longitude",
+                fontSize = 10.sp,
+                color = Color.Black
+            )
             Text("Speed: $speed km/h", fontSize = 10.sp, color = Color.Black)
-            Text("Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} m/s", fontSize = 10.sp, color = Color.Black)
-            Text("Altitude: ${"%.2f".format(altitude)} meter", fontSize = 10.sp, color = Color.Black)
-            Text("Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
-            Text("Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 10.sp, color = Color.Black)
-            Text("Satellites: $usedNumberOfSatellites/$numberOfSatellites ", fontSize = 10.sp, color = Color.Black)
-            Text("Covered distance: ${"%.2f".format(coveredDistance/1000)} Km", fontSize = 10.sp, color = Color.Black)
+            Text(
+                "Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} m/s",
+                fontSize = 10.sp,
+                color = Color.Black
+            )
+            Text(
+                "Altitude: ${"%.2f".format(altitude)} meter",
+                fontSize = 10.sp,
+                color = Color.Black
+            )
+            Text(
+                "Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter",
+                fontSize = 10.sp,
+                color = Color.Black
+            )
+            Text(
+                "Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter",
+                fontSize = 10.sp,
+                color = Color.Black
+            )
+            Text(
+                "Satellites: $usedNumberOfSatellites/$numberOfSatellites ",
+                fontSize = 10.sp,
+                color = Color.Black
+            )
+            Text(
+                "Covered distance: ${"%.3f".format(coveredDistance / 1000)} Km",
+                fontSize = 10.sp,
+                color = Color.Black
+            )
             //Text("Vertical accuracy: ${"%.2f".format(verticalAccuracyInMeters)} meter", fontSize = 18.sp, color = Color.Black)
         }
     }
@@ -395,7 +563,12 @@ class MainActivity : ComponentActivity() {
     fun OpenStreetMapView() {
         val context = LocalContext.current
 
+        // State to manage showing the dialog
+        var showDialog by remember { mutableStateOf(false) }
+        var isRecording by remember { mutableStateOf(false) } // To track recording state
+
         Box(modifier = Modifier.fillMaxSize()) {
+            // Map view setup (same as before)
             AndroidView(factory = {
                 mapView = MapView(context).apply {
                     setTileSource(customTileSource)
@@ -411,25 +584,23 @@ class MainActivity : ComponentActivity() {
                     overlays.add(polyline)
                 }
                 marker = Marker(mapView)
-                //compass
-    //            var compassOverlay = CompassOverlay(applicationContext, InternalCompassOrientationProvider(applicationContext), mapView)
-    //            compassOverlay.enableCompass()
-    //            compassOverlay.orientation
-    //            mapView.overlays.add(compassOverlay)
 
-                //scaleBar
-                val dm : DisplayMetrics = applicationContext.resources.displayMetrics
+                // ScaleBar overlay
+                val dm: DisplayMetrics = context.resources.displayMetrics
                 val scaleBarOverlay = ScaleBarOverlay(mapView)
                 scaleBarOverlay.setCentred(true)
                 scaleBarOverlay.setScaleBarOffset(dm.widthPixels / 2, 2000)
                 mapView.overlays.add(scaleBarOverlay)
 
-                //my location overlay
-                var mLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), mapView)
+                // MyLocation overlay
+                val mLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), mapView)
                 mLocationOverlay.enableMyLocation()
                 mapView.overlays.add(mLocationOverlay)
+
                 mapView
             }, modifier = Modifier.fillMaxSize())
+
+            // Start Recording Button
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -445,24 +616,238 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            // Recording action here
-                            Toast
-                                .makeText(context, getString(R.string.recording_started), Toast.LENGTH_SHORT)
-                                .show()
-                            val stopIntent = Intent(context, BackgroundLocationService::class.java)
-                            context.stopService(stopIntent)
-                            val intent = Intent(context, ForegroundService::class.java)
-                            ContextCompat.startForegroundService(context, intent)
-                            // Remove listener from MainActivity
-                            // because LocationListener is implemented in CustomLocationListener
-                            //locationManager.removeUpdates(this@MainActivity)
+                            // Show the dialog to get event details
+                            showDialog = true
                         }
                 ) {
                     Icon(
-                        imageVector = Icons.Default.PlayArrow, // Use mic icon or any other
+                        imageVector = Icons.Default.PlayArrow,
                         contentDescription = "Start Recording",
                         tint = Color.White
                     )
+                }
+            }
+
+            // Stop Recording Button (overlaying the recording button)
+            if (isRecording) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .offset(x = (-16).dp, y = (-250).dp) // Padding of 10.dp from the recording button
+                        .padding(10.dp)
+                        .size(50.dp),
+                    shape = CircleShape,
+                    color = Color.Gray,
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                Toast
+                                    .makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
+                                    .show()
+
+                                // Stop the foreground service
+                                isRecording = false
+                                val stopIntent = Intent(context, ForegroundService::class.java)
+                                context.stopService(stopIntent)
+
+                                // start the background service
+                                val intent = Intent(context, BackgroundLocationService::class.java)
+                                context.startService(intent)
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Stop Recording",
+                            tint = Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        // Show the dialog if state is true
+        if (showDialog) {
+            RecordingButtonWithDialog(
+                context = context,
+                onSave = {
+                    // Start the foreground service when user saves the details
+                    val stopIntent = Intent(context, BackgroundLocationService::class.java)
+                    context.stopService(stopIntent)
+
+                    val intent = Intent(context, ForegroundService::class.java)
+                    ContextCompat.startForegroundService(context, intent)
+
+                    // Update recording state and dismiss dialog
+                    isRecording = true
+                    showDialog = false
+                },
+                onDismiss = {
+                    // Simply dismiss the dialog
+                    showDialog = false
+                }
+            )
+        }
+    }
+
+    @Composable
+    fun RecordingButtonWithDialog(
+        context: Context,
+        onSave: () -> Unit, // Callback for save action
+        onDismiss: () -> Unit // Callback for dismiss action
+    ) {
+        var eventName by remember { mutableStateOf("") }
+        var eventDate by remember { mutableStateOf("") }
+        var artOfSport by remember { mutableStateOf("Running") }
+        var wheelSize by remember { mutableStateOf("") }
+        var sprocket by remember { mutableStateOf("") }
+        var comment by remember { mutableStateOf("") }
+        var clothing by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("New Event Details") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = eventName,
+                        onValueChange = { eventName = it },
+                        label = { Text("Event Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = eventDate,
+                        onValueChange = { eventDate = it },
+                        label = { Text("Event Date (YYYY-MM-DD)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    var selectedSport by remember { mutableStateOf(artOfSport) }
+
+                    DropdownMenuField(
+                        options = listOf("Running", "Cycling", "Swimming"),
+                        selectedOption = selectedSport,
+                        onOptionSelected = {
+                            selectedSport = it
+                            artOfSport = it
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (artOfSport == "Cycling") {
+                        OutlinedTextField(
+                            value = wheelSize,
+                            onValueChange = { wheelSize = it },
+                            label = { Text("Wheel Size") },
+                            modifier = Modifier.fillMaxWidth(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        OutlinedTextField(
+                            value = sprocket,
+                            onValueChange = { sprocket = it },
+                            label = { Text("Sprocket") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    OutlinedTextField(
+                        value = comment,
+                        onValueChange = { comment = it },
+                        label = { Text("Comment") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = clothing,
+                        onValueChange = { clothing = it },
+                        label = { Text("Clothing") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    // Save the event details and trigger the foreground service
+                    onSave()
+                }) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Button(onClick = onDismiss) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    fun DropdownMenuField(
+        options: List<String>,
+        selectedOption: String,
+        onOptionSelected: (String) -> Unit,
+        modifier: Modifier = Modifier,
+        label: String = "Select Sport"
+    ) {
+        var expanded by remember { mutableStateOf(false) }
+        val focusManager = LocalFocusManager.current
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded },
+                modifier = modifier.fillMaxWidth()
+            ) {
+                TextField(
+                    value = selectedOption,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text(label) },
+                    trailingIcon = {
+                        TrailingIcon(expanded = expanded)
+                    },
+                    colors = textFieldColors(),
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                        .onFocusEvent {
+                            if (it.isFocused) {
+                                expanded = true
+                            }
+                        }
+                )
+
+                ExposedDropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = {
+                        expanded = false
+                        focusManager.clearFocus()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    options.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option) },
+                            onClick = {
+                                onOptionSelected(option)
+                                expanded = false
+                                focusManager.clearFocus()
+                            },
+                            contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding
+                        )
+                    }
                 }
             }
         }

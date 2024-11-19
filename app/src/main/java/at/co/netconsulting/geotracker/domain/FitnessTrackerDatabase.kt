@@ -1,15 +1,15 @@
-package at.co.netconsulting.geotracker.db
+package at.co.netconsulting.geotracker.domain
 
 import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import at.co.netconsulting.geotracker.dao.DeviceStatusDao
-import at.co.netconsulting.geotracker.dao.EventDao
-import at.co.netconsulting.geotracker.dao.LocationDao
-import at.co.netconsulting.geotracker.dao.MetricDao
-import at.co.netconsulting.geotracker.dao.UserDao
-import at.co.netconsulting.geotracker.dao.WeatherDao
+import at.co.netconsulting.geotracker.repository.DeviceStatusDao
+import at.co.netconsulting.geotracker.repository.EventDao
+import at.co.netconsulting.geotracker.repository.LocationDao
+import at.co.netconsulting.geotracker.repository.MetricDao
+import at.co.netconsulting.geotracker.repository.UserDao
+import at.co.netconsulting.geotracker.repository.WeatherDao
 
 @Database(
     entities = [User::class, Event::class, Metric::class, Location::class, Weather::class, DeviceStatus::class],

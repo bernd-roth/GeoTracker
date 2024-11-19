@@ -1,4 +1,4 @@
-package at.co.netconsulting.geotracker.db
+package at.co.netconsulting.geotracker.domain
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
@@ -20,5 +20,5 @@ data class Location(
     val eventId: Int,
     val latitude: Double,
     val longitude: Double,
-    val altitude: Float
+    val altitude: Double
 )

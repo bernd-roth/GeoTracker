@@ -12,13 +12,12 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.LocationEvent
-import at.co.netconsulting.geotracker.db.DeviceStatus
-import at.co.netconsulting.geotracker.db.Event
-import at.co.netconsulting.geotracker.db.FitnessTrackerDatabase
-import at.co.netconsulting.geotracker.db.Location
-import at.co.netconsulting.geotracker.db.Metric
-import at.co.netconsulting.geotracker.db.User
-import at.co.netconsulting.geotracker.db.Weather
+import at.co.netconsulting.geotracker.domain.DeviceStatus
+import at.co.netconsulting.geotracker.domain.Event
+import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.domain.Location
+import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -34,14 +33,45 @@ class ForegroundService : Service() {
     private lateinit var job: Job
     private lateinit var notificationManager: NotificationManager
     private lateinit var notificationBuilder: NotificationCompat.Builder
+    private lateinit var firstname: String
+    private lateinit var lastname: String
+    private lateinit var birthdate: String
+    private lateinit var height: String
+    private lateinit var weight: String
+    private lateinit var eventname: String
+    private lateinit var eventdate: String
+    private lateinit var artofsport: String
+    private lateinit var comment: String
+    private lateinit var clothing: String
+    private var speed: Float = 0.0f
+    private var eventId: Int = 0
+    private var distance: Double = 0.0
+    private var altitude: Double = 0.0
+    private var latitude: Double = 0.0
+    private var longitude: Double = 0.0
 
     override fun onCreate() {
         super.onCreate()
+        loadSharedPreferences()
         displayDatabaseContents()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         EventBus.getDefault().register(this)
         createNotificationChannel()
         createBackgroundCoroutine()
+    }
+
+    private fun loadSharedPreferences() {
+        val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        firstname = sharedPreferences.getString("firstname", "") ?: ""
+        lastname = sharedPreferences.getString("lastname", "") ?: ""
+        birthdate = sharedPreferences.getString("birthdate", "") ?: ""
+        height = sharedPreferences.getString("height", "") ?: ""
+        weight = sharedPreferences.getString("weight", "") ?: ""
+        eventname = sharedPreferences.getString("eventname", "") ?: ""
+        eventdate = sharedPreferences.getString("eventdate", "") ?: ""
+        artofsport = sharedPreferences.getString("artofsport", "") ?: ""
+        comment = sharedPreferences.getString("comment", "") ?: ""
+        clothing = sharedPreferences.getString("clothing", "") ?: ""
     }
 
     private val database: FitnessTrackerDatabase by lazy {
@@ -52,6 +82,8 @@ class ForegroundService : Service() {
         job = GlobalScope.launch(Dispatchers.IO) {
             val customLocationListener = CustomLocationListener(applicationContext)
             customLocationListener.startListener()
+            val userId = database.userDao().getUserIdByFirstNameLastName("Bernd", "Roth")
+            eventId = createNewEvent(database,userId)
             while (isActive) {
                 delay(1000)
                 insertDatabase(database)
@@ -59,9 +91,22 @@ class ForegroundService : Service() {
         }
     }
 
+    private suspend fun createNewEvent(database: FitnessTrackerDatabase, userId: Int): Int {
+        val newEvent = Event(
+            userId = userId,
+            eventName = eventname,
+            eventDate = eventdate,
+            artOfSport = artofsport,
+            comment = comment
+        )
+
+        val eventId = database.eventDao().insertEvent(newEvent).toInt()
+        println("New Event ID: $eventId")
+        return eventId
+    }
+
     private fun displayDatabaseContents() {
         GlobalScope.launch(Dispatchers.IO) {
-            // Fetch data from User table
             val users = database.userDao().getAllUsers()
             users.forEach { user ->
                 Log.d("DatabaseDebug", "User: $user")
@@ -85,6 +130,11 @@ class ForegroundService : Service() {
             "Covered Distance: " + String.format("%.2f", event.coveredDistance/1000) + " Km" +
             "\nSpeed: " + String.format("%.2f", event.speed) + " km/h"+
             "\nAltitude: " + String.format("%.2f", event.altitude) + " meter")
+        speed = event.speed
+        altitude = event.altitude
+        latitude = event.latitude
+        longitude = event.longitude
+        distance = event.coveredDistance
     }
 
     private fun updateNotification(newContent: String) {
@@ -96,35 +146,34 @@ class ForegroundService : Service() {
 
     private fun insertDatabase(database: FitnessTrackerDatabase) {
         GlobalScope.launch(Dispatchers.IO) {
-            val user = User(
-                userId = 0, // Auto-generate if applicable
-                firstName = "John",
-                lastName = "Doe",
-                birthDate = "1990-01-01",
-                75f,
-                170f
-            )
-            val userId = database.userDao().insertUser(user)
+//            val user = User(
+//                userId = 0,
+//                firstName = firstname,
+//                lastName = lastname,
+//                birthDate = birthdate,
+//                weight.toFloat(),
+//                height.toFloat()
+//            )
+//            val userId = database.userDao().insertUser(user)
 
             // Insert event and retrieve event ID
-            val eventId = database.eventDao().insertEvent(
-                Event(
-                    userId = userId.toInt(),
-                    eventName = "Cycling Session",
-                    eventDate = "2024-11-18",
-                    artOfSport = "Cycling",
-                    comment = "Morning ride"
-                )
-            )
+//            val eventId = database.eventDao().insertEvent(
+//                Event(
+//                    userId = userId,
+//                    eventName = eventname,
+//                    eventDate = eventdate,
+//                    artOfSport = artofsport,
+//                    comment = comment
+//                )
+//            )
 
-            // Example metric data
             val metric = Metric(
-                eventId = eventId.toInt(),
-                heartRate = 120,
+                eventId = eventId,
+                heartRate = 0,
                 heartRateDevice = "Chest Strap",
-                speed = 25.5f,
-                distance = 1000.0f,
-                cadence = 90,
+                speed = speed,
+                distance = distance,
+                cadence = 0,
                 lap = 1,
                 timeInMilliseconds = System.currentTimeMillis(),
                 unity = "metric"
@@ -133,27 +182,25 @@ class ForegroundService : Service() {
 
             // Example location data
             val location = Location(
-                eventId = eventId.toInt(),
-                latitude = 40.7128,
-                longitude = -74.0060,
-                altitude = 15.0f
+                eventId = eventId,
+                latitude = latitude,
+                longitude = longitude,
+                altitude = altitude
             )
             database.locationDao().insertLocation(location)
 
-            // Example weather data
             val weather = Weather(
-                eventId = eventId.toInt(),
+                eventId = eventId,
                 weatherRestApi = "OpenWeatherAPI",
-                temperature = 18.0f,
-                windSpeed = 5.5f,
+                temperature = 0f,
+                windSpeed = 0f,
                 windDirection = "NE",
-                relativeHumidity = 60
+                relativeHumidity = 0
             )
             database.weatherDao().insertWeather(weather)
 
-            // Example device status
             val deviceStatus = DeviceStatus(
-                eventId = eventId.toInt(),
+                eventId = eventId,
                 numberOfSatellites = 8,
                 sensorAccuracy = "High",
                 signalStrength = "Strong",

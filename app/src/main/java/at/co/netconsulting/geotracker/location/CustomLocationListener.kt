@@ -11,6 +11,8 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.domain.Event
+import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import org.greenrobot.eventbus.EventBus
 
 class CustomLocationListener: LocationListener {

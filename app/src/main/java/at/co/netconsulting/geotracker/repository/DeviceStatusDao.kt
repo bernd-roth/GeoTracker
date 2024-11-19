@@ -1,9 +1,9 @@
-package at.co.netconsulting.geotracker.dao
+package at.co.netconsulting.geotracker.repository
 
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
-import at.co.netconsulting.geotracker.db.DeviceStatus
+import at.co.netconsulting.geotracker.domain.DeviceStatus
 
 @Dao
 interface DeviceStatusDao {

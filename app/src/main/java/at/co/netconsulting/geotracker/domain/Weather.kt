@@ -1,11 +1,11 @@
-package at.co.netconsulting.geotracker.db
+package at.co.netconsulting.geotracker.domain
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
 
 @Entity(
-    tableName = "clothing",
+    tableName = "weather",
     foreignKeys = [
         ForeignKey(
             entity = Event::class,
@@ -15,8 +15,12 @@ import androidx.room.ForeignKey
         )
     ]
 )
-data class Clothing(
-    @PrimaryKey(autoGenerate = true) val clothingId: Int = 0,
+data class Weather(
+    @PrimaryKey(autoGenerate = true) val weatherId: Int = 0,
     val eventId: Int,
-    val clothing: String
+    val weatherRestApi: String,
+    val temperature: Float,
+    val windSpeed: Float,
+    val windDirection: String,
+    val relativeHumidity: Int
 )
