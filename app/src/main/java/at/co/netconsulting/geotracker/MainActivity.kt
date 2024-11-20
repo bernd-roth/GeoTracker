@@ -303,6 +303,7 @@ class MainActivity : ComponentActivity() {
         }
         var height by remember { mutableStateOf(sharedPreferences.getString("height", "") ?: "") }
         var weight by remember { mutableStateOf(sharedPreferences.getString("weight", "") ?: "") }
+        var websocketserver by remember { mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "") }
 
         // Check if the app is ignored by battery optimization
         val isBatteryOptimized = isBatteryOptimizationIgnored(context)
@@ -321,7 +322,7 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
-            // Display other settings like first name, last name, etc.
+            // Display other settings like firstname, last name, etc.
             OutlinedTextField(
                 value = firstName,
                 onValueChange = { firstName = it },
@@ -362,6 +363,14 @@ class MainActivity : ComponentActivity() {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
+
+            OutlinedTextField(
+                value = websocketserver,
+                onValueChange = { websocketserver = it },
+                label = { Text("Websocket ip adress") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                modifier = Modifier.fillMaxWidth()
+            )
             Spacer(modifier = Modifier.height(16.dp))
 
             // Battery Optimization Toggle
@@ -396,7 +405,8 @@ class MainActivity : ComponentActivity() {
                         lastName,
                         birthDate,
                         height,
-                        weight
+                        weight,
+                        websocketserver
                     )
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -430,7 +440,8 @@ class MainActivity : ComponentActivity() {
         lastName: String,
         birthDate: String,
         height: String,
-        weight: String
+        weight: String,
+        websocketserver: String
     ) {
         val editor = sharedPreferences.edit()
         editor.putString("firstname", firstName)
@@ -438,6 +449,7 @@ class MainActivity : ComponentActivity() {
         editor.putString("birthdate", birthDate)
         editor.putString("height", height)
         editor.putString("weight", weight)
+        editor.putString("websocketserver", websocketserver)
         editor.apply()
     }
 
