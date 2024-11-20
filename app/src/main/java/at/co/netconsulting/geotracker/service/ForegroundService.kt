@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
+import java.util.concurrent.TimeUnit
 
 class ForegroundService : Service() {
     private lateinit var job: Job
@@ -50,6 +51,13 @@ class ForegroundService : Service() {
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
     private var lap: Int = 0
+    private var startTimeNanos: Long = 0L
+    private var elapsedNanos: Long = 0L
+    private var elapsedSeconds: Long = 0L
+    private var hours: Int = 0
+    private var minutes: Int = 0
+    private var seconds: Int = 0
+    private var formattedTime: String = ""
 
     override fun onCreate() {
         super.onCreate()
@@ -65,11 +73,6 @@ class ForegroundService : Service() {
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
         height = sharedPreferences.getString("height", "") ?: ""
         weight = sharedPreferences.getString("weight", "") ?: ""
-//        eventname = sharedPreferences.getString("eventname", "") ?: ""
-//        eventdate = sharedPreferences.getString("eventdate", "") ?: ""
-//        artofsport = sharedPreferences.getString("artofsport", "") ?: ""
-//        comment = sharedPreferences.getString("comment", "") ?: ""
-//        clothing = sharedPreferences.getString("clothing", "") ?: ""
     }
 
     private val database: FitnessTrackerDatabase by lazy {
@@ -82,11 +85,26 @@ class ForegroundService : Service() {
             customLocationListener.startListener()
             val userId = database.userDao().getUserIdByFirstNameLastName("Bernd", "Roth")
             eventId = createNewEvent(database,userId)
+            startTimeNanos = System.nanoTime()
             while (isActive) {
                 delay(1000)
                 if(speed>=2.5) {
                     insertDatabase(database)
                 }
+                elapsedNanos = System.nanoTime() - startTimeNanos
+                elapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(elapsedNanos)
+
+                hours = (elapsedSeconds / 3600).toInt()
+                minutes = ((elapsedSeconds % 3600) / 60).toInt()
+                seconds = (elapsedSeconds % 60).toInt()
+                formattedTime = String.format("%02d:%02d:%02d", hours, minutes, seconds)
+
+                updateNotification(formattedTime + "\n" +
+                    "Covered Distance: " + String.format("%.2f", distance/1000) + " Km" +
+                    "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
+                    "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
+                    "\nLap: " + String.format("%2d", lap)
+                )
             }
         }
     }
@@ -126,10 +144,6 @@ class ForegroundService : Service() {
                     " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
                     " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
                     " CoveredDistance: ${event.coveredDistance}")
-        updateNotification(
-            "Covered Distance: " + String.format("%.2f", event.coveredDistance/1000) + " Km" +
-            "\nSpeed: " + String.format("%.2f", event.speed) + " km/h"+
-            "\nAltitude: " + String.format("%.2f", event.altitude) + " meter")
         speed = event.speed
         altitude = event.altitude
         latitude = event.latitude
@@ -140,34 +154,13 @@ class ForegroundService : Service() {
 
     private fun updateNotification(newContent: String) {
         runOnUiThread {
-            notificationBuilder.setContentText(newContent)
+            notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(newContent))
             notificationManager.notify(1, notificationBuilder.build())
         }
     }
 
     private fun insertDatabase(database: FitnessTrackerDatabase) {
         GlobalScope.launch(Dispatchers.IO) {
-//            val user = User(
-//                userId = 0,
-//                firstName = firstname,
-//                lastName = lastname,
-//                birthDate = birthdate,
-//                weight.toFloat(),
-//                height.toFloat()
-//            )
-//            val userId = database.userDao().insertUser(user)
-
-            // Insert event and retrieve event ID
-//            val eventId = database.eventDao().insertEvent(
-//                Event(
-//                    userId = userId,
-//                    eventName = eventname,
-//                    eventDate = eventdate,
-//                    artOfSport = artofsport,
-//                    comment = comment
-//                )
-//            )
-
             val metric = Metric(
                 eventId = eventId,
                 heartRate = 0,
@@ -225,7 +218,7 @@ class ForegroundService : Service() {
 
         notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("GeoTracker")
-            .setContentText("Covered distance and altitude will be shown here!")
+            .setContentText("Time, covered distance, ... will be shown here!")
             .setSmallIcon(R.drawable.ic_launcher_background)
             .setOnlyAlertOnce(true)
             //show notification on home screen to everyone
