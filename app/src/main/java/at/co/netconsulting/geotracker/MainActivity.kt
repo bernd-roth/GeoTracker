@@ -1,19 +1,14 @@
 package at.co.netconsulting.geotracker
 
-import android.Manifest.permission.ACCESS_COARSE_LOCATION
-import android.Manifest.permission.ACCESS_FINE_LOCATION
-import android.Manifest.permission.FOREGROUND_SERVICE
-import android.Manifest.permission.FOREGROUND_SERVICE_LOCATION
-import android.app.Activity
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.content.pm.PackageManager
-import android.location.GnssStatus
-import android.location.LocationListener
-import android.location.LocationManager
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Toast
@@ -48,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -68,11 +64,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
@@ -100,7 +94,6 @@ class MainActivity : ComponentActivity() {
     private var coveredDistanceState = mutableDoubleStateOf(0.0)
     private lateinit var mapView: MapView
     private lateinit var polyline: Polyline
-    private lateinit var locationManager: LocationManager
     private var usedInFixCount = 0
     private var satelliteCount = 0
     private lateinit var marker: Marker
@@ -108,20 +101,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-
-        // Initialize OSMDroid configuration
         val context = applicationContext
-        Configuration.getInstance()
-            .load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
+        Configuration.getInstance().load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
 
         val intent = Intent(context, BackgroundLocationService::class.java)
         context.startService(intent)
 
-        // Request location updates
-        //requestLocationUpdates(context, locationManager, this, this)
-
-        // Register EventBus
         EventBus.getDefault().register(this)
 
         setContent {
@@ -171,9 +156,7 @@ class MainActivity : ComponentActivity() {
             if (runningServiceInfo.service.className == serviceName) {
                 serviceRunning = true
 
-                if (runningServiceInfo.foreground) {
-                    //service run in foreground
-                }
+                if (runningServiceInfo.foreground) {}
             }
         }
         return serviceRunning
@@ -202,96 +185,6 @@ class MainActivity : ComponentActivity() {
         marker.icon = ContextCompat.getDrawable(this, R.drawable.startflag)
         mapView.overlays.add(marker)
         mapView.invalidate()
-    }
-
-    // LocationListener
-//    override fun onLocationChanged(location: Location) {
-//        // Update state variables with new latitude and longitude
-//        latitudeState.value = location.latitude
-//        longitudeState.value = location.longitude
-//        horizontalAccuracyInMetersState.value = location.accuracy
-//        verticalAccuracyInMetersState.value = location.verticalAccuracyMeters
-//        altitudeState.value = location.altitude
-//        speedState.value = location.speed
-//        speedAccuracyInMetersState.value = location.speedAccuracyMetersPerSecond
-//
-//        Log.d("MainActivity: onLocationChanged: ",
-//            "Latitude: ${latitudeState.value}," +
-//                 " Longitude: ${longitudeState.value}," +
-//                 " Speed: ${speedState.value}," +
-//                 " SpeedAccuracyInMeters: ${speedAccuracyInMetersState.value}," +
-//                 " Altitude: ${altitudeState.value}," +
-//                 " VerticalAccuracyInMeters: ${verticalAccuracyInMetersState.value}")
-//
-//        //rotation overlay
-////        val rotationGestureOverlay = RotationGestureOverlay(mapView)
-////        rotationGestureOverlay.isEnabled
-////        mapView.setMultiTouchControls(true)
-////        mapView.overlays.add(rotationGestureOverlay)
-//
-//        // Update map center to the latest location
-//        mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
-//
-//        //zoom to new latitude and longitude
-//        mapView.controller.setZoom(18.0)
-//
-//        // Refresh the map view to show the updated polyline
-//        mapView.invalidate()
-//    }
-
-    private fun requestLocationUpdates(
-        context: Context,
-        locationManager: LocationManager,
-        listener: LocationListener,
-        activity: Activity
-    ) {
-        if (ActivityCompat.checkSelfPermission(
-                context,
-                ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(
-                context,
-                ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(
-                context,
-                FOREGROUND_SERVICE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED ||
-            ActivityCompat.checkSelfPermission(
-                context,
-                FOREGROUND_SERVICE
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            locationManager.registerGnssStatusCallback(object : GnssStatus.Callback() {
-                override fun onSatelliteStatusChanged(status: GnssStatus) {
-                    super.onSatelliteStatusChanged(status)
-
-                    satelliteCount = status.satelliteCount
-                    usedInFixCount = (0 until satelliteCount).count { status.usedInFix(it) }
-
-                    Log.d(
-                        "MainActivty: requestLocationUpdates(): SatelliteInfo",
-                        "Visible Satellites: $satelliteCount"
-                    )
-                    Log.d(
-                        "MainActivity: requestLocationUpdates(): SatelliteInfo",
-                        "Satellites Used in Fix: $usedInFixCount"
-                    )
-                }
-            }, null)
-            locationManager.requestLocationUpdates(
-                LocationManager.NETWORK_PROVIDER,
-                1000,
-                1f,
-                listener
-            )
-        } else {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(ACCESS_FINE_LOCATION),
-                1
-            )
-        }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -365,13 +258,12 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MapScreen() {
         Column {
-            OpenStreetMapView() // The map view
+            OpenStreetMapView()
         }
     }
 
     @Composable
     fun StatisticsScreen() {
-        // Example UI for statistics
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -379,19 +271,20 @@ class MainActivity : ComponentActivity() {
         ) {
             Text(text = "Statistics", style = MaterialTheme.typography.bodyLarge)
             Spacer(modifier = Modifier.height(16.dp))
-            // Add actual statistics content here
             Text("Speed: 0.0 km/h")
             Text("Covered Distance: 0.0 km")
         }
     }
 
-    @Preview
     @Composable
     fun SettingsScreen() {
         val context = LocalContext.current
         val sharedPreferences = remember {
             context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
         }
+
+        val savedState = sharedPreferences.getBoolean("batteryOptimizationState", true)
+        var isBatteryOptimizationIgnoredState by remember { mutableStateOf(savedState) }
 
         var firstName by remember {
             mutableStateOf(
@@ -411,6 +304,12 @@ class MainActivity : ComponentActivity() {
         var height by remember { mutableStateOf(sharedPreferences.getString("height", "") ?: "") }
         var weight by remember { mutableStateOf(sharedPreferences.getString("weight", "") ?: "") }
 
+        // Check if the app is ignored by battery optimization
+        val isBatteryOptimized = isBatteryOptimizationIgnored(context)
+
+        // State for the switch (shows if app is excluded from battery optimizations)
+        var isOptimized by remember { mutableStateOf(isBatteryOptimized) }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -422,6 +321,7 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
+            // Display other settings like first name, last name, etc.
             OutlinedTextField(
                 value = firstName,
                 onValueChange = { firstName = it },
@@ -464,6 +364,29 @@ class MainActivity : ComponentActivity() {
             )
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Battery Optimization Toggle
+            Text(
+                text = "Battery Optimization",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            Switch(
+                checked = isBatteryOptimizationIgnoredState,
+                onCheckedChange = { isChecked ->
+                    isBatteryOptimizationIgnoredState = isChecked
+                    // Save the switch state to SharedPreferences
+                    sharedPreferences.edit().putBoolean("batteryOptimizationState", isChecked).apply()
+
+                    // If the user switches the setting, update accordingly
+                    if (isChecked) {
+                        requestIgnoreBatteryOptimizations(context)
+                    } else {
+                        // When the user wants to disable background optimization,
+                        // the system might not immediately reflect it
+                        Toast.makeText(context, "Background usage might still be enabled. Please disable manually.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            )
             // Save Button
             Button(
                 onClick = {
@@ -483,6 +406,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    fun isBatteryOptimizationIgnored(context: Context): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            !powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        } else {
+            true
+        }
+    }
+
+    fun requestIgnoreBatteryOptimizations(context: Context) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:${context.packageName}")
+            }
+            context.startActivity(intent)
+        }
+    }
+
     private fun saveToSharedPreferences(
         sharedPreferences: SharedPreferences,
         firstName: String,
@@ -497,7 +438,7 @@ class MainActivity : ComponentActivity() {
         editor.putString("birthdate", birthDate)
         editor.putString("height", height)
         editor.putString("weight", weight)
-        editor.apply() // Apply changes
+        editor.apply()
     }
 
     @Composable
@@ -563,9 +504,13 @@ class MainActivity : ComponentActivity() {
     fun OpenStreetMapView() {
         val context = LocalContext.current
 
-        // State to manage showing the dialog and recording status
         var showDialog by remember { mutableStateOf(false) }
-        var isRecording by remember { mutableStateOf(false) } // To track recording state
+        var isRecording by remember {
+            mutableStateOf(
+                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                    .getBoolean("is_recording", false)
+            )
+        }
 
         Box(modifier = Modifier.fillMaxSize()) {
             // Map view setup (same as before)
@@ -619,6 +564,10 @@ class MainActivity : ComponentActivity() {
                             .clickable {
                                 // Show the dialog to get event details
                                 showDialog = true
+                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("is_recording", true)
+                                    .apply()
                             }
                     ) {
                         Icon(
@@ -651,7 +600,11 @@ class MainActivity : ComponentActivity() {
                                     .makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
                                     .show()
 
-                                // Stop the foreground service
+                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("is_recording", false)
+                                    .apply()
+
                                 isRecording = false
                                 val stopIntent = Intent(context, ForegroundService::class.java)
                                 context.stopService(stopIntent)
@@ -684,6 +637,11 @@ class MainActivity : ComponentActivity() {
                         putExtra("clothing", clothing)
                     }
                     ContextCompat.startForegroundService(context, intent)
+
+                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("is_recording", true)
+                        .apply()
 
                     // Update recording state and dismiss dialog
                     isRecording = true
@@ -870,6 +828,10 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         val intent = Intent(this, ForegroundService::class.java)
         stopService(intent)
+        applicationContext.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("is_recording", false)
+            .apply()
         EventBus.getDefault().unregister(this)
     }
 }
