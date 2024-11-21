@@ -101,10 +101,10 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun checkSpeed(speed: Float): Boolean {
-        if(speed>=2.5) {
-            return true
+        return if(speed>=2.5) {
+            true
         } else {
-            return false
+            false
         }
     }
 }

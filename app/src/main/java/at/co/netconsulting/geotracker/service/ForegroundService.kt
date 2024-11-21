@@ -51,13 +51,14 @@ class ForegroundService : Service() {
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
     private var lap: Int = 0
-    private var startTimeNanos: Long = 0L
-    private var elapsedNanos: Long = 0L
-    private var elapsedSeconds: Long = 0L
-    private var hours: Int = 0
-    private var minutes: Int = 0
-    private var seconds: Int = 0
-    private var formattedTime: String = ""
+    private val oldLatitude: Double = -999.0
+    private val oldLongitude: Double = -999.0
+    private var lazySegmentStartTimeNanos: Long = 0L
+    private var lazyTotalElapsedSeconds: Long = 0L
+    private var lazyFormattedTime: String = "00:00:00"
+    private var movementSegmentStartTimeNanos: Long = 0L
+    private var movementTotalElapsedSeconds: Long = 0L
+    private var movementFormattedTime: String = "00:00:00"
 
     override fun onCreate() {
         super.onCreate()
@@ -83,30 +84,96 @@ class ForegroundService : Service() {
         job = GlobalScope.launch(Dispatchers.IO) {
             val customLocationListener = CustomLocationListener(applicationContext)
             customLocationListener.startListener()
-            val userId = database.userDao().getUserIdByFirstNameLastName("Bernd", "Roth")
+            val userId = database.userDao().getUserIdByFirstNameLastName(firstname, lastname)
             eventId = createNewEvent(database,userId)
-            startTimeNanos = System.nanoTime()
             while (isActive) {
-                delay(1000)
-                if(speed>=2.5) {
+                // if speed is higher than some value,
+                // we do not need to compare latitude and longitude (method compareLatitudeLongitude)
+                // anymore because you cannot move without changing your position
+                if (speed >= 2.5) {
+                    showStopWatch()
                     insertDatabase(database)
+                } else {
+                    showLazyStopWatch()
                 }
-                elapsedNanos = System.nanoTime() - startTimeNanos
-                elapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(elapsedNanos)
-
-                hours = (elapsedSeconds / 3600).toInt()
-                minutes = ((elapsedSeconds % 3600) / 60).toInt()
-                seconds = (elapsedSeconds % 60).toInt()
-                formattedTime = String.format("%02d:%02d:%02d", hours, minutes, seconds)
-
-                updateNotification(formattedTime + "\n" +
-                    "Covered Distance: " + String.format("%.2f", distance/1000) + " Km" +
-                    "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
-                    "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
-                    "\nLap: " + String.format("%2d", lap)
-                )
+                showNotification()
+                delay(1000)
             }
         }
+    }
+
+//    private fun compareLatitudeLongitude(latitude: Double, longitude: Double): Boolean {
+//        val comparisonLat = oldLatitude.compareTo(latitude)
+//        val comparisonLng = oldLongitude.compareTo(longitude)
+//
+//        return comparisonLat != 0 || comparisonLng != 0
+//    }
+
+    private fun showNotification() {
+        updateNotification(
+            "Activity: " + movementFormattedTime +
+            "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
+            "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
+            "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
+            "\nLap: " + String.format("%2d", lap) +
+            "\nInactivity: " + lazyFormattedTime
+        )
+    }
+
+    private fun showStopWatch() {
+        if (speed >= 2.5) {
+            if (movementSegmentStartTimeNanos == 0L) {
+                movementSegmentStartTimeNanos = System.nanoTime()
+            }
+
+            val movementSegmentElapsedNanos = System.nanoTime() - movementSegmentStartTimeNanos
+            val movementSegmentElapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(movementSegmentElapsedNanos)
+
+            if (movementSegmentElapsedSeconds > 0) {
+                movementTotalElapsedSeconds += movementSegmentElapsedSeconds
+                movementSegmentStartTimeNanos = System.nanoTime()
+            }
+
+            val movementHours = (movementTotalElapsedSeconds / 3600).toInt()
+            val movementMinutes = ((movementTotalElapsedSeconds % 3600) / 60).toInt()
+            val movementSeconds = (movementTotalElapsedSeconds % 60).toInt()
+            movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
+        } else {
+            movementSegmentStartTimeNanos = 0L
+        }
+    }
+
+    private fun showLazyStopWatch() {
+        if (speed < 2.5) {
+            if (lazySegmentStartTimeNanos == 0L) {
+                lazySegmentStartTimeNanos = System.nanoTime()
+            }
+
+            val lazySegmentElapsedNanos = System.nanoTime() - lazySegmentStartTimeNanos
+            val lazySegmentElapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(lazySegmentElapsedNanos)
+
+            if (lazySegmentElapsedSeconds > 0) {
+                lazyTotalElapsedSeconds += lazySegmentElapsedSeconds
+                lazySegmentStartTimeNanos = System.nanoTime()
+            }
+        } else {
+            lazySegmentStartTimeNanos = 0L
+        }
+
+        // Format total inactivity time
+        val lazyHours = (lazyTotalElapsedSeconds / 3600).toInt()
+        val lazyMinutes = ((lazyTotalElapsedSeconds % 3600) / 60).toInt()
+        val lazySeconds = (lazyTotalElapsedSeconds % 60).toInt()
+        lazyFormattedTime = String.format("%02d:%02d:%02d", lazyHours, lazyMinutes, lazySeconds)
+    }
+
+    private fun compareLatitudeLongitude(): Boolean {
+        val res: Int = when {
+            oldLatitude < latitude -> -1
+            oldLongitude > latitude -> 1
+            else -> 0
+        }
+        return res == 0
     }
 
     private suspend fun createNewEvent(database: FitnessTrackerDatabase, userId: Int): Int {
