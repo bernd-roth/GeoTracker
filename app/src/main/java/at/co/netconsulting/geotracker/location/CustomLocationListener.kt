@@ -12,8 +12,12 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
 import org.greenrobot.eventbus.EventBus
+import java.time.Duration
+import java.time.LocalDateTime
 
 class CustomLocationListener: LocationListener {
+    private lateinit var totalDateTime: LocalDateTime
+    lateinit var startDateTime: LocalDateTime
     private var context: Context
     private var locationManager: LocationManager? = null
     private var oldLatitude: Double = 0.0
@@ -21,6 +25,7 @@ class CustomLocationListener: LocationListener {
     private var coveredDistance: Double = 0.0
     private var lapCounter : Double = 0.0
     private var lap : Int = 0
+    private var averageSpeed : Double = 0.0
 
     constructor(context: Context) {
         this.context = context
@@ -43,7 +48,7 @@ class CustomLocationListener: LocationListener {
             return
         }
         Handler(Looper.getMainLooper()).post {
-            locationManager?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 1f, this)
+            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1f, this)
         }
     }
 
@@ -55,8 +60,15 @@ class CustomLocationListener: LocationListener {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location!!.latitude} / Longitude: ${location!!.longitude}")
             checkSpeedAndCalculateDistance(it)
-            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap))
+            averageSpeed = calculateAverageSpeed()
+            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap, startDateTime, averageSpeed))
         }
+    }
+
+    private fun calculateAverageSpeed() : Double{
+        totalDateTime = LocalDateTime.now()
+        var duration = Duration.between(startDateTime, totalDateTime)
+        return coveredDistance / (duration.toNanos()/1_000_000_000.0)
     }
 
     private fun checkSpeedAndCalculateDistance(it: Location) {

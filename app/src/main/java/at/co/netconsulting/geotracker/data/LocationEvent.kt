@@ -1,5 +1,7 @@
 package at.co.netconsulting.geotracker.data
 
+import java.time.LocalDateTime
+
 data class LocationEvent(
     val latitude: Double,
     val longitude: Double,
@@ -9,5 +11,7 @@ data class LocationEvent(
     val horizontalAccuracy: Float,
     val verticalAccuracyMeters: Float,
     val coveredDistance: Double,
-    val lap: Int
+    val lap: Int,
+    val startDateTime: LocalDateTime,
+    val averageSpeed: Double
 )

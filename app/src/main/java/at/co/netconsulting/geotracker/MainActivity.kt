@@ -28,16 +28,20 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon
 import androidx.compose.material3.ExposedDropdownMenuDefaults.textFieldColors
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -50,6 +54,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -69,6 +75,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.data.RecordingData
+import at.co.netconsulting.geotracker.domain.Event
+import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import org.greenrobot.eventbus.EventBus
@@ -82,6 +92,10 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
     private var latitudeState = mutableDoubleStateOf(0.0)
@@ -92,6 +106,7 @@ class MainActivity : ComponentActivity() {
     private var speedAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var verticalAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var coveredDistanceState = mutableDoubleStateOf(0.0)
+    private val locationEventState = mutableStateOf<LocationEvent?>(null)
     private lateinit var mapView: MapView
     private lateinit var polyline: Polyline
     private var usedInFixCount = 0
@@ -128,6 +143,9 @@ class MainActivity : ComponentActivity() {
                     " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
                     " CoveredDistance: ${event.coveredDistance}"
         )
+
+        locationEventState.value = event
+
         latitudeState.value = event.latitude
         longitudeState.value = event.longitude
         speedState.value = event.speed
@@ -245,9 +263,9 @@ class MainActivity : ComponentActivity() {
                 content = { paddingValues ->
                     Box(modifier = Modifier.padding(paddingValues)) {
                         when (selectedTabIndex) {
-                            0 -> MapScreen() // The actual map
-                            1 -> StatisticsScreen() // Statistics content
-                            2 -> SettingsScreen() // Settings content
+                            0 -> MapScreen()
+                            1 -> StatisticsScreenPreview(locationEventState = locationEventState)
+                            2 -> SettingsScreen()
                         }
                     }
                 }
@@ -262,17 +280,133 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun StatisticsScreen() {
+    fun StatisticsScreenPreview(locationEventState: MutableState<LocationEvent?>) {
+        val startDateTime = LocalDateTime.now()
+        val actualStatistics = locationEventState.value ?: LocationEvent(
+            latitude = 0.0,
+            longitude = 0.0,
+            speed = 0.0f,
+            speedAccuracyMetersPerSecond = 0.0f,
+            altitude = 0.0,
+            horizontalAccuracy = 0.0f,
+            verticalAccuracyMeters = 0.0f,
+            coveredDistance = 0.0,
+            lap = 0,
+            startDateTime = startDateTime,
+            averageSpeed = 0.0
+        )
+
+        var users by remember { mutableStateOf<List<User>>(emptyList()) }
+        var events by remember { mutableStateOf<List<Event>>(emptyList()) }
+        var records by remember { mutableStateOf<List<RecordingData>>(emptyList()) }
+        var expanded by remember { mutableStateOf(false) }
+        var selectedRecord by remember { mutableStateOf<RecordingData?>(null) }
+
+        // Load data from the database
+        LaunchedEffect(Unit) {
+            users = database.userDao().getAllUsers()
+            events = database.eventDao().getEventDateEventNameGroupByEventDate()
+            records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            Text(text = "Statistics", style = MaterialTheme.typography.bodyLarge)
+            // Display actual statistics
+            Text("Actual Statistics", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            LocationEventPanel(actualStatistics) // Pass either the received data or the default event
             Spacer(modifier = Modifier.height(16.dp))
-            Text("Speed: 0.0 km/h")
-            Text("Covered Distance: 0.0 km")
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Dropdown menu for selecting events
+            Text(text = "Select an event", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+
+            ExposedDropdownMenuBox(
+                expanded = expanded,
+                onExpandedChange = { expanded = !expanded }
+            ) {
+                OutlinedTextField(
+                    value = selectedRecord?.eventName ?: "Select event",
+                    onValueChange = { /* No-op */ },
+                    readOnly = true,
+                    modifier = Modifier.menuAnchor(),
+                    trailingIcon = {
+                        Icon(
+                            imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null
+                        )
+                    }
+                )
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
+                    records.forEach { record ->
+                        DropdownMenuItem(
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = {
+                                selectedRecord = record
+                                expanded = false
+                            },
+                            text = {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(text = "Date: ${record.eventDate}", style = MaterialTheme.typography.bodyLarge)
+                                    Text(text = "Eventname: ${record.eventName}", style = MaterialTheme.typography.bodyLarge)
+                                    Text(text = "Distance: ${record.distance}", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Display statistics of the selected event
+            selectedRecord?.let {
+                SelectedEventPanel(it)
+            }
+        }
+    }
+
+    @Composable
+    fun LocationEventPanel(event: LocationEvent) {
+        val formattedTime = if (event.startDateTime == null) {
+            "N/A"
+        } else {
+
+            val zonedDateTime = event.startDateTime.atZone(ZoneId.systemDefault())
+            val epochMilli = zonedDateTime.toInstant().toEpochMilli()
+
+            val eventStartDateTimeFormatted = LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(epochMilli),
+                ZoneId.systemDefault()
+            ).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))
+            eventStartDateTimeFormatted
+        }
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text("Date and time: $formattedTime", style = MaterialTheme.typography.bodyLarge)
+            Text("Speed: ${event.speed} Km/h", style = MaterialTheme.typography.bodyLarge)
+            Text("Ø speed: ${event.averageSpeed} Km/h", style = MaterialTheme.typography.bodyLarge)
+            Text("Covered distance: ${event.coveredDistance} m/s", style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+
+    @Composable
+    fun SelectedEventPanel(record: RecordingData) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text("Event date: ${record.eventDate}", style = MaterialTheme.typography.bodyLarge)
+            Text("Event name: ${record.eventName}", style = MaterialTheme.typography.bodyLarge)
+            Text("Distance: ${record.distance}", style = MaterialTheme.typography.bodyLarge)
         }
     }
 
@@ -833,6 +967,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private val database: FitnessTrackerDatabase by lazy {
+        FitnessTrackerDatabase.getInstance(applicationContext)
     }
 
     // Override

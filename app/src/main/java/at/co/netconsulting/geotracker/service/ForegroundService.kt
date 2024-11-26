@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
@@ -19,6 +20,7 @@ import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
@@ -28,10 +30,11 @@ import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
+import java.time.LocalDateTime
+import java.time.LocalTime
 import java.util.concurrent.TimeUnit
 
 class ForegroundService : Service() {
-    private lateinit var job: Job
     private lateinit var notificationManager: NotificationManager
     private lateinit var notificationBuilder: NotificationCompat.Builder
     private lateinit var firstname: String
@@ -59,6 +62,9 @@ class ForegroundService : Service() {
     private var movementSegmentStartTimeNanos: Long = 0L
     private var movementTotalElapsedSeconds: Long = 0L
     private var movementFormattedTime: String = "00:00:00"
+    private val serviceJob = Job()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    private lateinit var wakeLock: PowerManager.WakeLock
 
     override fun onCreate() {
         super.onCreate()
@@ -76,13 +82,26 @@ class ForegroundService : Service() {
         weight = sharedPreferences.getString("weight", "") ?: ""
     }
 
+    private fun acquireWakeLock() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GeoTracker:ForegroundService:WakeLock")
+        wakeLock.acquire()
+    }
+
+    private fun releaseWakeLock() {
+        if (::wakeLock.isInitialized && wakeLock.isHeld) {
+            wakeLock.release()
+        }
+    }
+
     private val database: FitnessTrackerDatabase by lazy {
         FitnessTrackerDatabase.getInstance(applicationContext)
     }
 
     private fun createBackgroundCoroutine() {
-        job = GlobalScope.launch(Dispatchers.IO) {
+        serviceScope.launch {
             val customLocationListener = CustomLocationListener(applicationContext)
+            customLocationListener.startDateTime = LocalDateTime.now()
             customLocationListener.startListener()
             val userId = database.userDao().getUserIdByFirstNameLastName(firstname, lastname)
             eventId = createNewEvent(database,userId)
@@ -279,13 +298,15 @@ class ForegroundService : Service() {
         comment = intent?.getStringExtra("comment") ?: "No Comment"
         clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
 
+        acquireWakeLock()
+
         EventBus.getDefault().register(this)
         createNotificationChannel()
         createBackgroundCoroutine()
 
         notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("GeoTracker")
-            .setContentText("Time, covered distance, ... will be shown here!")
+//            .setContentText("Time, covered distance, ... will be shown here!")
             .setSmallIcon(R.drawable.ic_launcher_background)
             .setOnlyAlertOnce(true)
             //show notification on home screen to everyone
@@ -302,9 +323,10 @@ class ForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        releaseWakeLock()
         EventBus.getDefault().unregister(this)
         // Stop infinite loop
-        job.cancel()
+        serviceJob.cancel()
         // Stop foreground mode and cancel the notification immediately
         stopForeground(STOP_FOREGROUND_REMOVE)
     }

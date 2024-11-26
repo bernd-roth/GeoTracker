@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import at.co.netconsulting.geotracker.data.LocationEvent
 import org.greenrobot.eventbus.EventBus
+import java.time.LocalDateTime
 
 class BackgroundLocationService : Service(), LocationListener {
 
@@ -27,7 +28,7 @@ class BackgroundLocationService : Service(), LocationListener {
     private fun startLocationUpdates() {
         try {
             locationManager.requestLocationUpdates(
-                LocationManager.NETWORK_PROVIDER,
+                LocationManager.GPS_PROVIDER,
                 MIN_TIME_BETWEEN_UPDATES,
                 MIN_DISTANCE_BETWEEN_UPDATES,
                 this
@@ -38,6 +39,7 @@ class BackgroundLocationService : Service(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        val startDateTime = LocalDateTime.now()
         // This method is called whenever the device's location changes
         Log.d(
             "BackgroundService", "Location Updated: Latitude: ${location.latitude}, " +
@@ -53,7 +55,9 @@ class BackgroundLocationService : Service(), LocationListener {
             location.accuracy,
             location.verticalAccuracyMeters,
             coveredDistance = 0.0,
-            lap = 0
+            lap = 0,
+            startDateTime = startDateTime,
+            0.0
         ))
     }
 
