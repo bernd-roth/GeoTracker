@@ -20,8 +20,8 @@ class CustomLocationListener: LocationListener {
     lateinit var startDateTime: LocalDateTime
     private var context: Context
     private var locationManager: LocationManager? = null
-    private var oldLatitude: Double = 0.0
-    private var oldLongitude: Double = 0.0
+    private var oldLatitude: Double = 99.0
+    private var oldLongitude: Double = 99.0
     private var coveredDistance: Double = 0.0
     private var lapCounter : Double = 0.0
     private var lap : Int = 0
@@ -48,7 +48,7 @@ class CustomLocationListener: LocationListener {
             return
         }
         Handler(Looper.getMainLooper()).post {
-            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1f, this)
+            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME_BETWEEN_UPDATES, MIN_DISTANCE_BETWEEN_UPDATES, this)
         }
     }
 
@@ -59,23 +59,23 @@ class CustomLocationListener: LocationListener {
     override fun onLocationChanged(location: Location) {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location!!.latitude} / Longitude: ${location!!.longitude}")
-            checkSpeedAndCalculateDistance(it)
-            averageSpeed = calculateAverageSpeed()
+            coveredDistance = checkSpeedAndCalculateDistance(it)
+            averageSpeed = calculateAverageSpeed(coveredDistance)
+            lap = calculateLap(coveredDistance)
             EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap, startDateTime, averageSpeed))
         }
     }
 
-    private fun calculateAverageSpeed() : Double{
+    private fun calculateAverageSpeed(coveredDistance: Double): Double{
         totalDateTime = LocalDateTime.now()
         var duration = Duration.between(startDateTime, totalDateTime)
         return coveredDistance / (duration.toNanos()/1_000_000_000.0)
     }
 
-    private fun checkSpeedAndCalculateDistance(it: Location) {
-        if(oldLatitude!=0.0 && oldLongitude!=0.0) {
+    private fun checkSpeedAndCalculateDistance(it: Location) : Double {
+        if(oldLatitude!=99.0 && oldLongitude!=99.0) {
             if(checkSpeed(it.speed)) {
                 coveredDistance = calculateDistance(oldLatitude, oldLongitude, it.latitude, it.longitude)
-                calculateLap(coveredDistance)
                 oldLatitude = it.latitude
                 oldLongitude = it.longitude
             }
@@ -83,14 +83,16 @@ class CustomLocationListener: LocationListener {
             oldLatitude = it.latitude
             oldLongitude = it.longitude
         }
+        return coveredDistance
     }
 
-    private fun calculateLap(coveredDistance: Double) {
+    private fun calculateLap(coveredDistance: Double) : Int {
         lapCounter += coveredDistance;
         if(lapCounter>=1000) {
             lap+=1;
             lapCounter=0.0;
         }
+        return lap
     }
 
     private fun calculateDistance(
@@ -113,10 +115,16 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun checkSpeed(speed: Float): Boolean {
-        return if(speed>=2.5) {
+        return if(speed>=MIN_SPEED_THRESHOLD) {
             true
         } else {
             false
         }
+    }
+
+    companion object {
+        private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
+        private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
+        private const val MIN_SPEED_THRESHOLD: Double = 2.5
     }
 }

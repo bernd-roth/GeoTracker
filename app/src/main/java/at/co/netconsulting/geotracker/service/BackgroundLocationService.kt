@@ -17,11 +17,13 @@ import java.time.LocalDateTime
 class BackgroundLocationService : Service(), LocationListener {
 
     private lateinit var locationManager: LocationManager
+    private lateinit var startDateTime: LocalDateTime
 
     override fun onCreate() {
         super.onCreate()
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
         startLocationUpdates()
+        startDateTime = LocalDateTime.now()
     }
 
     @SuppressLint("MissingPermission")
@@ -39,7 +41,6 @@ class BackgroundLocationService : Service(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        val startDateTime = LocalDateTime.now()
         // This method is called whenever the device's location changes
         Log.d(
             "BackgroundService", "Location Updated: Latitude: ${location.latitude}, " +

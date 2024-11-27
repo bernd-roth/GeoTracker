@@ -109,9 +109,8 @@ class ForegroundService : Service() {
                 // if speed is higher than some value,
                 // we do not need to compare latitude and longitude (method compareLatitudeLongitude)
                 // anymore because you cannot move without changing your position
-                if (speed >= 2.5) {
+                if (speed >= MIN_SPEED_THRESHOLD) {
                     showStopWatch()
-                    insertDatabase(database)
                 } else {
                     showLazyStopWatch()
                 }
@@ -236,6 +235,7 @@ class ForegroundService : Service() {
         longitude = event.longitude
         distance = event.coveredDistance
         lap = event.lap
+        insertDatabase(database)
     }
 
     private fun updateNotification(newContent: String) {
@@ -344,7 +344,8 @@ class ForegroundService : Service() {
 
     // Companion
     companion object {
-        const val CHANNEL_ID = "ForegroundServiceChannel"
+        private const val CHANNEL_ID = "ForegroundServiceChannel"
+        private const val MIN_SPEED_THRESHOLD: Double = 2.5
     }
 
     private fun runOnUiThread(action: () -> Unit) {

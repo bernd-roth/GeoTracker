@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
             drawPolyline(latitudeState.value, longitudeState.value)
         } else {
             mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
+            mapView.controller.setZoom(15.0)
             mapView.invalidate()
         }
     }
@@ -397,7 +398,7 @@ class MainActivity : ComponentActivity() {
             Text("Date and time: $formattedTime", style = MaterialTheme.typography.bodyLarge)
             Text("Speed: ${event.speed} Km/h", style = MaterialTheme.typography.bodyLarge)
             Text("Ø speed: ${event.averageSpeed} Km/h", style = MaterialTheme.typography.bodyLarge)
-            Text("Covered distance: ${event.coveredDistance} m/s", style = MaterialTheme.typography.bodyLarge)
+            Text("Covered distance: ${event.coveredDistance} Km", style = MaterialTheme.typography.bodyLarge)
         }
     }
 
@@ -664,8 +665,9 @@ class MainActivity : ComponentActivity() {
                 mapView = MapView(context).apply {
                     setTileSource(customTileSource)
                     setMultiTouchControls(true)
-                    controller.setZoom(9.0)
+
                     controller.setCenter(GeoPoint(0.0, 0.0))
+                    controller.setZoom(5.0)
 
                     // Initialize polyline for tracking locations
                     polyline = Polyline().apply {
