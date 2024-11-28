@@ -18,6 +18,7 @@ import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import kotlinx.coroutines.CoroutineScope
@@ -31,7 +32,6 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import java.time.LocalDateTime
-import java.time.LocalTime
 import java.util.concurrent.TimeUnit
 
 class ForegroundService : Service() {
@@ -40,8 +40,8 @@ class ForegroundService : Service() {
     private lateinit var firstname: String
     private lateinit var lastname: String
     private lateinit var birthdate: String
-    private lateinit var height: String
-    private lateinit var weight: String
+    private var height: Float = 0f
+    private var weight: Float = 0f
     private lateinit var eventname: String
     private lateinit var eventdate: String
     private lateinit var artofsport: String
@@ -78,8 +78,8 @@ class ForegroundService : Service() {
         firstname = sharedPreferences.getString("firstname", "") ?: ""
         lastname = sharedPreferences.getString("lastname", "") ?: ""
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
-        height = sharedPreferences.getString("height", "") ?: ""
-        weight = sharedPreferences.getString("weight", "") ?: ""
+        height = sharedPreferences.getFloat("height", 0f)
+        weight = sharedPreferences.getFloat("weight", 0f)
     }
 
     private fun acquireWakeLock() {
@@ -103,7 +103,8 @@ class ForegroundService : Service() {
             val customLocationListener = CustomLocationListener(applicationContext)
             customLocationListener.startDateTime = LocalDateTime.now()
             customLocationListener.startListener()
-            val userId = database.userDao().getUserIdByFirstNameLastName(firstname, lastname)
+            val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
+            //val userId = database.userDao().getUserIdByFirstNameLastName(firstname, lastname)
             eventId = createNewEvent(database,userId)
             while (isActive) {
                 // if speed is higher than some value,
@@ -115,17 +116,11 @@ class ForegroundService : Service() {
                     showLazyStopWatch()
                 }
                 showNotification()
+                displayDatabaseContents()
                 delay(1000)
             }
         }
     }
-
-//    private fun compareLatitudeLongitude(latitude: Double, longitude: Double): Boolean {
-//        val comparisonLat = oldLatitude.compareTo(latitude)
-//        val comparisonLng = oldLongitude.compareTo(longitude)
-//
-//        return comparisonLat != 0 || comparisonLng != 0
-//    }
 
     private fun showNotification() {
         updateNotification(
@@ -194,7 +189,7 @@ class ForegroundService : Service() {
         return res == 0
     }
 
-    private suspend fun createNewEvent(database: FitnessTrackerDatabase, userId: Int): Int {
+    private suspend fun createNewEvent(database: FitnessTrackerDatabase, userId: Long): Int {
         val newEvent = Event(
             userId = userId,
             eventName = eventname,
@@ -213,6 +208,14 @@ class ForegroundService : Service() {
             val users = database.userDao().getAllUsers()
             users.forEach { user ->
                 Log.d("DatabaseDebug", "User: $user")
+            }
+            val events = database.eventDao().getAllEvents()
+            events.forEach { event ->
+                Log.d("DatabaseDebug", "Event: $event")
+            }
+            val metrics = database.metricDao().getAllMetrics()
+            metrics.forEach { metric ->
+                Log.d("DatabaseDebug", "Metric: $metric")
             }
         }
     }

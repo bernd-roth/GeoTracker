@@ -17,7 +17,7 @@ import androidx.room.ForeignKey
 )
 data class Event(
     @PrimaryKey(autoGenerate = true) val eventId: Int = 0,
-    val userId: Int,
+    val userId: Long,
     val eventName: String,
     val eventDate: String, // Store as ISO date (YYYY-MM-DD)
     val artOfSport: String,

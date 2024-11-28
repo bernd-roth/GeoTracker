@@ -1,9 +1,11 @@
 package at.co.netconsulting.geotracker
 
+import android.Manifest
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -73,9 +75,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.data.RecordingData
+import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.User
@@ -107,14 +111,32 @@ class MainActivity : ComponentActivity() {
     private var verticalAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var coveredDistanceState = mutableDoubleStateOf(0.0)
     private val locationEventState = mutableStateOf<LocationEvent?>(null)
+    private val startDateTimeState = mutableStateOf<LocalDateTime>(LocalDateTime.now())
     private lateinit var mapView: MapView
     private lateinit var polyline: Polyline
     private var usedInFixCount = 0
     private var satelliteCount = 0
     private lateinit var marker: Marker
+    private val PERMISSION_REQUEST_CODE = 1001
+    private val permissions = listOf(
+        Manifest.permission.INTERNET,
+        Manifest.permission.ACCESS_NETWORK_STATE,
+        Manifest.permission.POST_NOTIFICATIONS,
+        Manifest.permission.WRITE_EXTERNAL_STORAGE,
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.FOREGROUND_SERVICE,
+        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
+        Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+        Manifest.permission.WAKE_LOCK
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        if (!arePermissionsGranted()) {
+            ActivityCompat.requestPermissions(this, permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
+        }
 
         val context = applicationContext
         Configuration.getInstance().load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
@@ -124,8 +146,39 @@ class MainActivity : ComponentActivity() {
 
         EventBus.getDefault().register(this)
 
+        //requestPerm()
+
         setContent {
             MainScreen()
+        }
+    }
+
+    private fun arePermissionsGranted(): Boolean {
+        return permissions.all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            val deniedPermissions = permissions.zip(grantResults.toList())
+                .filter { it.second != PackageManager.PERMISSION_GRANTED }
+                .map { it.first }
+
+            if (deniedPermissions.isNotEmpty()) {
+                // Handle permissions denied by the user
+                // You can show a dialog or finish the activity
+                Toast.makeText(
+                    this,
+                    "Some permissions were denied. Functionality may be limited.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 
@@ -153,6 +206,7 @@ class MainActivity : ComponentActivity() {
         altitudeState.value = event.altitude
         verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
         coveredDistanceState.value = event.coveredDistance
+        startDateTimeState.value = event.startDateTime
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
             drawPolyline(latitudeState.value, longitudeState.value)
@@ -284,7 +338,6 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun StatisticsScreenPreview(locationEventState: MutableState<LocationEvent?>) {
-        val startDateTime = LocalDateTime.now()
         val actualStatistics = locationEventState.value ?: LocationEvent(
             latitude = 0.0,
             longitude = 0.0,
@@ -295,21 +348,30 @@ class MainActivity : ComponentActivity() {
             verticalAccuracyMeters = 0.0f,
             coveredDistance = 0.0,
             lap = 0,
-            startDateTime = startDateTime,
+            startDateTime = startDateTimeState.value,
             averageSpeed = 0.0
         )
 
         var users by remember { mutableStateOf<List<User>>(emptyList()) }
         var events by remember { mutableStateOf<List<Event>>(emptyList()) }
-        var records by remember { mutableStateOf<List<RecordingData>>(emptyList()) }
+        var records by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
         var expanded by remember { mutableStateOf(false) }
-        var selectedRecord by remember { mutableStateOf<RecordingData?>(null) }
+        var selectedRecord by remember { mutableStateOf<SingleEventWithMetric?>(null) }
 
-        // Load data from the database
-        LaunchedEffect(Unit) {
+        suspend fun loadData() {
             users = database.userDao().getAllUsers()
             events = database.eventDao().getEventDateEventNameGroupByEventDate()
             records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
+        }
+
+        LaunchedEffect(Unit) {
+            loadData()
+        }
+
+        LaunchedEffect(expanded) {
+            if (expanded) {
+                loadData()
+            }
         }
 
         Column(
@@ -331,7 +393,9 @@ class MainActivity : ComponentActivity() {
 
             ExposedDropdownMenuBox(
                 expanded = expanded,
-                onExpandedChange = { expanded = !expanded }
+                onExpandedChange = { isExpanded ->
+                    expanded = isExpanded
+                }
             ) {
                 OutlinedTextField(
                     value = selectedRecord?.eventName ?: "Select event",
@@ -384,10 +448,8 @@ class MainActivity : ComponentActivity() {
         val formattedTime = if (event.startDateTime == null) {
             "N/A"
         } else {
-
             val zonedDateTime = event.startDateTime.atZone(ZoneId.systemDefault())
             val epochMilli = zonedDateTime.toInstant().toEpochMilli()
-
             val eventStartDateTimeFormatted = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(epochMilli),
                 ZoneId.systemDefault()
@@ -403,7 +465,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun SelectedEventPanel(record: RecordingData) {
+    fun SelectedEventPanel(record: SingleEventWithMetric) {
         Column(modifier = Modifier.padding(8.dp)) {
             Text("Event date: ${record.eventDate}", style = MaterialTheme.typography.bodyLarge)
             Text("Event name: ${record.eventName}", style = MaterialTheme.typography.bodyLarge)
@@ -436,8 +498,8 @@ class MainActivity : ComponentActivity() {
                 sharedPreferences.getString("birthdate", "") ?: ""
             )
         }
-        var height by remember { mutableStateOf(sharedPreferences.getString("height", "") ?: "") }
-        var weight by remember { mutableStateOf(sharedPreferences.getString("weight", "") ?: "") }
+        var height by remember { mutableStateOf(sharedPreferences.getFloat("height", 0f)) }
+        var weight by remember { mutableStateOf(sharedPreferences.getFloat("weight", 0f)) }
         var websocketserver by remember { mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "") }
 
         // Check if the app is ignored by battery optimization
@@ -483,8 +545,10 @@ class MainActivity : ComponentActivity() {
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
-                value = height,
-                onValueChange = { height = it },
+                value = height.toString(), // Convert Float to String
+                onValueChange = { input ->
+                    height = input.toFloatOrNull() ?: height // Safely convert input to Float
+                },
                 label = { Text("Height (cm)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
@@ -492,12 +556,15 @@ class MainActivity : ComponentActivity() {
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
-                value = weight,
-                onValueChange = { weight = it },
+                value = weight.toString(), // Convert Float to String
+                onValueChange = { input ->
+                    weight = input.toFloatOrNull() ?: weight // Safely convert input to Float
+                },
                 label = { Text("Weight (kg)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
+            Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
                 value = websocketserver,
@@ -574,16 +641,16 @@ class MainActivity : ComponentActivity() {
         firstName: String,
         lastName: String,
         birthDate: String,
-        height: String,
-        weight: String,
+        height: Float,
+        weight: Float,
         websocketserver: String
     ) {
         val editor = sharedPreferences.edit()
         editor.putString("firstname", firstName)
         editor.putString("lastname", lastName)
         editor.putString("birthdate", birthDate)
-        editor.putString("height", height)
-        editor.putString("weight", weight)
+        editor.putFloat("height", height)
+        editor.putFloat("weight", weight)
         editor.putString("websocketserver", websocketserver)
         editor.apply()
     }
@@ -841,7 +908,7 @@ class MainActivity : ComponentActivity() {
                     OutlinedTextField(
                         value = eventDate,
                         onValueChange = { eventDate = it },
-                        label = { Text("Event Date (YYYY-MM-DD)") },
+                        label = { Text("" + provideDateTimeFormat()) },
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
@@ -973,6 +1040,16 @@ class MainActivity : ComponentActivity() {
 
     private val database: FitnessTrackerDatabase by lazy {
         FitnessTrackerDatabase.getInstance(applicationContext)
+    }
+
+    fun provideDateTimeFormat() : String {
+        val zonedDateTime = LocalDateTime.now().atZone(ZoneId.systemDefault())
+        val epochMilli = zonedDateTime.toInstant().toEpochMilli()
+        val startDateTimeFormatted = LocalDateTime.ofInstant(
+            Instant.ofEpochMilli(epochMilli),
+            ZoneId.systemDefault()
+        ).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
+        return startDateTimeFormatted
     }
 
     // Override
