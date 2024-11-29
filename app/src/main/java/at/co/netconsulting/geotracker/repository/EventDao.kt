@@ -3,7 +3,6 @@ package at.co.netconsulting.geotracker.repository
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
-import at.co.netconsulting.geotracker.data.RecordingData
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.domain.Event
 
@@ -24,10 +23,18 @@ interface EventDao {
     @Query("SELECT e.eventId, e.eventName, e.eventDate, e.artOfSport, e.comment, " +
             "m.metricId, m.heartRate, m.heartRateDevice, m.speed, m.distance, " +
             "m.cadence, m.lap, m.timeInMilliseconds, m.unity " +
-            "FROM events e INNER JOIN metrics m ON e.eventId = m.eventId " +
-            "WHERE m.timeInMilliseconds = (SELECT MAX(timeInMilliseconds) FROM metrics WHERE eventId = e.eventId)")
+            "FROM events e " +
+            "INNER JOIN metrics m ON e.eventId = m.eventId " +
+            "WHERE m.timeInMilliseconds = (SELECT MAX(timeInMilliseconds) FROM metrics WHERE eventId = e.eventId) " +
+            "ORDER BY m.timeInMilliseconds")
     suspend fun getDetailsFromEventJoinedOnMetricsWithRecordingData(): List<SingleEventWithMetric>
 
     @Query("SELECT e.userId, e.eventId, e.eventDate, e.eventName , e.artOfSport, e.comment FROM events e")
     suspend fun getAllEvents(): List<Event>
+
+    @Query("DELETE FROM events WHERE eventId = :eventId")
+    suspend fun delete(eventId: Int)
+
+    @Query("DELETE FROM events")
+    suspend fun deleteAllContent()
 }

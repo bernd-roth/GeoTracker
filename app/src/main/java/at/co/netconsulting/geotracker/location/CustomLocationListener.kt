@@ -20,8 +20,8 @@ class CustomLocationListener: LocationListener {
     lateinit var startDateTime: LocalDateTime
     private var context: Context
     private var locationManager: LocationManager? = null
-    private var oldLatitude: Double = 99.0
-    private var oldLongitude: Double = 99.0
+    private var oldLatitude: Double = -999.0
+    private var oldLongitude: Double = -999.0
     private var coveredDistance: Double = 0.0
     private var lapCounter : Double = 0.0
     private var lap : Int = 0
@@ -62,10 +62,12 @@ class CustomLocationListener: LocationListener {
     override fun onLocationChanged(location: Location) {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location!!.latitude} / Longitude: ${location!!.longitude}")
-            coveredDistance = checkSpeedAndCalculateDistance(it)
-            averageSpeed = calculateAverageSpeed(coveredDistance)
-            lap = calculateLap(coveredDistance)
-            EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap, startDateTime, averageSpeed))
+            if(checkSpeed(it.speed)) {
+                coveredDistance = calculateDistance(it)
+                averageSpeed = calculateAverageSpeed(coveredDistance)
+                lap = calculateLap(coveredDistance)
+                EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap, startDateTime, averageSpeed))
+            }
         }
     }
 
@@ -75,13 +77,11 @@ class CustomLocationListener: LocationListener {
         return coveredDistance / (duration.toNanos()/1_000_000_000.0)
     }
 
-    private fun checkSpeedAndCalculateDistance(it: Location) : Double {
-        if(oldLatitude!=99.0 && oldLongitude!=99.0) {
-            if(checkSpeed(it.speed)) {
-                coveredDistance = calculateDistance(oldLatitude, oldLongitude, it.latitude, it.longitude)
-                oldLatitude = it.latitude
-                oldLongitude = it.longitude
-            }
+    private fun calculateDistance(it: Location) : Double {
+        if(oldLatitude!=-999.0 && oldLongitude!=-999.0) {
+            coveredDistance = calculateDistance(oldLatitude, oldLongitude, it.latitude, it.longitude)
+            oldLatitude = it.latitude
+            oldLongitude = it.longitude
         } else {
             oldLatitude = it.latitude
             oldLongitude = it.longitude
@@ -117,6 +117,17 @@ class CustomLocationListener: LocationListener {
         return coveredDistance
     }
 
+    /**
+     *
+     * This method checks whether speed is greater than 2.5 km/h.
+     * Since GPS fluctuates all the time,
+     * distance would sum up over time,
+     * therefore if speed is less than 2.5 km/h
+     * no calculation of distance must be made
+     *
+     * @param float
+     *
+     */
     private fun checkSpeed(speed: Float): Boolean {
         return if(speed>=MIN_SPEED_THRESHOLD) {
             true

@@ -31,6 +31,7 @@ import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
+import java.lang.System.currentTimeMillis
 import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 
@@ -65,6 +66,7 @@ class ForegroundService : Service() {
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var wakeLock: PowerManager.WakeLock
+    private var lastUpdateTimestamp: Long = currentTimeMillis()
 
     override fun onCreate() {
         super.onCreate()
@@ -107,6 +109,10 @@ class ForegroundService : Service() {
             //val userId = database.userDao().getUserIdByFirstNameLastName(firstname, lastname)
             eventId = createNewEvent(database,userId)
             while (isActive) {
+                val currentTime = currentTimeMillis()
+                if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
+                    resetValues()
+                }
                 // if speed is higher than some value,
                 // we do not need to compare latitude and longitude (method compareLatitudeLongitude)
                 // anymore because you cannot move without changing your position
@@ -116,10 +122,15 @@ class ForegroundService : Service() {
                     showLazyStopWatch()
                 }
                 showNotification()
-                displayDatabaseContents()
+                //displayDatabaseContents()
                 delay(1000)
             }
         }
+    }
+
+    private fun resetValues() {
+        speed = 0.0F
+        showNotification()
     }
 
     private fun showNotification() {
@@ -232,6 +243,7 @@ class ForegroundService : Service() {
                     " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
                     " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
                     " CoveredDistance: ${event.coveredDistance}")
+        lastUpdateTimestamp = currentTimeMillis()
         speed = event.speed
         altitude = event.altitude
         latitude = event.latitude
@@ -349,6 +361,7 @@ class ForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "ForegroundServiceChannel"
         private const val MIN_SPEED_THRESHOLD: Double = 2.5
+        private const val EVENT_TIMEOUT_MS = 2000
     }
 
     private fun runOnUiThread(action: () -> Unit) {
