@@ -22,7 +22,7 @@ class CustomLocationListener: LocationListener {
     private var locationManager: LocationManager? = null
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
-    private var coveredDistance: Double = 0.0
+    var coveredDistance: Double = 0.0
     private var lapCounter : Double = 0.0
     private var lap : Int = 0
     private var averageSpeed : Double = 0.0
@@ -77,28 +77,34 @@ class CustomLocationListener: LocationListener {
         return coveredDistance / (duration.toNanos()/1_000_000_000.0)
     }
 
-    private fun calculateDistance(it: Location) : Double {
-        if(oldLatitude!=-999.0 && oldLongitude!=-999.0) {
-            coveredDistance = calculateDistance(oldLatitude, oldLongitude, it.latitude, it.longitude)
-            oldLatitude = it.latitude
-            oldLongitude = it.longitude
+    private fun calculateDistance(location: Location): Double {
+        val distanceIncrement: Double
+        if (oldLatitude != -999.0 && oldLongitude != -999.0) {
+            distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(oldLatitude, oldLongitude, location.latitude, location.longitude)
+            coveredDistance += distanceIncrement
         } else {
-            oldLatitude = it.latitude
-            oldLongitude = it.longitude
+            distanceIncrement = 0.0
         }
-        return coveredDistance
+        oldLatitude = location.latitude
+        oldLongitude = location.longitude
+        return distanceIncrement
     }
 
-    private fun calculateLap(coveredDistance: Double) : Int {
-        lapCounter += coveredDistance;
-        if(lapCounter>=1000) {
-            lap+=1;
-            lapCounter=0.0;
-        }
+    // calculateLaps calculates one lap per at least 1000 meters
+    // however, if it should ever happen that you run/cycle or swim faster than 2000 meters per second
+    // the lap will be calculated based on this number
+    private fun calculateLap(distanceIncrement: Double): Int {
+        lapCounter += distanceIncrement
+
+        val lapsToAdd = (lapCounter / 1000).toInt()
+
+        lap += lapsToAdd
+        lapCounter -= lapsToAdd * 1000
+
         return lap
     }
 
-    private fun calculateDistance(
+    private fun calculateDistanceBetweenOldLatLngNewLatLng(
         oldLatitude: Double,
         oldLongitude: Double,
         newLatitude: Double,
@@ -113,8 +119,7 @@ class CustomLocationListener: LocationListener {
             newLatitude,
             newLongitude,
             result);
-        coveredDistance += result[0]
-        return coveredDistance
+        return result[0].toDouble()
     }
 
     /**

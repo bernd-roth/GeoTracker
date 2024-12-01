@@ -87,4 +87,7 @@ dependencies {
     implementation("androidx.compose.material3:material3:1.1.0")
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.30.1")
     implementation("org.greenrobot:eventbus:3.3.1")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation ("org.jetbrains.kotlin:kotlin-test-junit:1.8.10")
+    testImplementation("org.mockito:mockito-core:4.2.0")
 }

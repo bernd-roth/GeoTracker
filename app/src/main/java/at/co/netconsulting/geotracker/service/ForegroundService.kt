@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.location.LocationManager
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -28,6 +29,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -67,6 +69,7 @@ class ForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var wakeLock: PowerManager.WakeLock
     private var lastUpdateTimestamp: Long = currentTimeMillis()
+    private var isCurrentlyMoving = false
 
     override fun onCreate() {
         super.onCreate()
@@ -113,16 +116,24 @@ class ForegroundService : Service() {
                 if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
                     resetValues()
                 }
+                /*a short test without a mock*/
+                //triggerLocationChange(customLocationListener)
+
                 // if speed is higher than some value,
                 // we do not need to compare latitude and longitude (method compareLatitudeLongitude)
                 // anymore because you cannot move without changing your position
+
+                //speed = 67.8F
                 if (speed >= MIN_SPEED_THRESHOLD) {
+                    //a quite direct approach of checking/mocking onLocationChanged method
+                    //triggerLocationChange(customLocationListener)
                     showStopWatch()
                 } else {
                     showLazyStopWatch()
                 }
                 showNotification()
                 //displayDatabaseContents()
+                insertDatabase(database)
                 delay(1000)
             }
         }
@@ -146,8 +157,10 @@ class ForegroundService : Service() {
 
     private fun showStopWatch() {
         if (speed >= 2.5) {
-            if (movementSegmentStartTimeNanos == 0L) {
+            if (!isCurrentlyMoving) {
+                // Transition to movement; reset start time for movement stopwatch
                 movementSegmentStartTimeNanos = System.nanoTime()
+                isCurrentlyMoving = true // Update state
             }
 
             val movementSegmentElapsedNanos = System.nanoTime() - movementSegmentStartTimeNanos
@@ -155,20 +168,27 @@ class ForegroundService : Service() {
 
             if (movementSegmentElapsedSeconds > 0) {
                 movementTotalElapsedSeconds += movementSegmentElapsedSeconds
-                movementSegmentStartTimeNanos = System.nanoTime()
+                movementSegmentStartTimeNanos = System.nanoTime() // Reset here only after counting
             }
-
-            val movementHours = (movementTotalElapsedSeconds / 3600).toInt()
-            val movementMinutes = ((movementTotalElapsedSeconds % 3600) / 60).toInt()
-            val movementSeconds = (movementTotalElapsedSeconds % 60).toInt()
-            movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
         } else {
-            movementSegmentStartTimeNanos = 0L
+            movementSegmentStartTimeNanos = 0L // Stop movement stopwatch
         }
+
+        // Format total movement time
+        val movementHours = (movementTotalElapsedSeconds / 3600).toInt()
+        val movementMinutes = ((movementTotalElapsedSeconds % 3600) / 60).toInt()
+        val movementSeconds = (movementTotalElapsedSeconds % 60).toInt()
+        movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
     }
 
     private fun showLazyStopWatch() {
         if (speed < 2.5) {
+            if (isCurrentlyMoving) {
+                // Transition from movement to non-movement
+                lazySegmentStartTimeNanos = System.nanoTime() // Start fresh for lazy stopwatch
+                isCurrentlyMoving = false // Update state
+            }
+
             if (lazySegmentStartTimeNanos == 0L) {
                 lazySegmentStartTimeNanos = System.nanoTime()
             }
@@ -178,10 +198,10 @@ class ForegroundService : Service() {
 
             if (lazySegmentElapsedSeconds > 0) {
                 lazyTotalElapsedSeconds += lazySegmentElapsedSeconds
-                lazySegmentStartTimeNanos = System.nanoTime()
+                lazySegmentStartTimeNanos = System.nanoTime() // Reset here only after counting
             }
         } else {
-            lazySegmentStartTimeNanos = 0L
+            lazySegmentStartTimeNanos = 0L // Stop lazy stopwatch
         }
 
         // Format total inactivity time
@@ -250,7 +270,6 @@ class ForegroundService : Service() {
         longitude = event.longitude
         distance = event.coveredDistance
         lap = event.lap
-        insertDatabase(database)
     }
 
     private fun updateNotification(newContent: String) {
@@ -260,8 +279,8 @@ class ForegroundService : Service() {
         }
     }
 
-    private fun insertDatabase(database: FitnessTrackerDatabase) {
-        GlobalScope.launch(Dispatchers.IO) {
+    private suspend fun insertDatabase(database: FitnessTrackerDatabase) {
+        withContext(Dispatchers.IO) {
             val metric = Metric(
                 eventId = eventId,
                 heartRate = 0,
@@ -370,5 +389,26 @@ class ForegroundService : Service() {
         } else {
             Handler(Looper.getMainLooper()).post(action)
         }
+    }
+
+    private fun triggerLocationChange(customLocationListener: CustomLocationListener) {
+        val mockLocationStart = android.location.Location(LocationManager.GPS_PROVIDER).apply {
+            latitude = 48.181894
+            longitude = 16.360820
+            speed = 3.0f
+            altitude = 10.0
+            accuracy = 5.0f
+        }
+
+        val mockLocationEnd = android.location.Location(LocationManager.GPS_PROVIDER).apply {
+            latitude = 48.188905024553605
+            longitude = 16.342026908926968
+            speed = 3.0f
+            altitude = 10.0
+            accuracy = 5.0f
+        }
+
+        customLocationListener.onLocationChanged(mockLocationStart)
+        customLocationListener.onLocationChanged(mockLocationEnd)
     }
 }

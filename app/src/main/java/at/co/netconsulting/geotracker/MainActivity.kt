@@ -42,7 +42,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
-import androidx.compose.material3.Divider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -80,8 +79,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -782,8 +779,8 @@ class MainActivity : ComponentActivity() {
         speed: Float,
         speedAccuracyInMeters: Float,
         altitude: Double,
-        verticalAccuracyInMeters: Float,
         horizontalAccuracyInMeters: Float,
+        verticalAccuracyInMeters: Float,
         numberOfSatellites: Int,
         usedNumberOfSatellites: Int,
         coveredDistance: Double
@@ -802,7 +799,7 @@ class MainActivity : ComponentActivity() {
                 fontSize = 10.sp,
                 color = Color.Black)
             Text(
-                "Speed accuracy: ±${"%.2f".format((speedAccuracyInMeters/1000)*3600)} km/h",
+                "Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} km/h",
                 fontSize = 10.sp,
                 color = Color.Black
             )
