@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.data
 
+import at.co.netconsulting.geotracker.location.CustomLocationListener
 import java.time.LocalDateTime
 
 data class LocationEvent(
@@ -13,5 +14,6 @@ data class LocationEvent(
     val coveredDistance: Double,
     val lap: Int,
     val startDateTime: LocalDateTime,
-    val averageSpeed: Double
+    val averageSpeed: Double,
+    val locationChangeEventList: CustomLocationListener.LocationChangeEvent
 )

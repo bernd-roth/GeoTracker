@@ -13,6 +13,6 @@ interface MetricDao {
     @Query("SELECT * FROM metrics WHERE eventId = :eventId ORDER BY timeInMilliseconds DESC LIMIT 1")
     suspend fun getLastMetricByEvent(eventId: Int): Metric?
 
-    @Query("SELECT * FROM metrics")
-    suspend fun getAllMetrics(): List<Metric?>
+/*    @Query("SELECT * FROM metrics")
+    suspend fun getAllMetrics(): List<Metric>*/
 }

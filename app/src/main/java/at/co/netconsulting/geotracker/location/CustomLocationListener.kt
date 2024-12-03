@@ -11,6 +11,7 @@ import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.LocationEvent
+import com.google.android.gms.maps.model.LatLng
 import org.greenrobot.eventbus.EventBus
 import java.time.Duration
 import java.time.LocalDateTime
@@ -26,6 +27,8 @@ class CustomLocationListener: LocationListener {
     private var lapCounter : Double = 0.0
     private var lap : Int = 0
     private var averageSpeed : Double = 0.0
+    private val latLngs = mutableListOf<LatLng>()
+    data class LocationChangeEvent(val latLngs: List<LatLng>)
 
     constructor(context: Context) {
         this.context = context
@@ -63,21 +66,24 @@ class CustomLocationListener: LocationListener {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location!!.latitude} / Longitude: ${location!!.longitude}")
             if(checkSpeed(it.speed)) {
-                coveredDistance = calculateDistance(it)
+                val(coveredDistance, distanceIncrement) = calculateDistance(it)
                 averageSpeed = calculateAverageSpeed(coveredDistance)
-                lap = calculateLap(coveredDistance)
-                EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, it.speed, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap, startDateTime, averageSpeed))
+                lap = calculateLap(distanceIncrement)
+                latLngs.add(LatLng(location.latitude, location.longitude))
+                EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, (it.speed/1000)*3600, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap, startDateTime, averageSpeed, LocationChangeEvent(latLngs)))
+                Log.d("CustomLocationListener", "LocationEvent posted")
             }
         }
     }
 
     private fun calculateAverageSpeed(coveredDistance: Double): Double{
+        var mCoveredDistance = coveredDistance
         totalDateTime = LocalDateTime.now()
         var duration = Duration.between(startDateTime, totalDateTime)
-        return coveredDistance / (duration.toNanos()/1_000_000_000.0)
+        return mCoveredDistance / (duration.toNanos()/1_000_000_000.0)
     }
 
-    private fun calculateDistance(location: Location): Double {
+    private fun calculateDistance(location: Location): Pair<Double, Double> {
         val distanceIncrement: Double
         if (oldLatitude != -999.0 && oldLongitude != -999.0) {
             distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(oldLatitude, oldLongitude, location.latitude, location.longitude)
@@ -87,7 +93,8 @@ class CustomLocationListener: LocationListener {
         }
         oldLatitude = location.latitude
         oldLongitude = location.longitude
-        return distanceIncrement
+        Log.d("CustomLocationListener", "Distance Increment: $distanceIncrement")
+        return Pair(coveredDistance, distanceIncrement)
     }
 
     // calculateLaps calculates one lap per at least 1000 meters
@@ -134,16 +141,14 @@ class CustomLocationListener: LocationListener {
      *
      */
     private fun checkSpeed(speed: Float): Boolean {
-        return if(speed>=MIN_SPEED_THRESHOLD) {
-            true
-        } else {
-            false
-        }
+        Log.d("CustomLocationListener", "Speed: $speed m/s")
+        val thresholdInMetersPerSecond = MIN_SPEED_THRESHOLD / 3.6
+        return speed >= thresholdInMetersPerSecond
     }
 
     companion object {
         private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
-        private const val MIN_SPEED_THRESHOLD: Double = 2.5
+        private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
     }
 }

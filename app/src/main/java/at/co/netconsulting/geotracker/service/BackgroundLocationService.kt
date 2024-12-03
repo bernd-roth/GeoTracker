@@ -11,11 +11,12 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.location.CustomLocationListener
+import com.google.android.gms.maps.model.LatLng
 import org.greenrobot.eventbus.EventBus
 import java.time.LocalDateTime
 
 class BackgroundLocationService : Service(), LocationListener {
-
     private lateinit var locationManager: LocationManager
     private lateinit var startDateTime: LocalDateTime
 
@@ -41,25 +42,31 @@ class BackgroundLocationService : Service(), LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
-        // This method is called whenever the device's location changes
         Log.d(
             "BackgroundService", "Location Updated: Latitude: ${location.latitude}, " +
                     "Longitude: ${location.longitude}, Accuracy: ${location.accuracy}"
         )
 
-        EventBus.getDefault().post(LocationEvent(
-            location.latitude,
-            location.longitude,
-            location.speed,
-            location.speedAccuracyMetersPerSecond,
-            location.altitude,
-            location.accuracy,
-            location.verticalAccuracyMeters,
-            coveredDistance = 0.0,
-            lap = 0,
-            startDateTime = startDateTime,
-            0.0
-        ))
+        val latLngs = listOf(LatLng(location.latitude, location.longitude))
+
+        EventBus.getDefault().post(latLngs.let {
+            CustomLocationListener.LocationChangeEvent(it)
+        }?.let {
+            LocationEvent(
+                location.latitude,
+                location.longitude,
+                location.speed,
+                location.speedAccuracyMetersPerSecond,
+                location.altitude,
+                location.accuracy,
+                location.verticalAccuracyMeters,
+                coveredDistance = 0.0,
+                lap = 0,
+                startDateTime = startDateTime,
+                averageSpeed = 0.0, // Assuming 0.0 for averageSpeed here
+                it
+            )
+        })
     }
 
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {

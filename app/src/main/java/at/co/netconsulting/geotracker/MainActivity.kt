@@ -89,8 +89,10 @@ import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.User
+import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
+import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -119,6 +121,7 @@ class MainActivity : ComponentActivity() {
     private var coveredDistanceState = mutableDoubleStateOf(0.0)
     private val locationEventState = mutableStateOf<LocationEvent?>(null)
     private val startDateTimeState = mutableStateOf<LocalDateTime>(LocalDateTime.now())
+    private val locationChangeEventState = mutableStateOf(CustomLocationListener.LocationChangeEvent(emptyList()))
     private lateinit var mapView: MapView
     private lateinit var polyline: Polyline
     private var usedInFixCount = 0
@@ -160,7 +163,6 @@ class MainActivity : ComponentActivity() {
         )
 
         locationEventState.value = event
-
         latitudeState.value = event.latitude
         longitudeState.value = event.longitude
         speedState.value = event.speed
@@ -169,10 +171,13 @@ class MainActivity : ComponentActivity() {
         verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
         coveredDistanceState.value = event.coveredDistance
         startDateTimeState.value = event.startDateTime
+        locationChangeEventState.value = event.locationChangeEventList
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            drawPolyline(latitudeState.value, longitudeState.value)
+            Log.d("MainActivity", "Drawing polyline")
+            drawPolyline(locationChangeEventState.value)
         } else {
+            Log.d("MainActivity", "Service not running, centering map")
             mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
             mapView.controller.setZoom(15.0)
             mapView.invalidate()
@@ -197,24 +202,39 @@ class MainActivity : ComponentActivity() {
         return serviceRunning
     }
 
-    private fun drawPolyline(latitude: Double, longitude: Double) {
-        val size = polyline.actualPoints.size
+    private fun drawPolyline(
+        locationChangeEventList: CustomLocationListener.LocationChangeEvent
+    ) {
+        val latLngs = locationChangeEventList.latLngs
 
-        if (size == 1) {
-            createMarker()
-            //mapView.controller.setZoom(17.0)
-            mapView.controller.setCenter(GeoPoint(latitude, longitude))
-            polyline.addPoint(GeoPoint(latitude, longitude))
-        } else {
-            //mapView.controller.setZoom(17.0)
-            mapView.controller.setCenter(GeoPoint(latitude, longitude))
-            polyline.addPoint(GeoPoint(latitude, longitude))
+        val isPolylineInMapView = mapView.overlays.contains(polyline)
+        if (isPolylineInMapView) {
+            mapView.overlays.remove(polyline)
         }
+
+        polyline = Polyline()
+
+        for (latLng in latLngs) {
+            polyline.addPoint(GeoPoint(latLng.latitude, latLng.longitude))
+        }
+
+        if (latLngs.isNotEmpty()) {
+            createMarker(latLngs[0])
+        }
+
+//        if (latLngs.isNotEmpty()) {
+//            mapView.controller.setCenter(GeoPoint(latLngs[0].latitude, latLngs[0].longitude)
+//            )
+//        }
+
+        mapView.controller.setZoom(17.0)
+        mapView.overlays.add(polyline)
         mapView.invalidate()
     }
 
-    private fun createMarker() {
-        marker.position = polyline.actualPoints[0]
+    private fun createMarker(firstLatLng: LatLng) {
+        val firstPoint = GeoPoint(firstLatLng.latitude, firstLatLng.longitude)
+        marker.position = firstPoint
         marker.title = getString(R.string.marker_title)
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
         marker.icon = ContextCompat.getDrawable(this, R.drawable.startflag)
@@ -225,6 +245,8 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun MainScreen() {
+        val mapCenter = remember { mutableStateOf<GeoPoint?>(null) }
+
         // Coroutine scope to auto-hide the top bar after a delay
         val coroutineScope = rememberCoroutineScope()
 
@@ -280,7 +302,7 @@ class MainActivity : ComponentActivity() {
                 content = { paddingValues ->
                     Box(modifier = Modifier.padding(paddingValues)) {
                         when (selectedTabIndex) {
-                            0 -> MapScreen()
+                            0 -> MapScreen(mapCenter)
                             1 -> StatisticsScreenPreview(locationEventState = locationEventState)
                             2 -> SettingsScreen()
                         }
@@ -291,15 +313,15 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun MapScreen() {
+    fun MapScreen(mapCenter: MutableState<GeoPoint?>) {
         Column {
-            OpenStreetMapView()
+            OpenStreetMapView(mapCenter)
         }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun StatisticsScreenPreview(locationEventState: MutableState<LocationEvent?>) {
+    fun StatisticsScreenPreview(locationEventState: MutableState<LocationEvent?>, latLngs: List<LatLng> = emptyList()) {
         val actualStatistics = locationEventState.value ?: LocationEvent(
             latitude = 0.0,
             longitude = 0.0,
@@ -311,7 +333,8 @@ class MainActivity : ComponentActivity() {
             coveredDistance = 0.0,
             lap = 0,
             startDateTime = startDateTimeState.value,
-            averageSpeed = 0.0
+            averageSpeed = 0.0,
+            locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs)
         )
 
         var users by remember { mutableStateOf<List<User>>(emptyList()) }
@@ -577,7 +600,7 @@ class MainActivity : ComponentActivity() {
             Text("Date and time: $formattedTime", style = MaterialTheme.typography.bodyLarge)
             Text("Speed: ${"%.2f".format(event.speed)} Km/h", style = MaterialTheme.typography.bodyLarge)
             Text("Ø speed: ${"%.2f".format(event.averageSpeed)} Km/h", style = MaterialTheme.typography.bodyLarge)
-            Text("Covered distance: ${"%.3f".format(event.coveredDistance)} Km", style = MaterialTheme.typography.bodyLarge)
+            Text("Covered distance: ${"%.3f".format(event.coveredDistance/1000)} Km", style = MaterialTheme.typography.bodyLarge)
         }
     }
 
@@ -832,7 +855,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun OpenStreetMapView() {
+    fun OpenStreetMapView(mapCenter: MutableState<GeoPoint?>) {
         val context = LocalContext.current
 
         var showDialog by remember { mutableStateOf(false) }
@@ -850,13 +873,18 @@ class MainActivity : ComponentActivity() {
                     setTileSource(customTileSource)
                     setMultiTouchControls(true)
 
-                    controller.setCenter(GeoPoint(0.0, 0.0))
+                    mapCenter.value?.let { center ->
+                        controller.setCenter(center)
+                    } ?: run {
+                        // Default to initial position if no state is saved
+                        controller.setCenter(GeoPoint(0.0, 0.0))
+                    }
                     controller.setZoom(5.0)
 
                     // Initialize polyline for tracking locations
                     polyline = Polyline().apply {
-                        width = 10f
-                        color = context.resources.getColor(android.R.color.holo_purple, null)
+                        outlinePaint.strokeWidth = 10f
+                        outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
                     }
                     overlays.add(polyline)
                 }

@@ -134,7 +134,7 @@ class ForegroundService : Service() {
                 showNotification()
                 //displayDatabaseContents()
                 insertDatabase(database)
-                delay(1000)
+                //delay(50)
             }
         }
     }
@@ -156,7 +156,7 @@ class ForegroundService : Service() {
     }
 
     private fun showStopWatch() {
-        if (speed >= 2.5) {
+        if (speed >= MIN_SPEED_THRESHOLD) {
             if (!isCurrentlyMoving) {
                 // Transition to movement; reset start time for movement stopwatch
                 movementSegmentStartTimeNanos = System.nanoTime()
@@ -182,7 +182,7 @@ class ForegroundService : Service() {
     }
 
     private fun showLazyStopWatch() {
-        if (speed < 2.5) {
+        if (speed < MIN_SPEED_THRESHOLD) {
             if (isCurrentlyMoving) {
                 // Transition from movement to non-movement
                 lazySegmentStartTimeNanos = System.nanoTime() // Start fresh for lazy stopwatch
@@ -244,10 +244,10 @@ class ForegroundService : Service() {
             events.forEach { event ->
                 Log.d("DatabaseDebug", "Event: $event")
             }
-            val metrics = database.metricDao().getAllMetrics()
+/*            val metrics = database.metricDao().getAllMetrics()
             metrics.forEach { metric ->
                 Log.d("DatabaseDebug", "Metric: $metric")
-            }
+            }*/
         }
     }
 
