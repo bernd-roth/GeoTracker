@@ -67,6 +67,7 @@ dependencies {
     // Room dependencies
     implementation("androidx.room:room-ktx:2.6.1")
     implementation(libs.play.services.maps)
+    implementation(libs.firebase.database.ktx)
     kapt("androidx.room:room-compiler:2.6.1")
 
     // Location services
@@ -91,4 +92,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation ("org.jetbrains.kotlin:kotlin-test-junit:1.8.10")
     testImplementation("org.mockito:mockito-core:4.2.0")
+    implementation("com.google.code.gson:gson:2.10.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.jakewharton.timber:timber:4.7.1")
 }

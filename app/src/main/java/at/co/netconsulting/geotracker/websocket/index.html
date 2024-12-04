@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Running Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #map {
+            height: 67vh;
+            width: 100%;
+        }
+
+        #altitudeChartContainer {
+            height: 33vh;
+            width: 100%;
+            padding: 0;
+        }
+
+        #altitudeChart {
+            height: 100%;
+            width: 100%;
+        }
+
+        #gpxUpload {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background-color: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0px 2px 4px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+
+<div id="gpxUpload">
+    <input type="file" id="gpxFile" accept=".gpx" />
+    <button onclick="loadGPX()">Load GPX</button>
+    <button id="resetMapBtn" onclick="resetMap()">Reset Map</button>
+</div>
+
+<div id="map"></div>
+
+<div id="altitudeChartContainer">
+    <canvas id="altitudeChart"></canvas>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let map;
+    let websocket;
+    let polylines = {};
+    let startMarkers = {};
+    let endMarkers = {};
+    let gpxPolyline;
+    let altitudeChart;
+    let altitudeData = [];
+    let altitudeCoordinates = [];
+    let chartMarker = null;
+
+    function initMap() {
+        const initialLocation = [48.1818798, 16.3607528];
+        map = L.map('map').setView(initialLocation, 10);
+
+        L.tileLayer('http://62.178.111.184/tile/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        initAltitudeChart();
+        connectToWebSocket();
+    }
+
+    function initAltitudeChart() {
+        const ctx = document.getElementById('altitudeChart').getContext('2d');
+        altitudeChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: []
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: {
+                            display: true,
+                            text: 'Distance (km)'
+                        },
+                        ticks: {
+                            beginAtZero: true,
+                            callback: function(value) { return value.toFixed(2); }
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Altitude (m)'
+                        },
+                        min: 0
+                    }
+                }
+            }
+        });
+    }
+
+    function connectToWebSocket() {
+        websocket = new WebSocket('ws://IP_ADDRESS:PORT/runningtracker');
+
+        websocket.onopen = function(event) {
+            console.log('Connected to WebSocket server');
+        };
+
+        websocket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            const lat = parseFloat(data.latitude);
+            const lng = parseFloat(data.longitude);
+            const altitude = parseFloat(data.altitude);
+            const sessionId = data.sessionId || "default";
+            const distance = (data.distance / 1000).toFixed(2) || "0 Km";
+
+            if (lat && lng) {
+                updateMapWithNewCoordinate(lat, lng, sessionId);
+                updateAltitudeChart(distance, altitude, sessionId);
+            }
+        };
+
+        websocket.onclose = function(event) {
+            console.log('WebSocket connection closed');
+            setTimeout(connectToWebSocket, 5000);
+        };
+
+        websocket.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+    }
+
+    function updateMapWithNewCoordinate(lat, lng, sessionId) {
+        if (!polylines[sessionId]) {
+            const polylineColor = getRandomColor();
+
+            polylines[sessionId] = L.polyline([[lat, lng]], {
+                color: polylineColor,
+                weight: 10
+            }).addTo(map);
+
+            startMarkers[sessionId] = L.marker([lat, lng], {
+                title: "Start Position"
+            }).bindPopup('Start').addTo(map);
+        } else {
+            const latlngs = polylines[sessionId].getLatLngs();
+            latlngs.push([lat, lng]);
+            polylines[sessionId].setLatLngs(latlngs);
+        }
+
+        if (!endMarkers[sessionId]) {
+            endMarkers[sessionId] = L.marker([lat, lng], {
+                title: "Current Position"
+            }).bindPopup('Current').addTo(map);
+        } else {
+            endMarkers[sessionId].setLatLng([lat, lng]);
+        }
+
+        map.setView([lat, lng]);
+    }
+
+    function loadGPX() {
+        const fileInput = document.getElementById('gpxFile');
+        const file = fileInput.files[0];
+
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                parseGPX(event.target.result);
+            };
+            reader.readAsText(file);
+        } else {
+            alert("Please select a GPX file to upload.");
+        }
+    }
+
+    function resetMap() {
+        resetAltitudeChart();
+
+        if (gpxPolyline) {
+            map.removeLayer(gpxPolyline);
+            gpxPolyline = null;
+        }
+
+        if (chartMarker) {
+            map.removeLayer(chartMarker);
+            chartMarker = null;
+        }
+    }
+
+    function resetAltitudeChart() {
+        altitudeData = [];
+        altitudeCoordinates = [];
+        altitudeChart.data.labels = [];
+        altitudeChart.data.datasets.forEach(dataset => dataset.data = []);
+        altitudeChart.update();
+    }
+
+    function parseGPX(gpxData) {
+        const parser = new DOMParser();
+        const gpx = parser.parseFromString(gpxData, "application/xml");
+        const trackPoints = gpx.getElementsByTagName('trkpt');
+
+        const coordinates = [];
+        let totalDistance = 0;
+        let previousLat, previousLon;
+        const gpxDistanceData = [];
+        const gpxAltitudeData = [];
+
+        for (let i = 0; i < trackPoints.length; i++) {
+            const lat = parseFloat(trackPoints[i].getAttribute('lat'));
+            const lon = parseFloat(trackPoints[i].getAttribute('lon'));
+            const elevation = parseFloat(trackPoints[i].getElementsByTagName('ele')[0].textContent);
+            coordinates.push([lat, lon]);
+
+            if (i > 0) {
+                totalDistance += calculateDistance(previousLat, previousLon, lat, lon);
+            }
+
+            gpxDistanceData.push(totalDistance);
+            gpxAltitudeData.push(elevation);
+            previousLat = lat;
+            previousLon = lon;
+        }
+
+        if (gpxPolyline) map.removeLayer(gpxPolyline);
+
+        gpxPolyline = L.polyline(coordinates, {
+            color: '#FF0000',
+            weight: 4
+        }).addTo(map);
+
+        map.fitBounds(gpxPolyline.getBounds());
+
+        updateAltitudeChartWithGPX(gpxDistanceData, gpxAltitudeData, coordinates);
+    }
+
+    function updateAltitudeChartWithGPX(gpxDistanceData, gpxAltitudeData, coordinates) {
+        const gpxDataset = {
+            label: 'GPX Altitude',
+            borderColor: '#FF0000',
+            fill: false,
+            data: gpxDistanceData.map((distance, index) => ({
+                x: distance,
+                y: gpxAltitudeData[index],
+                coordinate: coordinates[index]
+            }))
+        };
+
+        altitudeChart.data.datasets = [gpxDataset];
+        altitudeChart.update();
+    }
+
+    function updateAltitudeChart(distance, altitude, sessionId) {
+        let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+
+        if (datasetIndex === -1) {
+            datasetIndex = altitudeChart.data.datasets.length;
+            altitudeChart.data.datasets.push({
+                label: sessionId,
+                borderColor: getRandomColor(),
+                fill: false,
+                data: []
+            });
+        }
+
+        altitudeChart.data.datasets[datasetIndex].data.push({ x: distance, y: altitude });
+        altitudeChart.update();
+    }
+
+    function chartClickHandler(event) {
+        const points = altitudeChart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
+
+        if (points.length) {
+            const chartPoint = points[0];
+            const dataset = altitudeChart.data.datasets[chartPoint.datasetIndex];
+            const dataPoint = dataset.data[chartPoint.index];
+            const coordinate = dataPoint.coordinate;
+
+            if (coordinate) {
+                if (!chartMarker) {
+                    chartMarker = L.marker(coordinate).addTo(map);
+                } else {
+                    chartMarker.setLatLng(coordinate);
+                }
+
+                map.setView(coordinate);
+            }
+        }
+    }
+
+    document.getElementById('altitudeChart').addEventListener('click', chartClickHandler);
+
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    function getRandomColor() {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) color += letters[Math.floor(Math.random() * 16)];
+        return color;
+    }
+
+    // Initialize the map when the page loads
+    document.addEventListener('DOMContentLoaded', initMap);
+</script>
+
+</body>
+</html>

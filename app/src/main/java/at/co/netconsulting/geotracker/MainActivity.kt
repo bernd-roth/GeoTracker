@@ -98,6 +98,9 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -207,28 +210,26 @@ class MainActivity : ComponentActivity() {
     ) {
         val latLngs = locationChangeEventList.latLngs
 
-        val isPolylineInMapView = mapView.overlays.contains(polyline)
-        if (isPolylineInMapView) {
-            mapView.overlays.remove(polyline)
+        val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
+        if (oldPolyline != null) {
+            mapView.overlays.remove(oldPolyline)
         }
 
-        polyline = Polyline()
-
-        for (latLng in latLngs) {
-            polyline.addPoint(GeoPoint(latLng.latitude, latLng.longitude))
+        val newPolyline = Polyline().apply {
+            outlinePaint.strokeWidth = 10f
+            outlinePaint.color = ContextCompat.getColor(this@MainActivity, android.R.color.holo_purple)
+            latLngs.forEach { latLng ->
+                addPoint(GeoPoint(latLng.latitude, latLng.longitude))
+            }
         }
 
         if (latLngs.isNotEmpty()) {
             createMarker(latLngs[0])
         }
 
-//        if (latLngs.isNotEmpty()) {
-//            mapView.controller.setCenter(GeoPoint(latLngs[0].latitude, latLngs[0].longitude)
-//            )
-//        }
-
-        mapView.controller.setZoom(17.0)
-        mapView.overlays.add(polyline)
+        polyline = newPolyline
+        mapView.overlays.add(newPolyline)
+        //mapView.controller.setZoom(17.0)
         mapView.invalidate()
     }
 
@@ -246,6 +247,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun MainScreen() {
         val mapCenter = remember { mutableStateOf<GeoPoint?>(null) }
+        val mapZoom = remember { mutableStateOf(17.0) }
+        val lastKnownLocation = remember { mutableStateOf<GeoPoint?>(null) }
 
         // Coroutine scope to auto-hide the top bar after a delay
         val coroutineScope = rememberCoroutineScope()
@@ -302,7 +305,7 @@ class MainActivity : ComponentActivity() {
                 content = { paddingValues ->
                     Box(modifier = Modifier.padding(paddingValues)) {
                         when (selectedTabIndex) {
-                            0 -> MapScreen(mapCenter)
+                            0 -> MapScreen(mapCenter, mapZoom, lastKnownLocation)
                             1 -> StatisticsScreenPreview(locationEventState = locationEventState)
                             2 -> SettingsScreen()
                         }
@@ -313,9 +316,13 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun MapScreen(mapCenter: MutableState<GeoPoint?>) {
+    fun MapScreen(
+        mapCenter: MutableState<GeoPoint?>,
+        mapZoom: MutableState<Double>,
+        lastKnownLocation: MutableState<GeoPoint?>
+    ) {
         Column {
-            OpenStreetMapView(mapCenter)
+            OpenStreetMapView(mapCenter, mapZoom, lastKnownLocation)
         }
     }
 
@@ -855,7 +862,11 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun OpenStreetMapView(mapCenter: MutableState<GeoPoint?>) {
+    fun OpenStreetMapView(
+        mapCenter: MutableState<GeoPoint?>,
+        mapZoom: MutableState<Double>,
+        lastKnownLocation: MutableState<GeoPoint?>
+    ) {
         val context = LocalContext.current
 
         var showDialog by remember { mutableStateOf(false) }
@@ -867,45 +878,53 @@ class MainActivity : ComponentActivity() {
         }
 
         Box(modifier = Modifier.fillMaxSize()) {
-            // Map view setup (same as before)
-            AndroidView(factory = {
-                mapView = MapView(context).apply {
-                    setTileSource(customTileSource)
-                    setMultiTouchControls(true)
+            AndroidView(
+                factory = {
+                    mapView = MapView(context).apply {
+                        setTileSource(customTileSource)
+                        setMultiTouchControls(true)
 
-                    mapCenter.value?.let { center ->
-                        controller.setCenter(center)
-                    } ?: run {
-                        // Default to initial position if no state is saved
-                        controller.setCenter(GeoPoint(0.0, 0.0))
-                    }
-                    controller.setZoom(5.0)
+                        lastKnownLocation.value?.let { location ->
+                            controller.setCenter(location)
+                            controller.setZoom(mapZoom.value)
+                        } ?: mapCenter.value?.let { center ->
+                            controller.setCenter(center)
+                            controller.setZoom(mapZoom.value)
+                        } ?: run {
+                            controller.setCenter(GeoPoint(0.0, 0.0))
+                            controller.setZoom(5.0)
+                        }
 
-                    // Initialize polyline for tracking locations
-                    polyline = Polyline().apply {
-                        outlinePaint.strokeWidth = 10f
-                        outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                        polyline = Polyline().apply {
+                            outlinePaint.strokeWidth = 10f
+                            outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                        }
+                        overlays.add(polyline)
+
+                        val dm: DisplayMetrics = context.resources.displayMetrics
+                        val scaleBarOverlay = ScaleBarOverlay(this).apply {
+                            setCentred(true)
+                            setScaleBarOffset(dm.widthPixels / 2, 2000)
+                        }
+                        overlays.add(scaleBarOverlay)
+
+                        val mLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
+                            enableMyLocation()
+                        }
+                        overlays.add(mLocationOverlay)
                     }
-                    overlays.add(polyline)
+                    marker = Marker(mapView)
+                    mapView
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { mapView ->
+                    lastKnownLocation.value?.let { location ->
+                        mapView.controller.setCenter(location)
+                        mapView.controller.setZoom(mapZoom.value)
+                    }
                 }
-                marker = Marker(mapView)
+            )
 
-                // ScaleBar overlay
-                val dm: DisplayMetrics = context.resources.displayMetrics
-                val scaleBarOverlay = ScaleBarOverlay(mapView)
-                scaleBarOverlay.setCentred(true)
-                scaleBarOverlay.setScaleBarOffset(dm.widthPixels / 2, 2000)
-                mapView.overlays.add(scaleBarOverlay)
-
-                // MyLocation overlay
-                val mLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), mapView)
-                mLocationOverlay.enableMyLocation()
-                mapView.overlays.add(mLocationOverlay)
-
-                mapView
-            }, modifier = Modifier.fillMaxSize())
-
-            // Recording Button (shown only if not recording)
             if (!isRecording) {
                 Surface(
                     modifier = Modifier
@@ -922,7 +941,6 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable {
-                                // Show the dialog to get event details
                                 showDialog = true
                                 context
                                     .getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
@@ -985,12 +1003,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Show the dialog if state is true
         if (showDialog) {
             RecordingButtonWithDialog(
                 context = context,
                 onSave = { eventName, eventDate, artOfSport, wheelSize, sprocket, comment, clothing ->
-                    // Start the foreground service with all fields as extras
                     val stopIntent = Intent(context, BackgroundLocationService::class.java)
                     context.stopService(stopIntent)
 
@@ -1008,12 +1024,10 @@ class MainActivity : ComponentActivity() {
                         .putBoolean("is_recording", true)
                         .apply()
 
-                    // Update recording state and dismiss dialog
                     isRecording = true
                     showDialog = false
                 },
                 onDismiss = {
-                    // Simply dismiss the dialog
                     showDialog = false
                 }
             )

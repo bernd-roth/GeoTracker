@@ -34,8 +34,8 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import java.lang.System.currentTimeMillis
+import java.time.Duration
 import java.time.LocalDateTime
-import java.util.concurrent.TimeUnit
 
 class ForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
@@ -57,19 +57,15 @@ class ForegroundService : Service() {
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
     private var lap: Int = 0
-    private val oldLatitude: Double = -999.0
-    private val oldLongitude: Double = -999.0
-    private var lazySegmentStartTimeNanos: Long = 0L
-    private var lazyTotalElapsedSeconds: Long = 0L
     private var lazyFormattedTime: String = "00:00:00"
-    private var movementSegmentStartTimeNanos: Long = 0L
-    private var movementTotalElapsedSeconds: Long = 0L
     private var movementFormattedTime: String = "00:00:00"
     private val serviceJob = Job()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var wakeLock: PowerManager.WakeLock
     private var lastUpdateTimestamp: Long = currentTimeMillis()
     private var isCurrentlyMoving = false
+    private val movementState = StopwatchState()
+    private val lazyState = StopwatchState()
 
     override fun onCreate() {
         super.onCreate()
@@ -103,40 +99,124 @@ class ForegroundService : Service() {
         FitnessTrackerDatabase.getInstance(applicationContext)
     }
 
+    private class TimeSegment(
+        var startTime: LocalDateTime = LocalDateTime.now(),
+        var endTime: LocalDateTime? = null,
+        var totalDuration: Duration = Duration.ZERO
+    )
+
+    private class StopwatchState {
+        private val segments = mutableListOf<TimeSegment>()
+        private var currentSegment: TimeSegment? = null
+
+        fun start() {
+            currentSegment = TimeSegment()
+            segments.add(currentSegment!!)
+        }
+
+        fun stop() {
+            currentSegment?.let {
+                it.endTime = LocalDateTime.now()
+                it.totalDuration = Duration.between(it.startTime, it.endTime)
+                currentSegment = null
+            }
+        }
+
+        fun getTotalDuration(): Duration {
+            val completedDuration = segments.sumOf {
+                it.totalDuration.seconds
+            }
+
+            val currentDuration = currentSegment?.let {
+                Duration.between(it.startTime, LocalDateTime.now()).seconds
+            } ?: 0
+
+            return Duration.ofSeconds(completedDuration + currentDuration)
+        }
+
+        fun getCurrentSegment(): TimeSegment? = currentSegment
+    }
+
     private fun createBackgroundCoroutine() {
         serviceScope.launch {
             val customLocationListener = CustomLocationListener(applicationContext)
             customLocationListener.startDateTime = LocalDateTime.now()
             customLocationListener.startListener()
             val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
-            //val userId = database.userDao().getUserIdByFirstNameLastName(firstname, lastname)
-            eventId = createNewEvent(database,userId)
+            eventId = createNewEvent(database, userId)
+
+            /*a short test without a mock*/
+            //triggerLocationChange(customLocationListener)
+
             while (isActive) {
                 val currentTime = currentTimeMillis()
                 if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
                     resetValues()
                 }
-                /*a short test without a mock*/
-                //triggerLocationChange(customLocationListener)
 
-                // if speed is higher than some value,
-                // we do not need to compare latitude and longitude (method compareLatitudeLongitude)
-                // anymore because you cannot move without changing your position
-
-                //speed = 67.8F
                 if (speed >= MIN_SPEED_THRESHOLD) {
-                    //a quite direct approach of checking/mocking onLocationChanged method
-                    //triggerLocationChange(customLocationListener)
                     showStopWatch()
                 } else {
                     showLazyStopWatch()
                 }
+
                 showNotification()
-                //displayDatabaseContents()
                 insertDatabase(database)
-                //delay(50)
+                delay(1000)
             }
         }
+    }
+
+    private fun showStopWatch() {
+        if (speed >= MIN_SPEED_THRESHOLD) {
+            if (!isCurrentlyMoving) {
+                lazyState.stop()
+                movementState.start()
+                isCurrentlyMoving = true
+            }
+        } else {
+            if (isCurrentlyMoving) {
+                movementState.stop()
+            }
+        }
+
+        val duration = movementState.getTotalDuration()
+        val movementHours = duration.toHours()
+        val movementMinutes = (duration.toMinutes() % 60)
+        val movementSeconds = (duration.seconds % 60)
+        movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
+    }
+
+    private fun showLazyStopWatch() {
+        Log.d("StopWatch", "Speed: $speed, isCurrentlyMoving: $isCurrentlyMoving")
+
+        if (speed < MIN_SPEED_THRESHOLD) {
+            Log.d("StopWatch", "Speed below threshold")
+            if (isCurrentlyMoving) {
+                Log.d("StopWatch", "Transitioning from moving to lazy")
+                movementState.stop()
+                lazyState.start()
+                isCurrentlyMoving = false
+            } else if (lazyState.getCurrentSegment() == null) {
+                Log.d("StopWatch", "Starting new lazy segment")
+                lazyState.start()
+            }
+        } else {
+            if (!isCurrentlyMoving) {
+                Log.d("StopWatch", "Stopping lazy state")
+                lazyState.stop()
+            }
+        }
+
+        val duration = lazyState.getTotalDuration()
+        Log.d("StopWatch", "Lazy duration - Hours: ${duration.toHours()}, " +
+                "Minutes: ${duration.toMinutes() % 60}, " +
+                "Seconds: ${duration.seconds % 60}")
+
+        val lazyHours = duration.toHours()
+        val lazyMinutes = (duration.toMinutes() % 60)
+        val lazySeconds = (duration.seconds % 60)
+        lazyFormattedTime = String.format("%02d:%02d:%02d", lazyHours, lazyMinutes, lazySeconds)
     }
 
     private fun resetValues() {
@@ -153,71 +233,6 @@ class ForegroundService : Service() {
             "\nLap: " + String.format("%2d", lap) +
             "\nInactivity: " + lazyFormattedTime
         )
-    }
-
-    private fun showStopWatch() {
-        if (speed >= MIN_SPEED_THRESHOLD) {
-            if (!isCurrentlyMoving) {
-                // Transition to movement; reset start time for movement stopwatch
-                movementSegmentStartTimeNanos = System.nanoTime()
-                isCurrentlyMoving = true // Update state
-            }
-
-            val movementSegmentElapsedNanos = System.nanoTime() - movementSegmentStartTimeNanos
-            val movementSegmentElapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(movementSegmentElapsedNanos)
-
-            if (movementSegmentElapsedSeconds > 0) {
-                movementTotalElapsedSeconds += movementSegmentElapsedSeconds
-                movementSegmentStartTimeNanos = System.nanoTime() // Reset here only after counting
-            }
-        } else {
-            movementSegmentStartTimeNanos = 0L // Stop movement stopwatch
-        }
-
-        // Format total movement time
-        val movementHours = (movementTotalElapsedSeconds / 3600).toInt()
-        val movementMinutes = ((movementTotalElapsedSeconds % 3600) / 60).toInt()
-        val movementSeconds = (movementTotalElapsedSeconds % 60).toInt()
-        movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
-    }
-
-    private fun showLazyStopWatch() {
-        if (speed < MIN_SPEED_THRESHOLD) {
-            if (isCurrentlyMoving) {
-                // Transition from movement to non-movement
-                lazySegmentStartTimeNanos = System.nanoTime() // Start fresh for lazy stopwatch
-                isCurrentlyMoving = false // Update state
-            }
-
-            if (lazySegmentStartTimeNanos == 0L) {
-                lazySegmentStartTimeNanos = System.nanoTime()
-            }
-
-            val lazySegmentElapsedNanos = System.nanoTime() - lazySegmentStartTimeNanos
-            val lazySegmentElapsedSeconds = TimeUnit.NANOSECONDS.toSeconds(lazySegmentElapsedNanos)
-
-            if (lazySegmentElapsedSeconds > 0) {
-                lazyTotalElapsedSeconds += lazySegmentElapsedSeconds
-                lazySegmentStartTimeNanos = System.nanoTime() // Reset here only after counting
-            }
-        } else {
-            lazySegmentStartTimeNanos = 0L // Stop lazy stopwatch
-        }
-
-        // Format total inactivity time
-        val lazyHours = (lazyTotalElapsedSeconds / 3600).toInt()
-        val lazyMinutes = ((lazyTotalElapsedSeconds % 3600) / 60).toInt()
-        val lazySeconds = (lazyTotalElapsedSeconds % 60).toInt()
-        lazyFormattedTime = String.format("%02d:%02d:%02d", lazyHours, lazyMinutes, lazySeconds)
-    }
-
-    private fun compareLatitudeLongitude(): Boolean {
-        val res: Int = when {
-            oldLatitude < latitude -> -1
-            oldLongitude > latitude -> 1
-            else -> 0
-        }
-        return res == 0
     }
 
     private suspend fun createNewEvent(database: FitnessTrackerDatabase, userId: Long): Int {
@@ -340,7 +355,7 @@ class ForegroundService : Service() {
 
         notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("GeoTracker")
-//            .setContentText("Time, covered distance, ... will be shown here!")
+            //.setContentText("Time, covered distance, ... will be shown here!")
             .setSmallIcon(R.drawable.ic_launcher_background)
             .setOnlyAlertOnce(true)
             //show notification on home screen to everyone
@@ -376,10 +391,9 @@ class ForegroundService : Service() {
         notificationManager.createNotificationChannel(channel)
     }
 
-    // Companion
-    companion object {
+     companion object {
         private const val CHANNEL_ID = "ForegroundServiceChannel"
-        private const val MIN_SPEED_THRESHOLD: Double = 2.5
+        private const val MIN_SPEED_THRESHOLD = 2.5f
         private const val EVENT_TIMEOUT_MS = 2000
     }
 
@@ -401,8 +415,8 @@ class ForegroundService : Service() {
         }
 
         val mockLocationEnd = android.location.Location(LocationManager.GPS_PROVIDER).apply {
-            latitude = 48.188905024553605
-            longitude = 16.342026908926968
+            latitude = 48.1989050245536
+            longitude = 16.94202690892697
             speed = 3.0f
             altitude = 10.0
             accuracy = 5.0f

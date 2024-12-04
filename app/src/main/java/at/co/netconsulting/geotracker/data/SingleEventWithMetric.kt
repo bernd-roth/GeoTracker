@@ -6,7 +6,6 @@ data class SingleEventWithMetric(
     val eventDate: String,
     val artOfSport: String,
     val comment: String,
-
     val metricId: Int,
     val heartRate: Int,
     val heartRateDevice: String,

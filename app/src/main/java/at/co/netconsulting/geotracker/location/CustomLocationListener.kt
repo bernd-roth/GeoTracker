@@ -10,11 +10,14 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
+import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
 import com.google.android.gms.maps.model.LatLng
 import org.greenrobot.eventbus.EventBus
 import java.time.Duration
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import com.google.gson.Gson;
 
 class CustomLocationListener: LocationListener {
     private lateinit var totalDateTime: LocalDateTime
@@ -72,8 +75,31 @@ class CustomLocationListener: LocationListener {
                 latLngs.add(LatLng(location.latitude, location.longitude))
                 EventBus.getDefault().post(LocationEvent(it.latitude, it.longitude, (it.speed/1000)*3600, it.speedAccuracyMetersPerSecond, it.altitude, it.accuracy, it.verticalAccuracyMeters, coveredDistance, lap, startDateTime, averageSpeed, LocationChangeEvent(latLngs)))
                 Log.d("CustomLocationListener", "LocationEvent posted")
+                //send data to websocketserver
+                val json: String = Gson().toJson(
+                    FellowRunner(
+                        "Bernd",
+                        1,
+                        location.latitude,
+                        location.longitude,
+                        coveredDistance,
+                        (it.speed/1000)*3600,
+                        it.altitude,
+                        formattedTimestamp = formatCurrentTimestamp()
+                    )
+                )
             }
         }
+    }
+
+    private fun formatCurrentTimestamp(): String {
+        // Get the current date and time
+        var now = LocalDateTime.now()
+        // Define the desired format
+        var formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+        // Format the timestamp
+        var formattedTimestamp = now.format(formatter)
+        return formattedTimestamp
     }
 
     private fun calculateAverageSpeed(coveredDistance: Double): Double{
