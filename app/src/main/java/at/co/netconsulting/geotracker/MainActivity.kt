@@ -150,6 +150,7 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
         Manifest.permission.WAKE_LOCK
     )
+    private var savedLocationData = SavedLocationData(emptyList(), false)
 
     private fun arePermissionsGranted(): Boolean {
         return permissions.all { permission ->
@@ -184,11 +185,16 @@ class MainActivity : ComponentActivity() {
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
             Log.d("MainActivity", "Drawing polyline")
+            val newPoints = locationChangeEventState.value.latLngs.map {
+                GeoPoint(it.latitude, it.longitude)
+            }
+            savedLocationData = SavedLocationData(newPoints, true)
             drawPolyline(locationChangeEventState.value)
         } else {
             Log.d("MainActivity", "Service not running, centering map")
+            savedLocationData = SavedLocationData(emptyList(), false)
             mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
-            mapView.controller.setZoom(15.0)
+            //mapView.controller.setZoom(15.0)
             mapView.invalidate()
         }
     }
@@ -240,12 +246,29 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun createMarker(firstLatLng: LatLng) {
+        if (!::marker.isInitialized) {
+            marker = Marker(mapView)
+        }
+
         val firstPoint = GeoPoint(firstLatLng.latitude, firstLatLng.longitude)
-        marker.position = firstPoint
-        marker.title = getString(R.string.marker_title)
-        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        marker.icon = ContextCompat.getDrawable(this, R.drawable.startflag)
-        mapView.overlays.add(marker)
+
+        // Remove existing marker if it exists
+        val existingMarker = mapView.overlays.find { it is Marker } as? Marker
+        if (existingMarker != null) {
+            mapView.overlays.remove(existingMarker)
+        }
+
+        if(!(firstPoint.latitude==0.0 && firstPoint.longitude==0.0)) {
+            marker.position = firstPoint
+            marker.title = getString(R.string.marker_title)
+            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            marker.icon = ContextCompat.getDrawable(this, R.drawable.ic_start_marker)
+            mapView.overlays.add(marker)
+            mapView.controller.setCenter(GeoPoint(firstPoint.latitude,firstPoint.longitude))
+        } else {
+            mapView.controller.setCenter(GeoPoint(0.0,0.0))
+        }
+        mapView.controller.setZoom(5.0)
         mapView.invalidate()
     }
 
@@ -383,6 +406,7 @@ class MainActivity : ComponentActivity() {
                 .fillMaxSize()
                 .padding(16.dp)
                 .verticalScroll(scrollState)
+                .background(Color.LightGray)
         ) {
             // Display actual statistics
             Text("Actual Statistics", style = MaterialTheme.typography.titleMedium)
@@ -668,6 +692,7 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
+                .background(Color.LightGray)
         ) {
             Text(
                 text = "Settings",
@@ -893,15 +918,13 @@ class MainActivity : ComponentActivity() {
                         setTileSource(customTileSource)
                         setMultiTouchControls(true)
 
-                        lastKnownLocation.value?.let { location ->
-                            controller.setCenter(location)
-                            controller.setZoom(mapZoom.value)
-                        } ?: mapCenter.value?.let { center ->
-                            controller.setCenter(center)
-                            controller.setZoom(mapZoom.value)
-                        } ?: run {
-                            controller.setCenter(GeoPoint(0.0, 0.0))
-                            controller.setZoom(5.0)
+                        if (savedLocationData.points.isNotEmpty()) {
+                            polyline = Polyline().apply {
+                                outlinePaint.strokeWidth = 10f
+                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                                setPoints(savedLocationData.points)
+                            }
+                            overlays.add(polyline)
                         }
 
                         polyline = Polyline().apply {
@@ -923,14 +946,36 @@ class MainActivity : ComponentActivity() {
                         overlays.add(mLocationOverlay)
                     }
                     marker = Marker(mapView)
+
+                    if (savedLocationData.points.isNotEmpty()) {
+                        createMarker(LatLng(
+                            savedLocationData.points[0].latitude,
+                            savedLocationData.points[0].longitude
+                        ))
+                    } else {
+                        createMarker(LatLng(0.0, 0.0))
+                    }
+
                     mapView
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = { mapView ->
-                    lastKnownLocation.value?.let { location ->
-                        mapView.controller.setCenter(location)
-                        mapView.controller.setZoom(mapZoom.value)
+                    // Update map when switching back to tab
+                    if (savedLocationData.points.isNotEmpty()) {
+                        val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
+                        if (oldPolyline != null) {
+                            mapView.overlays.remove(oldPolyline)
+                        }
+
+                        val newPolyline = Polyline().apply {
+                            outlinePaint.strokeWidth = 10f
+                            outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                            setPoints(savedLocationData.points)
+                        }
+                        mapView.overlays.add(newPolyline)
+                        polyline = newPolyline
                     }
+                    mapView.invalidate()
                 }
             )
 
@@ -966,7 +1011,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-
             // Stop Recording Button (shown only if recording)
             if (isRecording) {
                 Surface(
@@ -1287,7 +1331,7 @@ class MainActivity : ComponentActivity() {
             MapView(context).apply {
                 setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
-                controller.setZoom(15.0)
+                controller.setZoom(12.0)
             }
         }
 
@@ -1333,9 +1377,9 @@ class MainActivity : ComponentActivity() {
 
                     // Set bounds to show full route
                     val bounds = BoundingBox.fromGeoPoints(routePoints)
-                    map.zoomToBoundingBox(bounds, true)
+                    map.zoomToBoundingBox(bounds, true, 50, 17.0, 1L)
+                    map.controller.setCenter(GeoPoint(routePoints.first().latitude, routePoints.first().longitude))
                 }
-
                 map.invalidate()
             }
         }
@@ -1450,4 +1494,8 @@ class MainActivity : ComponentActivity() {
             override fun getIntrinsicHeight(): Int = size
         }
     }
+    data class SavedLocationData(
+        val points: List<GeoPoint>,
+        val isRecording: Boolean
+    )
 }
