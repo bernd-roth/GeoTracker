@@ -6,6 +6,12 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -34,6 +40,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -42,6 +49,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -98,9 +106,8 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
-import org.osmdroid.events.MapListener
-import org.osmdroid.events.ScrollEvent
-import org.osmdroid.events.ZoomEvent
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -150,7 +157,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Publisher/Subscriber
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onLocationEvent(event: LocationEvent) {
         Log.d(
@@ -329,6 +335,7 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun StatisticsScreenPreview(locationEventState: MutableState<LocationEvent?>, latLngs: List<LatLng> = emptyList()) {
+        val scrollState = rememberScrollState()
         val actualStatistics = locationEventState.value ?: LocationEvent(
             latitude = 0.0,
             longitude = 0.0,
@@ -375,6 +382,7 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
+                .verticalScroll(scrollState)
         ) {
             // Display actual statistics
             Text("Actual Statistics", style = MaterialTheme.typography.titleMedium)
@@ -617,6 +625,7 @@ class MainActivity : ComponentActivity() {
             Text("Event date: ${record.eventDate}", style = MaterialTheme.typography.bodyLarge)
             Text("Event name: ${record.eventName}", style = MaterialTheme.typography.bodyLarge)
             Text("Covered distance: ${"%.3f".format(record.distance/1000)} Km", style = MaterialTheme.typography.bodyLarge)
+            EventMapView(record = record)
         }
     }
 
@@ -1268,6 +1277,177 @@ class MainActivity : ComponentActivity() {
                     Toast.LENGTH_LONG
                 ).show()
             }
+        }
+    }
+
+    @Composable
+    fun EventMapView(record: SingleEventWithMetric) {
+        val context = LocalContext.current
+        val mapView = remember {
+            MapView(context).apply {
+                setTileSource(TileSourceFactory.MAPNIK)
+                setMultiTouchControls(true)
+                controller.setZoom(15.0)
+            }
+        }
+
+        var routePoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
+        val coroutineScope = rememberCoroutineScope()
+
+        LaunchedEffect(record.eventId) {
+            coroutineScope.launch {
+                routePoints = database.eventDao().getRoutePointsForEvent(record.eventId)
+                    .map { GeoPoint(it.latitude, it.longitude) }
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(200.dp)
+                .padding(vertical = 8.dp)
+        ) {
+            AndroidView(
+                factory = { mapView },
+                modifier = Modifier.fillMaxSize()
+            ) { map ->
+                map.overlays.clear()
+
+                if (routePoints.isNotEmpty()) {
+                    // Main polyline
+                    val polyline = Polyline().apply {
+                        outlinePaint.strokeWidth = 5f
+                        outlinePaint.color = android.graphics.Color.BLUE
+                        setPoints(routePoints)
+                    }
+                    map.overlays.add(polyline)
+
+                    // Add direction arrows
+                    addDirectionArrows(map, routePoints)
+
+                    // Add start marker
+                    addStartMarker(map, routePoints.first())
+
+                    // Add end marker
+                    addEndMarker(map, routePoints.last())
+
+                    // Set bounds to show full route
+                    val bounds = BoundingBox.fromGeoPoints(routePoints)
+                    map.zoomToBoundingBox(bounds, true)
+                }
+
+                map.invalidate()
+            }
+        }
+    }
+    private fun addStartMarker(mapView: MapView, startPoint: GeoPoint) {
+        val startMarker = Marker(mapView).apply {
+            position = startPoint
+            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_start_marker)
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            title = "Start"
+        }
+        mapView.overlays.add(startMarker)
+    }
+
+    private fun addEndMarker(mapView: MapView, endPoint: GeoPoint) {
+        val endMarker = Marker(mapView).apply {
+            position = endPoint
+            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_end_marker)
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            title = "End"
+        }
+        mapView.overlays.add(endMarker)
+    }
+
+    private fun addDirectionArrows(mapView: MapView, points: List<GeoPoint>) {
+        if (points.size < 2) return
+
+        val zoomLevel = mapView.zoomLevelDouble
+        // Adjust arrow size based on zoom level (smaller when zoomed out)
+        val arrowSize = (zoomLevel / 20.0 * 20).coerceIn(10.0, 30.0).toInt()
+
+        var totalDistance = 0.0
+        for (i in 0 until points.size - 1) {
+            totalDistance += points[i].distanceToAsDouble(points[i + 1])
+        }
+
+        // Adjust arrow spacing based on total distance
+        val arrowSpacing = totalDistance / (10 * (zoomLevel / 15)) // More arrows when zoomed in
+
+        var accumulatedDistance = 0.0
+        var nextArrowDistance = arrowSpacing
+
+        for (i in 0 until points.size - 1) {
+            val start = points[i]
+            val end = points[i + 1]
+            val segmentDistance = start.distanceToAsDouble(end)
+
+            while (accumulatedDistance + segmentDistance > nextArrowDistance) {
+                val ratio = (nextArrowDistance - accumulatedDistance) / segmentDistance
+                val arrowPoint = GeoPoint(
+                    start.latitude + (end.latitude - start.latitude) * ratio,
+                    start.longitude + (end.longitude - start.longitude) * ratio
+                )
+
+                val bearing = start.bearingTo(end)
+
+                val arrowMarker = Marker(mapView).apply {
+                    position = arrowPoint
+                    icon = createArrowDrawable(bearing, arrowSize)
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                }
+                mapView.overlays.add(arrowMarker)
+
+                nextArrowDistance += arrowSpacing
+            }
+            accumulatedDistance += segmentDistance
+        }
+    }
+
+    private fun createArrowDrawable(bearing: Double, size: Int): Drawable {
+        return object : Drawable() {
+            private val paint = Paint().apply {
+                color = android.graphics.Color.WHITE
+                style = Paint.Style.FILL
+                isAntiAlias = true
+                alpha = 180 // Semi-transparent arrows (about 70% opacity)
+            }
+
+            override fun draw(canvas: Canvas) {
+                val centerX = bounds.exactCenterX()
+                val centerY = bounds.exactCenterY()
+
+                canvas.save()
+                canvas.rotate(bearing.toFloat(), centerX, centerY)
+
+                // Scaled arrow shape
+                val arrowHeight = size.toFloat()
+                val arrowWidth = size * 0.6f
+
+                val path = Path().apply {
+                    moveTo(centerX, centerY - arrowHeight/2)  // Top point
+                    lineTo(centerX - arrowWidth/2, centerY + arrowHeight/2)  // Bottom left
+                    lineTo(centerX + arrowWidth/2, centerY + arrowHeight/2)  // Bottom right
+                    close()
+                }
+                canvas.drawPath(path, paint)
+
+                canvas.restore()
+            }
+
+            override fun setAlpha(alpha: Int) {
+                paint.alpha = alpha
+            }
+
+            override fun setColorFilter(colorFilter: ColorFilter?) {
+                paint.colorFilter = colorFilter
+            }
+
+            override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+
+            override fun getIntrinsicWidth(): Int = size
+            override fun getIntrinsicHeight(): Int = size
         }
     }
 }

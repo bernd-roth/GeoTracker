@@ -304,10 +304,11 @@ class ForegroundService : Service() {
                 distance = distance,
                 cadence = 0,
                 lap = lap,
-                timeInMilliseconds = System.currentTimeMillis(),
+                timeInMilliseconds = currentTimeMillis(),
                 unity = "metric"
             )
             database.metricDao().insertMetric(metric)
+            Log.d("ForegroundService: ", metric.timeInMilliseconds.toString())
 
             // Example location data
             val location = Location(

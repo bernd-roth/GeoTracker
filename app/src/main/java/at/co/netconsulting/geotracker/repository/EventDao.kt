@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker.repository
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import at.co.netconsulting.geotracker.data.RoutePoint
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.domain.Event
 
@@ -37,4 +38,15 @@ interface EventDao {
 
     @Query("DELETE FROM events")
     suspend fun deleteAllContent()
+
+    @Query("""
+            SELECT DISTINCT l.eventId, l.latitude, l.longitude
+                FROM locations l
+                JOIN metrics m ON l.eventId = m.eventId
+                WHERE l.eventId = :eventId 
+                AND l.latitude != 0.0 
+                AND l.longitude != 0.0
+                ORDER BY m.timeInMilliseconds
+            """)
+    suspend fun getRoutePointsForEvent(eventId: Int): List<RoutePoint>
 }
