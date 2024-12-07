@@ -25,5 +25,8 @@ data class Metric(
     val cadence: Int?,
     val lap: Int,
     val timeInMilliseconds: Long,
-    val unity: String
+    val unity: String,
+    val elevation: Float = 0f,
+    val elevationGain: Float = 0f,
+    val elevationLoss: Float = 0f
 )

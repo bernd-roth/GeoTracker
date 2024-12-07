@@ -116,8 +116,22 @@ import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import java.time.Instant
-import java.time.LocalDateTime
 import java.time.ZoneId
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import at.co.netconsulting.geotracker.domain.Location
+import at.co.netconsulting.geotracker.domain.Metric
+import java.io.File
+import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Element
+import org.w3c.dom.NodeList
+import java.io.FileOutputStream
+import java.time.Duration
+import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
@@ -151,6 +165,21 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.WAKE_LOCK
     )
     private var savedLocationData = SavedLocationData(emptyList(), false)
+    private lateinit var firstname: String
+    private lateinit var lastname: String
+    private lateinit var birthdate: String
+    private var height: Float = 0f
+    private var weight: Float = 0f
+    private val EARTH_RADIUS = 6371008.8
+
+    private fun loadSharedPreferences() {
+        val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        firstname = sharedPreferences.getString("firstname", "") ?: ""
+        lastname = sharedPreferences.getString("lastname", "") ?: ""
+        birthdate = sharedPreferences.getString("birthdate", "") ?: ""
+        height = sharedPreferences.getFloat("height", 0f)
+        weight = sharedPreferences.getFloat("weight", 0f)
+    }
 
     private fun arePermissionsGranted(): Boolean {
         return permissions.all { permission ->
@@ -335,7 +364,7 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.padding(paddingValues)) {
                         when (selectedTabIndex) {
                             0 -> MapScreen(mapCenter, mapZoom, lastKnownLocation)
-                            1 -> StatisticsScreenPreview(locationEventState = locationEventState)
+                            1 -> StatisticsScreenPreview(context = applicationContext, locationEventState = locationEventState)
                             2 -> SettingsScreen()
                         }
                     }
@@ -357,8 +386,9 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun StatisticsScreenPreview(locationEventState: MutableState<LocationEvent?>, latLngs: List<LatLng> = emptyList()) {
+    fun StatisticsScreenPreview(context: Context, locationEventState: MutableState<LocationEvent?>, latLngs: List<LatLng> = emptyList()) {
         val scrollState = rememberScrollState()
+        var showGPXDialog by remember { mutableStateOf(false) }
         val actualStatistics = locationEventState.value ?: LocationEvent(
             latitude = 0.0,
             longitude = 0.0,
@@ -373,7 +403,6 @@ class MainActivity : ComponentActivity() {
             averageSpeed = 0.0,
             locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs)
         )
-
         var users by remember { mutableStateOf<List<User>>(emptyList()) }
         var events by remember { mutableStateOf<List<Event>>(emptyList()) }
         var records by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
@@ -386,18 +415,34 @@ class MainActivity : ComponentActivity() {
         val coroutineScope = rememberCoroutineScope()
 
         suspend fun loadData() {
-            users = database.userDao().getAllUsers()
-            events = database.eventDao().getEventDateEventNameGroupByEventDate()
-            records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
+            try {
+                users = database.userDao().getAllUsers()
+                Log.d("Loaded", "${users.size} users") // Debug log
+
+                events = database.eventDao().getEventDateEventNameGroupByEventDate()
+                Log.d("Loaded", "${events.size} events") // Debug log
+
+                records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
+                Log.d("Loaded", "${records.size} records") // Debug log
+
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Log.d("Error", "loading data: ${e.message}") // Debug log
+            }
         }
 
         LaunchedEffect(Unit) {
-            loadData()
+            coroutineScope.launch {
+                loadData()
+            }
         }
 
+        // Handle expanded state changes
         LaunchedEffect(expanded) {
             if (expanded) {
-                loadData()
+                coroutineScope.launch {
+                    loadData()
+                }
             }
         }
 
@@ -458,8 +503,10 @@ class MainActivity : ComponentActivity() {
                     val filteredRecords = records.filter {
                         val eventNameMatch = it.eventName.contains(searchQuery, ignoreCase = true)
                         val eventDateMatch = it.eventDate.contains(searchQuery, ignoreCase = true)
-                        // Convert distance to Km
-                        val distanceMatch = ("%.3f".format(it.distance / 1000)).contains(searchQuery, ignoreCase = true)
+                        // Convert distance to Km, handle null distance
+                        val distanceMatch = it.distance?.let { distance ->
+                            "%.3f".format(distance / 1000).contains(searchQuery, ignoreCase = true)
+                        } ?: false
                         eventNameMatch || eventDateMatch || distanceMatch
                     }
 
@@ -496,9 +543,12 @@ class MainActivity : ComponentActivity() {
                                         style = MaterialTheme.typography.bodyLarge
                                     )
                                     Text(
-                                        text = "Covered distance: ${"%.3f".format(record.distance / 1000)} Km",
+                                        text = "Covered distance: ${"%.3f".format(record.distance?.div(
+                                            1000
+                                        ) ?: 0.0)} Km",
                                         style = MaterialTheme.typography.bodyMedium
                                     )
+                                    Log.d("Raw distance from record: ", "${record.distance}")
 
                                     if (selectedRecords.contains(record)) {
                                         Text(
@@ -582,8 +632,23 @@ class MainActivity : ComponentActivity() {
                             Text(
                                 text = "Export GPX files",
                                 style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.error),
-                                modifier = Modifier
-                                    .fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    )
+                    HorizontalDivider()
+                    DropdownMenuItem(
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            showGPXDialog = true
+                            expanded = false  // Close the dropdown when opening dialog
+                        },
+                        text = {
+                            Text(
+                                text = "Import GPX files",
+                                style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.error),
+                                modifier = Modifier.fillMaxWidth(),
                                 textAlign = TextAlign.Center
                             )
                         }
@@ -598,6 +663,94 @@ class MainActivity : ComponentActivity() {
                 SelectedEventPanel(record)
             }
         }
+
+        if (showGPXDialog) {
+            GPXFileSelectionDialog(
+                context = context,
+                onDismissRequest = { showGPXDialog = false },
+                onFileSelected = { file ->
+                    coroutineScope.launch {
+                        importGPXFile(
+                            file = file,
+                            database = database,
+                            onComplete = { success ->
+                                if (success) {
+                                    coroutineScope.launch {
+                                        loadData()
+                                    }
+                                }
+                                showGPXDialog = false
+                            }
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    @Composable
+    fun GPXFileSelectionDialog(
+        context: Context, // Add context parameter
+        onDismissRequest: () -> Unit,
+        onFileSelected: (File) -> Unit
+    ) {
+        var showError by remember { mutableStateOf(false) }
+
+        // Function to convert Uri to File
+        fun uriToFile(uri: Uri): File? {
+            return try {
+                // Create a temporary file
+                val tempFile = File(context.cacheDir, "temp_gpx_file.gpx")
+
+                // Copy the URI content to the temporary file
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                tempFile
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+        }
+
+        val launcher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri ->
+            uri?.let { selectedUri ->
+                // Convert URI to File and handle the selection
+                uriToFile(selectedUri)?.let { file ->
+                    onFileSelected(file)
+                } ?: run {
+                    showError = true
+                }
+            }
+        }
+
+        AlertDialog(
+            onDismissRequest = onDismissRequest,
+            title = { Text("Select GPX File") },
+            text = {
+                if (showError) {
+                    Text("Error importing GPX file. Please try again.")
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        launcher.launch("*/*") // Changed to accept all file types since GPX mime type might not be recognized
+                    }
+                ) {
+                    Text("Choose File")
+                }
+            },
+            dismissButton = {
+                Button(onClick = onDismissRequest) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     private fun exportGPX() {
@@ -648,7 +801,7 @@ class MainActivity : ComponentActivity() {
         Column(modifier = Modifier.padding(8.dp)) {
             Text("Event date: ${record.eventDate}", style = MaterialTheme.typography.bodyLarge)
             Text("Event name: ${record.eventName}", style = MaterialTheme.typography.bodyLarge)
-            Text("Covered distance: ${"%.3f".format(record.distance/1000)} Km", style = MaterialTheme.typography.bodyLarge)
+            Text("Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km", style = MaterialTheme.typography.bodyLarge)
             EventMapView(record = record)
         }
     }
@@ -1273,6 +1426,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        loadSharedPreferences()
+
         if (!arePermissionsGranted()) {
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
@@ -1329,7 +1484,8 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
         val mapView = remember {
             MapView(context).apply {
-                setTileSource(TileSourceFactory.MAPNIK)
+                //setTileSource(TileSourceFactory.MAPNIK)
+                setTileSource(customTileSource)
                 setMultiTouchControls(true)
                 controller.setZoom(12.0)
             }
@@ -1494,8 +1650,199 @@ class MainActivity : ComponentActivity() {
             override fun getIntrinsicHeight(): Int = size
         }
     }
+
+    suspend fun importGPXFile(
+        file: File,
+        database: FitnessTrackerDatabase,
+        onComplete: (Boolean) -> Unit
+    ) {
+        try {
+            // First, check if we have any user in the database
+            val users = database.userDao().getAllUsers()
+            val userId = if (users.isEmpty()) {
+                // Create a default user if none exists
+                val defaultUser = User(
+                    firstName = "Default",
+                    lastName = "User",
+                    birthDate = "2000-01-01",
+                    weight = 70.0f,
+                    height = 170.0f
+                )
+                database.userDao().insertUser(defaultUser).toInt()
+            } else {
+                // Use the first user's ID
+                users[0].userId
+            }
+
+            val dbf = DocumentBuilderFactory.newInstance()
+            val db = dbf.newDocumentBuilder()
+            val doc = db.parse(file)
+            doc.documentElement.normalize()
+
+            val trackNodes = doc.getElementsByTagName("trk")
+            if (trackNodes.length == 0) {
+                onComplete(false)
+                return
+            }
+
+            val track = trackNodes.item(0) as Element
+            val name = track.getElementsByTagName("name").item(0).textContent
+
+            val trackpoints = track.getElementsByTagName("trkpt")
+            if (trackpoints.length == 0) {
+                onComplete(false)
+                return
+            }
+
+            val firstPoint = trackpoints.item(0) as Element
+            val timeStr = firstPoint.getElementsByTagName("time").item(0).textContent
+            val dateTime = LocalDateTime.parse(timeStr.removeSuffix("Z"), DateTimeFormatter.ISO_DATE_TIME)
+            val eventDate = dateTime.toLocalDate().toString()
+
+            // Create event
+            val event = Event(
+                userId = userId.toLong(),
+                eventName = name,
+                eventDate = eventDate,
+                artOfSport = "Not Specified",
+                comment = "Imported from GPX"
+            )
+            val eventId = database.eventDao().insertEvent(event).toInt()
+
+            // Lists to store locations and metrics
+            val locations = mutableListOf<Location>()
+            val metrics = mutableListOf<Metric>()
+
+            var totalDistance = 0.0
+            var prevLat = 0.0
+            var prevLon = 0.0
+            var prevEle = 0.0
+            var prevTime: Instant? = null
+            var totalElevationGain = 0.0
+            var totalElevationLoss = 0.0
+
+            // Process trackpoints
+            for (i in 0 until trackpoints.length) {
+                val trkpt = trackpoints.item(i) as Element
+                val lat = trkpt.getAttribute("lat").toDouble()
+                val lon = trkpt.getAttribute("lon").toDouble()
+                val ele = trkpt.getElementsByTagName("ele")?.item(0)?.textContent?.toDoubleOrNull() ?: 0.0
+                val currentTimeStr = trkpt.getElementsByTagName("time").item(0).textContent
+                val currentTime = Instant.parse(currentTimeStr)
+
+                // Add location
+                locations.add(
+                    Location(
+                        eventId = eventId,
+                        latitude = lat,
+                        longitude = lon,
+                        altitude = ele
+                    )
+                )
+
+                    // Calculate metrics
+                    if (prevLat != 0.0 && prevLon != 0.0) {
+                        val horizontalDistance = calculateDistance(prevLat, prevLon, lat, lon)
+                        val verticalDistance = ele - prevEle
+                        val segmentDistance = calculateDistance(prevLat, prevLon, prevEle, lat, lon, ele)
+
+                        Log.d("Point: Horizontal=", "$horizontalDistance, Vertical=$verticalDistance, Total=$segmentDistance")
+                        Log.d("Coordinates: ", "($prevLat,$prevLon,$prevEle) -> ($lat,$lon,$ele)")
+
+                        totalDistance += segmentDistance
+                        Log.d("Total distance so far: ", "$totalDistance")
+
+                    // Calculate elevation changes
+                    val elevationDiff = ele - prevEle
+                    if (elevationDiff > 0) {
+                        totalElevationGain += elevationDiff
+                    } else {
+                        totalElevationLoss += -elevationDiff
+                    }
+
+                    val duration = Duration.between(prevTime, currentTime)
+                    val speedMPS = if (duration.seconds > 0) {
+                        segmentDistance / duration.seconds
+                    } else 0.0f
+
+                    // Create metric entry with elevation data
+                    metrics.add(
+                        Metric(
+                            eventId = eventId,
+                            heartRate = 0, // No heart rate data in basic GPX
+                            heartRateDevice = "None",
+                            speed = speedMPS.toFloat(),
+                            distance = totalDistance,
+                            cadence = null,
+                            lap = 1,
+                            timeInMilliseconds = duration.toMillis(),
+                            unity = "metric",
+                            elevation = ele.toFloat(),
+                            elevationGain = totalElevationGain.toFloat(),
+                            elevationLoss = totalElevationLoss.toFloat()
+                        )
+                    )
+                }
+
+                prevLat = lat
+                prevLon = lon
+                prevEle = ele
+                prevTime = currentTime
+            }
+
+            // Insert all data
+            database.locationDao().insertAll(locations)
+            database.metricDao().insertAll(metrics)
+
+            val metricsDebug = database.metricDao().getMetricsForEvent(eventId)
+            metricsDebug.forEach { metric ->
+                println("Metric ID: ${metric.metricId}, Time: ${metric.timeInMilliseconds}, Distance: ${metric.distance}")
+            }
+
+            onComplete(true)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            onComplete(false)
+        }
+    }
+    fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val rad = Math.PI / 180
+        val φ1 = lat1 * rad
+        val φ2 = lat2 * rad
+
+        // Using exact same formula as GPX Studio
+        val a = kotlin.math.sin(φ1) * kotlin.math.sin(φ2) +
+                kotlin.math.cos(φ1) * kotlin.math.cos(φ2) *
+                kotlin.math.cos((lon2 - lon1) * rad)
+
+        // Important: use coerceAtMost(1.0) just like GPX Studio's Math.min(a, 1)
+        return EARTH_RADIUS * kotlin.math.acos(a.coerceAtMost(1.0))
+    }
+
+    // Overload that includes elevation
+    fun calculateDistance(
+        lat1: Double, lon1: Double, ele1: Double,
+        lat2: Double, lon2: Double, ele2: Double
+    ): Double {
+        // First calculate horizontal distance
+        val horizontalDistance = calculateDistance(lat1, lon1, lat2, lon2)
+
+        // Calculate elevation difference
+        val verticalDistance = ele2 - ele1
+
+        // Use Pythagorean theorem to get true 3D distance
+        return kotlin.math.sqrt(horizontalDistance * horizontalDistance +
+                verticalDistance * verticalDistance)
+    }
+
     data class SavedLocationData(
         val points: List<GeoPoint>,
         val isRecording: Boolean
+    )
+
+    data class GpsPoint(
+        val lat: Double,
+        val lon: Double,
+        val elevation: Double? = null
     )
 }

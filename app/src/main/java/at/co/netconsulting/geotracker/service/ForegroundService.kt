@@ -305,7 +305,10 @@ class ForegroundService : Service() {
                 cadence = 0,
                 lap = lap,
                 timeInMilliseconds = currentTimeMillis(),
-                unity = "metric"
+                unity = "metric",
+                elevation = 0f,
+                elevationGain = 0f,
+                elevationLoss = 0f
             )
             database.metricDao().insertMetric(metric)
             Log.d("ForegroundService: ", metric.timeInMilliseconds.toString())

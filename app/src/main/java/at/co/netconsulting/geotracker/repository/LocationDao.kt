@@ -12,4 +12,7 @@ interface LocationDao {
 
     @Query("SELECT * FROM locations WHERE eventId = :eventId ORDER BY locationId DESC LIMIT 1")
     suspend fun getLastLocationByEvent(eventId: Int): Location?
+
+    @Insert
+    suspend fun insertAll(locations: List<Location>)
 }
