@@ -119,12 +119,24 @@ import java.time.Instant
 import java.time.ZoneId
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.requiredSizeIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.window.Dialog
+import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.tools.Tools
 import java.io.File
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
@@ -408,6 +420,7 @@ class MainActivity : ComponentActivity() {
         var records by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
         var expanded by remember { mutableStateOf(false) }
         var selectedRecords by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
+        var lapTimesMap by remember { mutableStateOf<Map<Int, List<LapTimeInfo>>>(emptyMap()) }
 
         // Search state
         var searchQuery by remember { mutableStateOf("") }
@@ -417,17 +430,21 @@ class MainActivity : ComponentActivity() {
         suspend fun loadData() {
             try {
                 users = database.userDao().getAllUsers()
-                Log.d("Loaded", "${users.size} users") // Debug log
+                Log.d("Loaded", "${users.size} users")
 
                 events = database.eventDao().getEventDateEventNameGroupByEventDate()
-                Log.d("Loaded", "${events.size} events") // Debug log
+                Log.d("Loaded", "${events.size} events")
 
                 records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
-                Log.d("Loaded", "${records.size} records") // Debug log
+                Log.d("Loaded", "${records.size} records")
+
+                // Load lap times separately
+                lapTimesMap = database.eventDao().getLapTimesForEvents()
+                    .groupBy { it.eventId }
 
             } catch (e: Exception) {
                 e.printStackTrace()
-                Log.d("Error", "loading data: ${e.message}") // Debug log
+                Log.d("Error", "loading data: ${e.message}")
             }
         }
 
@@ -461,198 +478,231 @@ class MainActivity : ComponentActivity() {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // Dropdown menu for selecting events
+            // Event selector
             Text(text = "Select an event", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
-            ExposedDropdownMenuBox(
-                expanded = expanded,
-                onExpandedChange = { isExpanded ->
-                    expanded = isExpanded
-                }
-            ) {
-                OutlinedTextField(
-                    value = selectedRecords.joinToString(", ") { it.eventName },
-                    onValueChange = { /* No-op */ },
-                    readOnly = true,
-                    modifier = Modifier.menuAnchor(),
-                    trailingIcon = {
+            OutlinedTextField(
+                value = selectedRecords.joinToString(", ") { it.eventName },
+                onValueChange = { /* No-op */ },
+                readOnly = true,
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    IconButton(onClick = { expanded = true }) {
                         Icon(
                             imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                             contentDescription = null
                         )
                     }
-                )
+                }
+            )
 
-                // DropdownMenu with search filter
-                DropdownMenu(
-                    expanded = expanded,
+            if (expanded) {
+                Dialog(
                     onDismissRequest = { expanded = false }
                 ) {
-                    // Search field for filtering
-                    OutlinedTextField(
-                        value = searchQuery,
-                        onValueChange = { query -> searchQuery = query },
-                        label = { Text("Search event") },
+                    Surface(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(8.dp)
-                    )
-
-                    // Filter the records based on the search query, checking all relevant fields
-                    val filteredRecords = records.filter {
-                        val eventNameMatch = it.eventName.contains(searchQuery, ignoreCase = true)
-                        val eventDateMatch = it.eventDate.contains(searchQuery, ignoreCase = true)
-                        // Convert distance to Km, handle null distance
-                        val distanceMatch = it.distance?.let { distance ->
-                            "%.3f".format(distance / 1000).contains(searchQuery, ignoreCase = true)
-                        } ?: false
-                        eventNameMatch || eventDateMatch || distanceMatch
-                    }
-
-                    filteredRecords.forEach { record ->
-                        DropdownMenuItem(
+                            .width(400.dp)
+                            .heightIn(max = 600.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .then(
-                                    // Highlight selected rows
-                                    if (selectedRecords.contains(record)) {
-                                        // background color for highlighting
-                                        Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                                .verticalScroll(rememberScrollState())
+                                .padding(vertical = 8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = searchQuery,
+                                onValueChange = { query -> searchQuery = query },
+                                label = { Text("Search event") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+
+                            val filteredRecords = records.filter {
+                                val eventNameMatch = it.eventName.contains(searchQuery, ignoreCase = true)
+                                val eventDateMatch = it.eventDate.contains(searchQuery, ignoreCase = true)
+                                val distanceMatch = it.distance?.let { distance ->
+                                    "%.3f".format(distance / 1000).contains(searchQuery, ignoreCase = true)
+                                } ?: false
+                                eventNameMatch || eventDateMatch || distanceMatch
+                            }
+
+                            filteredRecords.forEach { record ->
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                                        .clickable {
+                                            selectedRecords = if (selectedRecords.contains(record)) {
+                                                selectedRecords.filter { it != record }
+                                            } else {
+                                                selectedRecords + record
+                                            }
+                                        },
+                                    color = if (selectedRecords.contains(record)) {
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                                     } else {
-                                        Modifier
+                                        MaterialTheme.colorScheme.surface
                                     }
-                                ),
-                            onClick = {
-                                selectedRecords = if (selectedRecords.contains(record)) {
-                                    selectedRecords.filter { it != record } // Remove if already selected
-                                } else {
-                                    selectedRecords + record // Add if not selected
-                                }
-                            },
-                            text = {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = "Date: ${record.eventDate}",
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                    Text(
-                                        text = "Event name: ${record.eventName}",
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                    Text(
-                                        text = "Covered distance: ${"%.3f".format(record.distance?.div(
-                                            1000
-                                        ) ?: 0.0)} Km",
-                                        style = MaterialTheme.typography.bodyMedium
-                                    )
-                                    Log.d("Raw distance from record: ", "${record.distance}")
-
-                                    if (selectedRecords.contains(record)) {
-                                        Text(
-                                            text = "Selected",
-                                            style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.primary)
-                                        )
-                                    }
-
-                                    Row(
+                                    Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState())
-                                            .padding(vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(1.dp)
+                                            .padding(8.dp)
                                     ) {
-                                        Button(
-                                            onClick = {
-                                                coroutineScope.launch {
-                                                    delete(record.eventId)
-                                                    records = records.filter { it.eventId != record.eventId }
+                                        Text(
+                                            text = "Date: ${record.eventDate}",
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                        Text(
+                                            text = "Event name: ${record.eventName}",
+                                            style = MaterialTheme.typography.bodyLarge
+                                        )
+                                        Text(
+                                            text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+
+                                        // Lap times table
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 8.dp)
+                                        ) {
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                    .padding(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Lap",
+                                                    modifier = Modifier.weight(1f),
+                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                                )
+                                                Text(
+                                                    text = "Time",
+                                                    modifier = Modifier.weight(2f),
+                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                                )
+                                            }
+
+                                            lapTimesMap[record.eventId]?.forEach { lapTime ->
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = lapTime.lapNumber.toString(),
+                                                        modifier = Modifier.weight(1f),
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                    Text(
+                                                        text = Tools().formatTime(lapTime.timeInMillis),
+                                                        modifier = Modifier.weight(2f),
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
                                                 }
                                             }
-                                        ) {
-                                            Text(text = "Delete")
                                         }
-                                        Spacer(modifier = Modifier.width(2.dp))
-                                        Button(
-                                            onClick = {
-                                                coroutineScope.launch {
-                                                    export(record.eventId)
-                                                }
-                                            }
-                                        ) {
-                                            Text(text = "Export")
+
+                                        if (selectedRecords.contains(record)) {
+                                            Text(
+                                                text = "Selected",
+                                                style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.primary)
+                                            )
                                         }
-                                        Spacer(modifier = Modifier.width(2.dp))
-                                        Button(
-                                            onClick = {
-                                                coroutineScope.launch {
-                                                    edit(record.eventId)
-                                                }
-                                            }
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState())
+                                                .padding(vertical = 8.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
-                                            Text(text = "Edit")
+                                            Button(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        delete(record.eventId)
+                                                        records = records.filter { it.eventId != record.eventId }
+                                                    }
+                                                }
+                                            ) {
+                                                Text(text = "Delete")
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        export(record.eventId)
+                                                    }
+                                                }
+                                            ) {
+                                                Text(text = "Export")
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    coroutineScope.launch {
+                                                        edit(record.eventId)
+                                                    }
+                                                }
+                                            ) {
+                                                Text(text = "Edit")
+                                            }
                                         }
                                     }
                                 }
                             }
-                        )
+
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                            // Footer actions
+                            Column(
+                                modifier = Modifier.padding(horizontal = 16.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            deleteContentAllTables()
+                                            records = emptyList()
+                                            expanded = false
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(text = "Delete content of all tables")
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            exportGPX()
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(text = "Export GPX files")
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Button(
+                                    onClick = {
+                                        showGPXDialog = true
+                                        expanded = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(text = "Import GPX files")
+                                }
+                            }
+                        }
                     }
-
-                    HorizontalDivider()
-
-                    DropdownMenuItem(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            coroutineScope.launch {
-                                deleteContentAllTables()
-                                records = emptyList()
-                            }
-                        },
-                        text = {
-                            Text(
-                                text = "Delete content of all tables",
-                                style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.error),
-                                modifier = Modifier
-                                    .fillMaxWidth(),
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            coroutineScope.launch {
-                                exportGPX()
-                            }
-                        },
-                        text = {
-                            Text(
-                                text = "Export GPX files",
-                                style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.error),
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    )
-                    HorizontalDivider()
-                    DropdownMenuItem(
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            showGPXDialog = true
-                            expanded = false  // Close the dropdown when opening dialog
-                        },
-                        text = {
-                            Text(
-                                text = "Import GPX files",
-                                style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.error),
-                                modifier = Modifier.fillMaxWidth(),
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    )
                 }
             }
 
@@ -806,6 +856,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    fun saveAllSettings(
+        sharedPreferences: SharedPreferences,
+        firstName: String,
+        lastName: String,
+        birthDate: String,
+        height: Float,
+        weight: Float,
+        websocketserver: String,
+        selectedOption: String,
+        option1Text: String,
+        option2Text: String
+    ) {
+        sharedPreferences.edit().apply {
+            putString("firstname", firstName)
+            putString("lastname", lastName)
+            putString("birthdate", birthDate)
+            putFloat("height", height)
+            putFloat("weight", weight)
+            putString("websocketserver", websocketserver)
+            putString("selectedOption", selectedOption)
+            putString("option1Text", option1Text)
+            putString("option2Text", option2Text)
+            apply()
+        }
+    }
+
+    fun getSelectedOptionText(selectedOption: String, option1Text: String, option2Text: String): String {
+        return if (selectedOption == "option1") option1Text else option2Text
+    }
+
     @Composable
     fun SettingsScreen() {
         val context = LocalContext.current
@@ -817,33 +897,37 @@ class MainActivity : ComponentActivity() {
         var isBatteryOptimizationIgnoredState by remember { mutableStateOf(savedState) }
 
         var firstName by remember {
-            mutableStateOf(
-                sharedPreferences.getString("firstname", "") ?: ""
-            )
+            mutableStateOf(sharedPreferences.getString("firstname", "") ?: "")
         }
         var lastName by remember {
-            mutableStateOf(
-                sharedPreferences.getString("lastname", "") ?: ""
-            )
+            mutableStateOf(sharedPreferences.getString("lastname", "") ?: "")
         }
         var birthDate by remember {
-            mutableStateOf(
-                sharedPreferences.getString("birthdate", "") ?: ""
-            )
+            mutableStateOf(sharedPreferences.getString("birthdate", "") ?: "")
         }
         var height by remember { mutableStateOf(sharedPreferences.getFloat("height", 0f)) }
         var weight by remember { mutableStateOf(sharedPreferences.getFloat("weight", 0f)) }
-        var websocketserver by remember { mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "") }
+        var websocketserver by remember {
+            mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "")
+        }
 
-        // Check if the app is ignored by battery optimization
+        var selectedOption by remember {
+            mutableStateOf(sharedPreferences.getString("selectedOption", "option1") ?: "option1")
+        }
+        var option1Text by remember {
+            mutableStateOf(sharedPreferences.getString("option1Text", "") ?: "")
+        }
+        var option2Text by remember {
+            mutableStateOf(sharedPreferences.getString("option2Text", "") ?: "")
+        }
+
         val isBatteryOptimized = isBatteryOptimizationIgnored(context)
-
-        // State for the switch (shows if app is excluded from battery optimizations)
         var isOptimized by remember { mutableStateOf(isBatteryOptimized) }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp)
                 .background(Color.LightGray)
         ) {
@@ -853,7 +937,6 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
-            // Display other settings like firstname, last name, etc.
             OutlinedTextField(
                 value = firstName,
                 onValueChange = { firstName = it },
@@ -879,9 +962,9 @@ class MainActivity : ComponentActivity() {
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
-                value = height.toString(), // Convert Float to String
+                value = height.toString(),
                 onValueChange = { input ->
-                    height = input.toFloatOrNull() ?: height // Safely convert input to Float
+                    height = input.toFloatOrNull() ?: height
                 },
                 label = { Text("Height (cm)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -890,9 +973,9 @@ class MainActivity : ComponentActivity() {
             Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedTextField(
-                value = weight.toString(), // Convert Float to String
+                value = weight.toString(),
                 onValueChange = { input ->
-                    weight = input.toFloatOrNull() ?: weight // Safely convert input to Float
+                    weight = input.toFloatOrNull() ?: weight
                 },
                 label = { Text("Weight (kg)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -903,13 +986,12 @@ class MainActivity : ComponentActivity() {
             OutlinedTextField(
                 value = websocketserver,
                 onValueChange = { websocketserver = it },
-                label = { Text("Websocket ip adress") },
+                label = { Text("Websocket ip address") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                 modifier = Modifier.fillMaxWidth()
             )
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Battery Optimization Toggle
             Text(
                 text = "Battery Optimization",
                 style = MaterialTheme.typography.bodyLarge,
@@ -919,31 +1001,91 @@ class MainActivity : ComponentActivity() {
                 checked = isBatteryOptimizationIgnoredState,
                 onCheckedChange = { isChecked ->
                     isBatteryOptimizationIgnoredState = isChecked
-                    // Save the switch state to SharedPreferences
-                    sharedPreferences.edit().putBoolean("batteryOptimizationState", isChecked).apply()
+                    sharedPreferences.edit()
+                        .putBoolean("batteryOptimizationState", isChecked)
+                        .apply()
 
-                    // If the user switches the setting, update accordingly
                     if (isChecked) {
                         requestIgnoreBatteryOptimizations(context)
                     } else {
-                        // When the user wants to disable background optimization,
-                        // the system might not immediately reflect it
-                        Toast.makeText(context, "Background usage might still be enabled. Please disable manually.", Toast.LENGTH_LONG).show()
+                        Toast.makeText(
+                            context,
+                            "Background usage might still be enabled. Please disable manually.",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
             )
-            // Save Button
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Choose an Option",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedOption == "option1",
+                        onClick = { selectedOption = "option1" }
+                    )
+                    OutlinedTextField(
+                        value = option1Text,
+                        onValueChange = { option1Text = it },
+                        label = { Text("Option 1 Details") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    RadioButton(
+                        selected = selectedOption == "option2",
+                        onClick = { selectedOption = "option2" }
+                    )
+                    OutlinedTextField(
+                        value = option2Text,
+                        onValueChange = { option2Text = it },
+                        label = { Text("Option 2 Details") },
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Button(
                 onClick = {
-                    saveToSharedPreferences(
+                    saveAllSettings(
                         sharedPreferences,
                         firstName,
                         lastName,
                         birthDate,
                         height,
                         weight,
-                        websocketserver
+                        websocketserver,
+                        selectedOption,
+                        option1Text,
+                        option2Text
                     )
+
+                    Toast.makeText(context, "All settings saved", Toast.LENGTH_SHORT).show()
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -952,22 +1094,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun isBatteryOptimizationIgnored(context: Context): Boolean {
+    private fun isBatteryOptimizationIgnored(context: Context): Boolean {
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            !powerManager.isIgnoringBatteryOptimizations(context.packageName)
-        } else {
-            true
-        }
+        val packageName = context.packageName
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
     }
 
-    fun requestIgnoreBatteryOptimizations(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                data = Uri.parse("package:${context.packageName}")
-            }
-            context.startActivity(intent)
+    private fun requestIgnoreBatteryOptimizations(context: Context) {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
         }
+        context.startActivity(intent)
     }
 
     private fun saveToSharedPreferences(
@@ -1794,10 +1931,10 @@ class MainActivity : ComponentActivity() {
             database.locationDao().insertAll(locations)
             database.metricDao().insertAll(metrics)
 
-            val metricsDebug = database.metricDao().getMetricsForEvent(eventId)
-            metricsDebug.forEach { metric ->
-                println("Metric ID: ${metric.metricId}, Time: ${metric.timeInMilliseconds}, Distance: ${metric.distance}")
-            }
+//            val metricsDebug = database.metricDao().getMetricsForEvent(eventId)
+//            metricsDebug.forEach { metric ->
+//                println("Metric ID: ${metric.metricId}, Time: ${metric.timeInMilliseconds}, Distance: ${metric.distance}")
+//            }
 
             onComplete(true)
         } catch (e: Exception) {

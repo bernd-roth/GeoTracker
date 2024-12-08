@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker.repository
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.RoutePoint
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.domain.Event
@@ -74,4 +75,30 @@ interface EventDao {
         ORDER BY l.locationId
     """)
     suspend fun getRoutePointsForEvent(eventId: Int): List<RoutePoint>
+
+    @Query("""
+    WITH DistanceLaps AS (
+        SELECT 
+            m.eventId,
+            CAST((m.distance / 1000) AS INTEGER) as lapNumber,
+            MIN(m.timeInMilliseconds) as startTime,
+            MAX(m.timeInMilliseconds) as endTime
+        FROM metrics m
+        WHERE m.distance >= 1000
+        GROUP BY m.eventId, CAST((m.distance / 1000) AS INTEGER)
+    )
+    SELECT 
+        dl.eventId,
+        dl.lapNumber,
+        (dl.endTime - dl.startTime) as timeInMillis
+    FROM DistanceLaps dl
+    JOIN events e ON dl.eventId = e.eventId
+    JOIN User u ON e.userId = u.userId
+    ORDER BY 
+        CASE WHEN e.eventDate = '' THEN 1 ELSE 0 END,  -- Put empty dates at the end
+        e.eventDate DESC,                              -- Sort non-empty dates descending
+        dl.eventId, 
+        dl.lapNumber
+""")
+    suspend fun getLapTimesForEvents(): List<LapTimeInfo>
 }
