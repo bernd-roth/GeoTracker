@@ -12,12 +12,19 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.tools.Tools
 import com.google.android.gms.maps.model.LatLng
+import com.google.gson.Gson
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
+import okio.ByteString
 import org.greenrobot.eventbus.EventBus
+import timber.log.Timber
 import java.time.Duration
 import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import com.google.gson.Gson;
 
 class CustomLocationListener: LocationListener {
     private lateinit var totalDateTime: LocalDateTime
@@ -32,6 +39,22 @@ class CustomLocationListener: LocationListener {
     private var averageSpeed : Double = 0.0
     private val latLngs = mutableListOf<LatLng>()
     data class LocationChangeEvent(val latLngs: List<LatLng>)
+    private var webSocket: WebSocket? = null
+    private var fellowRunnerPerson: String? = null
+    private var fellowRunnerSessionId: String? = null
+    private val currentLatitude : Double = 0.0
+    private val currentLongitude : Double = 0.0
+    private val altitude : Double = 0.0
+    private var fellowRunnerLatitude : Double = 0.0
+    private var fellowRunnerLongitude : Double = 0.0
+    private var fellowRunnerCurrentSpeed : Double = 0.0
+    private var person : String = ""
+    private var fellowRunnerCoveredDistance : Float = 0.0f
+    private lateinit var firstname: String
+    private lateinit var lastname: String
+    private lateinit var birthdate: String
+    private var height: Float = 0f
+    private var weight: Float = 0f
 
     constructor(context: Context) {
         this.context = context
@@ -40,6 +63,17 @@ class CustomLocationListener: LocationListener {
     fun startListener() {
         createLocationManager()
         createLocationUpdates()
+        loadSharedPreferences()
+        getLatitudeLongitudeFromOtherRunner()
+    }
+
+    private fun loadSharedPreferences() {
+        val sharedPreferences = this.context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        firstname = sharedPreferences.getString("firstname", "") ?: ""
+        lastname = sharedPreferences.getString("lastname", "") ?: ""
+        birthdate = sharedPreferences.getString("birthdate", "") ?: ""
+        height = sharedPreferences.getFloat("height", 0f)
+        weight = sharedPreferences.getFloat("weight", 0f)
     }
 
     private fun createLocationUpdates() {
@@ -94,31 +128,23 @@ class CustomLocationListener: LocationListener {
                     //send data to websocketserver
                     val json: String = Gson().toJson(
                         FellowRunner(
-                            "Bernd",
-                            1,
+                            firstname,
+                            firstname,
                             location.latitude,
                             location.longitude,
-                            coveredDistance,
+                            coveredDistance.toString(),
                             (it.speed / 1000) * 3600,
-                            it.altitude,
-                            formattedTimestamp = formatCurrentTimestamp()
+                            it.altitude.toString(),
+                            formattedTimestamp = Tools().formatCurrentTimestamp()
                         )
                     )
+                    //send json via websocket to server
+                    webSocket!!.send(json)
                 } else {
                     Log.d("CustomLocationListener", "Duplicate coordinates ignored")
                 }
             }
         }
-    }
-
-    private fun formatCurrentTimestamp(): String {
-        // Get the current date and time
-        var now = LocalDateTime.now()
-        // Define the desired format
-        var formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
-        // Format the timestamp
-        var formattedTimestamp = now.format(formatter)
-        return formattedTimestamp
     }
 
     private fun calculateAverageSpeed(coveredDistance: Double): Double{
@@ -191,9 +217,75 @@ class CustomLocationListener: LocationListener {
         return speed >= thresholdInMetersPerSecond
     }
 
+    private fun getLatitudeLongitudeFromOtherRunner() {
+        val client = OkHttpClient()
+
+        val request = Request.Builder()
+            .url("ws://62.178.111.184:8011/runningtracker")
+            .build()
+
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                super.onMessage(webSocket, bytes)
+                Timber.tag(TAG_WEBSOCKET).d("Received binary message: ${bytes.hex()}")
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                super.onMessage(webSocket, text)
+
+                Timber.tag(TAG_WEBSOCKET).d("Raw JSON: $text")
+
+                val fellowRunner = Gson().fromJson(text, FellowRunner::class.java)
+
+                fellowRunnerPerson = fellowRunner.person
+                if (fellowRunnerPerson != person) {
+                    fellowRunnerSessionId = fellowRunner.sessionId.toString()
+                    fellowRunnerLatitude = fellowRunner.latitude
+                    fellowRunnerLongitude = fellowRunner.longitude
+                    fellowRunnerCoveredDistance = fellowRunner.distance.toFloat()
+                    fellowRunnerCurrentSpeed = fellowRunner.speed.toDouble()
+                }
+
+                Timber.tag(TAG_WEBSOCKET).d("""
+                    Fellow runner:
+                    Person: ${fellowRunner.person}
+                    sessionId: ${fellowRunner.sessionId}
+                    Latitude: ${fellowRunner.latitude}
+                    Longitude: ${fellowRunner.longitude}
+                    Distance: ${fellowRunner.distance}
+                    Current Speed: ${fellowRunner.speed}
+                    Altitude: ${fellowRunner.altitude}
+                    Timestamp: ${fellowRunner.formattedTimestamp}
+                """.trimIndent())
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                super.onFailure(webSocket, t, response)
+                Timber.tag(TAG_WEBSOCKET).e(t, "WebSocket connection failed")
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                super.onClosing(webSocket, code, reason)
+                Timber.tag(TAG_WEBSOCKET).d("WebSocket connection closing: $reason")
+                webSocket.close(1000, null)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                super.onClosed(webSocket, code, reason)
+                Timber.tag(TAG_WEBSOCKET).d("WebSocket connection closed: $reason")
+            }
+
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                super.onOpen(webSocket, response)
+                Timber.tag(TAG_WEBSOCKET).d("WebSocket connection opened")
+            }
+        })
+    }
+
     companion object {
         private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
         private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
+        const val TAG_WEBSOCKET: String = "CustomLocationListener: WebSocketService"
     }
 }

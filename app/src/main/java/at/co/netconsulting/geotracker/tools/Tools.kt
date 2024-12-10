@@ -51,4 +51,13 @@ class Tools {
         return kotlin.math.sqrt(horizontalDistance * horizontalDistance +
                 verticalDistance * verticalDistance)
     }
+    fun formatCurrentTimestamp(): String {
+        // Get the current date and time
+        var now = LocalDateTime.now()
+        // Define the desired format
+        var formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+        // Format the timestamp
+        var formattedTimestamp = now.format(formatter)
+        return formattedTimestamp
+    }
 }
