@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Running Tracker</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>Running Tracker - OpenStreetMap</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
     <style>
         body, html {
             margin: 0;
@@ -31,8 +31,8 @@
 
         #gpxUpload {
             position: absolute;
-            top: 10px;
-            left: 10px;
+            top: 10px;  /* Increased top position to move below zoom controls */
+            left: 100px;
             z-index: 1000;
             background-color: white;
             padding: 10px;
@@ -55,7 +55,7 @@
     <canvas id="altitudeChart"></canvas>
 </div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     let map;
@@ -70,10 +70,10 @@
     let chartMarker = null;
 
     function initMap() {
-        const initialLocation = [48.1818798, 16.3607528];
+        const initialLocation = [LAT, LNG];
         map = L.map('map').setView(initialLocation, 10);
 
-        L.tileLayer('http://62.178.111.184/tile/{z}/{x}/{y}.png', {
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '© OpenStreetMap contributors'
         }).addTo(map);
 
@@ -115,12 +115,18 @@
         });
     }
 
-    function connectToWebSocket() {
-        websocket = new WebSocket('ws://IP_ADDRESS:PORT/runningtracker');
+function connectToWebSocket() {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/runningtracker`;
+    // or if you need to use the direct IP:
+    // const wsUrl = `ws://IP_ADDRESS:PORT/runningtracker`;
 
-        websocket.onopen = function(event) {
-            console.log('Connected to WebSocket server');
-        };
+    console.log('Connecting to WebSocket:', wsUrl);
+    websocket = new WebSocket(wsUrl);
+
+    websocket.onopen = function(event) {
+        console.log('Connected to WebSocket server');
+    };
 
         websocket.onmessage = function(event) {
             const data = JSON.parse(event.data);
@@ -159,9 +165,7 @@
                 title: "Start Position"
             }).bindPopup('Start').addTo(map);
         } else {
-            const latlngs = polylines[sessionId].getLatLngs();
-            latlngs.push([lat, lng]);
-            polylines[sessionId].setLatLngs(latlngs);
+            polylines[sessionId].addLatLng([lat, lng]);
         }
 
         if (!endMarkers[sessionId]) {
@@ -294,12 +298,11 @@
             const coordinate = dataPoint.coordinate;
 
             if (coordinate) {
-                if (!chartMarker) {
-                    chartMarker = L.marker(coordinate).addTo(map);
-                } else {
-                    chartMarker.setLatLng(coordinate);
+                if (chartMarker) {
+                    map.removeLayer(chartMarker);
                 }
 
+                chartMarker = L.marker(coordinate).addTo(map);
                 map.setView(coordinate);
             }
         }
@@ -327,6 +330,5 @@
     // Initialize the map when the page loads
     document.addEventListener('DOMContentLoaded', initMap);
 </script>
-
 </body>
 </html>

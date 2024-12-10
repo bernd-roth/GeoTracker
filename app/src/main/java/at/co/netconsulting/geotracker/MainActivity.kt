@@ -182,7 +182,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
-    private val EARTH_RADIUS = 6371008.8
 
     private fun loadSharedPreferences() {
         val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -223,6 +222,7 @@ class MainActivity : ComponentActivity() {
         coveredDistanceState.value = event.coveredDistance
         startDateTimeState.value = event.startDateTime
         locationChangeEventState.value = event.locationChangeEventList
+        horizontalAccuracyInMetersState.value = event.horizontalAccuracy
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
             Log.d("MainActivity", "Drawing polyline")
@@ -282,7 +282,6 @@ class MainActivity : ComponentActivity() {
 
         polyline = newPolyline
         mapView.overlays.add(newPolyline)
-        //mapView.controller.setZoom(17.0)
         mapView.invalidate()
     }
 
@@ -305,11 +304,11 @@ class MainActivity : ComponentActivity() {
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             marker.icon = ContextCompat.getDrawable(this, R.drawable.ic_start_marker)
             mapView.overlays.add(marker)
-            mapView.controller.setCenter(GeoPoint(firstPoint.latitude,firstPoint.longitude))
+            mapView.controller.setCenter(GeoPoint(firstPoint.latitude, firstPoint.longitude))
         } else {
             mapView.controller.setCenter(GeoPoint(0.0,0.0))
+            mapView.controller.setZoom(5.0) // Only set zoom for initial state
         }
-        mapView.controller.setZoom(5.0)
         mapView.invalidate()
     }
 
@@ -1017,59 +1016,6 @@ class MainActivity : ComponentActivity() {
                 }
             )
             Spacer(modifier = Modifier.height(16.dp))
-
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp)
-            ) {
-                Text(
-                    text = "Choose an Option",
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = selectedOption == "option1",
-                        onClick = { selectedOption = "option1" }
-                    )
-                    OutlinedTextField(
-                        value = option1Text,
-                        onValueChange = { option1Text = it },
-                        label = { Text("Option 1 Details") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 8.dp)
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RadioButton(
-                        selected = selectedOption == "option2",
-                        onClick = { selectedOption = "option2" }
-                    )
-                    OutlinedTextField(
-                        value = option2Text,
-                        onValueChange = { option2Text = it },
-                        label = { Text("Option 2 Details") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = 8.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             Button(
                 onClick = {
                     saveAllSettings(
@@ -1415,7 +1361,7 @@ class MainActivity : ComponentActivity() {
                     OutlinedTextField(
                         value = eventDate,
                         onValueChange = { eventDate = it },
-                        label = { Text("" + provideDateTimeFormat()) },
+                        label = { Text("" + Tools().provideDateTimeFormat()) },
                         modifier = Modifier.fillMaxWidth(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
                     )
@@ -1547,16 +1493,6 @@ class MainActivity : ComponentActivity() {
 
     private val database: FitnessTrackerDatabase by lazy {
         FitnessTrackerDatabase.getInstance(applicationContext)
-    }
-
-    fun provideDateTimeFormat() : String {
-        val zonedDateTime = LocalDateTime.now().atZone(ZoneId.systemDefault())
-        val epochMilli = zonedDateTime.toInstant().toEpochMilli()
-        val startDateTimeFormatted = LocalDateTime.ofInstant(
-            Instant.ofEpochMilli(epochMilli),
-            ZoneId.systemDefault()
-        ).format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-        return startDateTimeFormatted
     }
 
     // Override
@@ -1876,18 +1812,17 @@ class MainActivity : ComponentActivity() {
                         altitude = ele
                     )
                 )
+                // Calculate metrics
+                if (prevLat != 0.0 && prevLon != 0.0) {
+                    val horizontalDistance = Tools().calculateDistance(prevLat, prevLon, lat, lon)
+                    val verticalDistance = ele - prevEle
+                    val segmentDistance = Tools().calculateDistance(prevLat, prevLon, prevEle, lat, lon, ele)
 
-                    // Calculate metrics
-                    if (prevLat != 0.0 && prevLon != 0.0) {
-                        val horizontalDistance = calculateDistance(prevLat, prevLon, lat, lon)
-                        val verticalDistance = ele - prevEle
-                        val segmentDistance = calculateDistance(prevLat, prevLon, prevEle, lat, lon, ele)
+                    Log.d("Point: Horizontal=", "$horizontalDistance, Vertical=$verticalDistance, Total=$segmentDistance")
+                    Log.d("Coordinates: ", "($prevLat,$prevLon,$prevEle) -> ($lat,$lon,$ele)")
 
-                        Log.d("Point: Horizontal=", "$horizontalDistance, Vertical=$verticalDistance, Total=$segmentDistance")
-                        Log.d("Coordinates: ", "($prevLat,$prevLon,$prevEle) -> ($lat,$lon,$ele)")
-
-                        totalDistance += segmentDistance
-                        Log.d("Total distance so far: ", "$totalDistance")
+                    totalDistance += segmentDistance
+                    Log.d("Total distance so far: ", "$totalDistance")
 
                     // Calculate elevation changes
                     val elevationDiff = ele - prevEle
@@ -1920,21 +1855,14 @@ class MainActivity : ComponentActivity() {
                         )
                     )
                 }
-
                 prevLat = lat
                 prevLon = lon
                 prevEle = ele
                 prevTime = currentTime
             }
-
             // Insert all data
             database.locationDao().insertAll(locations)
             database.metricDao().insertAll(metrics)
-
-//            val metricsDebug = database.metricDao().getMetricsForEvent(eventId)
-//            metricsDebug.forEach { metric ->
-//                println("Metric ID: ${metric.metricId}, Time: ${metric.timeInMilliseconds}, Distance: ${metric.distance}")
-//            }
 
             onComplete(true)
         } catch (e: Exception) {
@@ -1942,41 +1870,10 @@ class MainActivity : ComponentActivity() {
             onComplete(false)
         }
     }
-    fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val rad = Math.PI / 180
-        val φ1 = lat1 * rad
-        val φ2 = lat2 * rad
-
-        // Using exact same formula as GPX Studio
-        val a = kotlin.math.sin(φ1) * kotlin.math.sin(φ2) +
-                kotlin.math.cos(φ1) * kotlin.math.cos(φ2) *
-                kotlin.math.cos((lon2 - lon1) * rad)
-
-        // Important: use coerceAtMost(1.0) just like GPX Studio's Math.min(a, 1)
-        return EARTH_RADIUS * kotlin.math.acos(a.coerceAtMost(1.0))
-    }
-
-    // Overload that includes elevation
-    fun calculateDistance(
-        lat1: Double, lon1: Double, ele1: Double,
-        lat2: Double, lon2: Double, ele2: Double
-    ): Double {
-        // First calculate horizontal distance
-        val horizontalDistance = calculateDistance(lat1, lon1, lat2, lon2)
-
-        // Calculate elevation difference
-        val verticalDistance = ele2 - ele1
-
-        // Use Pythagorean theorem to get true 3D distance
-        return kotlin.math.sqrt(horizontalDistance * horizontalDistance +
-                verticalDistance * verticalDistance)
-    }
-
     data class SavedLocationData(
         val points: List<GeoPoint>,
         val isRecording: Boolean
     )
-
     data class GpsPoint(
         val lat: Double,
         val lon: Double,
