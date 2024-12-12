@@ -44,12 +44,19 @@ class TrackingServer:
                 logging.info(f"Received message: {message}")
                 message_data = json.loads(message)
 
-                if all(key in message_data for key in ("person", "sessionId", "latitude", "longitude", "distance", "currentSpeed")):
+                # Check for all required fields including averageSpeed
+                required_fields = ["person", "sessionId", "latitude", "longitude",
+                                   "distance", "currentSpeed", "averageSpeed"]
+
+                if all(key in message_data for key in required_fields):
                     # Add timestamp and store in history
                     tracking_point = {
                         "timestamp": datetime.datetime.now().strftime('%d-%m-%Y %H:%M:%S'),
-                        **message_data
+                        **message_data,
+                        # Convert averageSpeed to float to ensure consistent data type
+                        "averageSpeed": float(message_data["averageSpeed"])
                     }
+
                     self.tracking_history[message_data['sessionId']].append(tracking_point)
 
                     # Clean old data
@@ -58,6 +65,9 @@ class TrackingServer:
                     # Broadcast to all connected clients
                     for client in self.connected_clients:
                         await client.send(json.dumps(tracking_point))
+                else:
+                    missing_fields = [field for field in required_fields if field not in message_data]
+                    logging.error(f"Missing required fields: {missing_fields}")
 
         except websockets.exceptions.ConnectionClosed:
             logging.info(f"Client disconnected from {client_address}")

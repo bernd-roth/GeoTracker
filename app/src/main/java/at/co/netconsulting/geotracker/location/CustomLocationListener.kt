@@ -22,6 +22,8 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import org.greenrobot.eventbus.EventBus
+import org.greenrobot.eventbus.Subscribe
+import org.greenrobot.eventbus.ThreadMode
 import timber.log.Timber
 import java.time.Duration
 import java.time.LocalDateTime
@@ -57,7 +59,13 @@ class CustomLocationListener: LocationListener {
     private var weight: Float = 0f
 
     constructor(context: Context) {
+        EventBus.getDefault().register(this)
         this.context = context
+    }
+
+    fun cleanup() {
+        EventBus.getDefault().unregister(this)
+        stopLocationUpdates()
     }
 
     fun startListener() {
@@ -66,6 +74,22 @@ class CustomLocationListener: LocationListener {
         loadSharedPreferences()
         getLatitudeLongitudeFromOtherRunner()
     }
+
+    fun stopLocationUpdates() {
+        try {
+            locationManager?.removeUpdates(this)
+            Log.d("CustomLocationListener", "Location updates stopped")
+
+            // Close websocket connection cleanly if it exists
+            webSocket?.let { socket ->
+                socket.close(1000, "Location updates stopped")
+                webSocket = null
+            }
+        } catch (e: Exception) {
+            Log.e("CustomLocationListener", "Error stopping location updates", e)
+        }
+    }
+
 
     private fun loadSharedPreferences() {
         val sharedPreferences = this.context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -135,7 +159,8 @@ class CustomLocationListener: LocationListener {
                             coveredDistance.toString(),
                             (it.speed / 1000) * 3600,
                             it.altitude.toString(),
-                            formattedTimestamp = Tools().formatCurrentTimestamp()
+                            formattedTimestamp = Tools().formatCurrentTimestamp(),
+                            averageSpeed
                         )
                     )
                     //send json via websocket to server
@@ -282,9 +307,31 @@ class CustomLocationListener: LocationListener {
         })
     }
 
+    fun adjustUpdateFrequency(reduceFrequency: Boolean) {
+        if (reduceFrequency) {
+            // Temporarily reduce update frequency
+            MIN_TIME_BETWEEN_UPDATES = 2000L
+            MIN_DISTANCE_BETWEEN_UPDATES = 2f
+        } else {
+            // Restore normal frequency
+            MIN_TIME_BETWEEN_UPDATES = 1000L
+            MIN_DISTANCE_BETWEEN_UPDATES = 1f
+        }
+        // Restart location updates with new parameters
+        stopLocationUpdates()
+        createLocationUpdates()
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onAdjustFrequencyEvent(event: AdjustLocationFrequencyEvent) {
+        adjustUpdateFrequency(event.reduceFrequency)
+    }
+
+    data class AdjustLocationFrequencyEvent(val reduceFrequency: Boolean)
+
     companion object {
-        private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
-        private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
+        private var MIN_TIME_BETWEEN_UPDATES: Long = 1000
+        private var MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
         private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
         const val TAG_WEBSOCKET: String = "CustomLocationListener: WebSocketService"
     }

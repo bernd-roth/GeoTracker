@@ -1,0 +1,72 @@
+package at.co.netconsulting.geotracker
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+@Composable
+fun BottomSheetContent(
+    latitude: Double,
+    longitude: Double,
+    speed: Float,
+    speedAccuracyInMeters: Float,
+    altitude: Double,
+    horizontalAccuracyInMeters: Float,
+    verticalAccuracyInMeters: Float,
+    numberOfSatellites: Int,
+    usedNumberOfSatellites: Int,
+    coveredDistance: Double
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Latitude: $latitude Longitude: $longitude",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+        Text(
+            "Speed ${"%.2f".format(speed)} km/h",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+        Text(
+            "Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} km/h",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+        Text(
+            "Altitude: ${"%.2f".format(altitude)} meter",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+        Text(
+            "Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+        Text(
+            "Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+        Text(
+            "Satellites: $usedNumberOfSatellites/$numberOfSatellites ",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+        Text(
+            "Covered distance: ${"%.3f".format(coveredDistance / 1000)} Km",
+            fontSize = 10.sp,
+            color = Color.Black
+        )
+    }
+}

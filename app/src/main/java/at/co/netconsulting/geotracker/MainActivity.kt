@@ -1,7 +1,10 @@
 package at.co.netconsulting.geotracker
 
 import android.Manifest
+import android.app.Activity
 import android.app.ActivityManager
+import android.app.Application
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -13,15 +16,18 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -33,12 +39,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -50,7 +58,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -59,6 +66,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults.TrailingIcon
 import androidx.compose.material3.ExposedDropdownMenuDefaults.textFieldColors
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -69,45 +77,41 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.domain.Location
+import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
+import at.co.netconsulting.geotracker.tools.Tools
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
+import org.osmdroid.util.GarbageCollector
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -115,36 +119,15 @@ import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
-import java.time.Instant
-import java.time.ZoneId
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.requiredSizeIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Text
-import androidx.compose.runtime.*
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.window.Dialog
-import at.co.netconsulting.geotracker.data.LapTimeInfo
-import at.co.netconsulting.geotracker.domain.Location
-import at.co.netconsulting.geotracker.domain.Metric
-import at.co.netconsulting.geotracker.tools.Tools
-import java.io.File
-import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
-import org.w3c.dom.NodeList
+import java.io.File
 import java.io.FileOutputStream
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import javax.xml.parsers.DocumentBuilderFactory
 
 class MainActivity : ComponentActivity() {
     private var latitudeState = mutableDoubleStateOf(0.0)
@@ -855,282 +838,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    fun saveAllSettings(
-        sharedPreferences: SharedPreferences,
-        firstName: String,
-        lastName: String,
-        birthDate: String,
-        height: Float,
-        weight: Float,
-        websocketserver: String,
-        selectedOption: String,
-        option1Text: String,
-        option2Text: String
-    ) {
-        sharedPreferences.edit().apply {
-            putString("firstname", firstName)
-            putString("lastname", lastName)
-            putString("birthdate", birthDate)
-            putFloat("height", height)
-            putFloat("weight", weight)
-            putString("websocketserver", websocketserver)
-            putString("selectedOption", selectedOption)
-            putString("option1Text", option1Text)
-            putString("option2Text", option2Text)
-            apply()
-        }
-    }
-
-    fun getSelectedOptionText(selectedOption: String, option1Text: String, option2Text: String): String {
-        return if (selectedOption == "option1") option1Text else option2Text
-    }
-
-    @Composable
-    fun SettingsScreen() {
-        val context = LocalContext.current
-        val sharedPreferences = remember {
-            context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-        }
-
-        val savedState = sharedPreferences.getBoolean("batteryOptimizationState", true)
-        var isBatteryOptimizationIgnoredState by remember { mutableStateOf(savedState) }
-
-        var firstName by remember {
-            mutableStateOf(sharedPreferences.getString("firstname", "") ?: "")
-        }
-        var lastName by remember {
-            mutableStateOf(sharedPreferences.getString("lastname", "") ?: "")
-        }
-        var birthDate by remember {
-            mutableStateOf(sharedPreferences.getString("birthdate", "") ?: "")
-        }
-        var height by remember { mutableStateOf(sharedPreferences.getFloat("height", 0f)) }
-        var weight by remember { mutableStateOf(sharedPreferences.getFloat("weight", 0f)) }
-        var websocketserver by remember {
-            mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "")
-        }
-
-        var selectedOption by remember {
-            mutableStateOf(sharedPreferences.getString("selectedOption", "option1") ?: "option1")
-        }
-        var option1Text by remember {
-            mutableStateOf(sharedPreferences.getString("option1Text", "") ?: "")
-        }
-        var option2Text by remember {
-            mutableStateOf(sharedPreferences.getString("option2Text", "") ?: "")
-        }
-
-        val isBatteryOptimized = isBatteryOptimizationIgnored(context)
-        var isOptimized by remember { mutableStateOf(isBatteryOptimized) }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-                .background(Color.LightGray)
-        ) {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            OutlinedTextField(
-                value = firstName,
-                onValueChange = { firstName = it },
-                label = { Text("Firstname") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = lastName,
-                onValueChange = { lastName = it },
-                label = { Text("Lastname") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = birthDate,
-                onValueChange = { birthDate = it },
-                label = { Text("Birthdate (YYYY-MM-DD)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = height.toString(),
-                onValueChange = { input ->
-                    height = input.toFloatOrNull() ?: height
-                },
-                label = { Text("Height (cm)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = weight.toString(),
-                onValueChange = { input ->
-                    weight = input.toFloatOrNull() ?: weight
-                },
-                label = { Text("Weight (kg)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = websocketserver,
-                onValueChange = { websocketserver = it },
-                label = { Text("Websocket ip address") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Battery Optimization",
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            Switch(
-                checked = isBatteryOptimizationIgnoredState,
-                onCheckedChange = { isChecked ->
-                    isBatteryOptimizationIgnoredState = isChecked
-                    sharedPreferences.edit()
-                        .putBoolean("batteryOptimizationState", isChecked)
-                        .apply()
-
-                    if (isChecked) {
-                        requestIgnoreBatteryOptimizations(context)
-                    } else {
-                        Toast.makeText(
-                            context,
-                            "Background usage might still be enabled. Please disable manually.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = {
-                    saveAllSettings(
-                        sharedPreferences,
-                        firstName,
-                        lastName,
-                        birthDate,
-                        height,
-                        weight,
-                        websocketserver,
-                        selectedOption,
-                        option1Text,
-                        option2Text
-                    )
-
-                    Toast.makeText(context, "All settings saved", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Save")
-            }
-        }
-    }
-
-    private fun isBatteryOptimizationIgnored(context: Context): Boolean {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val packageName = context.packageName
-        return powerManager.isIgnoringBatteryOptimizations(packageName)
-    }
-
-    private fun requestIgnoreBatteryOptimizations(context: Context) {
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${context.packageName}")
-        }
-        context.startActivity(intent)
-    }
-
-    private fun saveToSharedPreferences(
-        sharedPreferences: SharedPreferences,
-        firstName: String,
-        lastName: String,
-        birthDate: String,
-        height: Float,
-        weight: Float,
-        websocketserver: String
-    ) {
-        val editor = sharedPreferences.edit()
-        editor.putString("firstname", firstName)
-        editor.putString("lastname", lastName)
-        editor.putString("birthdate", birthDate)
-        editor.putFloat("height", height)
-        editor.putFloat("weight", weight)
-        editor.putString("websocketserver", websocketserver)
-        editor.apply()
-    }
-
-    @Composable
-    fun BottomSheetContent(
-        latitude: Double,
-        longitude: Double,
-        speed: Float,
-        speedAccuracyInMeters: Float,
-        altitude: Double,
-        horizontalAccuracyInMeters: Float,
-        verticalAccuracyInMeters: Float,
-        numberOfSatellites: Int,
-        usedNumberOfSatellites: Int,
-        coveredDistance: Double
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
-        ) {
-            Text(
-                text = "Latitude: $latitude Longitude: $longitude",
-                fontSize = 10.sp,
-                color = Color.Black
-            )
-            Text("Speed ${"%.2f".format(speed)} km/h",
-                fontSize = 10.sp,
-                color = Color.Black)
-            Text(
-                "Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} km/h",
-                fontSize = 10.sp,
-                color = Color.Black
-            )
-            Text(
-                "Altitude: ${"%.2f".format(altitude)} meter",
-                fontSize = 10.sp,
-                color = Color.Black
-            )
-            Text(
-                "Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter",
-                fontSize = 10.sp,
-                color = Color.Black
-            )
-            Text(
-                "Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter",
-                fontSize = 10.sp,
-                color = Color.Black
-            )
-            Text(
-                "Satellites: $usedNumberOfSatellites/$numberOfSatellites ",
-                fontSize = 10.sp,
-                color = Color.Black
-            )
-            Text(
-                "Covered distance: ${"%.3f".format(coveredDistance / 1000)} Km",
-                fontSize = 10.sp,
-                color = Color.Black
-            )
-        }
-    }
-
     @Composable
     fun OpenStreetMapView(
         mapCenter: MutableState<GeoPoint?>,
@@ -1278,8 +985,15 @@ class MainActivity : ComponentActivity() {
                                     .apply()
 
                                 isRecording = false
-                                val stopIntent = Intent(context, ForegroundService::class.java)
-                                context.stopService(stopIntent)
+
+                                // Post event before stopping service
+                                EventBus.getDefault().post(StopServiceEvent())
+
+                                // Give the event time to process
+                                Handler(Looper.getMainLooper()).postDelayed({
+                                    val stopIntent = Intent(context, ForegroundService::class.java)
+                                    context.stopService(stopIntent)
+                                }, 100)
                             }
                     ) {
                         Icon(
@@ -1498,6 +1212,15 @@ class MainActivity : ComponentActivity() {
     // Override
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
 
         loadSharedPreferences()
 
@@ -1518,10 +1241,27 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        when (level) {
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                // Critical memory situation - try to keep service alive
+                System.gc() // Request garbage collection
+                Runtime.getRuntime().gc() // Alternative way to request GC
+
+                // Notify service to reduce memory usage if possible
+                EventBus.getDefault().post(MemoryPressureEvent(level))
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        val intent = Intent(this, ForegroundService::class.java)
-        stopService(intent)
+        // Post the event before stopping the service
+        EventBus.getDefault().post(StopServiceEvent())
+        // Remove this line since we're using EventBus now
+        // val serviceIntent = Intent(this, ForegroundService::class.java)
         applicationContext.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
             .edit()
             .putBoolean("is_recording", false)
@@ -1879,4 +1619,6 @@ class MainActivity : ComponentActivity() {
         val lon: Double,
         val elevation: Double? = null
     )
+    data class MemoryPressureEvent(val level: Int)
+    data class StopServiceEvent(val timestamp: Long = System.currentTimeMillis())
 }

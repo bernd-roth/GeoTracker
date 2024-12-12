@@ -22,6 +22,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.greenrobot.eventbus.EventBus
+import java.time.Duration
 import java.time.LocalDateTime
 
 class BackgroundLocationService : Service(), LocationListener {
@@ -36,7 +37,9 @@ class BackgroundLocationService : Service(), LocationListener {
     private var webSocket: WebSocket? = null
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
-    var coveredDistance: Double = 0.0
+    private var coveredDistance: Double = 0.0
+    private var averageSpeed: Double = 0.0
+    private lateinit var totalDateTime: LocalDateTime
 
     override fun onCreate() {
         super.onCreate()
@@ -73,7 +76,8 @@ class BackgroundLocationService : Service(), LocationListener {
                 coveredDistance.toString(),
                 (location.speed / 1000) * 3600,
                 location.altitude.toString(),
-                formattedTimestamp = Tools().formatCurrentTimestamp()
+                formattedTimestamp = Tools().formatCurrentTimestamp(),
+                averageSpeed
             )
         )
         //send json via websocket to server
@@ -123,14 +127,15 @@ class BackgroundLocationService : Service(), LocationListener {
                 location.altitude,
                 location.accuracy,
                 location.verticalAccuracyMeters,
-                coveredDistance = 0.0,
+                coveredDistance = coveredDistance,
                 lap = 0,
                 startDateTime = startDateTime,
-                averageSpeed = 0.0, // Assuming 0.0 for averageSpeed here
+                averageSpeed = averageSpeed,
                 it
             )
         })
         val (coveredDistance, distanceIncrement) = calculateDistance(location)
+        averageSpeed = calculateAverageSpeed(coveredDistance)
         sendToWebsocket(location, coveredDistance)
     }
 
@@ -166,6 +171,13 @@ class BackgroundLocationService : Service(), LocationListener {
         oldLongitude = location.longitude
         Log.d("CustomLocationListener", "Distance Increment: $distanceIncrement")
         return Pair(coveredDistance, distanceIncrement)
+    }
+
+    private fun calculateAverageSpeed(coveredDistance: Double): Double{
+        var mCoveredDistance = coveredDistance
+        totalDateTime = LocalDateTime.now()
+        var duration = Duration.between(startDateTime, totalDateTime)
+        return mCoveredDistance / (duration.toNanos()/1_000_000_000.0)
     }
 
     private fun calculateDistanceBetweenOldLatLngNewLatLng(

@@ -1,17 +1,27 @@
 package at.co.netconsulting.geotracker.service
 
+import android.app.ActivityManager
+import android.app.AlarmManager
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.location.LocationManager
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import at.co.netconsulting.geotracker.MainActivity
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.domain.DeviceStatus
@@ -66,12 +76,82 @@ class ForegroundService : Service() {
     private var isCurrentlyMoving = false
     private val movementState = StopwatchState()
     private val lazyState = StopwatchState()
+    private val heartbeatJob = Job()
+    private val heartbeatScope = CoroutineScope(Dispatchers.IO + heartbeatJob)
+    private var isHeartbeatActive = false
+    private var customLocationListener: CustomLocationListener? = null
+
+    data class HeartbeatEvent(val timestamp: Long)
 
     override fun onCreate() {
         super.onCreate()
         loadSharedPreferences()
-        //displayDatabaseContents()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        createNotificationChannel()
+        notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("GeoTracker")
+            .setSmallIcon(R.drawable.ic_launcher_background)
+            .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+
+        requestHighPriority()
+        startHeartbeat()
+    }
+
+    private fun requestHighPriority() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Request maximum priority
+            startForeground(1, notificationBuilder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+
+            // Request ignore battery optimizations
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!powerManager.isIgnoringBatteryOptimizations(packageName)) {
+                val intent = Intent().apply {
+                    action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    data = Uri.parse("package:$packageName")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+            }
+        }
+    }
+
+    private fun startHeartbeat() {
+        if (!isHeartbeatActive) {
+            isHeartbeatActive = true
+            heartbeatScope.launch {
+                while (isActive) {
+                    try {
+                        // Send heartbeat event
+                        EventBus.getDefault().post(HeartbeatEvent(currentTimeMillis()))
+                        // Check if location updates are still coming
+                        checkLocationUpdates()
+                        delay(HEARTBEAT_INTERVAL)
+                    } catch (e: Exception) {
+                        Log.e("Heartbeat", "Error in heartbeat", e)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun checkLocationUpdates() {
+        val currentTime = currentTimeMillis()
+        if (currentTime - lastUpdateTimestamp > LOCATION_UPDATE_TIMEOUT) {
+            Log.w("LocationMonitor", "No location updates received for ${LOCATION_UPDATE_TIMEOUT/1000} seconds")
+            serviceScope.launch {
+                try {
+                    customLocationListener?.cleanup()
+                    customLocationListener = CustomLocationListener(applicationContext).also {
+                        it.startDateTime = LocalDateTime.now()
+                        it.startListener()
+                    }
+                } catch (e: Exception) {
+                    Log.e("LocationMonitor", "Failed to restart location updates", e)
+                }
+            }
+        }
     }
 
     private fun loadSharedPreferences() {
@@ -139,14 +219,14 @@ class ForegroundService : Service() {
 
     private fun createBackgroundCoroutine() {
         serviceScope.launch {
-            val customLocationListener = CustomLocationListener(applicationContext)
-            customLocationListener.startDateTime = LocalDateTime.now()
-            customLocationListener.startListener()
+            // Store the reference instead of just local variable
+            customLocationListener = CustomLocationListener(applicationContext).also {
+                it.startDateTime = LocalDateTime.now()
+                it.startListener()
+            }
+
             val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
             eventId = createNewEvent(database, userId)
-
-            /*a short test without a mock*/
-            //triggerLocationChange(customLocationListener)
 
             while (isActive) {
                 val currentTime = currentTimeMillis()
@@ -289,7 +369,12 @@ class ForegroundService : Service() {
 
     private fun updateNotification(newContent: String) {
         runOnUiThread {
-            notificationBuilder.setStyle(NotificationCompat.BigTextStyle().bigText(newContent))
+            notificationBuilder
+                .setStyle(NotificationCompat.BigTextStyle().bigText(newContent))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_SERVICE)
+                .setOngoing(true)
+                .setAutoCancel(false)
             notificationManager.notify(1, notificationBuilder.build())
         }
     }
@@ -352,55 +437,116 @@ class ForegroundService : Service() {
         clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
 
         acquireWakeLock()
-
         EventBus.getDefault().register(this)
-        createNotificationChannel()
         createBackgroundCoroutine()
-
-        notificationBuilder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("GeoTracker")
-            //.setContentText("Time, covered distance, ... will be shown here!")
-            .setSmallIcon(R.drawable.ic_launcher_background)
-            .setOnlyAlertOnce(true)
-            //show notification on home screen to everyone
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            //without FOREGROUND_SERVICE_IMMEDIATE, notification can take up to 10 secs to be shown
-            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-
-        val notification = notificationBuilder.build()
-
-        startForeground(1, notification)
+        startForeground(1, notificationBuilder.build())
 
         return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        Log.d(TAG, "onDestroy called, isStoppingIntentionally: $isStoppingIntentionally")
+        customLocationListener?.cleanup()
+        customLocationListener = null
+        isHeartbeatActive = false
+        heartbeatJob.cancel()
         releaseWakeLock()
         EventBus.getDefault().unregister(this)
-        // Stop infinite loop
         serviceJob.cancel()
-        // Stop foreground mode and cancel the notification immediately
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Schedule service restart
+        val restartIntent = Intent(applicationContext, ForegroundService::class.java)
+        val pendingIntent = PendingIntent.getService(
+            applicationContext,
+            1,
+            restartIntent,
+            PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        alarmManager.set(
+            AlarmManager.RTC_WAKEUP,
+            currentTimeMillis() + 1000,
+            pendingIntent
+        )
+    }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "GeoTracker",
-            NotificationManager.IMPORTANCE_HIGH
-        )
-        notificationManager.createNotificationChannel(channel)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                "GeoTracker",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                enableVibration(true)
+                enableLights(true)
+                setBypassDnd(true)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onMemoryPressureEvent(event: MainActivity.MemoryPressureEvent) {
+        when (event.level) {
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                System.gc()
+                Log.w("ForegroundService", "Handling critical memory pressure")
+                EventBus.getDefault().post(CustomLocationListener.AdjustLocationFrequencyEvent(true))
+            }
+        }
     }
 
      companion object {
-        private const val CHANNEL_ID = "ForegroundServiceChannel"
-        private const val MIN_SPEED_THRESHOLD = 2.5f
-        private const val EVENT_TIMEOUT_MS = 2000
-    }
+         private const val CHANNEL_ID = "ForegroundServiceChannel"
+         private const val MIN_SPEED_THRESHOLD = 2.5f
+         private const val EVENT_TIMEOUT_MS = 2000
+         private const val HEARTBEAT_INTERVAL = 30_000L
+         private const val LOCATION_UPDATE_TIMEOUT = 60_000L
+         private var isStoppingIntentionally = false
+         private const val TAG = "ForegroundService"
 
+         fun isServiceRunning(context: Context): Boolean {
+             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+             return manager.getRunningServices(Integer.MAX_VALUE)
+                 .any { it.service.className == ForegroundService::class.java.name }
+         }
+
+         private fun triggerLocationChange(customLocationListener: CustomLocationListener) {
+             val mockLocationStart = android.location.Location(LocationManager.GPS_PROVIDER).apply {
+                 latitude = 48.181894
+                 longitude = 16.360820
+                 speed = 3.0f
+                 altitude = 10.0
+                 accuracy = 5.0f
+             }
+
+             val mockLocationEnd = android.location.Location(LocationManager.GPS_PROVIDER).apply {
+                 latitude = 48.1989050245536
+                 longitude = 16.94202690892697
+                 speed = 3.0f
+                 altitude = 10.0
+                 accuracy = 5.0f
+             }
+
+             customLocationListener.onLocationChanged(mockLocationStart)
+             customLocationListener.onLocationChanged(mockLocationEnd)
+         }
+     }
+    fun stopService() {
+        Log.d(TAG, "stopService called")
+        isStoppingIntentionally = true
+        stopSelf()
+    }
     private fun runOnUiThread(action: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             action()
@@ -408,25 +554,17 @@ class ForegroundService : Service() {
             Handler(Looper.getMainLooper()).post(action)
         }
     }
-
-    private fun triggerLocationChange(customLocationListener: CustomLocationListener) {
-        val mockLocationStart = android.location.Location(LocationManager.GPS_PROVIDER).apply {
-            latitude = 48.181894
-            longitude = 16.360820
-            speed = 3.0f
-            altitude = 10.0
-            accuracy = 5.0f
-        }
-
-        val mockLocationEnd = android.location.Location(LocationManager.GPS_PROVIDER).apply {
-            latitude = 48.1989050245536
-            longitude = 16.94202690892697
-            speed = 3.0f
-            altitude = 10.0
-            accuracy = 5.0f
-        }
-
-        customLocationListener.onLocationChanged(mockLocationStart)
-        customLocationListener.onLocationChanged(mockLocationEnd)
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onStopServiceEvent(event: MainActivity.StopServiceEvent) {
+        Log.d(TAG, "Received stop event")
+        isStoppingIntentionally = true
+        customLocationListener?.cleanup()
+        customLocationListener = null
+        isHeartbeatActive = false
+        heartbeatJob.cancel()
+        serviceJob.cancel()
+        EventBus.getDefault().unregister(this)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
 }
