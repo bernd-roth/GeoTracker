@@ -560,16 +560,13 @@ class MainActivity : ComponentActivity() {
                                             .padding(8.dp)
                                     ) {
                                         Text(
-                                            text = "Date: ${record.eventDate}",
-                                            style = MaterialTheme.typography.bodyLarge
+                                            text = "Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}", style = MaterialTheme.typography.bodyLarge
                                         )
                                         Text(
-                                            text = "Event name: ${record.eventName}",
-                                            style = MaterialTheme.typography.bodyLarge
+                                            text = "Event name: ${record.eventName}", style = MaterialTheme.typography.bodyLarge
                                         )
                                         Text(
-                                            text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
-                                            style = MaterialTheme.typography.bodyMedium
+                                            text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",style = MaterialTheme.typography.bodyMedium
                                         )
 
                                         // Lap times table
@@ -855,8 +852,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun SelectedEventPanel(record: SingleEventWithMetric) {
         Column(modifier = Modifier.padding(8.dp)) {
-            Text("Event date: ${record.eventDate}", style = MaterialTheme.typography.bodyLarge)
-            Text("Event name: ${record.eventName}", style = MaterialTheme.typography.bodyLarge)
+            Text("Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}", style = MaterialTheme.typography.bodyLarge)
+            Text("Event name: ${record.eventName?.takeIf { it.isNotEmpty() } ?: "No event name provided"}", style = MaterialTheme.typography.bodyLarge)
             Text("Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km", style = MaterialTheme.typography.bodyLarge)
             EventMapView(record = record)
         }

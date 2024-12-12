@@ -6,338 +6,395 @@
     <title>Running Tracker - Speed Display</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
     <style>
-        body, html {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            overflow: hidden;
+        body,
+        html {
+          margin: 0;
+          padding: 0;
+          height: 100%;
+          overflow: hidden;
         }
 
         #map {
-            height: 67vh;
-            width: 100%;
+          height: 67vh;
+          width: 100%;
         }
 
         #altitudeChartContainer {
-            height: 33vh;
-            width: 100%;
-            padding: 0;
+          height: 33vh;
+          width: 100%;
+          padding: 0;
         }
 
         #altitudeChart {
-            height: 100%;
-            width: 100%;
+          height: 100%;
+          width: 100%;
         }
 
         #gpxUpload {
-            position: absolute;
-            top: 80px;
-            left: 10px;
-            z-index: 1000;
-            background-color: white;
-            padding: 10px;
-            border-radius: 5px;
-            box-shadow: 0px 2px 4px rgba(0,0,0,0.2);
+          position: absolute;
+          top: 80px;
+          left: 10px;
+          z-index: 1000;
+          background-color: white;
+          padding: 10px;
+          border-radius: 5px;
+          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
         }
 
         #debugInfo {
-            position: absolute;
-            bottom: 34vh;
-            right: 10px;
-            z-index: 1000;
-            background-color: white;
-            padding: 10px;
-            border-radius: 5px;
-            box-shadow: 0px 2px 4px rgba(0,0,0,0.2);
-            font-family: monospace;
-            font-size: 12px;
-            max-width: 300px;
-            max-height: 200px;
-            overflow-y: auto;
+          position: absolute;
+          bottom: 34vh;
+          right: 10px;
+          z-index: 1000;
+          background-color: white;
+          padding: 10px;
+          border-radius: 5px;
+          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+          font-family: monospace;
+          font-size: 12px;
+          max-width: 300px;
+          max-height: 200px;
+          overflow-y: auto;
         }
 
         #speedDisplay {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 1000;
-            background-color: white;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0px 2px 4px rgba(0,0,0,0.2);
-            font-family: Arial, sans-serif;
-            width: 250px;
+          position: absolute;
+          top: 10px;
+          right: 10px;
+          z-index: 1000;
+          background-color: white;
+          padding: 15px;
+          border-radius: 5px;
+          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+          font-family: Arial, sans-serif;
+          width: 250px;
         }
 
         .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            padding: 10px;
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          padding: 10px;
         }
 
         .stat-box {
-            background-color: #f5f5f5;
-            padding: 10px;
-            border-radius: 4px;
-            text-align: center;
+          background-color: #f5f5f5;
+          padding: 10px;
+          border-radius: 4px;
+          text-align: center;
         }
 
         .speed-value {
-            font-size: 24px;
-            font-weight: bold;
-            color: #2196F3;
+          font-size: 24px;
+          font-weight: bold;
+          color: #2196F3;
         }
 
         .speed-unit {
-            font-size: 14px;
-            color: #666;
+          font-size: 14px;
+          color: #666;
         }
 
         .speed-label {
-            font-size: 12px;
-            color: #999;
-            margin-bottom: 5px;
+          font-size: 12px;
+          color: #999;
+          margin-bottom: 5px;
         }
 
         #recordingControls {
-            position: absolute;
-            top: 420px;  /* Increased top position accordingly */
-            right: 10px;
-            z-index: 1000;
-            background-color: white;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0px 2px 4px rgba(0,0,0,0.2);
-            width: 250px;
+          position: absolute;
+          top: 420px;
+          /* Increased top position accordingly */
+          right: 10px;
+          z-index: 1000;
+          background-color: white;
+          padding: 15px;
+          border-radius: 5px;
+          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+          width: 250px;
         }
 
         .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
-            padding: 10px;
-            margin-bottom: 10px;
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 10px;
+          padding: 10px;
+          margin-bottom: 10px;
         }
 
         #sessionsList {
-            position: absolute;
-            top: 220px;  /* Increased top position to avoid overlap */
-            right: 10px;
-            z-index: 1000;
-            background-color: white;
-            padding: 15px;
-            border-radius: 5px;
-            box-shadow: 0px 2px 4px rgba(0,0,0,0.2);
-            max-height: 150px;
-            overflow-y: auto;
-            width: 250px;
+          position: absolute;
+          top: 220px;
+          /* Increased top position to avoid overlap */
+          right: 10px;
+          z-index: 1000;
+          background-color: white;
+          padding: 15px;
+          border-radius: 5px;
+          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+          max-height: 150px;
+          overflow-y: auto;
+          width: 250px;
         }
 
         .recording-button {
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-            margin: 2px;
+          background-color: #4CAF50;
+          color: white;
+          border: none;
+          padding: 8px 16px;
+          border-radius: 4px;
+          cursor: pointer;
+          margin: 2px;
         }
 
         .recording-button.stop {
-            background-color: #f44336;
+          background-color: #f44336;
         }
 
         .recording-indicator {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
-            background-color: #666;
+          width: 10px;
+          height: 10px;
+          border-radius: 50%;
+          display: inline-block;
+          margin-right: 5px;
+          background-color: #666;
         }
 
         .recording-indicator.active {
-            background-color: #f44336;
-            animation: pulse 1s infinite;
+          background-color: #f44336;
+          animation: pulse 1s infinite;
         }
 
         @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.5; }
-            100% { opacity: 1; }
+          0% {
+            opacity: 1;
+          }
+
+          50% {
+            opacity: 0.5;
+          }
+
+          100% {
+            opacity: 1;
+          }
         }
 
         .session-item {
-            padding: 8px;
-            border-bottom: 1px solid #eee;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+          padding: 8px;
+          border-bottom: 1px solid #eee;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
         }
 
         .session-item button {
-            padding: 4px 8px;
-            margin-left: 4px;
-            border: none;
-            border-radius: 3px;
-            cursor: pointer;
+          padding: 4px 8px;
+          margin-left: 4px;
+          border: none;
+          border-radius: 3px;
+          cursor: pointer;
         }
     </style>
 </head>
 <body>
-    <div id="gpxUpload">
-        <input type="file" id="gpxFile" accept=".gpx" />
-        <button onclick="loadGPX()">Load GPX</button>
-        <button id="resetMapBtn" onclick="resetMap()">Reset Map</button>
-    </div>
-
-    <div id="speedDisplay">
-        <div class="stats-grid">
-            <div class="stat-box">
-                <div class="speed-label">Current Speed</div>
-                <div class="speed-value" id="currentSpeed">0.0</div>
-                <div class="speed-unit">km/h</div>
-            </div>
-            <div class="stat-box">
-                <div class="speed-label">Maximum Speed</div>
-                <div class="speed-value" id="maxSpeed">0.0</div>
-                <div class="speed-unit">km/h</div>
-            </div>
-            <div class="stat-box">
-                <div class="speed-label">Average Speed</div>
-                <div class="speed-value" id="avgSpeed">0.0</div>
-                <div class="speed-unit">km/h</div>
-            </div>
-            <div class="stat-box">
-                <div class="speed-label">Moving Average</div>
-                <div class="speed-value" id="movingAvg">0.0</div>
-                <div class="speed-unit">km/h</div>
-            </div>
+<div id="gpxUpload">
+    <input type="file" id="gpxFile" accept=".gpx" />
+    <button onclick="loadGPX()">Load GPX</button>
+    <button id="resetMapBtn" onclick="resetMap()">Reset Map</button>
+</div>
+<div id="speedDisplay">
+    <div class="stats-grid">
+        <div class="stat-box">
+            <div class="speed-label">Current Speed</div>
+            <div class="speed-value" id="currentSpeed">0.0</div>
+            <div class="speed-unit">km/h</div>
+        </div>
+        <div class="stat-box">
+            <div class="speed-label">Maximum Speed</div>
+            <div class="speed-value" id="maxSpeed">0.0</div>
+            <div class="speed-unit">km/h</div>
+        </div>
+        <div class="stat-box">
+            <div class="speed-label">Average Speed</div>
+            <div class="speed-value" id="avgSpeed">0.0</div>
+            <div class="speed-unit">km/h</div>
+        </div>
+        <div class="stat-box">
+            <div class="speed-label">Moving Average</div>
+            <div class="speed-value" id="movingAvg">0.0</div>
+            <div class="speed-unit">km/h</div>
         </div>
     </div>
-
-    <div id="recordingControls">
-        <div>
-            <button class="recording-button" onclick="startRecording()">Start Recording</button>
-            <button class="recording-button stop" onclick="stopRecording()">Stop</button>
-        </div>
-        <div style="margin-top: 10px;">
-            <span class="recording-indicator" id="recordingStatus"></span>
-            <span id="recordingLabel">Not Recording</span>
-        </div>
+</div>
+<div id="recordingControls">
+    <div>
+        <button class="recording-button" onclick="startRecording()">Start Recording</button>
+        <button class="recording-button stop" onclick="stopRecording()">Stop</button>
     </div>
-
-    <div id="sessionsList">
-        <h3>Recorded Sessions</h3>
-        <div id="sessionsContainer"></div>
+    <div style="margin-top: 10px;">
+        <span class="recording-indicator" id="recordingStatus"></span>
+        <span id="recordingLabel">Not Recording</span>
     </div>
+</div>
+<div id="sessionsList">
+    <h3>Recorded Sessions</h3>
+    <div id="sessionsContainer"></div>
+</div>
+<div id="debugInfo"></div>
+<div id="map"></div>
+<div id="altitudeChartContainer">
+    <canvas id="altitudeChart"></canvas>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    let map;
+    let websocket;
+    let polylines = {};
+    let startMarkers = {};
+    let endMarkers = {};
+    let gpxPolyline;
+    let altitudeChart;
+    let altitudeData = [];
+    let altitudeCoordinates = [];
+    let chartMarker = null;
+    let speedHistory = {};
+    let isRecording = false;
+    let currentSession = null;
+    let recordedSessions = {};
+    let playbackInterval = null;
+    let dataRetentionHours = 24;
+    let cleanupInterval = null;
 
-    <div id="debugInfo"></div>
-    <div id="map"></div>
+    function initMap() {
+      const initialLocation = [48.1818798, 16.3607528];
+      map = L.map('map').setView(initialLocation, 10);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+      initAltitudeChart();
+      connectToWebSocket();
+      startCleanupInterval(); // Add periodic cleanup
+    }
 
-    <div id="altitudeChartContainer">
-        <canvas id="altitudeChart"></canvas>
-    </div>
+    function startCleanupInterval() {
+      // Run cleanup every 5 minutes
+      cleanupInterval = setInterval(cleanupOldData, 5 * 60 * 1000);
+    }
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script>
-        let map;
-        let websocket;
-        let polylines = {};
-        let startMarkers = {};
-        let endMarkers = {};
-        let gpxPolyline;
-        let altitudeChart;
-        let altitudeData = [];
-        let altitudeCoordinates = [];
-        let chartMarker = null;
-        let speedHistory = {};
-        let isRecording = false;
-        let currentSession = null;
-        let recordedSessions = {};
-        let playbackInterval = null;
-
-        function initMap() {
-            const initialLocation = [48.1818798, 16.3607528];
-            map = L.map('map').setView(initialLocation, 10);
-
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '© OpenStreetMap contributors'
-            }).addTo(map);
-
-            initAltitudeChart();
-            connectToWebSocket();
+    function cleanupOldData() {
+      const cutoffTime = new Date(Date.now() - (dataRetentionHours * 60 * 60 * 1000));
+      // Clean up speed history
+      Object.keys(speedHistory).forEach(sessionId => {
+        // Remove session if no recent data
+        const lastUpdate = speedHistory[sessionId].lastUpdate;
+        if (lastUpdate && new Date(lastUpdate) < cutoffTime) {
+          deleteSessionData(sessionId);
         }
+      });
+      // Clean up recorded sessions
+      Object.entries(recordedSessions).forEach(([sessionId, session]) => {
+        if (new Date(session.endTime) < cutoffTime) {
+          deleteSession(sessionId);
+        }
+      });
+      // Update displays
+      updateSessionsList();
+    }
 
-        function initAltitudeChart() {
-            const ctx = document.getElementById('altitudeChart').getContext('2d');
-            altitudeChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: [],
-                    datasets: []
-                },
-                options: {
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: {
-                            type: 'linear',
-                            title: {
-                                display: true,
-                                text: 'Distance (km)'
-                            },
-                            ticks: {
-                                beginAtZero: true,
-                                callback: function(value) { return value.toFixed(2); }
-                            }
-                        },
-                        y: {
-                            title: {
-                                display: true,
-                                text: 'Altitude (m)'
-                            },
-                            min: 0
-                        }
-                    }
+    function deleteSessionData(sessionId) {
+      // Remove from speed history
+      delete speedHistory[sessionId];
+      // Remove from map
+      if (polylines[sessionId]) {
+        map.removeLayer(polylines[sessionId]);
+        delete polylines[sessionId];
+      }
+      if (startMarkers[sessionId]) {
+        map.removeLayer(startMarkers[sessionId]);
+        delete startMarkers[sessionId];
+      }
+      if (endMarkers[sessionId]) {
+        map.removeLayer(endMarkers[sessionId]);
+        delete endMarkers[sessionId];
+      }
+      // Remove from altitude chart
+      const datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+      if (datasetIndex !== -1) {
+        altitudeChart.data.datasets.splice(datasetIndex, 1);
+        altitudeChart.update();
+      }
+    }
+
+    function initAltitudeChart() {
+      const ctx = document.getElementById('altitudeChart').getContext('2d');
+      altitudeChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: []
+        },
+        options: {
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'linear',
+              title: {
+                display: true,
+                text: 'Distance (km)'
+              },
+              ticks: {
+                beginAtZero: true,
+                callback: function(value) {
+                  return value.toFixed(2);
                 }
-            });
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Altitude (m)'
+              },
+              min: 0
+            }
+          }
         }
+      });
+    }
 
-        function connectToWebSocket() {
-            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProtocol}//${window.location.host}/runningtracker`;
-            console.log('Connecting to WebSocket:', wsUrl);
-
-            websocket = new WebSocket(wsUrl);
-
-            websocket.onopen = function(event) {
-                console.log('Connected to WebSocket server');
-                updateDebugInfo({ status: 'Connected' });
-            };
-
-    websocket.onmessage = function(event) {
-    console.log('Raw message:', event.data);
-    const data = JSON.parse(event.data);
-    const lat = parseFloat(data.latitude);
-    const lng = parseFloat(data.longitude);
-    const altitude = parseFloat(data.altitude || 0);
-    const sessionId = data.person || "default";
-    const distance = parseFloat(data.distance) || 0;
-    const currentSpeed = parseFloat(data.currentSpeed || 0);
-
-    const processedData = {
-        lat, lng, altitude, sessionId, distance,
-        currentSpeed,
-        averageSpeed: parseFloat(data.averageSpeed)
-    };
-
-    console.log('Processed data:', processedData);
-    updateDebugInfo(processedData);
-
-    if (isRecording && currentSession) {
-        currentSession.points.push({
+    function connectToWebSocket() {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${window.location.host}/runningtracker`;
+      console.log('Connecting to WebSocket:', wsUrl);
+      websocket = new WebSocket(wsUrl);
+      websocket.onopen = function(event) {
+        console.log('Connected to WebSocket server');
+        updateDebugInfo({
+          status: 'Connected'
+        });
+      };
+      websocket.onmessage = function(event) {
+        console.log('Raw message:', event.data);
+        const data = JSON.parse(event.data);
+        const lat = parseFloat(data.latitude);
+        const lng = parseFloat(data.longitude);
+        const altitude = parseFloat(data.altitude || 0);
+        const sessionId = data.person || "default";
+        const distance = parseFloat(data.distance) || 0;
+        const currentSpeed = parseFloat(data.currentSpeed || 0);
+        const processedData = {
+          lat,
+          lng,
+          altitude,
+          sessionId,
+          distance,
+          currentSpeed,
+          averageSpeed: parseFloat(data.averageSpeed)
+        };
+        console.log('Processed data:', processedData);
+        updateDebugInfo(processedData);
+        if (isRecording && currentSession) {
+          currentSession.points.push({
             timestamp: new Date(),
             lat: lat,
             lng: lng,
@@ -345,261 +402,248 @@
             distance: distance,
             speed: currentSpeed,
             averageSpeed: processedData.averageSpeed
+          });
+        }
+        updateSpeedDisplay(sessionId, currentSpeed, data);
+        if (!isNaN(lat) && !isNaN(lng)) {
+          updateMapWithNewCoordinate(lat, lng, sessionId);
+          if (!isNaN(altitude) && !isNaN(distance)) {
+            updateAltitudeChart(distance / 1000, altitude, sessionId);
+          }
+        }
+      };
+      websocket.onclose = function(event) {
+        console.log('WebSocket connection closed');
+        updateDebugInfo({
+          status: 'Disconnected'
         });
+        setTimeout(connectToWebSocket, 5000);
+      };
+      websocket.onerror = function(error) {
+        console.error('WebSocket error:', error);
+        updateDebugInfo({
+          status: 'Error',
+          error: error.toString()
+        });
+      };
     }
 
-    updateSpeedDisplay(sessionId, currentSpeed, data);
-
-    if (!isNaN(lat) && !isNaN(lng)) {
-        updateMapWithNewCoordinate(lat, lng, sessionId);
-        if (!isNaN(altitude) && !isNaN(distance)) {
-            updateAltitudeChart(distance/1000, altitude, sessionId);
-        }
-    }
-    };
-
-            websocket.onclose = function(event) {
-                console.log('WebSocket connection closed');
-                updateDebugInfo({ status: 'Disconnected' });
-                setTimeout(connectToWebSocket, 5000);
-            };
-
-            websocket.onerror = function(error) {
-                console.error('WebSocket error:', error);
-                updateDebugInfo({ status: 'Error', error: error.toString() });
-            };
-        }
-
-        function updateSpeedDisplay(sessionId, speed, data) {
-    if (!speedHistory[sessionId]) {
+    function updateSpeedDisplay(sessionId, speed, data) {
+      if (!speedHistory[sessionId]) {
         speedHistory[sessionId] = {
-            speeds: [],
-            maxSpeed: 0,
-            avgSpeed: 0,
-            movingAvg: 0
+          speeds: [],
+          maxSpeed: 0,
+          avgSpeed: 0,
+          movingAvg: 0,
+          lastUpdate: new Date() // Add timestamp
         };
-    }
-
-    const history = speedHistory[sessionId];
-    history.speeds.push(speed);
-
-    // Update current speed with color coding
-    const currentSpeedElement = document.getElementById('currentSpeed');
-    currentSpeedElement.textContent = speed.toFixed(1);
-    if (speed < 5) {
-        currentSpeedElement.style.color = '#2196F3';  // Blue for walking
-    } else if (speed < 10) {
-        currentSpeedElement.style.color = '#4CAF50';  // Green for jogging
-    } else {
-        currentSpeedElement.style.color = '#F44336';  // Red for running
-    }
-
-    // Update max speed
-    history.maxSpeed = Math.max(history.maxSpeed, speed);
-    document.getElementById('maxSpeed').textContent = history.maxSpeed.toFixed(1);
-
-    // Use the average speed from the server
-    if (data && data.averageSpeed !== undefined) {
+      }
+      const history = speedHistory[sessionId];
+      history.speeds.push(speed);
+      history.lastUpdate = new Date(); // Update timestamp
+      // Rest of the existing updateSpeedDisplay code remains the same
+      const currentSpeedElement = document.getElementById('currentSpeed');
+      currentSpeedElement.textContent = speed.toFixed(1);
+      if (speed < 5) {
+        currentSpeedElement.style.color = '#2196F3';
+      } else if (speed < 10) {
+        currentSpeedElement.style.color = '#4CAF50';
+      } else {
+        currentSpeedElement.style.color = '#F44336';
+      }
+      history.maxSpeed = Math.max(history.maxSpeed, speed);
+      document.getElementById('maxSpeed').textContent = history.maxSpeed.toFixed(1);
+      if (data && data.averageSpeed !== undefined) {
         document.getElementById('avgSpeed').textContent = parseFloat(data.averageSpeed).toFixed(1);
+      }
+      const recentSpeeds = history.speeds.slice(-5);
+      history.movingAvg = recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
+      document.getElementById('movingAvg').textContent = history.movingAvg.toFixed(1);
     }
 
-    // Calculate moving average (last 5 readings)
-    const recentSpeeds = history.speeds.slice(-5);
-    history.movingAvg = recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
-    document.getElementById('movingAvg').textContent = history.movingAvg.toFixed(1);
+    function updateDebugInfo(info) {
+      document.getElementById('debugInfo').textContent = JSON.stringify(info, null, 2);
     }
 
-        function updateDebugInfo(info) {
-            document.getElementById('debugInfo').textContent = JSON.stringify(info, null, 2);
+    function updateMapWithNewCoordinate(lat, lng, sessionId) {
+      if (!polylines[sessionId]) {
+        const polylineColor = getRandomColor();
+        polylines[sessionId] = L.polyline([
+          [lat, lng]
+        ], {
+          color: polylineColor,
+          weight: 3
+        }).addTo(map);
+        startMarkers[sessionId] = L.marker([lat, lng], {
+          title: "Start Position - " + sessionId
+        }).bindPopup('Start - ' + sessionId).addTo(map);
+      } else {
+        const lastPoint = polylines[sessionId].getLatLngs().slice(-1)[0];
+        if (lastPoint.lat !== lat || lastPoint.lng !== lng) {
+          polylines[sessionId].addLatLng([lat, lng]);
         }
+      }
+      if (!endMarkers[sessionId]) {
+        endMarkers[sessionId] = L.marker([lat, lng], {
+          title: "Current Position - " + sessionId
+        }).bindPopup('Current - ' + sessionId).addTo(map);
+      } else {
+        endMarkers[sessionId].setLatLng([lat, lng]);
+      }
+      const center = map.getCenter();
+      const distance = map.distance([center.lat, center.lng], [lat, lng]);
+      if (distance > 100) {
+        map.setView([lat, lng]);
+      }
+    }
 
-        function updateMapWithNewCoordinate(lat, lng, sessionId) {
-            if (!polylines[sessionId]) {
-                const polylineColor = getRandomColor();
+    function updateAltitudeChart(distance, altitude, sessionId) {
+      let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+      if (datasetIndex === -1) {
+        datasetIndex = altitudeChart.data.datasets.length;
+        altitudeChart.data.datasets.push({
+          label: sessionId,
+          borderColor: getRandomColor(),
+          fill: false,
+          data: []
+        });
+      }
+      altitudeChart.data.datasets[datasetIndex].data.push({
+        x: distance,
+        y: altitude
+      });
+      altitudeChart.update();
+    }
 
-                polylines[sessionId] = L.polyline([[lat, lng]], {
-                    color: polylineColor,
-                    weight: 3
-                }).addTo(map);
+    function resetMap() {
+      stopPlayback();
+      speedHistory = {};
+      document.getElementById('currentSpeed').textContent = '0.0';
+      document.getElementById('maxSpeed').textContent = '0.0';
+      document.getElementById('avgSpeed').textContent = '0.0';
+      document.getElementById('movingAvg').textContent = '0.0';
+      Object.values(polylines).forEach(polyline => map.removeLayer(polyline));
+      Object.values(startMarkers).forEach(marker => map.removeLayer(marker));
+      Object.values(endMarkers).forEach(marker => map.removeLayer(marker));
+      polylines = {};
+      startMarkers = {};
+      endMarkers = {};
+      if (gpxPolyline) {
+        map.removeLayer(gpxPolyline);
+        gpxPolyline = null;
+      }
+      altitudeChart.data.datasets = [];
+      altitudeChart.update();
+      const initialLocation = [48.1818798, 16.3607528];
+      map.setView(initialLocation, 10);
+    }
 
-                startMarkers[sessionId] = L.marker([lat, lng], {
-                    title: "Start Position - " + sessionId
-                }).bindPopup('Start - ' + sessionId).addTo(map);
-            } else {
-                const lastPoint = polylines[sessionId].getLatLngs().slice(-1)[0];
-
-                if (lastPoint.lat !== lat || lastPoint.lng !== lng) {
-                    polylines[sessionId].addLatLng([lat, lng]);
-                }
-            }
-
-            if (!endMarkers[sessionId]) {
-                endMarkers[sessionId] = L.marker([lat, lng], {
-                    title: "Current Position - " + sessionId
-                }).bindPopup('Current - ' + sessionId).addTo(map);
-            } else {
-                endMarkers[sessionId].setLatLng([lat, lng]);
-            }
-
-            const center = map.getCenter();
-            const distance = map.distance([center.lat, center.lng], [lat, lng]);
-            if (distance > 100) {
-                map.setView([lat, lng]);
-            }
-        }
-
-        function updateAltitudeChart(distance, altitude, sessionId) {
-            let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-
-            if (datasetIndex === -1) {
-                datasetIndex = altitudeChart.data.datasets.length;
-                altitudeChart.data.datasets.push({
-                    label: sessionId,
-                    borderColor: getRandomColor(),
-                    fill: false,
-                    data: []
-                });
-            }
-
-            altitudeChart.data.datasets[datasetIndex].data.push({ x: distance, y: altitude });
-            altitudeChart.update();
-        }
-
-        function resetMap() {
-                stopPlayback();
-            speedHistory = {};
-            document.getElementById('currentSpeed').textContent = '0.0';
-            document.getElementById('maxSpeed').textContent = '0.0';
-            document.getElementById('avgSpeed').textContent = '0.0';
-            document.getElementById('movingAvg').textContent = '0.0';
-
-            Object.values(polylines).forEach(polyline => map.removeLayer(polyline));
-            Object.values(startMarkers).forEach(marker => map.removeLayer(marker));
-            Object.values(endMarkers).forEach(marker => map.removeLayer(marker));
-
-            polylines = {};
-            startMarkers = {};
-            endMarkers = {};
-
-            if (gpxPolyline) {
-                map.removeLayer(gpxPolyline);
-                gpxPolyline = null;
-            }
-
-            altitudeChart.data.datasets = [];
-            altitudeChart.update();
-
-            const initialLocation = [48.1818798, 16.3607528];
-            map.setView(initialLocation, 10);
-        }
-
-        function getRandomColor() {
-            const letters = '0123456789ABCDEF';
-            let color = '#';
-            for (let i = 0; i < 6; i++) {
-                color += letters[Math.floor(Math.random() * 16)];
-            }
-            return color;
-        }
+    function getRandomColor() {
+      const letters = '0123456789ABCDEF';
+      let color = '#';
+      for (let i = 0; i < 6; i++) {
+        color += letters[Math.floor(Math.random() * 16)];
+      }
+      return color;
+    }
 
     function startRecording() {
-        if (!isRecording) {
-            isRecording = true;
-            currentSession = {
-                id: 'session_' + new Date().getTime(),
-                startTime: new Date(),
-                points: [],
-                speedData: []
-            };
-            updateRecordingStatus(true);
-            console.log('Started recording session:', currentSession.id);
-        }
+      if (!isRecording) {
+        isRecording = true;
+        currentSession = {
+          id: 'session_' + new Date().getTime(),
+          startTime: new Date(),
+          points: [],
+          speedData: []
+        };
+        updateRecordingStatus(true);
+        console.log('Started recording session:', currentSession.id);
+      }
     }
 
     function stopRecording() {
-        if (isRecording) {
-            isRecording = false;
-            if (currentSession && currentSession.points.length > 0) {
-                currentSession.endTime = new Date();
-                recordedSessions[currentSession.id] = currentSession;
-                updateSessionsList();
-            }
-            currentSession = null;
-            updateRecordingStatus(false);
-            console.log('Stopped recording');
+      if (isRecording) {
+        isRecording = false;
+        if (currentSession && currentSession.points.length > 0) {
+          currentSession.endTime = new Date();
+          recordedSessions[currentSession.id] = currentSession;
+          updateSessionsList();
         }
+        currentSession = null;
+        updateRecordingStatus(false);
+        console.log('Stopped recording');
+      }
     }
 
     function updateRecordingStatus(recording) {
-        const indicator = document.getElementById('recordingStatus');
-        const label = document.getElementById('recordingLabel');
-
-        if (recording) {
-            indicator.classList.add('active');
-            label.textContent = 'Recording';
-        } else {
-            indicator.classList.remove('active');
-            label.textContent = 'Not Recording';
-        }
+      const indicator = document.getElementById('recordingStatus');
+      const label = document.getElementById('recordingLabel');
+      if (recording) {
+        indicator.classList.add('active');
+        label.textContent = 'Recording';
+      } else {
+        indicator.classList.remove('active');
+        label.textContent = 'Not Recording';
+      }
     }
 
     function updateSessionsList() {
-        const container = document.getElementById('sessionsContainer');
-        container.innerHTML = '';
+      const container = document.getElementById('sessionsContainer');
+      container.innerHTML = '';
+      Object.entries(recordedSessions).forEach(([sessionId, session]) => {
+        const duration = (session.endTime - session.startTime) / 1000;
+        const div = document.createElement('div');
+        div.className = 'session-item';
+        div.innerHTML = `
 
-        Object.entries(recordedSessions).forEach(([sessionId, session]) => {
-            const duration = (session.endTime - session.startTime) / 1000;
-            const div = document.createElement('div');
-            div.className = 'session-item';
-            div.innerHTML = `
-                <span>${new Date(session.startTime).toLocaleTimeString()} (${duration.toFixed(0)}s)</span>
-                <div>
-                    <button onclick="playSession('${sessionId}')">Play</button>
-                    <button onclick="deleteSession('${sessionId}')">Delete</button>
-                </div>
-            `;
-            container.appendChild(div);
-        });
+                  <span>${new Date(session.startTime).toLocaleTimeString()} (${duration.toFixed(0)}s)</span>
+                  <div>
+                      <button onclick="playSession('${sessionId}')">Play</button>
+                      <button onclick="deleteSession('${sessionId}')">Delete</button>
+                  </div>
+          `;
+        container.appendChild(div);
+      });
     }
 
     function playSession(sessionId) {
-        const session = recordedSessions[sessionId];
-        if (!session) return;
-
-        stopPlayback();
-        resetMap();
-
-        let index = 0;
-        playbackInterval = setInterval(() => {
-            if (index >= session.points.length) {
-                stopPlayback();
-                return;
-            }
-
-            const point = session.points[index];
-            updateMapWithNewCoordinate(point.lat, point.lng, 'playback');
-            updateSpeedDisplay('playback', point.speed);
-
-            if (point.altitude !== undefined) {
-                updateAltitudeChart(point.distance/1000, point.altitude, 'playback');
-            }
-
-            index++;
-        }, 100);
+      const session = recordedSessions[sessionId];
+      if (!session) return;
+      stopPlayback();
+      resetMap();
+      let index = 0;
+      playbackInterval = setInterval(() => {
+        if (index >= session.points.length) {
+          stopPlayback();
+          return;
+        }
+        const point = session.points[index];
+        updateMapWithNewCoordinate(point.lat, point.lng, 'playback');
+        updateSpeedDisplay('playback', point.speed);
+        if (point.altitude !== undefined) {
+          updateAltitudeChart(point.distance / 1000, point.altitude, 'playback');
+        }
+        index++;
+      }, 100);
     }
 
     function stopPlayback() {
-        if (playbackInterval) {
-            clearInterval(playbackInterval);
-            playbackInterval = null;
-        }
+      if (playbackInterval) {
+        clearInterval(playbackInterval);
+        playbackInterval = null;
+      }
     }
 
     function deleteSession(sessionId) {
-        delete recordedSessions[sessionId];
-        updateSessionsList();
+      deleteSessionData(sessionId);
+      delete recordedSessions[sessionId];
+      updateSessionsList();
     }
-
+    window.addEventListener('beforeunload', () => {
+      if (cleanupInterval) {
+        clearInterval(cleanupInterval);
+      }
+    });
     document.addEventListener('DOMContentLoaded', initMap);
 </script>
 </body>
