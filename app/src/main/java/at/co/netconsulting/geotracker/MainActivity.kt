@@ -17,8 +17,6 @@ import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.DisplayMetrics
@@ -77,7 +75,17 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusEvent
@@ -87,7 +95,6 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
@@ -110,8 +117,8 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
-import org.osmdroid.util.GarbageCollector
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -165,6 +172,11 @@ class MainActivity : ComponentActivity() {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
+    //persisting route point and zoom level
+    private var persistedRoutePoints = mutableListOf<GeoPoint>()
+    private var persistedMarkerPoint: LatLng? = null
+    private var persistedZoomLevel: Double? = null
+    private var persistedMapCenter: GeoPoint? = null
 
     private fun loadSharedPreferences() {
         val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -194,7 +206,6 @@ class MainActivity : ComponentActivity() {
                     " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
                     " CoveredDistance: ${event.coveredDistance}"
         )
-
         locationEventState.value = event
         latitudeState.value = event.latitude
         longitudeState.value = event.longitude
@@ -213,12 +224,28 @@ class MainActivity : ComponentActivity() {
                 GeoPoint(it.latitude, it.longitude)
             }
             savedLocationData = SavedLocationData(newPoints, true)
+            // Persist the route points
+            persistedRoutePoints = newPoints.toMutableList()
+            if (newPoints.isNotEmpty()) {
+                persistedMarkerPoint = LatLng(newPoints[0].latitude, newPoints[0].longitude)
+                // Don't override persisted zoom and center if they exist
+                if (persistedMapCenter == null) {
+                    persistedMapCenter = newPoints[0]
+                }
+                if (persistedZoomLevel == null) {
+                    persistedZoomLevel = 15.0
+                }
+            }
             drawPolyline(locationChangeEventState.value)
         } else {
             Log.d("MainActivity", "Service not running, centering map")
             savedLocationData = SavedLocationData(emptyList(), false)
+            persistedRoutePoints.clear()
+            persistedMarkerPoint = null
+            // Keep the current zoom level and center when stopping
+            persistedZoomLevel = mapView.zoomLevelDouble
+            persistedMapCenter = mapView.mapCenter as GeoPoint?
             mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
-            //mapView.controller.setZoom(15.0)
             mapView.invalidate()
         }
     }
@@ -298,12 +325,12 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun MainScreen() {
-        val mapCenter = remember { mutableStateOf<GeoPoint?>(null) }
-        val mapZoom = remember { mutableStateOf(17.0) }
-        val lastKnownLocation = remember { mutableStateOf<GeoPoint?>(null) }
+        remember { mutableStateOf<GeoPoint?>(null) }
+        remember { mutableStateOf(17.0) }
+        remember { mutableStateOf<GeoPoint?>(null) }
 
         // Coroutine scope to auto-hide the top bar after a delay
-        val coroutineScope = rememberCoroutineScope()
+        rememberCoroutineScope()
 
         // Create a scaffold state for controlling the bottom sheet
         val scaffoldState = rememberBottomSheetScaffoldState()
@@ -357,7 +384,7 @@ class MainActivity : ComponentActivity() {
                 content = { paddingValues ->
                     Box(modifier = Modifier.padding(paddingValues)) {
                         when (selectedTabIndex) {
-                            0 -> MapScreen(mapCenter, mapZoom, lastKnownLocation)
+                            0 -> MapScreen()
                             1 -> StatisticsScreenPreview(context = applicationContext, locationEventState = locationEventState)
                             2 -> SettingsScreen()
                         }
@@ -369,12 +396,9 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun MapScreen(
-        mapCenter: MutableState<GeoPoint?>,
-        mapZoom: MutableState<Double>,
-        lastKnownLocation: MutableState<GeoPoint?>
     ) {
         Column {
-            OpenStreetMapView(mapCenter, mapZoom, lastKnownLocation)
+            OpenStreetMapView()
         }
     }
 
@@ -838,12 +862,182 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Composable
-    fun OpenStreetMapView(
-        mapCenter: MutableState<GeoPoint?>,
-        mapZoom: MutableState<Double>,
-        lastKnownLocation: MutableState<GeoPoint?>
+    private fun saveAllSettings(
+        sharedPreferences: SharedPreferences,
+        firstName: String,
+        lastName: String,
+        birthDate: String,
+        height: Float,
+        weight: Float,
+        websocketserver: String
     ) {
+        sharedPreferences.edit().apply {
+            putString("firstname", firstName)
+            putString("lastname", lastName)
+            putString("birthdate", birthDate)
+            putFloat("height", height)
+            putFloat("weight", weight)
+            putString("websocketserver", websocketserver)
+            apply()
+        }
+    }
+
+    @Composable
+    fun SettingsScreen() {
+        val context = LocalContext.current
+        val sharedPreferences = remember {
+            context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        }
+
+        val savedState = sharedPreferences.getBoolean("batteryOptimizationState", true)
+        var isBatteryOptimizationIgnoredState by remember { mutableStateOf(savedState) }
+
+        var firstName by remember {
+            mutableStateOf(sharedPreferences.getString("firstname", "") ?: "")
+        }
+        var lastName by remember {
+            mutableStateOf(sharedPreferences.getString("lastname", "") ?: "")
+        }
+        var birthDate by remember {
+            mutableStateOf(sharedPreferences.getString("birthdate", "") ?: "")
+        }
+        var height by remember { mutableStateOf(sharedPreferences.getFloat("height", 0f)) }
+        var weight by remember { mutableStateOf(sharedPreferences.getFloat("weight", 0f)) }
+        var websocketserver by remember {
+            mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "")
+        }
+
+        isBatteryOptimizationIgnored(context)
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp)
+                .background(Color.LightGray)
+        ) {
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            OutlinedTextField(
+                value = firstName,
+                onValueChange = { firstName = it },
+                label = { Text("Firstname") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = lastName,
+                onValueChange = { lastName = it },
+                label = { Text("Lastname") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = birthDate,
+                onValueChange = { birthDate = it },
+                label = { Text("Birthdate (YYYY-MM-DD)") },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = height.toString(),
+                onValueChange = { input ->
+                    height = input.toFloatOrNull() ?: height
+                },
+                label = { Text("Height (cm)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = weight.toString(),
+                onValueChange = { input ->
+                    weight = input.toFloatOrNull() ?: weight
+                },
+                label = { Text("Weight (kg)") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = websocketserver,
+                onValueChange = { websocketserver = it },
+                label = { Text("Websocket ip address") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "Battery Optimization",
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            Switch(
+                checked = isBatteryOptimizationIgnoredState,
+                onCheckedChange = { isChecked ->
+                    isBatteryOptimizationIgnoredState = isChecked
+                    sharedPreferences.edit()
+                        .putBoolean("batteryOptimizationState", isChecked)
+                        .apply()
+
+                    if (isChecked) {
+                        requestIgnoreBatteryOptimizations(context)
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "Background usage might still be enabled. Please disable manually.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    saveAllSettings(
+                        sharedPreferences,
+                        firstName,
+                        lastName,
+                        birthDate,
+                        height,
+                        weight,
+                        websocketserver
+                    )
+
+                    Toast.makeText(context, "All settings saved", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Save")
+            }
+        }
+    }
+
+    private fun isBatteryOptimizationIgnored(context: Context): Boolean {
+        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        val packageName = context.packageName
+        return powerManager.isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun requestIgnoreBatteryOptimizations(context: Context) {
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${context.packageName}")
+        }
+        context.startActivity(intent)
+    }
+
+    @Composable
+    fun OpenStreetMapView() {
         val context = LocalContext.current
 
         var showDialog by remember { mutableStateOf(false) }
@@ -854,28 +1048,67 @@ class MainActivity : ComponentActivity() {
             )
         }
 
+        // Add DisposableEffect to save map state when leaving the composable
+        DisposableEffect(Unit) {
+            onDispose {
+                // Save current map state when leaving the map view
+                persistedZoomLevel = mapView.zoomLevelDouble
+                persistedMapCenter = mapView.mapCenter as GeoPoint?
+            }
+        }
+
         Box(modifier = Modifier.fillMaxSize()) {
             AndroidView(
                 factory = {
                     mapView = MapView(context).apply {
-                        setTileSource(customTileSource)
+                        setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
 
-                        if (savedLocationData.points.isNotEmpty()) {
+                        // Initialize with persisted data if available
+                        if (persistedRoutePoints.isNotEmpty()) {
+                            polyline = Polyline().apply {
+                                outlinePaint.strokeWidth = 10f
+                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                                setPoints(persistedRoutePoints)
+                            }
+                            overlays.add(polyline)
+
+                            // Restore marker if available
+                            persistedMarkerPoint?.let { point ->
+                                createMarker(point)
+                            }
+
+                            // Restore zoom and center position
+                            controller.setCenter(persistedMapCenter ?: persistedRoutePoints[0])
+                            persistedZoomLevel?.let { zoom ->
+                                controller.setZoom(zoom)
+                            }
+                        } else if (savedLocationData.points.isNotEmpty()) {
                             polyline = Polyline().apply {
                                 outlinePaint.strokeWidth = 10f
                                 outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
                                 setPoints(savedLocationData.points)
                             }
                             overlays.add(polyline)
+
+                            // Use saved location data for initial position if no persisted state
+                            if (persistedMapCenter == null) {
+                                controller.setCenter(savedLocationData.points[0])
+                            }
+                            if (persistedZoomLevel == null) {
+                                controller.setZoom(15.0)
+                            }
                         }
 
-                        polyline = Polyline().apply {
-                            outlinePaint.strokeWidth = 10f
-                            outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                        // Restore previous zoom and center if available
+                        persistedMapCenter?.let { center ->
+                            controller.setCenter(center)
                         }
-                        overlays.add(polyline)
+                        persistedZoomLevel?.let { zoom ->
+                            controller.setZoom(zoom)
+                        }
 
+                        // Rest of the MapView setup...
                         val dm: DisplayMetrics = context.resources.displayMetrics
                         val scaleBarOverlay = ScaleBarOverlay(this).apply {
                             setCentred(true)
@@ -890,7 +1123,9 @@ class MainActivity : ComponentActivity() {
                     }
                     marker = Marker(mapView)
 
-                    if (savedLocationData.points.isNotEmpty()) {
+                    if (persistedMarkerPoint != null) {
+                        createMarker(persistedMarkerPoint!!)
+                    } else if (savedLocationData.points.isNotEmpty()) {
                         createMarker(LatLng(
                             savedLocationData.points[0].latitude,
                             savedLocationData.points[0].longitude
@@ -904,7 +1139,15 @@ class MainActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
                 update = { mapView ->
                     // Update map when switching back to tab
-                    if (savedLocationData.points.isNotEmpty()) {
+                    val points = if (persistedRoutePoints.isNotEmpty()) {
+                        persistedRoutePoints
+                    } else if (savedLocationData.points.isNotEmpty()) {
+                        savedLocationData.points
+                    } else {
+                        emptyList()
+                    }
+
+                    if (points.isNotEmpty()) {
                         val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
                         if (oldPolyline != null) {
                             mapView.overlays.remove(oldPolyline)
@@ -913,10 +1156,18 @@ class MainActivity : ComponentActivity() {
                         val newPolyline = Polyline().apply {
                             outlinePaint.strokeWidth = 10f
                             outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
-                            setPoints(savedLocationData.points)
+                            setPoints(points)
                         }
                         mapView.overlays.add(newPolyline)
                         polyline = newPolyline
+
+                        // Only set center and zoom if they haven't been persisted yet
+                        if (persistedMapCenter == null) {
+                            mapView.controller.setCenter(points[0])
+                        }
+                        if (persistedZoomLevel == null) {
+                            mapView.controller.setZoom(15.0)
+                        }
                     }
                     mapView.invalidate()
                 }
@@ -985,15 +1236,8 @@ class MainActivity : ComponentActivity() {
                                     .apply()
 
                                 isRecording = false
-
-                                // Post event before stopping service
-                                EventBus.getDefault().post(StopServiceEvent())
-
-                                // Give the event time to process
-                                Handler(Looper.getMainLooper()).postDelayed({
-                                    val stopIntent = Intent(context, ForegroundService::class.java)
-                                    context.stopService(stopIntent)
-                                }, 100)
+                                val stopIntent = Intent(context, ForegroundService::class.java)
+                                context.stopService(stopIntent)
                             }
                     ) {
                         Icon(
@@ -1008,7 +1252,6 @@ class MainActivity : ComponentActivity() {
 
         if (showDialog) {
             RecordingButtonWithDialog(
-                context = context,
                 onSave = { eventName, eventDate, artOfSport, wheelSize, sprocket, comment, clothing ->
                     val stopIntent = Intent(context, BackgroundLocationService::class.java)
                     context.stopService(stopIntent)
@@ -1039,7 +1282,6 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun RecordingButtonWithDialog(
-        context: Context,
         onSave: (
             eventName: String,
             eventDate: String,
@@ -1297,8 +1539,8 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
         val mapView = remember {
             MapView(context).apply {
-                //setTileSource(TileSourceFactory.MAPNIK)
-                setTileSource(customTileSource)
+                setTileSource(  TileSourceFactory.MAPNIK)
+                //setTileSource(customTileSource)
                 setMultiTouchControls(true)
                 controller.setZoom(12.0)
             }
@@ -1464,7 +1706,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    suspend fun importGPXFile(
+    private suspend fun importGPXFile(
         file: File,
         database: FitnessTrackerDatabase,
         onComplete: (Boolean) -> Unit
@@ -1613,11 +1855,6 @@ class MainActivity : ComponentActivity() {
     data class SavedLocationData(
         val points: List<GeoPoint>,
         val isRecording: Boolean
-    )
-    data class GpsPoint(
-        val lat: Double,
-        val lon: Double,
-        val elevation: Double? = null
     )
     data class MemoryPressureEvent(val level: Int)
     data class StopServiceEvent(val timestamp: Long = System.currentTimeMillis())

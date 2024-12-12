@@ -233,8 +233,8 @@ class ForegroundService : Service() {
                 if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
                     resetValues()
                 }
-
                 if (speed >= MIN_SPEED_THRESHOLD) {
+                    //triggerLocationChange(customLocationListener!!)
                     showStopWatch()
                 } else {
                     showLazyStopWatch()

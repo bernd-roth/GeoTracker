@@ -34,37 +34,37 @@ fun BottomSheetContent(
             color = Color.Black
         )
         Text(
-            "Speed ${"%.2f".format(speed)} km/h",
+            text = "Speed ${"%.2f".format(speed)} km/h",
             fontSize = 10.sp,
             color = Color.Black
         )
         Text(
-            "Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} km/h",
+            text = "Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} km/h",
             fontSize = 10.sp,
             color = Color.Black
         )
         Text(
-            "Altitude: ${"%.2f".format(altitude)} meter",
+            text = "Altitude: ${"%.2f".format(altitude)} meter",
             fontSize = 10.sp,
             color = Color.Black
         )
         Text(
-            "Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter",
+            text = "Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter",
             fontSize = 10.sp,
             color = Color.Black
         )
         Text(
-            "Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter",
+            text = "Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter",
             fontSize = 10.sp,
             color = Color.Black
         )
         Text(
-            "Satellites: $usedNumberOfSatellites/$numberOfSatellites ",
+            text = "Satellites: $usedNumberOfSatellites/$numberOfSatellites ",
             fontSize = 10.sp,
             color = Color.Black
         )
         Text(
-            "Covered distance: ${"%.3f".format(coveredDistance / 1000)} Km",
+            text = "Covered distance: ${"%.3f".format(coveredDistance / 1000)} Km",
             fontSize = 10.sp,
             color = Color.Black
         )
