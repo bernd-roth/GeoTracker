@@ -113,9 +113,7 @@ import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import com.google.android.gms.maps.model.LatLng
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -140,8 +138,8 @@ import java.time.format.DateTimeFormatter
 import javax.xml.parsers.DocumentBuilderFactory
 
 class MainActivity : ComponentActivity() {
-    private var latitudeState = mutableDoubleStateOf(0.0)
-    private var longitudeState = mutableDoubleStateOf(0.0)
+    private var latitudeState = mutableDoubleStateOf(-999.0)
+    private var longitudeState = mutableDoubleStateOf(-999.0)
     private var horizontalAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var altitudeState = mutableDoubleStateOf(0.0)
     private var speedState = mutableFloatStateOf(0.0f)
@@ -336,18 +334,33 @@ class MainActivity : ComponentActivity() {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
             sheetContent = {
-                BottomSheetContent(
-                    latitude = latitudeState.value,
-                    longitude = longitudeState.value,
-                    speed = speedState.value,
-                    speedAccuracyInMeters = speedState.value,
-                    altitude = altitudeState.value,
-                    verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
-                    horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
-                    numberOfSatellites = satelliteCount,
-                    usedNumberOfSatellites = usedInFixCount,
-                    coveredDistance = coveredDistanceState.value
-                )
+                if(latitudeState.value!=-999.0 && longitudeState.value!=-999.0) {
+                    BottomSheetContent(
+                        latitude = latitudeState.value,
+                        longitude = longitudeState.value,
+                        speed = speedState.value,
+                        speedAccuracyInMeters = speedState.value,
+                        altitude = altitudeState.value,
+                        verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
+                        horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
+                        numberOfSatellites = satelliteCount,
+                        usedNumberOfSatellites = usedInFixCount,
+                        coveredDistance = coveredDistanceState.value
+                    )
+                } else {
+                    BottomSheetContent(
+                        latitude = Double.NaN,
+                        longitude = Double.NaN,
+                        speed = speedState.value,
+                        speedAccuracyInMeters = speedState.value,
+                        altitude = altitudeState.value,
+                        verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
+                        horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
+                        numberOfSatellites = satelliteCount,
+                        usedNumberOfSatellites = usedInFixCount,
+                        coveredDistance = coveredDistanceState.value
+                    )
+                }
             },
             sheetPeekHeight = 20.dp,
             sheetContentColor = Color.Transparent,
