@@ -32,7 +32,7 @@ import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
-import com.google.android.gms.maps.model.LatLng
+import at.co.netconsulting.geotracker.tools.Tools
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -274,11 +274,13 @@ class ForegroundService : Service() {
     }
 
     private fun checkLatitudeLongitudeDuplicates(): Boolean {
-        return if (oldLatitude != -999.0 && oldLongitude != -999.0) {
-            oldLatitude != latitude || oldLongitude != longitude
-        } else {
-            false
-        }
+        val isLatitudeSame = latitude.compareTo(oldLatitude) == 0
+        val isLongitudeSame = longitude.compareTo(oldLongitude) == 0
+
+        oldLatitude = latitude
+        oldLongitude = longitude
+
+        return !isLatitudeSame || !isLongitudeSame
     }
 
     private fun checkLatitudeLongitude(): Boolean {
@@ -357,7 +359,7 @@ class ForegroundService : Service() {
         val newEvent = Event(
             userId = userId,
             eventName = eventname,
-            eventDate = eventdate,
+            eventDate = Tools().provideDateTimeFormat(),
             artOfSport = artofsport,
             comment = comment
         )

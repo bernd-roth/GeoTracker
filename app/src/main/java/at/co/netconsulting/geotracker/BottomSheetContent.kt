@@ -30,42 +30,42 @@ fun BottomSheetContent(
     ) {
         Text(
             text = "Latitude: $latitude Longitude: $longitude",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
         Text(
             text = "Speed ${"%.2f".format(speed)} km/h",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
         Text(
             text = "Speed accuracy: ±${"%.2f".format(speedAccuracyInMeters)} km/h",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
         Text(
             text = "Altitude: ${"%.2f".format(altitude)} meter",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
         Text(
             text = "Horizontal accuracy: ±${"%.2f".format(horizontalAccuracyInMeters)} meter",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
         Text(
             text = "Vertical accuracy: ±${"%.2f".format(verticalAccuracyInMeters)} meter",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
         Text(
             text = "Satellites: $usedNumberOfSatellites/$numberOfSatellites ",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
         Text(
             text = "Covered distance: ${"%.3f".format(coveredDistance / 1000)} Km",
-            fontSize = 10.sp,
+            fontSize = 14.sp,
             color = Color.Black
         )
     }
