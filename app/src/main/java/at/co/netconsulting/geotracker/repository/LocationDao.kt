@@ -15,4 +15,10 @@ interface LocationDao {
 
     @Insert
     suspend fun insertAll(locations: List<Location>)
+
+    @Query("DELETE FROM locations WHERE eventId = :eventId")
+    suspend fun deleteLocationsByEventId(eventId: Int)
+
+    @Query("SELECT * FROM locations WHERE eventId = :eventId ORDER BY locationId ASC")
+    suspend fun getLocationsByEventId(eventId: Int): List<Location>
 }

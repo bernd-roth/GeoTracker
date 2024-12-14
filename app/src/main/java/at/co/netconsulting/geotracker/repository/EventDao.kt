@@ -101,4 +101,7 @@ interface EventDao {
         dl.lapNumber
 """)
     suspend fun getLapTimesForEvents(): List<LapTimeInfo>
+
+    @Query("SELECT * FROM events WHERE eventId = :eventId")
+    suspend fun getEventById(eventId: Int): Event
 }

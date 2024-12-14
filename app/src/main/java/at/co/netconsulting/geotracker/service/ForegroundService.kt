@@ -32,6 +32,8 @@ import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
+import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -64,8 +66,10 @@ class ForegroundService : Service() {
     private var eventId: Int = 0
     private var distance: Double = 0.0
     private var altitude: Double = 0.0
-    private var latitude: Double = 0.0
-    private var longitude: Double = 0.0
+    private var latitude: Double = -999.0
+    private var longitude: Double = -999.0
+    private var oldLatitude: Double = -999.0
+    private var oldLongitude: Double = -999.0
     private var lap: Int = 0
     private var lazyFormattedTime: String = "00:00:00"
     private var movementFormattedTime: String = "00:00:00"
@@ -80,11 +84,13 @@ class ForegroundService : Service() {
     private val heartbeatScope = CoroutineScope(Dispatchers.IO + heartbeatJob)
     private var isHeartbeatActive = false
     private var customLocationListener: CustomLocationListener? = null
+    private var currentEventId: Int = -1
 
     data class HeartbeatEvent(val timestamp: Long)
 
     override fun onCreate() {
         super.onCreate()
+        currentEventId = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE).getInt("active_event_id", -1)
         loadSharedPreferences()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
@@ -139,18 +145,26 @@ class ForegroundService : Service() {
     private fun checkLocationUpdates() {
         val currentTime = currentTimeMillis()
         if (currentTime - lastUpdateTimestamp > LOCATION_UPDATE_TIMEOUT) {
-            Log.w("LocationMonitor", "No location updates received for ${LOCATION_UPDATE_TIMEOUT/1000} seconds")
-            serviceScope.launch {
-                try {
-                    customLocationListener?.cleanup()
-                    customLocationListener = CustomLocationListener(applicationContext).also {
-                        it.startDateTime = LocalDateTime.now()
-                        it.startListener()
-                    }
-                } catch (e: Exception) {
-                    Log.e("LocationMonitor", "Failed to restart location updates", e)
-                }
-            }
+            Log.w("LocationMonitor", "GPS/Network connection lost")
+            // Get the current latLngs from the CustomLocationListener
+            val currentLatLngs = customLocationListener?.getCurrentLatLngs() ?: emptyList()
+
+            // Instead of recreating listener, just log the disconnection
+            // and wait for reconnection
+            EventBus.getDefault().post(LocationEvent(
+                latitude = latitude,
+                longitude = longitude,
+                speed = 0f,
+                speedAccuracyMetersPerSecond = 0f,
+                altitude = altitude,
+                horizontalAccuracy = 0f,
+                verticalAccuracyMeters = 0f,
+                coveredDistance = distance,
+                lap = lap,
+                startDateTime = LocalDateTime.now(),
+                averageSpeed = 0.0,
+                locationChangeEventList = CustomLocationListener.LocationChangeEvent(currentLatLngs)
+            ))
         }
     }
 
@@ -217,34 +231,58 @@ class ForegroundService : Service() {
         fun getCurrentSegment(): TimeSegment? = currentSegment
     }
 
-    private fun createBackgroundCoroutine() {
+    private fun createBackgroundCoroutine(eventIdDeferred: CompletableDeferred<Int>) {
         serviceScope.launch {
-            // Store the reference instead of just local variable
-            customLocationListener = CustomLocationListener(applicationContext).also {
-                it.startDateTime = LocalDateTime.now()
-                it.startListener()
-            }
-
-            val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
-            eventId = createNewEvent(database, userId)
-
-            while (isActive) {
-                val currentTime = currentTimeMillis()
-                if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
-                    resetValues()
-                }
-                if (speed >= MIN_SPEED_THRESHOLD) {
-                    //triggerLocationChange(customLocationListener!!)
-                    showStopWatch()
-                } else {
-                    showLazyStopWatch()
+            try {
+                // Store the reference instead of just local variable
+                customLocationListener = CustomLocationListener(applicationContext).also {
+                    it.startDateTime = LocalDateTime.now()
+                    it.startListener()
                 }
 
-                showNotification()
-                insertDatabase(database)
-                delay(1000)
+                val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
+                eventId = createNewEvent(database, userId)
+
+                // Complete the deferred with the new event ID
+                eventIdDeferred.complete(eventId)
+
+                while (isActive) {
+                    val currentTime = currentTimeMillis()
+                    if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
+                        resetValues()
+                    }
+                    if (speed >= MIN_SPEED_THRESHOLD) {
+                        //triggerLocationChange(customLocationListener!!)
+                        showStopWatch()
+                    } else {
+                        showLazyStopWatch()
+                    }
+
+                    showNotification()
+                    if(checkLatitudeLongitude()) {
+                        if(checkLatitudeLongitudeDuplicates()) {
+                            insertDatabase(database)
+                        }
+                    }
+                    delay(1000)
+                }
+            } catch (e: Exception) {
+                eventIdDeferred.completeExceptionally(e)
+                Log.e(TAG, "Error in background coroutine", e)
             }
         }
+    }
+
+    private fun checkLatitudeLongitudeDuplicates(): Boolean {
+        return if (oldLatitude != -999.0 && oldLongitude != -999.0) {
+            oldLatitude != latitude || oldLongitude != longitude
+        } else {
+            false
+        }
+    }
+
+    private fun checkLatitudeLongitude(): Boolean {
+        return latitude!=-999.0 && longitude!=-999.0
     }
 
     private fun showStopWatch() {
@@ -436,9 +474,29 @@ class ForegroundService : Service() {
         comment = intent?.getStringExtra("comment") ?: "No Comment"
         clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
 
+        val eventIdDeferred = CompletableDeferred<Int>()
+        createBackgroundCoroutine(eventIdDeferred)
+
+        serviceScope.launch {
+            try {
+                // Wait for event ID to be created
+                currentEventId = eventIdDeferred.await()
+                eventId = currentEventId  // Set the existing eventId field
+
+                // Save to SharedPreferences
+                getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt("active_event_id", currentEventId)
+                    .apply()
+
+                Log.d(TAG, "Event ID created and saved: $currentEventId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create event ID", e)
+            }
+        }
+
         acquireWakeLock()
         EventBus.getDefault().register(this)
-        createBackgroundCoroutine()
         startForeground(1, notificationBuilder.build())
 
         return START_STICKY
@@ -447,6 +505,13 @@ class ForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "onDestroy called, isStoppingIntentionally: $isStoppingIntentionally")
+        if (isStoppingIntentionally) {
+            // Only clear the event ID if this is a normal shutdown
+            getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                .edit()
+                .remove("active_event_id")
+                .apply()
+        }
         customLocationListener?.cleanup()
         customLocationListener = null
         isHeartbeatActive = false

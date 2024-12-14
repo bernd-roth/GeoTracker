@@ -194,6 +194,26 @@
           border-radius: 3px;
           cursor: pointer;
         }
+
+        .charts-container {
+          height: 33vh;
+          width: 100%;
+          display: flex;
+          padding: 0;
+        }
+
+        #altitudeChartContainer,
+        #speedChartContainer {
+          height: 100%;
+          width: 50%;
+          padding: 0;
+        }
+
+        #altitudeChart,
+        #speedChart {
+          height: 100%;
+          width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -242,8 +262,13 @@
 </div>
 <div id="debugInfo"></div>
 <div id="map"></div>
-<div id="altitudeChartContainer">
-    <canvas id="altitudeChart"></canvas>
+<div class="charts-container">
+    <div id="altitudeChartContainer">
+        <canvas id="altitudeChart"></canvas>
+    </div>
+    <div id="speedChartContainer">
+        <canvas id="speedChart"></canvas>
+    </div>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -265,6 +290,7 @@
     let playbackInterval = null;
     let dataRetentionHours = 24;
     let cleanupInterval = null;
+    let speedChart;
 
     function initMap() {
       const initialLocation = [48.1818798, 16.3607528];
@@ -272,9 +298,9 @@
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
       }).addTo(map);
-      initAltitudeChart();
+      initCharts();
       connectToWebSocket();
-      startCleanupInterval(); // Add periodic cleanup
+      startCleanupInterval();
     }
 
     function startCleanupInterval() {
@@ -326,9 +352,10 @@
       }
     }
 
-    function initAltitudeChart() {
-      const ctx = document.getElementById('altitudeChart').getContext('2d');
-      altitudeChart = new Chart(ctx, {
+    function initCharts() {
+      // Initialize Altitude Chart
+      const altCtx = document.getElementById('altitudeChart').getContext('2d');
+      altitudeChart = new Chart(altCtx, {
         type: 'line',
         data: {
           labels: [],
@@ -354,6 +381,40 @@
               title: {
                 display: true,
                 text: 'Altitude (m)'
+              },
+              min: 0
+            }
+          }
+        }
+      });
+      // Initialize Speed Chart
+      const speedCtx = document.getElementById('speedChart').getContext('2d');
+      speedChart = new Chart(speedCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: []
+        },
+        options: {
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'linear',
+              title: {
+                display: true,
+                text: 'Distance (km)'
+              },
+              ticks: {
+                beginAtZero: true,
+                callback: function(value) {
+                  return value.toFixed(2);
+                }
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Speed (km/h)'
               },
               min: 0
             }
@@ -409,6 +470,7 @@
           updateMapWithNewCoordinate(lat, lng, sessionId);
           if (!isNaN(altitude) && !isNaN(distance)) {
             updateAltitudeChart(distance / 1000, altitude, sessionId);
+            updateSpeedChart(distance / 1000, currentSpeed, sessionId);
           }
         }
       };
@@ -435,13 +497,12 @@
           maxSpeed: 0,
           avgSpeed: 0,
           movingAvg: 0,
-          lastUpdate: new Date() // Add timestamp
+          lastUpdate: new Date()
         };
       }
       const history = speedHistory[sessionId];
       history.speeds.push(speed);
-      history.lastUpdate = new Date(); // Update timestamp
-      // Rest of the existing updateSpeedDisplay code remains the same
+      history.lastUpdate = new Date();
       const currentSpeedElement = document.getElementById('currentSpeed');
       currentSpeedElement.textContent = speed.toFixed(1);
       if (speed < 5) {
@@ -534,6 +595,8 @@
       }
       altitudeChart.data.datasets = [];
       altitudeChart.update();
+      speedChart.data.datasets = [];
+      speedChart.update();
       const initialLocation = [48.1818798, 16.3607528];
       map.setView(initialLocation, 10);
     }
@@ -596,6 +659,7 @@
         div.className = 'session-item';
         div.innerHTML = `
 
+
                   <span>${new Date(session.startTime).toLocaleTimeString()} (${duration.toFixed(0)}s)</span>
                   <div>
                       <button onclick="playSession('${sessionId}')">Play</button>
@@ -644,6 +708,24 @@
         clearInterval(cleanupInterval);
       }
     });
+
+    function updateSpeedChart(distance, speed, sessionId) {
+      let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+      if (datasetIndex === -1) {
+        datasetIndex = speedChart.data.datasets.length;
+        speedChart.data.datasets.push({
+          label: sessionId,
+          borderColor: getRandomColor(),
+          fill: false,
+          data: []
+        });
+      }
+      speedChart.data.datasets[datasetIndex].data.push({
+        x: distance,
+        y: speed
+      });
+      speedChart.update();
+    }
     document.addEventListener('DOMContentLoaded', initMap);
 </script>
 </body>

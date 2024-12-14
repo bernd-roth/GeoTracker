@@ -12,4 +12,10 @@ interface DeviceStatusDao {
 
     @Query("SELECT * FROM device_status WHERE eventId = :eventId ORDER BY statusId DESC LIMIT 1")
     suspend fun getLastDeviceStatusByEvent(eventId: Int): DeviceStatus?
+
+    @Query("DELETE FROM device_status WHERE eventId = :eventId")
+    suspend fun deleteByEventId(eventId: Int)
+
+    @Query("DELETE FROM device_status WHERE eventId = :eventId")
+    suspend fun deleteDeviceStatusByEventId(eventId: Int)
 }

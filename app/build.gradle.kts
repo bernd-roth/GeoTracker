@@ -20,12 +20,24 @@ android {
     }
 
     buildTypes {
+        debug {
+            isDebuggable = true
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+        }
+    }
+
+    androidComponents {
+        onVariants { variant ->
+            variant.outputs.forEach { output ->
+                val outputImpl = output as com.android.build.api.variant.impl.VariantOutputImpl
+                outputImpl.outputFileName.set("geotracker.apk")
+            }
         }
     }
 
@@ -52,6 +64,7 @@ android {
 }
 
 dependencies {
+    // Dependencies remain the same...
     // Core dependencies
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -90,9 +103,10 @@ dependencies {
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.30.1")
     implementation("org.greenrobot:eventbus:3.3.1")
     testImplementation("junit:junit:4.13.2")
-    testImplementation ("org.jetbrains.kotlin:kotlin-test-junit:1.8.10")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.8.10")
     testImplementation("org.mockito:mockito-core:4.2.0")
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.jakewharton.timber:timber:4.7.1")
+    implementation("joda-time:joda-time:2.13.0")
 }

@@ -107,12 +107,15 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.User
+import at.co.netconsulting.geotracker.gpx.export
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -219,53 +222,38 @@ class MainActivity : ComponentActivity() {
         horizontalAccuracyInMetersState.value = event.horizontalAccuracy
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            Log.d("MainActivity", "Drawing polyline")
             val newPoints = locationChangeEventState.value.latLngs.map {
                 GeoPoint(it.latitude, it.longitude)
             }
-            savedLocationData = SavedLocationData(newPoints, true)
-            // Persist the route points
-            persistedRoutePoints = newPoints.toMutableList()
-            if (newPoints.isNotEmpty()) {
-                persistedMarkerPoint = LatLng(newPoints[0].latitude, newPoints[0].longitude)
-                // Don't override persisted zoom and center if they exist
-                if (persistedMapCenter == null) {
-                    persistedMapCenter = newPoints[0]
-                }
-                if (persistedZoomLevel == null) {
-                    persistedZoomLevel = 15.0
+
+            // Only update if we have valid coordinates
+            if (newPoints.isNotEmpty() &&
+                !(newPoints.last().latitude == 0.0 && newPoints.last().longitude == 0.0)) {
+                savedLocationData = SavedLocationData(newPoints, true)
+                persistedRoutePoints = newPoints.toMutableList()
+
+                // Only update polyline if we have valid points
+                if (newPoints.isNotEmpty()) {
+                    val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
+                    if (oldPolyline != null) {
+                        // Instead of removing, update existing polyline's points
+                        oldPolyline.setPoints(newPoints)
+                        mapView.invalidate()
+                    } else {
+                        // Create new polyline only if none exists
+                        drawPolyline(locationChangeEventState.value)
+                    }
                 }
             }
-            drawPolyline(locationChangeEventState.value)
-        } else {
-            Log.d("MainActivity", "Service not running, centering map")
-            savedLocationData = SavedLocationData(emptyList(), false)
-            persistedRoutePoints.clear()
-            persistedMarkerPoint = null
-            // Keep the current zoom level and center when stopping
-            persistedZoomLevel = mapView.zoomLevelDouble
-            persistedMapCenter = mapView.mapCenter as GeoPoint?
-            mapView.controller.setCenter(GeoPoint(latitudeState.value, longitudeState.value))
-            mapView.invalidate()
         }
     }
 
     private fun isServiceRunning(serviceName: String): Boolean {
-        var serviceRunning = false
-        val am = this.getSystemService(ACTIVITY_SERVICE) as ActivityManager
-        val l = am.getRunningServices(50)
-        val i: Iterator<ActivityManager.RunningServiceInfo> = l.iterator()
-        while (i.hasNext()) {
-            val runningServiceInfo = i
-                .next()
-
-            if (runningServiceInfo.service.className == serviceName) {
-                serviceRunning = true
-
-                if (runningServiceInfo.foreground) {}
+        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        return manager.getRunningServices(Integer.MAX_VALUE)
+            .any { service ->
+                serviceName == service.service.className && service.foreground
             }
-        }
-        return serviceRunning
     }
 
     private fun drawPolyline(
@@ -427,11 +415,46 @@ class MainActivity : ComponentActivity() {
         var expanded by remember { mutableStateOf(false) }
         var selectedRecords by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
         var lapTimesMap by remember { mutableStateOf<Map<Int, List<LapTimeInfo>>>(emptyMap()) }
+        var showDeleteErrorDialog by remember { mutableStateOf(false) }
 
         // Search state
         var searchQuery by remember { mutableStateOf("") }
 
         val coroutineScope = rememberCoroutineScope()
+
+        suspend fun delete(eventId: Int) {
+            val currentRecordingEventId = getCurrentlyRecordingEventId()
+
+            if (eventId == currentRecordingEventId &&
+                isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+                showDeleteErrorDialog = true
+                return
+            }
+
+            try {
+                database.metricDao().deleteMetricsByEventId(eventId)
+                database.locationDao().deleteLocationsByEventId(eventId)
+                database.weatherDao().deleteWeatherByEventId(eventId)
+                database.deviceStatusDao().deleteDeviceStatusByEventId(eventId)
+                database.eventDao().delete(eventId)
+
+                Toast.makeText(
+                    context,
+                    "Event deleted successfully",
+                    Toast.LENGTH_SHORT
+                ).show()
+
+                // Update the records list after successful deletion
+                records = records.filter { it.eventId != eventId }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error deleting event", e)
+                Toast.makeText(
+                    context,
+                    "Error deleting event: ${e.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
 
         suspend fun loadData() {
             try {
@@ -569,6 +592,17 @@ class MainActivity : ComponentActivity() {
                                             text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",style = MaterialTheme.typography.bodyMedium
                                         )
 
+                                        if (record.eventId == getCurrentlyRecordingEventId() &&
+                                            isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+                                            Text(
+                                                text = "⚫ Ongoing Recording",
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    color = MaterialTheme.colorScheme.error,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                        }
+
                                         // Lap times table
                                         Column(
                                             modifier = Modifier
@@ -627,33 +661,38 @@ class MainActivity : ComponentActivity() {
                                                 .padding(vertical = 8.dp),
                                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                                         ) {
-                                            Button(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        delete(record.eventId)
-                                                        records = records.filter { it.eventId != record.eventId }
+                                            // Only show action buttons if this is not an active recording
+                                            if (!(record.eventId == getCurrentlyRecordingEventId() &&
+                                                        isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService"))) {
+                                                Button(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            delete(record.eventId)
+                                                            records = records.filter { it.eventId != record.eventId }
+                                                        }
                                                     }
+                                                ) {
+                                                    Text(text = "Delete")
                                                 }
-                                            ) {
-                                                Text(text = "Delete")
-                                            }
-                                            Button(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        export(record.eventId)
+                                                Button(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            export(record.eventId, applicationContext)
+                                                            //export(record.eventId)
+                                                        }
                                                     }
+                                                ) {
+                                                    Text(text = "Export")
                                                 }
-                                            ) {
-                                                Text(text = "Export")
-                                            }
-                                            Button(
-                                                onClick = {
-                                                    coroutineScope.launch {
-                                                        edit(record.eventId)
+                                                Button(
+                                                    onClick = {
+                                                        coroutineScope.launch {
+                                                            edit(record.eventId)
+                                                        }
                                                     }
+                                                ) {
+                                                    Text(text = "Edit")
                                                 }
-                                            ) {
-                                                Text(text = "Edit")
                                             }
                                         }
                                     }
@@ -708,9 +747,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
-
             // Display statistics of all selected events
             selectedRecords.forEach { record ->
                 SelectedEventPanel(record)
@@ -819,12 +856,17 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(applicationContext, "Edit not implemented yet", Toast.LENGTH_LONG).show()
     }
 
-    private fun export(eventId: Int) {
-        Toast.makeText(applicationContext, "Single export not implemented yet", Toast.LENGTH_LONG).show()
-    }
+//    private fun export(eventId: Int) {
+//        Toast.makeText(applicationContext, "Single export not implemented yet", Toast.LENGTH_LONG).show()
+//    }
 
-    private suspend fun delete(eventId: Int) {
-        database.eventDao().delete(eventId)
+    private fun getCurrentlyRecordingEventId(): Int {
+        return if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+            getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                .getInt("active_event_id", -1)
+        } else {
+            -1
+        }
     }
 
     @Composable
@@ -1065,7 +1107,8 @@ class MainActivity : ComponentActivity() {
                         if (persistedRoutePoints.isNotEmpty()) {
                             polyline = Polyline().apply {
                                 outlinePaint.strokeWidth = 10f
-                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                                outlinePaint.color =
+                                    ContextCompat.getColor(context, android.R.color.holo_purple)
                                 setPoints(persistedRoutePoints)
                             }
                             overlays.add(polyline)
@@ -1083,7 +1126,8 @@ class MainActivity : ComponentActivity() {
                         } else if (savedLocationData.points.isNotEmpty()) {
                             polyline = Polyline().apply {
                                 outlinePaint.strokeWidth = 10f
-                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                                outlinePaint.color =
+                                    ContextCompat.getColor(context, android.R.color.holo_purple)
                                 setPoints(savedLocationData.points)
                             }
                             overlays.add(polyline)
@@ -1113,9 +1157,10 @@ class MainActivity : ComponentActivity() {
                         }
                         overlays.add(scaleBarOverlay)
 
-                        val mLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
-                            enableMyLocation()
-                        }
+                        val mLocationOverlay =
+                            MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
+                                enableMyLocation()
+                            }
                         overlays.add(mLocationOverlay)
                     }
                     marker = Marker(mapView)
@@ -1123,10 +1168,12 @@ class MainActivity : ComponentActivity() {
                     if (persistedMarkerPoint != null) {
                         createMarker(persistedMarkerPoint!!)
                     } else if (savedLocationData.points.isNotEmpty()) {
-                        createMarker(LatLng(
-                            savedLocationData.points[0].latitude,
-                            savedLocationData.points[0].longitude
-                        ))
+                        createMarker(
+                            LatLng(
+                                savedLocationData.points[0].latitude,
+                                savedLocationData.points[0].longitude
+                            )
+                        )
                     } else {
                         createMarker(LatLng(0.0, 0.0))
                     }
@@ -1152,7 +1199,8 @@ class MainActivity : ComponentActivity() {
 
                         val newPolyline = Polyline().apply {
                             outlinePaint.strokeWidth = 10f
-                            outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                            outlinePaint.color =
+                                ContextCompat.getColor(context, android.R.color.holo_purple)
                             setPoints(points)
                         }
                         mapView.overlays.add(newPolyline)
@@ -1250,6 +1298,19 @@ class MainActivity : ComponentActivity() {
         if (showDialog) {
             RecordingButtonWithDialog(
                 onSave = { eventName, eventDate, artOfSport, wheelSize, sprocket, comment, clothing ->
+                    // Clear existing polyline and route data
+                    mapView.overlays.removeAll { it is Polyline }
+                    persistedRoutePoints.clear()
+                    savedLocationData = SavedLocationData(emptyList(), false)
+
+                    // Remove existing marker
+                    mapView.overlays.removeAll { it is Marker }
+
+                    // Reset states
+                    locationChangeEventState.value =
+                        CustomLocationListener.LocationChangeEvent(emptyList())
+
+                    // Stop background service and start foreground service
                     val stopIntent = Intent(context, BackgroundLocationService::class.java)
                     context.stopService(stopIntent)
 
@@ -1269,6 +1330,9 @@ class MainActivity : ComponentActivity() {
 
                     isRecording = true
                     showDialog = false
+
+                    // Invalidate the map to refresh the view
+                    mapView.invalidate()
                 },
                 onDismiss = {
                     showDialog = false
@@ -1451,6 +1515,7 @@ class MainActivity : ComponentActivity() {
     // Override
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        checkServiceStateOnStart()
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
             override fun onActivityStarted(activity: Activity) {}
@@ -1847,6 +1912,26 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             e.printStackTrace()
             onComplete(false)
+        }
+    }
+    private fun checkServiceStateOnStart() {
+        val isServiceRunning = isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+        val sharedPreferences = getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+        val currentEventPrefs = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+
+        if (!isServiceRunning) {
+            // Service not running - clean up any stale state
+            sharedPreferences.edit()
+                .putBoolean("is_recording", false)
+                .apply()
+            currentEventPrefs.edit()
+                .remove("active_event_id")
+                .apply()
+        } else {
+            // Service is running - ensure UI state is correct
+            sharedPreferences.edit()
+                .putBoolean("is_recording", true)
+                .apply()
         }
     }
     data class SavedLocationData(

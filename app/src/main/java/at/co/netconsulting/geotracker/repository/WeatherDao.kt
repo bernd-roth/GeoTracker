@@ -12,4 +12,10 @@ interface WeatherDao {
 
     @Query("SELECT * FROM weather WHERE eventId = :eventId ORDER BY weatherId DESC LIMIT 1")
     suspend fun getLastWeatherByEvent(eventId: Int): Weather?
+
+    @Query("DELETE FROM weather WHERE eventId = :eventId")
+    suspend fun deleteByEventId(eventId: Int)
+
+    @Query("DELETE FROM weather WHERE eventId = :eventId")
+    suspend fun deleteWeatherByEventId(eventId: Int)
 }

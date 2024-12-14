@@ -27,4 +27,10 @@ interface MetricDao {
     ORDER BY timeInMilliseconds ASC
 """)
     suspend fun getMetricsForEvent(eventId: Int): List<MetricDebug>
+
+    @Query("DELETE FROM metrics WHERE eventId = :eventId")
+    suspend fun deleteMetricsByEventId(eventId: Int)
+
+    @Query("SELECT * FROM metrics WHERE eventId = :eventId ORDER BY metricId ASC")
+    suspend fun getMetricsByEventId(eventId: Int): List<Metric>
 }

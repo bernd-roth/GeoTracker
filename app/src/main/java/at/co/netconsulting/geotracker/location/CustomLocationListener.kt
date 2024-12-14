@@ -133,42 +133,26 @@ class CustomLocationListener: LocationListener {
                     averageSpeed = calculateAverageSpeed(coveredDistance)
                     lap = calculateLap(distanceIncrement)
                     latLngs.add(LatLng(location.latitude, location.longitude))
-                    EventBus.getDefault().post(
-                        LocationEvent(
-                            it.latitude,
-                            it.longitude,
-                            (it.speed / 1000) * 3600,
-                            it.speedAccuracyMetersPerSecond,
-                            it.altitude,
-                            it.accuracy,
-                            it.verticalAccuracyMeters,
-                            coveredDistance,
-                            lap,
-                            startDateTime,
-                            averageSpeed,
-                            LocationChangeEvent(latLngs)
-                        )
-                    )
-                    //send data to websocketserver
-                    val json: String = Gson().toJson(
-                        FellowRunner(
-                            firstname,
-                            firstname,
-                            location.latitude,
-                            location.longitude,
-                            coveredDistance.toString(),
-                            (it.speed / 1000) * 3600,
-                            it.altitude.toString(),
-                            formattedTimestamp = Tools().formatCurrentTimestamp(),
-                            averageSpeed
-                        )
-                    )
-                    //send json via websocket to server
-                    webSocket!!.send(json)
+                    sendDataToEventBus(LocationEvent(it.latitude,it.longitude,(it.speed / 1000) * 3600,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs)))
+                    sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),(it.speed / 1000) * 3600,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed)))
                 } else {
                     Log.d("CustomLocationListener", "Duplicate coordinates ignored")
                 }
+            } else {
+                Log.d("CustomLocationListener", "Speed is 0.0 km/h")
+                sendDataToEventBus(LocationEvent(it.latitude,it.longitude,0F,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs)))
+                sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),0F,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed)))
             }
+        }
+    }
+
+    private fun sendDataToEventBus(locationEvent: LocationEvent) {
+        EventBus.getDefault().post(locationEvent)
+    }
+
+    private fun sendDataToWebsocketServer(toJson: String?) {
+        if (toJson != null) {
+            webSocket!!.send(toJson)
         }
     }
 
@@ -320,6 +304,10 @@ class CustomLocationListener: LocationListener {
         // Restart location updates with new parameters
         stopLocationUpdates()
         createLocationUpdates()
+    }
+
+    fun getCurrentLatLngs(): List<LatLng> {
+        return latLngs.toList() // Return a copy of the current latLngs list
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
