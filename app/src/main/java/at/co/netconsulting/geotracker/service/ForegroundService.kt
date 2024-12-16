@@ -33,21 +33,36 @@ import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.tools.Tools
+import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
+import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
+import java.io.IOException
 import java.lang.System.currentTimeMillis
+import java.text.SimpleDateFormat
 import java.time.Duration
 import java.time.LocalDateTime
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
+import kotlin.coroutines.coroutineContext
 
 class ForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
@@ -85,11 +100,141 @@ class ForegroundService : Service() {
     private var isHeartbeatActive = false
     private var customLocationListener: CustomLocationListener? = null
     private var currentEventId: Int = -1
+    //Weather
+    private var weatherJob: Job? = null
+    private val weatherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    //Weather
 
     data class HeartbeatEvent(val timestamp: Long)
 
+    data class WeatherResponse(
+        @SerializedName("current_weather")
+        val currentWeather: CurrentWeather
+    )
+
+    data class CurrentWeather(
+        val temperature: Double,
+        val windspeed: Double,
+        val winddirection: Double,
+        val weathercode: Int,
+        val time: String
+    )
+
+    private fun startWeatherUpdates() {
+        stopWeatherUpdates()
+        weatherJob = weatherScope.launch {
+            while (isActive) {
+                try {
+                    // Only fetch weather if we have valid coordinates
+                    if (latitude != -999.0 && longitude != -999.0) {
+                        fetchWeatherData()
+                    } else {
+                        Log.d(TAG, "Skipping weather update - invalid coordinates")
+                    }
+                    delay(WEATHER_UPDATE_INTERVAL)
+                } catch (e: CancellationException) {
+                    Log.d(TAG, "Weather updates cancelled")
+                    break
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error fetching weather data", e)
+                    try {
+                        delay(ERROR_RETRY_INTERVAL)
+                    } catch (ce: CancellationException) {
+                        Log.d(TAG, "Weather updates cancelled during error delay")
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun fetchWeatherData() {
+        try {
+            coroutineContext.ensureActive() // Check if coroutine is still active
+
+            val client = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .build()
+
+            val url = buildWeatherUrl(latitude, longitude)
+            val request = Request.Builder()
+                .url(url)
+                .build()
+
+            withContext(Dispatchers.IO) {
+                coroutineContext.ensureActive() // Check again before network call
+
+                client.newCall(request).execute().use { response ->
+                    coroutineContext.ensureActive() // Check before processing response
+
+                    if (!response.isSuccessful) {
+                        throw IOException("Unexpected response ${response.code}")
+                    }
+
+                    val responseBody = response.body?.string()
+                    if (responseBody.isNullOrEmpty()) {
+                        throw IOException("Empty response body")
+                    }
+
+                    val weatherResponse = try {
+                        Gson().fromJson(responseBody, WeatherResponse::class.java)
+                    } catch (e: JsonSyntaxException) {
+                        Log.e(TAG, "Failed to parse weather response: $responseBody")
+                        throw e
+                    }
+
+                    ensureActive() // Check before database operation
+
+                    val weather = Weather(
+                        eventId = eventId,
+                        weatherRestApi = "OpenMeteo",
+                        temperature = weatherResponse.currentWeather.temperature.toFloat(),
+                        windSpeed = weatherResponse.currentWeather.windspeed.toFloat(),
+                        windDirection = getWindDirection(weatherResponse.currentWeather.winddirection),
+                        relativeHumidity = 0
+                    )
+
+                    database.weatherDao().insertWeather(weather)
+                    Log.d(TAG, "Weather data saved: $weather")
+                }
+            }
+        } catch (e: CancellationException) {
+            Log.d(TAG, "Weather fetch cancelled")
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to fetch weather data", e)
+            throw e
+        }
+    }
+
+    private fun buildWeatherUrl(lat: Double, lon: Double): String {
+        return "https://api.open-meteo.com/v1/forecast" +
+                "?latitude=$lat" +
+                "&longitude=$lon" +
+                "&current_weather=true"
+    }
+
+    private fun getWindDirection(degrees: Double): String {
+        val directions = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+        val index = ((degrees + 22.5) % 360 / 45).toInt()
+        return directions[index]
+    }
+
+    private fun stopWeatherUpdates() {
+        weatherJob?.let { job ->
+            if (job.isActive) {
+                job.cancel()
+                Log.d(TAG, "Weather updates stopped")
+            }
+        }
+        weatherJob = null
+    }
+    //Weather
+
     override fun onCreate() {
         super.onCreate()
+        EventBus.getDefault().register(this)
         currentEventId = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE).getInt("active_event_id", -1)
         loadSharedPreferences()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -261,6 +406,7 @@ class ForegroundService : Service() {
                     showNotification()
                     if(checkLatitudeLongitude()) {
                         if(checkLatitudeLongitudeDuplicates()) {
+                            receiveWeatherData()
                             insertDatabase(database)
                         }
                     }
@@ -271,6 +417,10 @@ class ForegroundService : Service() {
                 Log.e(TAG, "Error in background coroutine", e)
             }
         }
+    }
+
+    private fun receiveWeatherData() {
+        startWeatherUpdates()
     }
 
     private fun checkLatitudeLongitudeDuplicates(): Boolean {
@@ -308,8 +458,6 @@ class ForegroundService : Service() {
     }
 
     private fun showLazyStopWatch() {
-        Log.d("StopWatch", "Speed: $speed, isCurrentlyMoving: $isCurrentlyMoving")
-
         if (speed < MIN_SPEED_THRESHOLD) {
             Log.d("StopWatch", "Speed below threshold")
             if (isCurrentlyMoving) {
@@ -329,10 +477,6 @@ class ForegroundService : Service() {
         }
 
         val duration = lazyState.getTotalDuration()
-        Log.d("StopWatch", "Lazy duration - Hours: ${duration.toHours()}, " +
-                "Minutes: ${duration.toMinutes() % 60}, " +
-                "Seconds: ${duration.seconds % 60}")
-
         val lazyHours = duration.toHours()
         val lazyMinutes = (duration.toMinutes() % 60)
         val lazySeconds = (duration.seconds % 60)
@@ -498,14 +642,14 @@ class ForegroundService : Service() {
         }
 
         acquireWakeLock()
-        EventBus.getDefault().register(this)
         startForeground(1, notificationBuilder.build())
-
         return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        stopWeatherUpdates()
+        weatherScope.cancel()
         Log.d(TAG, "onDestroy called, isStoppingIntentionally: $isStoppingIntentionally")
         if (isStoppingIntentionally) {
             // Only clear the event ID if this is a normal shutdown
@@ -581,6 +725,9 @@ class ForegroundService : Service() {
          private const val LOCATION_UPDATE_TIMEOUT = 60_000L
          private var isStoppingIntentionally = false
          private const val TAG = "ForegroundService"
+         //Weather
+         private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
+         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
 
          fun isServiceRunning(context: Context): Boolean {
              val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager

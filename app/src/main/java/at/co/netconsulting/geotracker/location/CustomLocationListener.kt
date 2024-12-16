@@ -12,6 +12,7 @@ import android.util.Log
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import com.google.android.gms.maps.model.LatLng
 import com.google.gson.Gson
@@ -398,6 +399,54 @@ class CustomLocationListener: LocationListener {
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onAdjustFrequencyEvent(event: AdjustLocationFrequencyEvent) {
         adjustUpdateFrequency(event.reduceFrequency)
+    }
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onHeartbeatEvent(event: ForegroundService.HeartbeatEvent) {
+        // Check if location manager is still active
+        if (locationManager == null) {
+            Log.w("CustomLocationListener", "LocationManager is null during heartbeat check")
+            createLocationManager()
+            createLocationUpdates()
+            return
+        }
+
+        // Verify GPS provider is still enabled
+        locationManager?.let { manager ->
+            if (!manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                Log.w("CustomLocationListener", "GPS provider disabled during heartbeat check")
+                // Optionally notify the service about GPS being disabled
+                return
+            }
+
+            // Check if we have necessary permissions
+            if (ActivityCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED) {
+
+                // Request a single update to verify provider is working
+                try {
+                    manager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        MIN_TIME_BETWEEN_UPDATES,
+                        MIN_DISTANCE_BETWEEN_UPDATES,
+                        this
+                    )
+                } catch (e: Exception) {
+                    Log.e("CustomLocationListener", "Error requesting location updates during heartbeat", e)
+                    // Attempt to recreate location updates
+                    createLocationUpdates()
+                }
+            }
+        }
+
+        // Check WebSocket connection health
+        webSocket?.let { socket ->
+            if (!isConnectionHealthy.get()) {
+                Log.w("CustomLocationListener", "WebSocket unhealthy during heartbeat check")
+                connectWebSocket(initialConnect = false)
+            }
+        }
     }
 
     companion object {
