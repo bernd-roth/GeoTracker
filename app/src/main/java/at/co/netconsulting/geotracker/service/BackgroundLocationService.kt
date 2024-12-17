@@ -14,6 +14,8 @@ import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.getTotalAscent
+import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.android.gms.maps.model.LatLng
 import com.google.gson.Gson
 import okhttp3.OkHttpClient
@@ -77,7 +79,9 @@ class BackgroundLocationService : Service(), LocationListener {
                 (location.speed / 1000) * 3600,
                 location.altitude.toString(),
                 formattedTimestamp = Tools().formatCurrentTimestamp(),
-                averageSpeed
+                averageSpeed,
+                getTotalAscent(),
+                getTotalDescent()
             )
         )
         //send json via websocket to server
@@ -131,7 +135,9 @@ class BackgroundLocationService : Service(), LocationListener {
                 lap = 0,
                 startDateTime = startDateTime,
                 averageSpeed = averageSpeed,
-                it
+                it,
+                getTotalAscent(),
+                getTotalDescent()
             )
         })
         val (coveredDistance, distanceIncrement) = calculateDistance(location)

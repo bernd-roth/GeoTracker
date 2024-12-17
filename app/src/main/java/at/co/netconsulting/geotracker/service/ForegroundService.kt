@@ -33,6 +33,8 @@ import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.getTotalAscent
+import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
 import com.google.gson.annotations.SerializedName
@@ -308,7 +310,9 @@ class ForegroundService : Service() {
                 lap = lap,
                 startDateTime = LocalDateTime.now(),
                 averageSpeed = 0.0,
-                locationChangeEventList = CustomLocationListener.LocationChangeEvent(currentLatLngs)
+                locationChangeEventList = CustomLocationListener.LocationChangeEvent(currentLatLngs),
+                getTotalAscent(),
+                getTotalDescent()
             ))
         }
     }

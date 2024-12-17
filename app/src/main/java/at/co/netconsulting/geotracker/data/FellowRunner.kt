@@ -11,5 +11,7 @@ data class FellowRunner(
     @SerializedName("currentSpeed") val speed: Float,
     val altitude: String,
     @SerializedName("timestamp") val formattedTimestamp: String,
-    val averageSpeed: Double
+    val averageSpeed: Double,
+    val totalAscent: Double,
+    val totalDescent: Double
 )

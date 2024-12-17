@@ -10,10 +10,13 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.core.app.ActivityCompat
+import at.co.netconsulting.geotracker.tools.calculateElevationChanges
 import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.getTotalAscent
+import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.android.gms.maps.model.LatLng
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
@@ -69,7 +72,6 @@ class CustomLocationListener: LocationListener {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
-
     private var retryCount = 0
     private var isRetrying = false
     private val job = Job()
@@ -267,16 +269,48 @@ class CustomLocationListener: LocationListener {
                     val (coveredDistance, distanceIncrement) = calculateDistance(it)
                     averageSpeed = calculateAverageSpeed(coveredDistance)
                     lap = calculateLap(distanceIncrement)
+                    calculateElevationChanges(location, oldLatitude, oldLongitude)
                     latLngs.add(LatLng(location.latitude, location.longitude))
-                    sendDataToEventBus(LocationEvent(it.latitude,it.longitude,(it.speed / 1000) * 3600,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs)))
-                    sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),(it.speed / 1000) * 3600,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed)))
+                    //sendDataToEventBus(LocationEvent(it.latitude,it.longitude,(it.speed / 1000) * 3600,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs),getTotalAscent(),getTotalDescent()))
+                    sendDataToEventBus(LocationEvent(
+                        it.latitude,
+                        it.longitude,
+                        (it.speed / 1000) * 3600,
+                        it.speedAccuracyMetersPerSecond,
+                        it.altitude,
+                        it.accuracy,
+                        it.verticalAccuracyMeters,
+                        coveredDistance,
+                        lap,
+                        startDateTime,
+                        averageSpeed,
+                        LocationChangeEvent(latLngs),
+                        getTotalAscent(),
+                        getTotalDescent()
+                    ))
+                    //sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),(it.speed / 1000) * 3600,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed)))
+                    sendDataToWebsocketServer(Gson().toJson(
+                        FellowRunner(
+                            firstname,
+                            firstname,
+                            location.latitude,
+                            location.longitude,
+                            coveredDistance.toString(),
+                            (it.speed / 1000) * 3600,
+                            it.altitude.toString(),
+                            formattedTimestamp = Tools().formatCurrentTimestamp(),
+                            averageSpeed,
+                            getTotalAscent(),
+                            getTotalDescent()
+                        )
+                    ))
                 } else {
                     Log.d("CustomLocationListener", "Duplicate coordinates ignored")
                 }
             } else {
                 Log.d("CustomLocationListener", "Speed is 0.0 km/h")
-                sendDataToEventBus(LocationEvent(it.latitude,it.longitude,0F,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs)))
-                sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),0F,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed)))
+                sendDataToEventBus(LocationEvent(it.latitude,it.longitude,0F,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs), getTotalAscent(), getTotalDescent()))
+                sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),0F,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed, getTotalAscent(), getTotalDescent())))
             }
         }
     }

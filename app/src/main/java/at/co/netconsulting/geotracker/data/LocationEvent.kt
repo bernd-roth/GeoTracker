@@ -15,5 +15,7 @@ data class LocationEvent(
     val lap: Int,
     val startDateTime: LocalDateTime,
     val averageSpeed: Double,
-    val locationChangeEventList: CustomLocationListener.LocationChangeEvent
+    val locationChangeEventList: CustomLocationListener.LocationChangeEvent,
+    val totalAscent: Double,
+    val totalDescent: Double
 )

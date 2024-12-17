@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
@@ -16,9 +17,11 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.telephony.mbms.ServiceInfo
 import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Toast
@@ -110,8 +113,11 @@ import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.gpx.export
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
+import at.co.netconsulting.geotracker.service.DatabaseBackupService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.getTotalAscent
+import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
@@ -420,7 +426,9 @@ class MainActivity : ComponentActivity() {
             lap = 0,
             startDateTime = startDateTimeState.value,
             averageSpeed = 0.0,
-            locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs)
+            locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs),
+            totalAscent = 0.0,
+            totalDescent = 0.0
         )
         var users by remember { mutableStateOf<List<User>>(emptyList()) }
         var events by remember { mutableStateOf<List<Event>>(emptyList()) }
@@ -755,6 +763,32 @@ class MainActivity : ComponentActivity() {
                                 ) {
                                     Text(text = "Import GPX files")
                                 }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Button(
+                                    onClick = {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                            val backupIntent = Intent(context, DatabaseBackupService::class.java).apply {
+                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                                    addFlags(FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                                                }
+                                            }
+                                            ContextCompat.startForegroundService(context, backupIntent)
+                                        } else {
+                                            context.startService(Intent(context, DatabaseBackupService::class.java))
+                                        }
+                                        Toast.makeText(
+                                            context,
+                                            "Database backup started",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                        expanded = false
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(text = "Backup database")
+                                }
                             }
                         }
                     }
@@ -901,6 +935,8 @@ class MainActivity : ComponentActivity() {
             Text("Speed: ${"%.2f".format(event.speed)} Km/h", style = MaterialTheme.typography.bodyLarge)
             Text("Ø speed: ${"%.2f".format(event.averageSpeed)} Km/h", style = MaterialTheme.typography.bodyLarge)
             Text("Covered distance: ${"%.3f".format(event.coveredDistance/1000)} Km", style = MaterialTheme.typography.bodyLarge)
+            Text("Total ascent: ${"%.3f".format(getTotalAscent())} meter", style = MaterialTheme.typography.bodyLarge)
+            Text("Total descent: ${"%.3f".format(getTotalDescent())} meter", style = MaterialTheme.typography.bodyLarge)
         }
     }
 
