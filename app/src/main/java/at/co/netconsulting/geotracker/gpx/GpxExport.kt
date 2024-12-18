@@ -75,7 +75,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                 |</gpx>
             """.trimMargin())
 
-            val filename = "GeoTracker_${event.eventName}_${event.eventDate}.gpx"
+            val filename = "${event.eventName}_${event.eventDate}.gpx"
                 .replace(" ", "_")
                 .replace(":", "-")
 

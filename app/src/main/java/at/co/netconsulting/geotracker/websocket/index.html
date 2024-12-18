@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+<!-- Previous head section and styles remain the same until gpxUpload styling -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,17 +20,6 @@
           width: 100%;
         }
 
-        #altitudeChartContainer {
-          height: 33vh;
-          width: 100%;
-          padding: 0;
-        }
-
-        #altitudeChart {
-          height: 100%;
-          width: 100%;
-        }
-
         #gpxUpload {
           position: absolute;
           top: 80px;
@@ -39,22 +29,6 @@
           padding: 10px;
           border-radius: 5px;
           box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-        }
-
-        #debugInfo {
-          position: absolute;
-          bottom: 34vh;
-          right: 10px;
-          z-index: 1000;
-          background-color: white;
-          padding: 10px;
-          border-radius: 5px;
-          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-          font-family: monospace;
-          font-size: 12px;
-          max-width: 300px;
-          max-height: 200px;
-          overflow-y: auto;
         }
 
         #speedDisplay {
@@ -99,100 +73,6 @@
           font-size: 12px;
           color: #999;
           margin-bottom: 5px;
-        }
-
-        #recordingControls {
-          position: absolute;
-          top: 420px;
-          /* Increased top position accordingly */
-          right: 10px;
-          z-index: 1000;
-          background-color: white;
-          padding: 15px;
-          border-radius: 5px;
-          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-          width: 250px;
-        }
-
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-          padding: 10px;
-          margin-bottom: 10px;
-        }
-
-        #sessionsList {
-          position: absolute;
-          top: 220px;
-          /* Increased top position to avoid overlap */
-          right: 10px;
-          z-index: 1000;
-          background-color: white;
-          padding: 15px;
-          border-radius: 5px;
-          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-          max-height: 150px;
-          overflow-y: auto;
-          width: 250px;
-        }
-
-        .recording-button {
-          background-color: #4CAF50;
-          color: white;
-          border: none;
-          padding: 8px 16px;
-          border-radius: 4px;
-          cursor: pointer;
-          margin: 2px;
-        }
-
-        .recording-button.stop {
-          background-color: #f44336;
-        }
-
-        .recording-indicator {
-          width: 10px;
-          height: 10px;
-          border-radius: 50%;
-          display: inline-block;
-          margin-right: 5px;
-          background-color: #666;
-        }
-
-        .recording-indicator.active {
-          background-color: #f44336;
-          animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-          0% {
-            opacity: 1;
-          }
-
-          50% {
-            opacity: 0.5;
-          }
-
-          100% {
-            opacity: 1;
-          }
-        }
-
-        .session-item {
-          padding: 8px;
-          border-bottom: 1px solid #eee;
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-        }
-
-        .session-item button {
-          padding: 4px 8px;
-          margin-left: 4px;
-          border: none;
-          border-radius: 3px;
-          cursor: pointer;
         }
 
         .charts-container {
@@ -246,21 +126,6 @@
         </div>
     </div>
 </div>
-<div id="recordingControls">
-    <div>
-        <button class="recording-button" onclick="startRecording()">Start Recording</button>
-        <button class="recording-button stop" onclick="stopRecording()">Stop</button>
-    </div>
-    <div style="margin-top: 10px;">
-        <span class="recording-indicator" id="recordingStatus"></span>
-        <span id="recordingLabel">Not Recording</span>
-    </div>
-</div>
-<div id="sessionsList">
-    <h3>Recorded Sessions</h3>
-    <div id="sessionsContainer"></div>
-</div>
-<div id="debugInfo"></div>
 <div id="map"></div>
 <div class="charts-container">
     <div id="altitudeChartContainer">
@@ -280,17 +145,8 @@
     let endMarkers = {};
     let gpxPolyline;
     let altitudeChart;
-    let altitudeData = [];
-    let altitudeCoordinates = [];
-    let chartMarker = null;
-    let speedHistory = {};
-    let isRecording = false;
-    let currentSession = null;
-    let recordedSessions = {};
-    let playbackInterval = null;
-    let dataRetentionHours = 24;
-    let cleanupInterval = null;
     let speedChart;
+    let speedHistory = {};
 
     function initMap() {
       const initialLocation = [48.1818798, 16.3607528];
@@ -300,60 +156,106 @@
       }).addTo(map);
       initCharts();
       connectToWebSocket();
-      startCleanupInterval();
     }
 
-    function startCleanupInterval() {
-      // Run cleanup every 5 minutes
-      cleanupInterval = setInterval(cleanupOldData, 5 * 60 * 1000);
-    }
-
-    function cleanupOldData() {
-      const cutoffTime = new Date(Date.now() - (dataRetentionHours * 60 * 60 * 1000));
-      // Clean up speed history
-      Object.keys(speedHistory).forEach(sessionId => {
-        // Remove session if no recent data
-        const lastUpdate = speedHistory[sessionId].lastUpdate;
-        if (lastUpdate && new Date(lastUpdate) < cutoffTime) {
-          deleteSessionData(sessionId);
+    function loadGPX() {
+      const fileInput = document.getElementById('gpxFile');
+      const file = fileInput.files[0];
+      if (!file) {
+        alert('Please select a GPX file first.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const gpxText = e.target.result;
+        const parser = new DOMParser();
+        const gpxDoc = parser.parseFromString(gpxText, "text/xml");
+        // Reset previous GPX data
+        if (gpxPolyline) {
+          map.removeLayer(gpxPolyline);
         }
-      });
-      // Clean up recorded sessions
-      Object.entries(recordedSessions).forEach(([sessionId, session]) => {
-        if (new Date(session.endTime) < cutoffTime) {
-          deleteSession(sessionId);
+        const coordinates = [];
+        const altitudes = [];
+        const times = [];
+        // Extract track points
+        const trackPoints = gpxDoc.getElementsByTagName('trkpt');
+        for (let point of trackPoints) {
+          const lat = parseFloat(point.getAttribute('lat'));
+          const lon = parseFloat(point.getAttribute('lon'));
+          const ele = point.getElementsByTagName('ele')[0];
+          const time = point.getElementsByTagName('time')[0];
+          coordinates.push([lat, lon]);
+          if (ele) {
+            altitudes.push(parseFloat(ele.textContent));
+          }
+          if (time) {
+            times.push(new Date(time.textContent));
+          }
         }
-      });
-      // Update displays
-      updateSessionsList();
-    }
-
-    function deleteSessionData(sessionId) {
-      // Remove from speed history
-      delete speedHistory[sessionId];
-      // Remove from map
-      if (polylines[sessionId]) {
-        map.removeLayer(polylines[sessionId]);
-        delete polylines[sessionId];
-      }
-      if (startMarkers[sessionId]) {
-        map.removeLayer(startMarkers[sessionId]);
-        delete startMarkers[sessionId];
-      }
-      if (endMarkers[sessionId]) {
-        map.removeLayer(endMarkers[sessionId]);
-        delete endMarkers[sessionId];
-      }
-      // Remove from altitude chart
-      const datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (datasetIndex !== -1) {
-        altitudeChart.data.datasets.splice(datasetIndex, 1);
-        altitudeChart.update();
-      }
+        // Draw the track on the map
+        gpxPolyline = L.polyline(coordinates, {
+          color: 'red',
+          weight: 3
+        }).addTo(map);
+        // Fit map to the track bounds
+        map.fitBounds(gpxPolyline.getBounds());
+        // Update altitude chart
+        if (altitudes.length > 0) {
+          let distances = [0];
+          for (let i = 1; i < coordinates.length; i++) {
+            const d = map.distance(coordinates[i - 1], coordinates[i]);
+            distances.push(distances[i - 1] + d);
+          }
+          // Convert distances to kilometers
+          distances = distances.map(d => d / 1000);
+          // Update altitude chart
+          const datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === 'GPX Track');
+          if (datasetIndex !== -1) {
+            altitudeChart.data.datasets.splice(datasetIndex, 1);
+          }
+          altitudeChart.data.datasets.push({
+            label: 'GPX Track',
+            borderColor: 'red',
+            fill: false,
+            data: distances.map((d, i) => ({
+              x: d,
+              y: altitudes[i]
+            }))
+          });
+          altitudeChart.update();
+          // Calculate and update speed chart if times are available
+          if (times.length > 0) {
+            const speeds = [];
+            for (let i = 1; i < times.length; i++) {
+              const timeDiff = (times[i] - times[i - 1]) / 1000; // seconds
+              const dist = distances[i] - distances[i - 1]; // kilometers
+              if (timeDiff > 0) {
+                // Convert to km/h
+                const speed = (dist / timeDiff) * 3600;
+                speeds.push({
+                  x: distances[i],
+                  y: speed
+                });
+              }
+            }
+            const speedDatasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === 'GPX Track');
+            if (speedDatasetIndex !== -1) {
+              speedChart.data.datasets.splice(speedDatasetIndex, 1);
+            }
+            speedChart.data.datasets.push({
+              label: 'GPX Track',
+              borderColor: 'red',
+              fill: false,
+              data: speeds
+            });
+            speedChart.update();
+          }
+        }
+      };
+      reader.readAsText(file);
     }
 
     function initCharts() {
-      // Initialize Altitude Chart
       const altCtx = document.getElementById('altitudeChart').getContext('2d');
       altitudeChart = new Chart(altCtx, {
         type: 'line',
@@ -387,7 +289,6 @@
           }
         }
       });
-      // Initialize Speed Chart
       const speedCtx = document.getElementById('speedChart').getContext('2d');
       speedChart = new Chart(speedCtx, {
         type: 'line',
@@ -422,20 +323,17 @@
         }
       });
     }
-
+    // Rest of the functions remain the same
+    // Including connectToWebSocket, updateSpeedDisplay, updateMapWithNewCoordinate,
+    // updateAltitudeChart, updateSpeedChart, resetMap, and getRandomColor
     function connectToWebSocket() {
       const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${wsProtocol}//${window.location.host}/runningtracker`;
-      console.log('Connecting to WebSocket:', wsUrl);
       websocket = new WebSocket(wsUrl);
       websocket.onopen = function(event) {
         console.log('Connected to WebSocket server');
-        updateDebugInfo({
-          status: 'Connected'
-        });
       };
       websocket.onmessage = function(event) {
-        console.log('Raw message:', event.data);
         const data = JSON.parse(event.data);
         const lat = parseFloat(data.latitude);
         const lng = parseFloat(data.longitude);
@@ -443,28 +341,6 @@
         const sessionId = data.person || "default";
         const distance = parseFloat(data.distance) || 0;
         const currentSpeed = parseFloat(data.currentSpeed || 0);
-        const processedData = {
-          lat,
-          lng,
-          altitude,
-          sessionId,
-          distance,
-          currentSpeed,
-          averageSpeed: parseFloat(data.averageSpeed)
-        };
-        console.log('Processed data:', processedData);
-        updateDebugInfo(processedData);
-        if (isRecording && currentSession) {
-          currentSession.points.push({
-            timestamp: new Date(),
-            lat: lat,
-            lng: lng,
-            altitude: altitude,
-            distance: distance,
-            speed: currentSpeed,
-            averageSpeed: processedData.averageSpeed
-          });
-        }
         updateSpeedDisplay(sessionId, currentSpeed, data);
         if (!isNaN(lat) && !isNaN(lng)) {
           updateMapWithNewCoordinate(lat, lng, sessionId);
@@ -476,17 +352,7 @@
       };
       websocket.onclose = function(event) {
         console.log('WebSocket connection closed');
-        updateDebugInfo({
-          status: 'Disconnected'
-        });
         setTimeout(connectToWebSocket, 5000);
-      };
-      websocket.onerror = function(error) {
-        console.error('WebSocket error:', error);
-        updateDebugInfo({
-          status: 'Error',
-          error: error.toString()
-        });
       };
     }
 
@@ -520,10 +386,6 @@
       const recentSpeeds = history.speeds.slice(-5);
       history.movingAvg = recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
       document.getElementById('movingAvg').textContent = history.movingAvg.toFixed(1);
-    }
-
-    function updateDebugInfo(info) {
-      document.getElementById('debugInfo').textContent = JSON.stringify(info, null, 2);
     }
 
     function updateMapWithNewCoordinate(lat, lng, sessionId) {
@@ -576,8 +438,25 @@
       altitudeChart.update();
     }
 
+    function updateSpeedChart(distance, speed, sessionId) {
+      let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+      if (datasetIndex === -1) {
+        datasetIndex = speedChart.data.datasets.length;
+        speedChart.data.datasets.push({
+          label: sessionId,
+          borderColor: getRandomColor(),
+          fill: false,
+          data: []
+        });
+      }
+      speedChart.data.datasets[datasetIndex].data.push({
+        x: distance,
+        y: speed
+      });
+      speedChart.update();
+    }
+
     function resetMap() {
-      stopPlayback();
       speedHistory = {};
       document.getElementById('currentSpeed').textContent = '0.0';
       document.getElementById('maxSpeed').textContent = '0.0';
@@ -608,123 +487,6 @@
         color += letters[Math.floor(Math.random() * 16)];
       }
       return color;
-    }
-
-    function startRecording() {
-      if (!isRecording) {
-        isRecording = true;
-        currentSession = {
-          id: 'session_' + new Date().getTime(),
-          startTime: new Date(),
-          points: [],
-          speedData: []
-        };
-        updateRecordingStatus(true);
-        console.log('Started recording session:', currentSession.id);
-      }
-    }
-
-    function stopRecording() {
-      if (isRecording) {
-        isRecording = false;
-        if (currentSession && currentSession.points.length > 0) {
-          currentSession.endTime = new Date();
-          recordedSessions[currentSession.id] = currentSession;
-          updateSessionsList();
-        }
-        currentSession = null;
-        updateRecordingStatus(false);
-        console.log('Stopped recording');
-      }
-    }
-
-    function updateRecordingStatus(recording) {
-      const indicator = document.getElementById('recordingStatus');
-      const label = document.getElementById('recordingLabel');
-      if (recording) {
-        indicator.classList.add('active');
-        label.textContent = 'Recording';
-      } else {
-        indicator.classList.remove('active');
-        label.textContent = 'Not Recording';
-      }
-    }
-
-    function updateSessionsList() {
-      const container = document.getElementById('sessionsContainer');
-      container.innerHTML = '';
-      Object.entries(recordedSessions).forEach(([sessionId, session]) => {
-        const duration = (session.endTime - session.startTime) / 1000;
-        const div = document.createElement('div');
-        div.className = 'session-item';
-        div.innerHTML = `
-
-
-                  <span>${new Date(session.startTime).toLocaleTimeString()} (${duration.toFixed(0)}s)</span>
-                  <div>
-                      <button onclick="playSession('${sessionId}')">Play</button>
-                      <button onclick="deleteSession('${sessionId}')">Delete</button>
-                  </div>
-          `;
-        container.appendChild(div);
-      });
-    }
-
-    function playSession(sessionId) {
-      const session = recordedSessions[sessionId];
-      if (!session) return;
-      stopPlayback();
-      resetMap();
-      let index = 0;
-      playbackInterval = setInterval(() => {
-        if (index >= session.points.length) {
-          stopPlayback();
-          return;
-        }
-        const point = session.points[index];
-        updateMapWithNewCoordinate(point.lat, point.lng, 'playback');
-        updateSpeedDisplay('playback', point.speed);
-        if (point.altitude !== undefined) {
-          updateAltitudeChart(point.distance / 1000, point.altitude, 'playback');
-        }
-        index++;
-      }, 100);
-    }
-
-    function stopPlayback() {
-      if (playbackInterval) {
-        clearInterval(playbackInterval);
-        playbackInterval = null;
-      }
-    }
-
-    function deleteSession(sessionId) {
-      deleteSessionData(sessionId);
-      delete recordedSessions[sessionId];
-      updateSessionsList();
-    }
-    window.addEventListener('beforeunload', () => {
-      if (cleanupInterval) {
-        clearInterval(cleanupInterval);
-      }
-    });
-
-    function updateSpeedChart(distance, speed, sessionId) {
-      let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (datasetIndex === -1) {
-        datasetIndex = speedChart.data.datasets.length;
-        speedChart.data.datasets.push({
-          label: sessionId,
-          borderColor: getRandomColor(),
-          fill: false,
-          data: []
-        });
-      }
-      speedChart.data.datasets[datasetIndex].data.push({
-        x: distance,
-        y: speed
-      });
-      speedChart.update();
     }
     document.addEventListener('DOMContentLoaded', initMap);
 </script>

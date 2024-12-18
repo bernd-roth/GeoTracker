@@ -21,7 +21,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
-import android.telephony.mbms.ServiceInfo
 import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Toast
@@ -115,6 +114,7 @@ import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.DatabaseBackupService
 import at.co.netconsulting.geotracker.service.ForegroundService
+import at.co.netconsulting.geotracker.service.GpxExportService
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getTotalAscent
 import at.co.netconsulting.geotracker.tools.getTotalDescent
@@ -891,8 +891,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun exportGPX() {
-        Log.d("exportGPX", "Export whole table done")
-        Toast.makeText(applicationContext, "Multiple export not implemented yet", Toast.LENGTH_LONG).show()
+        val intent = Intent(applicationContext, GpxExportService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        Toast.makeText(applicationContext, "GPX export started. Files will be saved to Downloads/GeoTracker", Toast.LENGTH_LONG).show()
     }
 
     private suspend fun deleteContentAllTables() {
