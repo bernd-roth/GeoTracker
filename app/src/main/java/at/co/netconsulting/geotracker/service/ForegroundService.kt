@@ -24,6 +24,8 @@ import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.MainActivity
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.data.MemoryPressureEvent
+import at.co.netconsulting.geotracker.data.StopServiceEvent
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
@@ -710,7 +712,7 @@ class ForegroundService : Service() {
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onMemoryPressureEvent(event: MainActivity.MemoryPressureEvent) {
+    fun onMemoryPressureEvent(event: MemoryPressureEvent) {
         when (event.level) {
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
@@ -773,7 +775,7 @@ class ForegroundService : Service() {
         }
     }
     @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onStopServiceEvent(event: MainActivity.StopServiceEvent) {
+    fun onStopServiceEvent(event: StopServiceEvent) {
         Log.d(TAG, "Received stop event")
         isStoppingIntentionally = true
         customLocationListener?.cleanup()

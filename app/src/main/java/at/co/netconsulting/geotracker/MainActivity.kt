@@ -75,6 +75,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
@@ -101,9 +102,13 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import at.co.netconsulting.geotracker.data.EditState
 import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.data.MemoryPressureEvent
+import at.co.netconsulting.geotracker.data.SavedLocationData
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
+import at.co.netconsulting.geotracker.data.StopServiceEvent
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Location
@@ -412,6 +417,9 @@ class MainActivity : ComponentActivity() {
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun StatisticsScreenPreview(context: Context, locationEventState: MutableState<LocationEvent?>, latLngs: List<LatLng> = emptyList()) {
+        var editState by remember {
+            mutableStateOf(EditState())
+        }
         val scrollState = rememberScrollState()
         var showGPXDialog by remember { mutableStateOf(false) }
         val actualStatistics = locationEventState.value ?: LocationEvent(
@@ -548,250 +556,86 @@ class MainActivity : ComponentActivity() {
             )
 
             if (expanded) {
-                Dialog(
-                    onDismissRequest = { expanded = false }
-                ) {
-                    Surface(
-                        modifier = Modifier
-                            .width(400.dp)
-                            .heightIn(max = 600.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .verticalScroll(rememberScrollState())
-                                .padding(vertical = 8.dp)
-                        ) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = { query -> searchQuery = query },
-                                label = { Text("Search event") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            )
-
-                            val filteredRecords = records.filter {
-                                val eventNameMatch = it.eventName.contains(searchQuery, ignoreCase = true)
-                                val eventDateMatch = it.eventDate.contains(searchQuery, ignoreCase = true)
-                                val distanceMatch = it.distance?.let { distance ->
-                                    "%.3f".format(distance / 1000).contains(searchQuery, ignoreCase = true)
-                                } ?: false
-                                eventNameMatch || eventDateMatch || distanceMatch
+                Dialog(onDismissRequest = { expanded = false }) {
+                    EventSelectionDialog(
+                        records = records,
+                        selectedRecords = selectedRecords,
+                        editState = editState,
+                        lapTimesMap = lapTimesMap,  // Add this line
+                        onRecordSelected = { record ->
+                            selectedRecords = if (selectedRecords.contains(record)) {
+                                selectedRecords.filter { it != record }
+                            } else {
+                                selectedRecords + record
                             }
-
-                            filteredRecords.forEach { record ->
-                                Surface(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                                        .clickable {
-                                            selectedRecords = if (selectedRecords.contains(record)) {
-                                                selectedRecords.filter { it != record }
-                                            } else {
-                                                selectedRecords + record
-                                            }
-                                        },
-                                    color = if (selectedRecords.contains(record)) {
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                    } else {
-                                        MaterialTheme.colorScheme.surface
-                                    }
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(8.dp)
-                                    ) {
-                                        Text(
-                                            text = "Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}", style = MaterialTheme.typography.bodyLarge
-                                        )
-                                        Text(
-                                            text = "Event name: ${record.eventName}", style = MaterialTheme.typography.bodyLarge
-                                        )
-                                        Text(
-                                            text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",style = MaterialTheme.typography.bodyMedium
-                                        )
-
-                                        if (record.eventId == getCurrentlyRecordingEventId() &&
-                                            isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-                                            Text(
-                                                text = "⚫ Ongoing Recording",
-                                                style = MaterialTheme.typography.bodyMedium.copy(
-                                                    color = MaterialTheme.colorScheme.error,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                        }
-
-                                        // Lap times table
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 8.dp)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                                    .padding(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Lap",
-                                                    modifier = Modifier.weight(1f),
-                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                                                )
-                                                Text(
-                                                    text = "Time",
-                                                    modifier = Modifier.weight(2f),
-                                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
-                                                )
-                                            }
-
-                                            lapTimesMap[record.eventId]?.forEach { lapTime ->
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .padding(8.dp)
-                                                ) {
-                                                    Text(
-                                                        text = lapTime.lapNumber.toString(),
-                                                        modifier = Modifier.weight(1f),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    Text(
-                                                        text = Tools().formatTime(lapTime.timeInMillis),
-                                                        modifier = Modifier.weight(2f),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                }
-                                            }
-                                        }
-
-                                        if (selectedRecords.contains(record)) {
-                                            Text(
-                                                text = "Selected",
-                                                style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.primary)
-                                            )
-                                        }
-
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .horizontalScroll(rememberScrollState())
-                                                .padding(vertical = 8.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            // Only show action buttons if this is not an active recording
-                                            if (!(record.eventId == getCurrentlyRecordingEventId() &&
-                                                        isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService"))) {
-                                                Button(
-                                                    onClick = {
-                                                        coroutineScope.launch {
-                                                            delete(record.eventId)
-                                                            records = records.filter { it.eventId != record.eventId }
-                                                        }
-                                                    }
-                                                ) {
-                                                    Text(text = "Delete")
-                                                }
-                                                Button(
-                                                    onClick = {
-                                                        coroutineScope.launch {
-                                                            export(record.eventId, applicationContext)
-                                                            //export(record.eventId)
-                                                        }
-                                                    }
-                                                ) {
-                                                    Text(text = "Export")
-                                                }
-                                                Button(
-                                                    onClick = {
-                                                        coroutineScope.launch {
-                                                            edit(record.eventId)
-                                                        }
-                                                    }
-                                                ) {
-                                                    Text(text = "Edit")
-                                                }
-                                            }
-                                        }
+                        },
+                        onDismiss = { expanded = false },
+                        onDelete = { eventId ->
+                            coroutineScope.launch {
+                                delete(eventId)
+                            }
+                        },
+                        onExport = { eventId ->
+                            coroutineScope.launch {
+                                export(eventId, applicationContext)
+                            }
+                        },
+                        onEdit = { eventId, newName, newDate ->
+                            if (eventId == -1) {
+                                // Cancel edit
+                                editState = EditState()
+                            } else if (editState.isEditing) {
+                                // Save edit
+                                coroutineScope.launch {
+                                    updateEvent(eventId, newName, newDate)
+                                    loadData() // Reload data after update
+                                    editState = EditState() // Reset edit state
+                                }
+                            } else {
+                                // Start edit
+                                editState = EditState(
+                                    isEditing = true,
+                                    eventId = eventId,
+                                    currentEventName = newName,
+                                    currentEventDate = newDate
+                                )
+                            }
+                        },
+                        onDeleteAllContent = {
+                            coroutineScope.launch {
+                                deleteContentAllTables()
+                                records = emptyList()
+                                expanded = false
+                            }
+                        },
+                        onExportGPX = {
+                            coroutineScope.launch {
+                                exportGPX()
+                            }
+                        },
+                        onImportGPX = {
+                            showGPXDialog = true
+                            expanded = false
+                        },
+                        onBackupDatabase = {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                val backupIntent = Intent(context, DatabaseBackupService::class.java).apply {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                        addFlags(Intent.FLAG_FROM_BACKGROUND)
                                     }
                                 }
+                                ContextCompat.startForegroundService(context, backupIntent)
+                            } else {
+                                context.startService(Intent(context, DatabaseBackupService::class.java))
                             }
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                            // Footer actions
-                            Column(
-                                modifier = Modifier.padding(horizontal = 16.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            deleteContentAllTables()
-                                            records = emptyList()
-                                            expanded = false
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(text = "Delete content of all tables")
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            exportGPX()
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(text = "Export GPX files")
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Button(
-                                    onClick = {
-                                        showGPXDialog = true
-                                        expanded = false
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(text = "Import GPX files")
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Button(
-                                    onClick = {
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                            val backupIntent = Intent(context, DatabaseBackupService::class.java).apply {
-                                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                                    addFlags(FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-                                                }
-                                            }
-                                            ContextCompat.startForegroundService(context, backupIntent)
-                                        } else {
-                                            context.startService(Intent(context, DatabaseBackupService::class.java))
-                                        }
-                                        Toast.makeText(
-                                            context,
-                                            "Database backup started",
-                                            Toast.LENGTH_SHORT
-                                        ).show()
-                                        expanded = false
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(text = "Backup database")
-                                }
-                            }
+                            Toast.makeText(
+                                context,
+                                "Database backup started",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            expanded = false
                         }
-                    }
+                    )
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -824,7 +668,281 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
+    @Composable
+    fun EventSelectionDialog(
+        records: List<SingleEventWithMetric>,
+        selectedRecords: List<SingleEventWithMetric>,
+        editState: EditState,
+        lapTimesMap: Map<Int, List<LapTimeInfo>>,
+        onRecordSelected: (SingleEventWithMetric) -> Unit,
+        onDismiss: () -> Unit,
+        onDelete: (Int) -> Unit,
+        onExport: (Int) -> Unit,
+        onEdit: (Int, String, String) -> Unit,
+        onDeleteAllContent: () -> Unit,
+        onExportGPX: () -> Unit,
+        onImportGPX: () -> Unit,
+        onBackupDatabase: () -> Unit
+    ) {
+        var searchQuery by remember { mutableStateOf("") }
 
+        Surface(
+            modifier = Modifier
+                .width(400.dp)
+                .heightIn(max = 600.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = 8.dp)
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { query -> searchQuery = query },
+                    label = { Text("Search event") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+
+                val filteredRecords = records.filter {
+                    val eventNameMatch = it.eventName.contains(searchQuery, ignoreCase = true)
+                    val eventDateMatch = it.eventDate?.contains(searchQuery, ignoreCase = true) ?: false
+                    val distanceMatch = it.distance?.let { distance ->
+                        "%.3f".format(distance / 1000).contains(searchQuery, ignoreCase = true)
+                    } ?: false
+                    eventNameMatch || eventDateMatch || distanceMatch
+                }
+
+                filteredRecords.forEach { record ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp)
+                            .clickable {
+                                if (!editState.isEditing) {
+                                    onRecordSelected(record)
+                                }
+                            },
+                        color = if (selectedRecords.contains(record)) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        } else {
+                            MaterialTheme.colorScheme.surface
+                        }
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp)
+                        ) {
+                            if (editState.isEditing && editState.eventId == record.eventId) {
+                                // Edit mode fields
+                                var editedName by remember { mutableStateOf(editState.currentEventName) }
+                                var editedDate by remember { mutableStateOf(editState.currentEventDate) }
+
+                                OutlinedTextField(
+                                    value = editedName,
+                                    onValueChange = { editedName = it },
+                                    label = { Text("Event Name") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                OutlinedTextField(
+                                    value = editedDate,
+                                    onValueChange = { editedDate = it },
+                                    label = { Text("Event Date (YYYY-MM-DD)") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    TextButton(onClick = { onEdit(-1, "", "") }) {
+                                        Text("Cancel")
+                                    }
+                                    TextButton(
+                                        onClick = { onEdit(record.eventId, editedName, editedDate) }
+                                    ) {
+                                        Text("Save")
+                                    }
+                                }
+                            } else {
+                                // Normal display mode
+                                Text(
+                                    text = "Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = "Event name: ${record.eventName}",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+
+                                if (record.eventId == getCurrentlyRecordingEventId() &&
+                                    isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+                                ) {
+                                    Text(
+                                        text = "⚫ Ongoing Recording",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            color = MaterialTheme.colorScheme.error,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    )
+                                }
+
+                                // Lap times section with colored backgrounds for fastest/slowest laps
+                                lapTimesMap[record.eventId]?.let { lapTimes ->
+                                    if (lapTimes.isNotEmpty()) {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 8.dp)
+                                        ) {
+                                            Text(
+                                                text = "Lap Times",
+                                                style = MaterialTheme.typography.bodyMedium.copy(
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                    .padding(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Lap",
+                                                    modifier = Modifier.weight(1f),
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                )
+                                                Text(
+                                                    text = "Time",
+                                                    modifier = Modifier.weight(2f),
+                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                        fontWeight = FontWeight.Bold
+                                                    )
+                                                )
+                                            }
+
+                                            // Find fastest and slowest laps (only considering valid laps > 0)
+                                            val validLaps = lapTimes.filter { it.lapNumber > 0 }
+                                            val fastestLap = validLaps.minByOrNull { it.timeInMillis }
+                                            val slowestLap = validLaps.maxByOrNull { it.timeInMillis }
+
+                                            lapTimes.forEach { lapTime ->
+                                                val backgroundColor = when (lapTime) {
+                                                    fastestLap -> Color(0xFF90EE90)
+                                                    slowestLap -> Color(0xFFF44336)
+                                                    else -> Color.Transparent
+                                                }
+
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(backgroundColor)
+                                                        .padding(8.dp)
+                                                ) {
+                                                    Text(
+                                                        text = lapTime.lapNumber.toString(),
+                                                        modifier = Modifier.weight(1f),
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                    Text(
+                                                        text = Tools().formatTime(lapTime.timeInMillis),
+                                                        modifier = Modifier.weight(2f),
+                                                        style = MaterialTheme.typography.bodyMedium
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Action buttons
+                                if (!(record.eventId == getCurrentlyRecordingEventId() &&
+                                            isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService"))) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Button(onClick = { onDelete(record.eventId) }) {
+                                            Text("Delete")
+                                        }
+                                        Button(onClick = { onExport(record.eventId) }) {
+                                            Text("Export")
+                                        }
+                                        Button(
+                                            onClick = {
+                                                onEdit(
+                                                    record.eventId,
+                                                    record.eventName,
+                                                    record.eventDate ?: ""
+                                                )
+                                            }
+                                        ) {
+                                            Text("Edit")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Footer actions
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Button(
+                        onClick = { onDeleteAllContent() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = "Delete content of all tables")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { onExportGPX() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = "Export GPX files")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { onImportGPX() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = "Import GPX files")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = { onBackupDatabase() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(text = "Backup database")
+                    }
+                }
+            }
+        }
+    }
     @Composable
     fun GPXFileSelectionDialog(
         context: Context, // Add context parameter
@@ -1988,10 +2106,26 @@ class MainActivity : ComponentActivity() {
                 .apply()
         }
     }
-    data class SavedLocationData(
-        val points: List<GeoPoint>,
-        val isRecording: Boolean
-    )
-    data class MemoryPressureEvent(val level: Int)
-    data class StopServiceEvent(val timestamp: Long = System.currentTimeMillis())
+    //Edit button
+    private suspend fun updateEvent(eventId: Int, newEventName: String, newEventDate: String) {
+        try {
+            database.eventDao().updateEventDetails(
+                eventId = eventId,
+                eventName = newEventName,
+                eventDate = newEventDate
+            )
+            Toast.makeText(
+                applicationContext,
+                "Event updated successfully",
+                Toast.LENGTH_SHORT
+            ).show()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error updating event", e)
+            Toast.makeText(
+                applicationContext,
+                "Error updating event: ${e.message}",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 }

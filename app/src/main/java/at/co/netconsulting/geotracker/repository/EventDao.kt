@@ -104,4 +104,7 @@ interface EventDao {
 
     @Query("SELECT * FROM events WHERE eventId = :eventId")
     suspend fun getEventById(eventId: Int): Event
+
+    @Query("UPDATE events SET eventName = :eventName, eventDate = :eventDate WHERE eventId = :eventId")
+    suspend fun updateEventDetails(eventId: Int, eventName: String, eventDate: String)
 }
