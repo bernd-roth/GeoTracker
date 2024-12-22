@@ -1,8 +1,13 @@
 package at.co.netconsulting.geotracker
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -17,8 +22,8 @@ fun BottomSheetContent(
     speed: Float,
     speedAccuracyInMeters: Float,
     altitude: Double,
-    horizontalAccuracyInMeters: Float,
     verticalAccuracyInMeters: Float,
+    horizontalAccuracyInMeters: Float,
     numberOfSatellites: Int,
     usedNumberOfSatellites: Int,
     coveredDistance: Double
@@ -26,6 +31,10 @@ fun BottomSheetContent(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .background(
+                color = Color.Transparent,
+                shape = RoundedCornerShape(topStart = 15.dp, topEnd = 15.dp)
+            )
             .padding(16.dp)
     ) {
         Text(
@@ -59,14 +68,33 @@ fun BottomSheetContent(
             color = Color.Black
         )
         Text(
-            text = "Satellites: $usedNumberOfSatellites/$numberOfSatellites ",
-            fontSize = 14.sp,
-            color = Color.Black
-        )
-        Text(
             text = "Covered distance: ${"%.3f".format(coveredDistance / 1000)} Km",
             fontSize = 14.sp,
             color = Color.Black
         )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp)
+        ) {
+            Text(
+                text = "Satellites: $usedNumberOfSatellites/$numberOfSatellites",
+                fontSize = 14.sp,
+                color = Color.Black
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = {
+                    if (numberOfSatellites > 0)
+                        usedNumberOfSatellites.toFloat() / numberOfSatellites.toFloat()
+                    else 0f
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp),
+                color = Color(0xFF4CAF50),
+                trackColor = Color(0xFFAA0303),
+            )
+        }
     }
 }

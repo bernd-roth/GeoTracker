@@ -12,8 +12,8 @@ class TrackingServer:
     def __init__(self):
         self.connected_clients = set()
         self.tracking_history = defaultdict(list)
-        self.retention_hours = 0.1
-        self.cleanup_interval = 30  # Run cleanup every 5 minutes
+        self.retention_hours = 24
+        self.cleanup_interval = 30  # Run cleanup every x seconds
         self.timestamp_format = '%d-%m-%Y %H:%M:%S'  # Changed to match existing format
 
     def clean_old_data(self):
@@ -51,15 +51,19 @@ class TrackingServer:
             self.clean_old_data()
 
     async def send_history(self, websocket):
-        """Send historical data to newly connected client"""
+        """Send historical data to newly connected client in batches"""
         try:
-            # Clean old data before sending history
             self.clean_old_data()
 
+            # Group all historical data by session
+            batch_size = 100  # Adjust based on your needs
             for session_id, points in self.tracking_history.items():
-                for point in points:
-                    await websocket.send(json.dumps(point))
-
+                # Send data in batches
+                for i in range(0, len(points), batch_size):
+                    batch = points[i:i + batch_size]
+                    await websocket.send(json.dumps({'type': 'history_batch', 'sessionId': session_id, 'points': batch}))
+                    # Send completion message
+                    await websocket.send(json.dumps({'type': 'history_complete'}))
         except Exception as e:
             logging.error(f"Error sending history: {str(e)}")
 

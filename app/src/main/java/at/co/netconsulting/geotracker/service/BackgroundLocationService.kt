@@ -142,7 +142,8 @@ class BackgroundLocationService : Service(), LocationListener {
         })
         val (coveredDistance, distanceIncrement) = calculateDistance(location)
         averageSpeed = calculateAverageSpeed(coveredDistance)
-        sendToWebsocket(location, coveredDistance)
+        //For now we do not want to see the user on the website
+        //sendToWebsocket(location, coveredDistance)
     }
 
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {

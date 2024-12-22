@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
-import android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
@@ -82,6 +81,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -102,6 +102,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import at.co.netconsulting.geotracker.data.EditState
 import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.LocationEvent
@@ -134,6 +135,7 @@ import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Overlay
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
@@ -189,6 +191,12 @@ class MainActivity : ComponentActivity() {
     private var persistedMarkerPoint: LatLng? = null
     private var persistedZoomLevel: Double? = null
     private var persistedMapCenter: GeoPoint? = null
+    //showing route on main map
+    private var selectedEventPolylines = mutableListOf<Polyline>()
+    private var selectedEventsState = mutableStateOf<List<SingleEventWithMetric>>(emptyList())
+    private var selectedRecordsState = mutableStateOf<List<SingleEventWithMetric>>(emptyList())
+    //satellite info
+    private lateinit var satelliteInfoManager: SatelliteInfoManager
 
     private fun loadSharedPreferences() {
         val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -229,6 +237,8 @@ class MainActivity : ComponentActivity() {
         startDateTimeState.value = event.startDateTime
         locationChangeEventState.value = event.locationChangeEventList
         horizontalAccuracyInMetersState.value = event.horizontalAccuracy
+        usedInFixCount = satelliteInfoManager.currentSatelliteInfo.value.visibleSatellites
+        satelliteCount = satelliteInfoManager.currentSatelliteInfo.value.totalSatellites
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
             val newPoints = locationChangeEventState.value.latLngs.map {
@@ -341,6 +351,8 @@ class MainActivity : ComponentActivity() {
             getString(R.string.statistics),
             getString(R.string.settings)
         )
+        //satellite info
+        val satelliteInfo by satelliteInfoManager.currentSatelliteInfo.collectAsState()
 
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -354,8 +366,8 @@ class MainActivity : ComponentActivity() {
                         altitude = altitudeState.value,
                         verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
                         horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
-                        numberOfSatellites = satelliteCount,
-                        usedNumberOfSatellites = usedInFixCount,
+                        numberOfSatellites = satelliteInfo.totalSatellites,
+                        usedNumberOfSatellites = satelliteInfo.visibleSatellites,
                         coveredDistance = coveredDistanceState.value
                     )
                 } else {
@@ -367,8 +379,8 @@ class MainActivity : ComponentActivity() {
                         altitude = altitudeState.value,
                         verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
                         horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
-                        numberOfSatellites = satelliteCount,
-                        usedNumberOfSatellites = usedInFixCount,
+                        numberOfSatellites = satelliteInfo.totalSatellites,
+                        usedNumberOfSatellites = satelliteInfo.visibleSatellites,
                         coveredDistance = coveredDistanceState.value
                     )
                 }
@@ -397,7 +409,17 @@ class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.padding(paddingValues)) {
                         when (selectedTabIndex) {
                             0 -> MapScreen()
-                            1 -> StatisticsScreenPreview(context = applicationContext, locationEventState = locationEventState)
+                            1 -> StatisticsScreenPreview(
+                                context = applicationContext,
+                                locationEventState = locationEventState,
+                                onEventsSelected = { events ->
+                                    displaySelectedEvents(events)
+                                },
+                                selectedRecords = selectedRecordsState.value,
+                                onSelectedRecordsChange = { newSelectedRecords ->
+                                    selectedRecordsState.value = newSelectedRecords
+                                }
+                            )
                             2 -> SettingsScreen()
                         }
                     }
@@ -410,13 +432,20 @@ class MainActivity : ComponentActivity() {
     fun MapScreen(
     ) {
         Column {
-            OpenStreetMapView()
+            OpenStreetMapView(selectedEvents = selectedEventsState.value)
         }
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
     @Composable
-    fun StatisticsScreenPreview(context: Context, locationEventState: MutableState<LocationEvent?>, latLngs: List<LatLng> = emptyList()) {
+    fun StatisticsScreenPreview(
+        context: Context,
+        locationEventState: MutableState<LocationEvent?>,
+        latLngs: List<LatLng> = emptyList(),
+        onEventsSelected: (List<SingleEventWithMetric>) -> Unit,
+        selectedRecords: List<SingleEventWithMetric>,
+        onSelectedRecordsChange: (List<SingleEventWithMetric>) -> Unit
+    ) {
         var editState by remember {
             mutableStateOf(EditState())
         }
@@ -442,9 +471,12 @@ class MainActivity : ComponentActivity() {
         var events by remember { mutableStateOf<List<Event>>(emptyList()) }
         var records by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
         var expanded by remember { mutableStateOf(false) }
-        var selectedRecords by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
         var lapTimesMap by remember { mutableStateOf<Map<Int, List<LapTimeInfo>>>(emptyMap()) }
         var showDeleteErrorDialog by remember { mutableStateOf(false) }
+
+        LaunchedEffect(selectedRecords) {
+            onEventsSelected(selectedRecords)
+        }
 
         // Search state
         var searchQuery by remember { mutableStateOf("") }
@@ -561,13 +593,15 @@ class MainActivity : ComponentActivity() {
                         records = records,
                         selectedRecords = selectedRecords,
                         editState = editState,
-                        lapTimesMap = lapTimesMap,  // Add this line
+                        lapTimesMap = lapTimesMap,
                         onRecordSelected = { record ->
-                            selectedRecords = if (selectedRecords.contains(record)) {
-                                selectedRecords.filter { it != record }
-                            } else {
-                                selectedRecords + record
-                            }
+                            onSelectedRecordsChange(
+                                if (selectedRecords.contains(record)) {
+                                    selectedRecords.filter { it != record }
+                                } else {
+                                    selectedRecords + record
+                                }
+                            )
                         },
                         onDismiss = { expanded = false },
                         onDelete = { eventId ->
@@ -832,15 +866,30 @@ class MainActivity : ComponentActivity() {
                                                 )
                                             }
 
-                                            // Find fastest and slowest laps (only considering valid laps > 0)
-                                            val validLaps = lapTimes.filter { it.lapNumber > 0 }
-                                            val fastestLap = validLaps.minByOrNull { it.timeInMillis }
-                                            val slowestLap = validLaps.maxByOrNull { it.timeInMillis }
+                                            // Find fastest and slowest completed laps (only considering laps that cover 1km)
+                                            // Get last lap number to exclude it from consideration
+                                            val lastLapNumber = lapTimes.maxOfOrNull { it.lapNumber } ?: 0
+
+                                            val completedLaps = lapTimes.filter { lapTime ->
+                                                // Filter laps that are:
+                                                // 1. Started (lap number > 0)
+                                                // 2. Not the current/last lap
+                                                // 3. Have valid time (> 0 and < MAX_VALUE)
+                                                lapTime.lapNumber > 0 &&
+                                                        lapTime.lapNumber < lastLapNumber &&
+                                                        lapTime.timeInMillis > 0 &&
+                                                        lapTime.timeInMillis < Long.MAX_VALUE
+                                            }
+
+                                            val fastestLap = completedLaps.minByOrNull { it.timeInMillis }
+                                            val slowestLap = completedLaps.maxByOrNull { it.timeInMillis }
 
                                             lapTimes.forEach { lapTime ->
-                                                val backgroundColor = when (lapTime) {
-                                                    fastestLap -> Color(0xFF90EE90)
-                                                    slowestLap -> Color(0xFFF44336)
+                                                val backgroundColor = when {
+                                                    lapTime.lapNumber == lastLapNumber -> Color.Transparent // Current lap
+                                                    lapTime.timeInMillis <= 0 || lapTime.timeInMillis == Long.MAX_VALUE -> Color.Transparent // Invalid/incomplete lap
+                                                    lapTime == fastestLap -> Color(0xFF90EE90)
+                                                    lapTime == slowestLap -> Color(0xFFF44336)
                                                     else -> Color.Transparent
                                                 }
 
@@ -1248,7 +1297,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun OpenStreetMapView() {
+    fun OpenStreetMapView(selectedEvents: List<SingleEventWithMetric> = emptyList()) {
         val context = LocalContext.current
 
         var showDialog by remember { mutableStateOf(false) }
@@ -1349,7 +1398,9 @@ class MainActivity : ComponentActivity() {
                     } else {
                         createMarker(LatLng(0.0, 0.0))
                     }
-
+                    if (selectedEvents.isNotEmpty()) {
+                        displaySelectedEvents(selectedEvents)
+                    }
                     mapView
                 },
                 modifier = Modifier.fillMaxSize(),
@@ -1384,6 +1435,11 @@ class MainActivity : ComponentActivity() {
                         }
                         if (persistedZoomLevel == null) {
                             mapView.controller.setZoom(15.0)
+                        }
+                        selectedEventPolylines.forEach { polyline ->
+                            if (!mapView.overlays.contains(polyline)) {
+                                mapView.overlays.add(polyline)
+                            }
                         }
                     }
                     mapView.invalidate()
@@ -1687,6 +1743,7 @@ class MainActivity : ComponentActivity() {
     // Override
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        satelliteInfoManager = SatelliteInfoManager(this)
         checkServiceStateOnStart()
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
@@ -1715,6 +1772,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             MainScreen()
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        satelliteInfoManager.startListening()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        satelliteInfoManager.stopListening()
     }
 
     override fun onTrimMemory(level: Int) {
@@ -1771,10 +1838,9 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun EventMapView(record: SingleEventWithMetric) {
         val context = LocalContext.current
-        val mapView = remember {
+        val eventMapView = remember {
             MapView(context).apply {
-                setTileSource(  TileSourceFactory.MAPNIK)
-                //setTileSource(customTileSource)
+                setTileSource(TileSourceFactory.MAPNIK)
                 setMultiTouchControls(true)
                 controller.setZoom(12.0)
             }
@@ -1797,100 +1863,172 @@ class MainActivity : ComponentActivity() {
                 .padding(vertical = 8.dp)
         ) {
             AndroidView(
-                factory = { mapView },
-                modifier = Modifier.fillMaxSize()
-            ) { map ->
-                map.overlays.clear()
+                factory = { eventMapView },
+                modifier = Modifier.fillMaxSize(),
+                update = { map ->
+                    if (routePoints.isNotEmpty()) {
+                        map.overlays.clear()
 
-                if (routePoints.isNotEmpty()) {
-                    // Main polyline
-                    val polyline = Polyline().apply {
-                        outlinePaint.strokeWidth = 5f
-                        outlinePaint.color = android.graphics.Color.BLUE
-                        setPoints(routePoints)
+                        // Main polyline
+                        val polyline = Polyline().apply {
+                            outlinePaint.strokeWidth = 5f
+                            outlinePaint.color = android.graphics.Color.BLUE
+                            setPoints(routePoints)
+                        }
+                        map.overlays.add(polyline)
+
+                        try {
+                            // Add direction arrows
+                            addDirectionArrows(map, routePoints)
+
+                            // Add start and end markers
+                            addStartMarker(map, routePoints.first())
+                            addEndMarker(map, routePoints.last())
+
+                            // Set bounds to show full route
+                            val bounds = BoundingBox.fromGeoPoints(routePoints)
+                            map.zoomToBoundingBox(bounds, true, 50, 17.0, 1L)
+                            map.controller.setCenter(routePoints.first())
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Error adding markers or arrows", e)
+                        }
+
+                        map.invalidate()
                     }
-                    map.overlays.add(polyline)
-
-                    // Add direction arrows
-                    addDirectionArrows(map, routePoints)
-
-                    // Add start marker
-                    addStartMarker(map, routePoints.first())
-
-                    // Add end marker
-                    addEndMarker(map, routePoints.last())
-
-                    // Set bounds to show full route
-                    val bounds = BoundingBox.fromGeoPoints(routePoints)
-                    map.zoomToBoundingBox(bounds, true, 50, 17.0, 1L)
-                    map.controller.setCenter(GeoPoint(routePoints.first().latitude, routePoints.first().longitude))
                 }
-                map.invalidate()
-            }
+            )
         }
     }
     private fun addStartMarker(mapView: MapView, startPoint: GeoPoint) {
-        val startMarker = Marker(mapView).apply {
-            position = startPoint
-            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_start_marker)
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            title = "Start"
+        try {
+            // Make sure mapView is initialized and not in an inconsistent state
+            if (!mapView.isLayoutOccurred || !mapView.isAttachedToWindow) {
+                Log.d("MainActivity", "MapView not ready for markers")
+                return
+            }
+
+            val startMarker = Marker(mapView).apply {
+                position = startPoint
+                icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_start_marker)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                title = "Start"
+            }
+            mapView.overlays.add(startMarker)
+            mapView.invalidate()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error adding start marker", e)
         }
-        mapView.overlays.add(startMarker)
     }
 
     private fun addEndMarker(mapView: MapView, endPoint: GeoPoint) {
-        val endMarker = Marker(mapView).apply {
-            position = endPoint
-            icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_end_marker)
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            title = "End"
+        try {
+            // Make sure mapView is initialized and not in an inconsistent state
+            if (!mapView.isLayoutOccurred || !mapView.isAttachedToWindow) {
+                Log.d("MainActivity", "MapView not ready for markers")
+                return
+            }
+
+            val endMarker = Marker(mapView).apply {
+                position = endPoint
+                icon = ContextCompat.getDrawable(mapView.context, R.drawable.ic_end_marker)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                title = "End"
+            }
+            mapView.overlays.add(endMarker)
+            mapView.invalidate()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error adding end marker", e)
         }
-        mapView.overlays.add(endMarker)
     }
 
     private fun addDirectionArrows(mapView: MapView, points: List<GeoPoint>) {
-        if (points.size < 2) return
-
-        val zoomLevel = mapView.zoomLevelDouble
-        // Adjust arrow size based on zoom level (smaller when zoomed out)
-        val arrowSize = (zoomLevel / 20.0 * 20).coerceIn(10.0, 30.0).toInt()
-
-        var totalDistance = 0.0
-        for (i in 0 until points.size - 1) {
-            totalDistance += points[i].distanceToAsDouble(points[i + 1])
+        // Early return if not enough points or MapView isn't ready
+        if (points.size < 2 || !mapView.isLayoutOccurred || !mapView.isAttachedToWindow) {
+            Log.d("MainActivity", "MapView not ready for direction arrows or insufficient points")
+            return
         }
 
-        // Adjust arrow spacing based on total distance
-        val arrowSpacing = totalDistance / (10 * (zoomLevel / 15)) // More arrows when zoomed in
+        try {
+            val zoomLevel = mapView.zoomLevelDouble
+            // Adjust arrow size based on zoom level (smaller when zoomed out)
+            val arrowSize = (zoomLevel / 20.0 * 20).coerceIn(10.0, 30.0).toInt()
 
-        var accumulatedDistance = 0.0
-        var nextArrowDistance = arrowSpacing
-
-        for (i in 0 until points.size - 1) {
-            val start = points[i]
-            val end = points[i + 1]
-            val segmentDistance = start.distanceToAsDouble(end)
-
-            while (accumulatedDistance + segmentDistance > nextArrowDistance) {
-                val ratio = (nextArrowDistance - accumulatedDistance) / segmentDistance
-                val arrowPoint = GeoPoint(
-                    start.latitude + (end.latitude - start.latitude) * ratio,
-                    start.longitude + (end.longitude - start.longitude) * ratio
-                )
-
-                val bearing = start.bearingTo(end)
-
-                val arrowMarker = Marker(mapView).apply {
-                    position = arrowPoint
-                    icon = createArrowDrawable(bearing, arrowSize)
-                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                }
-                mapView.overlays.add(arrowMarker)
-
-                nextArrowDistance += arrowSpacing
+            var totalDistance = 0.0
+            for (i in 0 until points.size - 1) {
+                totalDistance += points[i].distanceToAsDouble(points[i + 1])
             }
-            accumulatedDistance += segmentDistance
+
+            // Adjust arrow spacing based on total distance
+            val arrowSpacing = totalDistance / (10 * (zoomLevel / 15)) // More arrows when zoomed in
+
+            var accumulatedDistance = 0.0
+            var nextArrowDistance = arrowSpacing
+
+            for (i in 0 until points.size - 1) {
+                if (!mapView.isLayoutOccurred || !mapView.isAttachedToWindow) {
+                    Log.d("MainActivity", "MapView became invalid during arrow creation")
+                    return
+                }
+
+                val start = points[i]
+                val end = points[i + 1]
+                val segmentDistance = start.distanceToAsDouble(end)
+
+                while (accumulatedDistance + segmentDistance > nextArrowDistance) {
+                    val ratio = (nextArrowDistance - accumulatedDistance) / segmentDistance
+                    val arrowPoint = GeoPoint(
+                        start.latitude + (end.latitude - start.latitude) * ratio,
+                        start.longitude + (end.longitude - start.longitude) * ratio
+                    )
+
+                    val bearing = start.bearingTo(end)
+
+                    try {
+                        val arrowOverlay = object : Overlay(mapView.context) {
+                            private val paint = Paint().apply {
+                                color = android.graphics.Color.WHITE
+                                style = Paint.Style.FILL
+                                isAntiAlias = true
+                                alpha = 180
+                            }
+
+                            override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+                                if (shadow) return
+
+                                val point = mapView.projection.toPixels(arrowPoint, null)
+                                val centerX = point.x.toFloat()
+                                val centerY = point.y.toFloat()
+
+                                canvas.save()
+                                canvas.rotate(bearing.toFloat(), centerX, centerY)
+
+                                val arrowHeight = arrowSize.toFloat()
+                                val arrowWidth = arrowSize * 0.6f
+
+                                val path = Path().apply {
+                                    moveTo(centerX, centerY - arrowHeight/2)
+                                    lineTo(centerX - arrowWidth/2, centerY + arrowHeight/2)
+                                    lineTo(centerX + arrowWidth/2, centerY + arrowHeight/2)
+                                    close()
+                                }
+                                canvas.drawPath(path, paint)
+                                canvas.restore()
+                            }
+                        }
+
+                        mapView.overlays.add(arrowOverlay)
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Error creating arrow overlay", e)
+                    }
+
+                    nextArrowDistance += arrowSpacing
+                }
+                accumulatedDistance += segmentDistance
+            }
+
+            mapView.invalidate()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error adding direction arrows", e)
         }
     }
 
@@ -2126,6 +2264,61 @@ class MainActivity : ComponentActivity() {
                 "Error updating event: ${e.message}",
                 Toast.LENGTH_LONG
             ).show()
+        }
+    }
+
+    private fun displaySelectedEvents(events: List<SingleEventWithMetric>) {
+        selectedEventsState.value = events
+
+        if (!::mapView.isInitialized) {
+            Log.d("MainActivity", "MapView not ready for display events")
+            return
+        }
+
+        // Clear previous selected event polylines
+        mapView.overlays.removeAll { it in selectedEventPolylines }
+        selectedEventPolylines.clear()
+
+        // Create and add new polylines for each selected event
+        events.forEach { event ->
+            lifecycleScope.launch {
+                try {
+                    val routePoints = database.eventDao().getRoutePointsForEvent(event.eventId)
+                        .map { GeoPoint(it.latitude, it.longitude) }
+
+                    if (routePoints.isNotEmpty()) {
+                        // Create and add the polyline
+                        val polyline = Polyline().apply {
+                            outlinePaint.strokeWidth = 5f
+                            outlinePaint.color = android.graphics.Color.BLUE
+                            setPoints(routePoints)
+                        }
+
+                        selectedEventPolylines.add(polyline)
+                        mapView.overlays.add(polyline)
+
+                        try {
+                            // Add markers and arrows
+                            addDirectionArrows(mapView, routePoints)
+                            addStartMarker(mapView, routePoints.first())
+                            addEndMarker(mapView, routePoints.last())
+                        } catch (e: Exception) {
+                            Log.e("MainActivity", "Error adding markers or arrows for event ${event.eventId}", e)
+                        }
+
+                        // Zoom to show all points if this is the first selected event
+                        if (selectedEventPolylines.size == 1) {
+                            val bounds = BoundingBox.fromGeoPoints(routePoints)
+                            mapView.zoomToBoundingBox(bounds, true, 50, 17.0, 1L)
+                            mapView.controller.setCenter(routePoints.first())
+                        }
+
+                        mapView.invalidate()
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error displaying event ${event.eventId}", e)
+                }
+            }
         }
     }
 }

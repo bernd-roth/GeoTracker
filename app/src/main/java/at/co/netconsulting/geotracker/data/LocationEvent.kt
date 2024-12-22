@@ -17,5 +17,6 @@ data class LocationEvent(
     val averageSpeed: Double,
     val locationChangeEventList: CustomLocationListener.LocationChangeEvent,
     val totalAscent: Double,
-    val totalDescent: Double
+    val totalDescent: Double,
+    val satelliteInfo: SatelliteInfo = SatelliteInfo()
 )
