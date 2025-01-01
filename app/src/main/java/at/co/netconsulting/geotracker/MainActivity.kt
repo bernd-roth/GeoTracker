@@ -1509,8 +1509,12 @@ class MainActivity : ComponentActivity() {
                                     .apply()
 
                                 isRecording = false
+                                //stop the ForegroundService
                                 val stopIntent = Intent(context, ForegroundService::class.java)
                                 context.stopService(stopIntent)
+                                //start the BackgroundLocationService again
+                                val intent = Intent(context, BackgroundLocationService::class.java)
+                                context.startService(intent)
                             }
                     ) {
                         Icon(
