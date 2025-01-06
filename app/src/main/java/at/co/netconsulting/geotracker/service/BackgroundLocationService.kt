@@ -2,6 +2,7 @@ package at.co.netconsulting.geotracker.service
 
 import android.annotation.SuppressLint
 import android.app.Service
+import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.location.Location
@@ -12,6 +13,8 @@ import android.os.IBinder
 import android.util.Log
 import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.data.MemoryPressureEvent
+import at.co.netconsulting.geotracker.data.MemoryPressureReliefEvent
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getTotalAscent
@@ -24,6 +27,8 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.greenrobot.eventbus.EventBus
+import org.greenrobot.eventbus.Subscribe
+import org.greenrobot.eventbus.ThreadMode
 import java.time.Duration
 import java.time.LocalDateTime
 
@@ -203,6 +208,49 @@ class BackgroundLocationService : Service(), LocationListener {
             newLongitude,
             result);
         return result[0].toDouble()
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onMemoryPressureEvent(event: MemoryPressureEvent) {
+        when (event.level) {
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                System.gc()
+                // Clear any caches
+                webSocket?.close(1000, "Memory pressure")
+                webSocket = null
+                // Reset tracking variables
+                oldLatitude = -999.0
+                oldLongitude = -999.0
+                // Restart location updates with lower frequency
+                locationManager.removeUpdates(this)
+                startLocationUpdates(lowFrequencyMode = true)
+            }
+            // Add these new cases
+            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
+                // Memory pressure has been relieved
+                EventBus.getDefault().post(MemoryPressureReliefEvent(event.level))
+                startLocationUpdates(lowFrequencyMode = false)
+            }
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startLocationUpdates(lowFrequencyMode: Boolean = false) {
+        try {
+            val interval = if (lowFrequencyMode) 5000L else MIN_TIME_BETWEEN_UPDATES
+            val distance = if (lowFrequencyMode) 5f else MIN_DISTANCE_BETWEEN_UPDATES
+
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                interval,
+                distance,
+                this
+            )
+        } catch (e: SecurityException) {
+            Log.e("BackgroundService", "Missing permissions for location updates.", e)
+        }
     }
 
     companion object {

@@ -1800,6 +1800,11 @@ class MainActivity : ComponentActivity() {
                 // Notify service to reduce memory usage if possible
                 EventBus.getDefault().post(MemoryPressureEvent(level))
             }
+            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
+                // Memory pressure has been relieved
+                EventBus.getDefault().post(MemoryPressureEvent(level))
+            }
         }
     }
 

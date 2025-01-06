@@ -718,9 +718,39 @@ class ForegroundService : Service() {
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
                 System.gc()
                 Log.w("ForegroundService", "Handling critical memory pressure")
+
+                // Clear location cache
+                customLocationListener?.clearCache()
+
+                // Reduce update frequencies
                 EventBus.getDefault().post(CustomLocationListener.AdjustLocationFrequencyEvent(true))
+
+                // Clear weather job
+                weatherJob?.cancel()
+                weatherJob = null
+
+                showSimplifiedNotification()
+            }
+            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
+                Log.i("ForegroundService", "Memory pressure relieved")
+                // Restore normal frequencies
+                EventBus.getDefault().post(CustomLocationListener.AdjustLocationFrequencyEvent(false))
+
+                // Restart weather updates if they were stopped
+                if (weatherJob == null) {
+                    startWeatherUpdates()
+                }
+
+                // Show normal notification again
+                showNotification()
             }
         }
+    }
+
+    private fun showSimplifiedNotification() {
+        val simpleContent = "Distance: ${String.format("%.2f", distance / 1000)} Km"
+        updateNotification(simpleContent)
     }
 
      companion object {

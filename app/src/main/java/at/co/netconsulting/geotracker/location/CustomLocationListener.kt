@@ -13,6 +13,7 @@ import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.tools.calculateElevationChanges
 import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
+import at.co.netconsulting.geotracker.data.MemoryPressureReliefEvent
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getTotalAscent
@@ -55,7 +56,7 @@ class CustomLocationListener: LocationListener {
     private var lapCounter: Double = 0.0
     private var lap: Int = 0
     private var averageSpeed: Double = 0.0
-    private val latLngs = mutableListOf<LatLng>()
+    private var latLngs = mutableListOf<LatLng>()
     private var webSocket: WebSocket? = null
     private var fellowRunnerPerson: String? = null
     private var fellowRunnerSessionId: String? = null
@@ -79,6 +80,7 @@ class CustomLocationListener: LocationListener {
     private var lastMessageTimestamp = AtomicLong(System.currentTimeMillis())
     private var isConnectionHealthy = AtomicBoolean(false)
     private var connectionMonitorJob: Job? = null
+    private val maxCacheSize = 1000
 
     data class LocationChangeEvent(val latLngs: List<LatLng>)
     data class AdjustLocationFrequencyEvent(val reduceFrequency: Boolean)
@@ -271,6 +273,7 @@ class CustomLocationListener: LocationListener {
                     lap = calculateLap(distanceIncrement)
                     calculateElevationChanges(location, oldLatitude, oldLongitude)
                     latLngs.add(LatLng(location.latitude, location.longitude))
+                    manageCacheSize()
                     //sendDataToEventBus(LocationEvent(it.latitude,it.longitude,(it.speed / 1000) * 3600,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs),getTotalAscent(),getTotalDescent()))
                     sendDataToEventBus(LocationEvent(
                         it.latitude,
@@ -483,6 +486,26 @@ class CustomLocationListener: LocationListener {
         }
     }
 
+    fun clearCache() {
+        latLngs.clear()
+        Log.d("CustomLocationListener", "Location cache cleared")
+    }
+
+    private fun manageCacheSize() {
+        if (latLngs.size > maxCacheSize) {
+            // Remove oldest entries to keep cache size in check
+            val removeCount = latLngs.size - maxCacheSize
+            latLngs = latLngs.drop(removeCount).toMutableList()
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onMemoryPressureReliefEvent(event: MemoryPressureReliefEvent) {
+        // Restore normal frequency
+        adjustUpdateFrequency(false)
+        Log.i("CustomLocationListener", "Restored default update frequency after memory pressure relief")
+    }
+
     companion object {
         private var MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private var MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
@@ -493,7 +516,7 @@ class CustomLocationListener: LocationListener {
         private const val INITIAL_BACKOFF_MS = 1000L
         private const val MAX_BACKOFF_MS = 32000L
         // Connection monitoring
-        private const val CONNECTION_CHECK_INTERVAL = 30000L // Check every 30 seconds
-        private const val CONNECTION_TIMEOUT = 60000L // Consider connection dead after 60 seconds of no messages
+        private const val CONNECTION_CHECK_INTERVAL = 30000L
+        private const val CONNECTION_TIMEOUT = 60000L
     }
 }
