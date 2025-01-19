@@ -147,67 +147,19 @@
     let altitudeChart;
     let speedChart;
     let speedHistory = {};
-    let pendingChartUpdates = {
-                altitude: new Map(),
-                speed: new Map()
-        };
-    let updateTimeout = null;
-    const BATCH_UPDATE_INTERVAL = 100; // ms
+    let userColors = {};
 
-function batchUpdateCharts() {
-    // Process altitude updates
-    pendingChartUpdates.altitude.forEach((points, sessionId) => {
-        let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-        if (datasetIndex === -1) {
-            datasetIndex = altitudeChart.data.datasets.length;
-            altitudeChart.data.datasets.push({
-                label: sessionId,
-                borderColor: getRandomColor(),
-                fill: false,
-                data: []
-            });
+    function getColorForUser(sessionId) {
+        if (!userColors[sessionId]) {
+            const letters = '0123456789ABCDEF';
+            let color = '#';
+            for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+            }
+            userColors[sessionId] = color;
         }
-        altitudeChart.data.datasets[datasetIndex].data.push(...points);
-    });
-
-    // Process speed updates
-    pendingChartUpdates.speed.forEach((points, sessionId) => {
-        let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-        if (datasetIndex === -1) {
-            datasetIndex = speedChart.data.datasets.length;
-            speedChart.data.datasets.push({
-                label: sessionId,
-                borderColor: getRandomColor(),
-                fill: false,
-                data: []
-            });
-        }
-        speedChart.data.datasets[datasetIndex].data.push(...points);
-    });
-
-    // Clear pending updates
-    pendingChartUpdates.altitude.clear();
-    pendingChartUpdates.speed.clear();
-
-    // Update both charts
-    altitudeChart.update();
-    speedChart.update();
-}
-
-function queueChartUpdate(chartType, sessionId, point) {
-    if (!pendingChartUpdates[chartType].has(sessionId)) {
-        pendingChartUpdates[chartType].set(sessionId, []);
+        return userColors[sessionId];
     }
-    pendingChartUpdates[chartType].get(sessionId).push(point);
-
-    // Schedule a batch update
-    if (!updateTimeout) {
-        updateTimeout = setTimeout(() => {
-            batchUpdateCharts();
-            updateTimeout = null;
-        }, BATCH_UPDATE_INTERVAL);
-    }
-}
 
     function initMap() {
       const initialLocation = [48.1818798, 16.3607528];
@@ -330,87 +282,75 @@ function queueChartUpdate(chartType, sessionId, point) {
       reader.readAsText(file);
     }
 
-function initCharts() {
-    const chartOptions = {
-        maintainAspectRatio: false,
-        animation: false, // Disable animations for better performance
-        responsiveness: true,
-        spanGaps: true,
-        elements: {
-            point: {
-                radius: 0, // Hide points for better performance
-                hitRadius: 10 // Keep hover detection
-            },
-            line: {
-                tension: 0 // Disable bezier curves for better performance
-            }
+    function initCharts() {
+      const altCtx = document.getElementById('altitudeChart').getContext('2d');
+      altitudeChart = new Chart(altCtx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: []
         },
-        scales: {
+        options: {
+          maintainAspectRatio: false,
+          scales: {
             x: {
-                type: 'linear',
-                title: {
-                    display: true,
-                    text: 'Distance (km)'
-                },
-                ticks: {
-                    beginAtZero: true,
-                    callback: function(value) {
-                        return value.toFixed(2);
-                    }
+              type: 'linear',
+              title: {
+                display: true,
+                text: 'Distance (km)'
+              },
+              ticks: {
+                beginAtZero: true,
+                callback: function(value) {
+                  return value.toFixed(2);
                 }
+              }
             },
             y: {
-                title: {
-                    display: true,
-                    text: 'Altitude (m)'
-                },
-                min: 0
+              title: {
+                display: true,
+                text: 'Altitude (m)'
+              },
+              min: 0
             }
+          }
         }
-    };
+      });
 
-    const altCtx = document.getElementById('altitudeChart').getContext('2d');
-    altitudeChart = new Chart(altCtx, {
+      const speedCtx = document.getElementById('speedChart').getContext('2d');
+      speedChart = new Chart(speedCtx, {
         type: 'line',
         data: {
-            datasets: []
+          labels: [],
+          datasets: []
         },
         options: {
-            ...chartOptions,
-            scales: {
-                ...chartOptions.scales,
-                y: {
-                    ...chartOptions.scales.y,
-                    title: {
-                        display: true,
-                        text: 'Altitude (m)'
-                    }
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              type: 'linear',
+              title: {
+                display: true,
+                text: 'Distance (km)'
+              },
+              ticks: {
+                beginAtZero: true,
+                callback: function(value) {
+                  return value.toFixed(2);
                 }
+              }
+            },
+            y: {
+              title: {
+                display: true,
+                text: 'Speed (km/h)'
+              },
+              min: 0
             }
+          }
         }
-    });
-
-    const speedCtx = document.getElementById('speedChart').getContext('2d');
-    speedChart = new Chart(speedCtx, {
-        type: 'line',
-        data: {
-            datasets: []
-        },
-        options: {
-            ...chartOptions,
-            scales: {
-                ...chartOptions.scales,
-                y: {
-                    ...chartOptions.scales.y,
-                    title: {
-                        display: true,
-                        text: 'Speed (km/h)'
-                    }
-                }
-            }
-        }
-    });
-}
+      });
+    }
 
     // Rest of the functions remain the same
     // Including connectToWebSocket, updateSpeedDisplay, updateMapWithNewCoordinate,
@@ -425,59 +365,24 @@ function initCharts() {
         console.log('Connected to WebSocket server');
       };
 
-websocket.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'history_batch') {
-        // Process batch of historical data
-        data.points.forEach(point => {
-            const lat = parseFloat(point.latitude);
-            const lng = parseFloat(point.longitude);
-            const altitude = parseFloat(point.altitude || 0);
-            const distance = parseFloat(point.distance) || 0;
-            const currentSpeed = parseFloat(point.currentSpeed || 0);
-
-            if (!isNaN(lat) && !isNaN(lng)) {
-                updateMapWithNewCoordinate(lat, lng, data.sessionId);
-                if (!isNaN(altitude) && !isNaN(distance)) {
-                    queueChartUpdate('altitude', data.sessionId, {
-                        x: distance / 1000,
-                        y: altitude
-                    });
-                    queueChartUpdate('speed', data.sessionId, {
-                        x: distance / 1000,
-                        y: currentSpeed
-                    });
-                }
-            }
-        });
-    } else if (data.type === 'history_complete') {
-        // Force final update of charts
-        batchUpdateCharts();
-    } else {
-        // Handle regular real-time updates
+      websocket.onmessage = function(event) {
+        const data = JSON.parse(event.data);
         const lat = parseFloat(data.latitude);
         const lng = parseFloat(data.longitude);
         const altitude = parseFloat(data.altitude || 0);
+        const sessionId = data.person || "default";
         const distance = parseFloat(data.distance) || 0;
         const currentSpeed = parseFloat(data.currentSpeed || 0);
 
-        updateSpeedDisplay(data.sessionId, currentSpeed, data);
+        updateSpeedDisplay(sessionId, currentSpeed, data);
         if (!isNaN(lat) && !isNaN(lng)) {
-            updateMapWithNewCoordinate(lat, lng, data.sessionId);
-            if (!isNaN(altitude) && !isNaN(distance)) {
-                queueChartUpdate('altitude', data.sessionId, {
-                    x: distance / 1000,
-                    y: altitude
-                });
-                queueChartUpdate('speed', data.sessionId, {
-                    x: distance / 1000,
-                    y: currentSpeed
-                });
-            }
+          updateMapWithNewCoordinate(lat, lng, sessionId);
+          if (!isNaN(altitude) && !isNaN(distance)) {
+            updateAltitudeChart(distance / 1000, altitude, sessionId);
+            updateSpeedChart(distance / 1000, currentSpeed, sessionId);
+          }
         }
-    }
-};
+      };
 
       websocket.onclose = function(event) {
         console.log('WebSocket connection closed');
@@ -524,100 +429,101 @@ websocket.onmessage = function(event) {
     }
 
     function updateMapWithNewCoordinate(lat, lng, sessionId) {
-      if (!polylines[sessionId]) {
-        const polylineColor = getRandomColor();
-        polylines[sessionId] = L.polyline([[lat, lng]], {
-          color: polylineColor,
-          weight: 3
-        }).addTo(map);
-        startMarkers[sessionId] = L.marker([lat, lng], {
-          title: "Start Position - " + sessionId
-        }).bindPopup('Start - ' + sessionId).addTo(map);
-      } else {
-        const lastPoint = polylines[sessionId].getLatLngs().slice(-1)[0];
-        if (lastPoint.lat !== lat || lastPoint.lng !== lng) {
-          polylines[sessionId].addLatLng([lat, lng]);
+        if (!polylines[sessionId]) {
+            const userColor = getColorForUser(sessionId);
+            polylines[sessionId] = L.polyline([[lat, lng]], {
+                color: userColor,
+                weight: 3
+            }).addTo(map);
+            startMarkers[sessionId] = L.marker([lat, lng], {
+                title: "Start Position - " + sessionId
+            }).bindPopup('Start - ' + sessionId).addTo(map);
+        } else {
+            const lastPoint = polylines[sessionId].getLatLngs().slice(-1)[0];
+            if (lastPoint.lat !== lat || lastPoint.lng !== lng) {
+                polylines[sessionId].addLatLng([lat, lng]);
+            }
         }
-      }
 
-      if (!endMarkers[sessionId]) {
-        endMarkers[sessionId] = L.marker([lat, lng], {
-          title: "Current Position - " + sessionId
-        }).bindPopup('Current - ' + sessionId).addTo(map);
-      } else {
-        endMarkers[sessionId].setLatLng([lat, lng]);
-      }
+        if (!endMarkers[sessionId]) {
+            endMarkers[sessionId] = L.marker([lat, lng], {
+                title: "Current Position - " + sessionId
+            }).bindPopup('Current - ' + sessionId).addTo(map);
+        } else {
+            endMarkers[sessionId].setLatLng([lat, lng]);
+        }
 
-      const center = map.getCenter();
-      const distance = map.distance([center.lat, center.lng], [lat, lng]);
-      if (distance > 100) {
-        map.setView([lat, lng]);
-      }
+        const center = map.getCenter();
+        const distance = map.distance([center.lat, center.lng], [lat, lng]);
+        if (distance > 100) {
+            map.setView([lat, lng]);
+        }
     }
 
     function updateAltitudeChart(distance, altitude, sessionId) {
-      let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (datasetIndex === -1) {
-        datasetIndex = altitudeChart.data.datasets.length;
-        altitudeChart.data.datasets.push({
-          label: sessionId,
-          borderColor: getRandomColor(),
-          fill: false,
-          data: []
+        let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+        if (datasetIndex === -1) {
+            datasetIndex = altitudeChart.data.datasets.length;
+            altitudeChart.data.datasets.push({
+                label: sessionId,
+                borderColor: getColorForUser(sessionId),
+                fill: false,
+                data: []
+            });
+        }
+        altitudeChart.data.datasets[datasetIndex].data.push({
+            x: distance,
+            y: altitude
         });
-      }
-      altitudeChart.data.datasets[datasetIndex].data.push({
-        x: distance,
-        y: altitude
-      });
-      altitudeChart.update();
+        altitudeChart.update();
     }
 
     function updateSpeedChart(distance, speed, sessionId) {
-      let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (datasetIndex === -1) {
-        datasetIndex = speedChart.data.datasets.length;
-        speedChart.data.datasets.push({
-          label: sessionId,
-          borderColor: getRandomColor(),
-          fill: false,
-          data: []
+        let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+        if (datasetIndex === -1) {
+            datasetIndex = speedChart.data.datasets.length;
+            speedChart.data.datasets.push({
+                label: sessionId,
+                borderColor: getColorForUser(sessionId),
+                fill: false,
+                data: []
+            });
+        }
+        speedChart.data.datasets[datasetIndex].data.push({
+            x: distance,
+            y: speed
         });
-      }
-      speedChart.data.datasets[datasetIndex].data.push({
-        x: distance,
-        y: speed
-      });
-      speedChart.update();
+        speedChart.update();
     }
 
     function resetMap() {
-      speedHistory = {};
-      document.getElementById('currentSpeed').textContent = '0.0';
-      document.getElementById('maxSpeed').textContent = '0.0';
-      document.getElementById('avgSpeed').textContent = '0.0';
-      document.getElementById('movingAvg').textContent = '0.0';
+        speedHistory = {};
+        userColors = {}; // Reset the user colors
+        document.getElementById('currentSpeed').textContent = '0.0';
+        document.getElementById('maxSpeed').textContent = '0.0';
+        document.getElementById('avgSpeed').textContent = '0.0';
+        document.getElementById('movingAvg').textContent = '0.0';
 
-      Object.values(polylines).forEach(polyline => map.removeLayer(polyline));
-      Object.values(startMarkers).forEach(marker => map.removeLayer(marker));
-      Object.values(endMarkers).forEach(marker => map.removeLayer(marker));
+        Object.values(polylines).forEach(polyline => map.removeLayer(polyline));
+        Object.values(startMarkers).forEach(marker => map.removeLayer(marker));
+        Object.values(endMarkers).forEach(marker => map.removeLayer(marker));
 
-      polylines = {};
-      startMarkers = {};
-      endMarkers = {};
+        polylines = {};
+        startMarkers = {};
+        endMarkers = {};
 
-      if (gpxPolyline) {
-        map.removeLayer(gpxPolyline);
-        gpxPolyline = null;
-      }
+        if (gpxPolyline) {
+            map.removeLayer(gpxPolyline);
+            gpxPolyline = null;
+        }
 
-      altitudeChart.data.datasets = [];
-      altitudeChart.update();
-      speedChart.data.datasets = [];
-      speedChart.update();
+        altitudeChart.data.datasets = [];
+        altitudeChart.update();
+        speedChart.data.datasets = [];
+        speedChart.update();
 
-      const initialLocation = [48.1818798, 16.3607528];
-      map.setView(initialLocation, 10);
+        const initialLocation = [48.1818798, 16.3607528];
+        map.setView(initialLocation, 10);
     }
 
     function getRandomColor() {
