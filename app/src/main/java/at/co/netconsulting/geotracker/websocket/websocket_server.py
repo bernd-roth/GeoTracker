@@ -51,19 +51,15 @@ class TrackingServer:
             self.clean_old_data()
 
     async def send_history(self, websocket):
-        """Send historical data to newly connected client in batches"""
+        """Send historical data to newly connected client"""
         try:
+            # Clean old data before sending history
             self.clean_old_data()
 
-            # Group all historical data by session
-            batch_size = 100  # Adjust based on your needs
             for session_id, points in self.tracking_history.items():
-                # Send data in batches
-                for i in range(0, len(points), batch_size):
-                    batch = points[i:i + batch_size]
-                    await websocket.send(json.dumps({'type': 'history_batch', 'sessionId': session_id, 'points': batch}))
-                    # Send completion message
-                    await websocket.send(json.dumps({'type': 'history_complete'}))
+                for point in points:
+                    await websocket.send(json.dumps(point))
+
         except Exception as e:
             logging.error(f"Error sending history: {str(e)}")
 
@@ -79,6 +75,12 @@ class TrackingServer:
             async for message in websocket:
                 try:
                     logging.info(f"Received message: {message}")
+
+                    # Handle ping messages
+                    if message == "ping":
+                        await websocket.send("pong")
+                        continue
+
                     message_data = json.loads(message)
 
                     required_fields = ["person", "sessionId", "latitude", "longitude",
@@ -110,7 +112,8 @@ class TrackingServer:
                         logging.error(f"Missing required fields: {missing_fields}")
 
                 except json.JSONDecodeError as e:
-                    logging.error(f"Invalid JSON received: {str(e)}")
+                    if message != "ping":  # Don't log errors for ping messages
+                        logging.error(f"Invalid JSON received: {str(e)}")
                 except Exception as e:
                     logging.error(f"Error processing message: {str(e)}")
 
