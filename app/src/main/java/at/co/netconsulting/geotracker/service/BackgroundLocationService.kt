@@ -189,7 +189,7 @@ class BackgroundLocationService : Service(), LocationListener {
         var mCoveredDistance = coveredDistance
         totalDateTime = LocalDateTime.now()
         var duration = Duration.between(startDateTime, totalDateTime)
-        return mCoveredDistance / (duration.toNanos()/1_000_000_000.0)
+        return (mCoveredDistance / (duration.toNanos()/1_000_000_000.0)) * 3.6
     }
 
     private fun calculateDistanceBetweenOldLatLngNewLatLng(
