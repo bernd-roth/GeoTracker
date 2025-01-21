@@ -104,6 +104,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import at.co.netconsulting.geotracker.data.EditState
+import at.co.netconsulting.geotracker.data.EventDetails
 import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.data.MemoryPressureEvent
@@ -446,9 +447,7 @@ class MainActivity : ComponentActivity() {
         selectedRecords: List<SingleEventWithMetric>,
         onSelectedRecordsChange: (List<SingleEventWithMetric>) -> Unit
     ) {
-        var editState by remember {
-            mutableStateOf(EditState())
-        }
+        var editState by remember { mutableStateOf(EditState()) }
         val scrollState = rememberScrollState()
         var showGPXDialog by remember { mutableStateOf(false) }
         val actualStatistics = locationEventState.value ?: LocationEvent(
@@ -815,7 +814,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 Text(
                                     text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
-                                    style = MaterialTheme.typography.bodyMedium
+                                    style = MaterialTheme.typography.bodyLarge
                                 )
 
                                 if (record.eventId == getCurrentlyRecordingEventId() &&
@@ -1114,10 +1113,76 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     fun SelectedEventPanel(record: SingleEventWithMetric) {
+        var eventDetails by remember { mutableStateOf<EventDetails?>(null) }
+        val coroutineScope = rememberCoroutineScope()
+        val context = LocalContext.current
+        val database = remember { FitnessTrackerDatabase.getInstance(context) }
+
+        LaunchedEffect(record.eventId) {
+            coroutineScope.launch {
+                // Get metrics for calculations
+                val metrics = database.metricDao().getMetricsByEventId(record.eventId)
+
+                // Get last weather reading
+                val weather = database.weatherDao().getLastWeatherByEvent(record.eventId)
+
+                // Calculate statistics
+                val maxSpeed = metrics.maxOfOrNull { it.speed } ?: 0f // Convert m/s to km/h
+                val avgSpeed = metrics.map { it.speed }.average().toFloat()
+
+                // Calculate actual duration from first to last metric
+                val duration = if (metrics.isNotEmpty()) {
+                    val firstTime = metrics.minOf { it.timeInMilliseconds }
+                    val lastTime = metrics.maxOf { it.timeInMilliseconds }
+                    lastTime - firstTime // This gives us the actual duration
+                } else 0L
+
+                val totalAscent = metrics.sumOf { it.elevationGain.toDouble() }
+                val totalDescent = metrics.sumOf { it.elevationLoss.toDouble() }
+
+                eventDetails = EventDetails(
+                    duration = Tools().formatTime(duration),
+                    maxSpeed = maxSpeed,
+                    avgSpeed = avgSpeed,
+//                    totalAscent = totalAscent,
+//                    totalDescent = totalDescent,
+                    temperature = weather?.temperature ?: 0f,
+                    windSpeed = weather?.windSpeed ?: 0f,
+                    humidity = weather?.relativeHumidity ?: 0
+                )
+            }
+        }
+
         Column(modifier = Modifier.padding(8.dp)) {
-            Text("Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}", style = MaterialTheme.typography.bodyLarge)
-            Text("Event name: ${record.eventName?.takeIf { it.isNotEmpty() } ?: "No event name provided"}", style = MaterialTheme.typography.bodyLarge)
-            Text("Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km", style = MaterialTheme.typography.bodyLarge)
+            // Existing fields
+            Text("Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}",
+                style = MaterialTheme.typography.bodyLarge)
+            Text("Event name: ${record.eventName?.takeIf { it.isNotEmpty() } ?: "No event name provided"}",
+                style = MaterialTheme.typography.bodyLarge)
+            Text("Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
+                style = MaterialTheme.typography.bodyLarge)
+
+            // Additional statistics
+            eventDetails?.let { details ->
+                Text("Duration: ${details.duration}",
+                    style = MaterialTheme.typography.bodyLarge)
+                Text("Max. speed: ${"%.2f".format(details.maxSpeed)} km/h",
+                    style = MaterialTheme.typography.bodyLarge)
+                Text("Avg. speed: ${"%.2f".format(details.avgSpeed)} km/h",
+                    style = MaterialTheme.typography.bodyLarge)
+//                Text("Total ascent: ${"%.1f".format(details.totalAscent)} m",
+//                    style = MaterialTheme.typography.bodyLarge)
+//                Text("Total descent: ${"%.1f".format(details.totalDescent)} m",
+//                    style = MaterialTheme.typography.bodyLarge)
+                Text("Temperature: ${"%.1f".format(details.temperature)}°C",
+                    style = MaterialTheme.typography.bodyLarge)
+                Text("Wind speed: ${"%.1f".format(details.windSpeed)} km/h",
+                    style = MaterialTheme.typography.bodyLarge)
+                Text("Humidity: ${details.humidity}%",
+                    style = MaterialTheme.typography.bodyLarge)
+            }
+
+            // Existing map view
             EventMapView(record = record)
         }
     }

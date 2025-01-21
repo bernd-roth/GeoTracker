@@ -113,7 +113,9 @@ class ForegroundService : Service() {
 
     data class WeatherResponse(
         @SerializedName("current_weather")
-        val currentWeather: CurrentWeather
+        val currentWeather: CurrentWeather,
+        @SerializedName("hourly")
+        val hourly: HourlyData
     )
 
     data class CurrentWeather(
@@ -122,6 +124,12 @@ class ForegroundService : Service() {
         val winddirection: Double,
         val weathercode: Int,
         val time: String
+    )
+
+    data class HourlyData(
+        @SerializedName("relativehumidity_2m")
+        val relativeHumidity: List<Int>,
+        val time: List<String>
     )
 
     private fun startWeatherUpdates() {
@@ -190,13 +198,21 @@ class ForegroundService : Service() {
 
                     ensureActive() // Check before database operation
 
+                    val currentTime = weatherResponse.currentWeather.time
+                    val hourlyIndex = weatherResponse.hourly.time.indexOfFirst { it == currentTime }
+                    val currentHumidity = if (hourlyIndex != -1) {
+                        weatherResponse.hourly.relativeHumidity[hourlyIndex]
+                    } else {
+                        weatherResponse.hourly.relativeHumidity.lastOrNull() ?: 0
+                    }
+
                     val weather = Weather(
                         eventId = eventId,
                         weatherRestApi = "OpenMeteo",
                         temperature = weatherResponse.currentWeather.temperature.toFloat(),
                         windSpeed = weatherResponse.currentWeather.windspeed.toFloat(),
                         windDirection = getWindDirection(weatherResponse.currentWeather.winddirection),
-                        relativeHumidity = 0
+                        relativeHumidity = currentHumidity
                     )
 
                     database.weatherDao().insertWeather(weather)
@@ -216,7 +232,8 @@ class ForegroundService : Service() {
         return "https://api.open-meteo.com/v1/forecast" +
                 "?latitude=$lat" +
                 "&longitude=$lon" +
-                "&current_weather=true"
+                "&current_weather=true" +
+                "&hourly=relativehumidity_2m"
     }
 
     private fun getWindDirection(degrees: Double): String {
@@ -596,16 +613,6 @@ class ForegroundService : Service() {
                 altitude = altitude
             )
             database.locationDao().insertLocation(location)
-
-            val weather = Weather(
-                eventId = eventId,
-                weatherRestApi = "OpenWeatherAPI",
-                temperature = 0f,
-                windSpeed = 0f,
-                windDirection = "NE",
-                relativeHumidity = 0
-            )
-            database.weatherDao().insertWeather(weather)
 
             val deviceStatus = DeviceStatus(
                 eventId = eventId,
