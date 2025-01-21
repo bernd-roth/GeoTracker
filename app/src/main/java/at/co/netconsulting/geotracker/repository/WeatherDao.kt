@@ -18,4 +18,7 @@ interface WeatherDao {
 
     @Query("DELETE FROM weather WHERE eventId = :eventId")
     suspend fun deleteWeatherByEventId(eventId: Int)
+
+    @Query("SELECT * FROM weather WHERE eventId = :eventId")
+    suspend fun getAllWeatherByEvent(eventId: Int): List<Weather>
 }
