@@ -1123,32 +1123,35 @@ class MainActivity : ComponentActivity() {
                 // Get metrics for calculations
                 val metrics = database.metricDao().getMetricsByEventId(record.eventId)
 
-                // Get last weather reading
-                val weather = database.weatherDao().getLastWeatherByEvent(record.eventId)
+                // Get all weather readings for this event
+                val weatherReadings = database.weatherDao().getAllWeatherByEvent(record.eventId)
 
-                // Calculate statistics
-                val maxSpeed = metrics.maxOfOrNull { it.speed } ?: 0f // Convert m/s to km/h
+                // Calculate temperature range
+                val maxTemp = weatherReadings.maxOfOrNull { it.temperature } ?: 0f
+                val minTemp = weatherReadings.minOfOrNull { it.temperature } ?: 0f
+
+                // Get last weather reading for current conditions
+                val currentWeather = database.weatherDao().getLastWeatherByEvent(record.eventId)
+
+                // Calculate other statistics
+                val maxSpeed = metrics.maxOfOrNull { it.speed } ?: 0f
                 val avgSpeed = metrics.map { it.speed }.average().toFloat()
 
                 // Calculate actual duration from first to last metric
                 val duration = if (metrics.isNotEmpty()) {
                     val firstTime = metrics.minOf { it.timeInMilliseconds }
                     val lastTime = metrics.maxOf { it.timeInMilliseconds }
-                    lastTime - firstTime // This gives us the actual duration
+                    lastTime - firstTime
                 } else 0L
-
-                val totalAscent = metrics.sumOf { it.elevationGain.toDouble() }
-                val totalDescent = metrics.sumOf { it.elevationLoss.toDouble() }
 
                 eventDetails = EventDetails(
                     duration = Tools().formatTime(duration),
                     maxSpeed = maxSpeed,
                     avgSpeed = avgSpeed,
-//                    totalAscent = totalAscent,
-//                    totalDescent = totalDescent,
-                    temperature = weather?.temperature ?: 0f,
-                    windSpeed = weather?.windSpeed ?: 0f,
-                    humidity = weather?.relativeHumidity ?: 0
+                    windSpeed = currentWeather?.windSpeed ?: 0f,
+                    humidity = currentWeather?.relativeHumidity ?: 0,
+                    maxTemperature = maxTemp,
+                    minTemperature = minTemp
                 )
             }
         }
@@ -1170,11 +1173,9 @@ class MainActivity : ComponentActivity() {
                     style = MaterialTheme.typography.bodyLarge)
                 Text("Avg. speed: ${"%.2f".format(details.avgSpeed)} km/h",
                     style = MaterialTheme.typography.bodyLarge)
-//                Text("Total ascent: ${"%.1f".format(details.totalAscent)} m",
-//                    style = MaterialTheme.typography.bodyLarge)
-//                Text("Total descent: ${"%.1f".format(details.totalDescent)} m",
-//                    style = MaterialTheme.typography.bodyLarge)
-                Text("Temperature: ${"%.1f".format(details.temperature)}°C",
+                Text("Max. temperature: ${"%.1f".format(details.maxTemperature)}°C",
+                    style = MaterialTheme.typography.bodyLarge)
+                Text("Min. temperature: ${"%.1f".format(details.minTemperature)}°C",
                     style = MaterialTheme.typography.bodyLarge)
                 Text("Wind speed: ${"%.1f".format(details.windSpeed)} km/h",
                     style = MaterialTheme.typography.bodyLarge)
