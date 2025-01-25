@@ -22,6 +22,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
+import android.view.View
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -198,6 +199,8 @@ class MainActivity : ComponentActivity() {
     private var selectedRecordsState = mutableStateOf<List<SingleEventWithMetric>>(emptyList())
     //satellite info
     private lateinit var satelliteInfoManager: SatelliteInfoManager
+    //redraw path if mobile phone is turned off/on
+    private var lifecycleRegistered = false
 
     private fun loadSharedPreferences() {
         val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -1374,12 +1377,23 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        // Add DisposableEffect to save map state when leaving the composable
         DisposableEffect(Unit) {
             onDispose {
-                // Save current map state when leaving the map view
-                persistedZoomLevel = mapView.zoomLevelDouble
-                persistedMapCenter = mapView.mapCenter as GeoPoint?
+                try {
+                    if (::mapView.isInitialized) {
+                        persistedZoomLevel = mapView.zoomLevelDouble
+                        persistedMapCenter = mapView.mapCenter as? GeoPoint
+                        if (::polyline.isInitialized) {
+                            // Safely get points
+                            polyline.actualPoints?.let { points ->
+                                persistedRoutePoints = points.toMutableList()
+                            }
+                        }
+                        mapView.onPause()
+                    }
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error during map cleanup", e)
+                }
             }
         }
 
@@ -1389,6 +1403,41 @@ class MainActivity : ComponentActivity() {
                     mapView = MapView(context).apply {
                         setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
+
+                        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                            override fun onViewAttachedToWindow(v: View) {
+                                // Redraw path when view is reattached (screen turned on)
+                                if (persistedRoutePoints.isNotEmpty()) {
+                                    val oldPolyline = overlays.find { it is Polyline } as? Polyline
+                                    if (oldPolyline != null) {
+                                        overlays.remove(oldPolyline)
+                                    }
+
+                                    polyline = Polyline().apply {
+                                        outlinePaint.strokeWidth = 10f
+                                        outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                                        setPoints(persistedRoutePoints)
+                                    }
+                                    overlays.add(polyline)
+                                    invalidate()
+                                }
+                            }
+                            override fun onViewDetachedFromWindow(v: View) {
+                                // Save current state when view is detached (screen turned off)
+                                try {
+                                    if (::polyline.isInitialized && polyline.points != null) {
+                                        persistedRoutePoints = polyline.points.toMutableList()
+                                    }
+                                    if (::marker.isInitialized && marker.position != null) {
+                                        persistedMarkerPoint = LatLng(marker.position.latitude, marker.position.longitude)
+                                    }
+                                    persistedZoomLevel = zoomLevelDouble
+                                    persistedMapCenter = mapCenter as GeoPoint?
+                                } catch (e: Exception) {
+                                    Log.e("MainActivity", "Error saving map state during detachment", e)
+                                }
+                            }
+                        })
 
                         // Initialize with persisted data if available
                         if (persistedRoutePoints.isNotEmpty()) {
@@ -1839,6 +1888,31 @@ class MainActivity : ComponentActivity() {
 
         EventBus.getDefault().register(this)
 
+        if (!lifecycleRegistered) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            registerComponentCallbacks(object : ComponentCallbacks2 {
+                override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {}
+
+                override fun onLowMemory() {}
+
+                override fun onTrimMemory(level: Int) {
+                    when(level) {
+                        ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+                            // Screen turned off
+                            if (::mapView.isInitialized) {
+                                persistedZoomLevel = mapView.zoomLevelDouble
+                                persistedMapCenter = mapView.mapCenter as GeoPoint?
+                                if (::polyline.isInitialized) {
+                                    persistedRoutePoints = polyline.points as MutableList<GeoPoint>
+                                }
+                            }
+                        }
+                    }
+                }
+            })
+            lifecycleRegistered = true
+        }
+
         setContent {
             MainScreen()
         }
@@ -1847,11 +1921,30 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         satelliteInfoManager.startListening()
+        if (::mapView.isInitialized) {
+            mapView.onResume()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         satelliteInfoManager.stopListening()
+        if (::mapView.isInitialized) {
+            mapView.onPause()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        EventBus.getDefault().post(StopServiceEvent())
+        applicationContext.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("is_recording", false)
+            .apply()
+        EventBus.getDefault().unregister(this)
+        if (::mapView.isInitialized) {
+            mapView.onDetach()
+        }
     }
 
     override fun onTrimMemory(level: Int) {
@@ -1872,19 +1965,6 @@ class MainActivity : ComponentActivity() {
                 EventBus.getDefault().post(MemoryPressureEvent(level))
             }
         }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        // Post the event before stopping the service
-        EventBus.getDefault().post(StopServiceEvent())
-        // Remove this line since we're using EventBus now
-        // val serviceIntent = Intent(this, ForegroundService::class.java)
-        applicationContext.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean("is_recording", false)
-            .apply()
-        EventBus.getDefault().unregister(this)
     }
 
     override fun onRequestPermissionsResult(
