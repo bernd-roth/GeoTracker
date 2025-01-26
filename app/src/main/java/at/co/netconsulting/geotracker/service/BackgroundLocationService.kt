@@ -121,32 +121,32 @@ class BackgroundLocationService : Service(), LocationListener {
             "BackgroundService", "Location Updated: Latitude: ${location.latitude}, " +
                     "Longitude: ${location.longitude}, Accuracy: ${location.accuracy}"
         )
-        val latLngs = listOf(LatLng(location.latitude, location.longitude))
+//        val latLngs = listOf(LatLng(location.latitude, location.longitude))
 
-        speed = location.speed
+//        speed = location.speed
 
-        EventBus.getDefault().post(latLngs.let {
-            CustomLocationListener.LocationChangeEvent(it)
-        }?.let {
-            LocationEvent(
-                location.latitude,
-                location.longitude,
-                location.speed,
-                location.speedAccuracyMetersPerSecond,
-                location.altitude,
-                location.accuracy,
-                location.verticalAccuracyMeters,
-                coveredDistance = coveredDistance,
-                lap = 0,
-                startDateTime = startDateTime,
-                averageSpeed = averageSpeed,
-                it,
-                getTotalAscent(),
-                getTotalDescent()
-            )
-        })
-        val (coveredDistance, distanceIncrement) = calculateDistance(location)
-        averageSpeed = calculateAverageSpeed(coveredDistance)
+//        EventBus.getDefault().post(latLngs.let {
+//            CustomLocationListener.LocationChangeEvent(it)
+//        }?.let {
+//            LocationEvent(
+//                location.latitude,
+//                location.longitude,
+//                location.speed,
+//                location.speedAccuracyMetersPerSecond,
+//                location.altitude,
+//                location.accuracy,
+//                location.verticalAccuracyMeters,
+//                coveredDistance = coveredDistance,
+//                lap = 0,
+//                startDateTime = startDateTime,
+//                averageSpeed = averageSpeed,
+//                it,
+//                getTotalAscent(),
+//                getTotalDescent()
+//            )
+//        })
+//        val (coveredDistance, distanceIncrement) = calculateDistance(location)
+//        averageSpeed = calculateAverageSpeed(coveredDistance)
         //For now we do not want to see the user on the website
         //sendToWebsocket(location, coveredDistance)
     }

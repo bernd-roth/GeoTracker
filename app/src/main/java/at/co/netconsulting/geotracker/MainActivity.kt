@@ -249,21 +249,16 @@ class MainActivity : ComponentActivity() {
                 GeoPoint(it.latitude, it.longitude)
             }
 
-            // Only update if we have valid coordinates
-            if (newPoints.isNotEmpty() &&
-                !(newPoints.last().latitude == 0.0 && newPoints.last().longitude == 0.0)) {
+            if (newPoints.isNotEmpty() && !(newPoints.last().latitude == 0.0 && newPoints.last().longitude == 0.0)) {
                 savedLocationData = SavedLocationData(newPoints, true)
-                persistedRoutePoints = newPoints.toMutableList()
+                persistedRoutePoints = newPoints.toMutableList()  // Save immediately for persistence
 
-                // Only update polyline if we have valid points
-                if (newPoints.isNotEmpty()) {
+                if (::mapView.isInitialized) {
                     val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
                     if (oldPolyline != null) {
-                        // Instead of removing, update existing polyline's points
                         oldPolyline.setPoints(newPoints)
                         mapView.invalidate()
                     } else {
-                        // Create new polyline only if none exists
                         drawPolyline(locationChangeEventState.value)
                     }
                 }
@@ -453,22 +448,53 @@ class MainActivity : ComponentActivity() {
         var editState by remember { mutableStateOf(EditState()) }
         val scrollState = rememberScrollState()
         var showGPXDialog by remember { mutableStateOf(false) }
-        val actualStatistics = locationEventState.value ?: LocationEvent(
-            latitude = 0.0,
-            longitude = 0.0,
-            speed = 0.0f,
-            speedAccuracyMetersPerSecond = 0.0f,
-            altitude = 0.0,
-            horizontalAccuracy = 0.0f,
-            verticalAccuracyMeters = 0.0f,
-            coveredDistance = 0.0,
-            lap = 0,
-            startDateTime = startDateTimeState.value,
-            averageSpeed = 0.0,
-            locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs),
-            totalAscent = 0.0,
-            totalDescent = 0.0
-        )
+        var lastEventMetrics by remember { mutableStateOf<List<Metric>?>(null) }
+
+        LaunchedEffect(Unit) {
+            val lastEventId = getCurrentlyRecordingEventId()
+            if (lastEventId != -1) {
+                lastEventMetrics = database.metricDao().getMetricsByEventId(lastEventId)
+            }
+        }
+
+        val actualStatistics = if (!isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+            && lastEventMetrics != null && lastEventMetrics!!.isNotEmpty()) {
+            val lastMetric = lastEventMetrics!!.last()
+            LocationEvent(
+                latitude = 0.0,
+                longitude = 0.0,
+                speed = lastMetric.speed,
+                speedAccuracyMetersPerSecond = 0.0f,
+                altitude = lastMetric.elevation.toDouble(),
+                horizontalAccuracy = 0.0f,
+                verticalAccuracyMeters = 0.0f,
+                coveredDistance = lastMetric.distance,
+                lap = lastMetric.lap,
+                startDateTime = startDateTimeState.value,
+                averageSpeed = lastMetric.speed.toDouble(),
+                locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs),
+                totalAscent = lastMetric.elevationGain.toDouble(),
+                totalDescent = lastMetric.elevationLoss.toDouble()
+            )
+        } else {
+            locationEventState.value ?: LocationEvent(
+                latitude = 0.0,
+                longitude = 0.0,
+                speed = 0.0f,
+                speedAccuracyMetersPerSecond = 0.0f,
+                altitude = 0.0,
+                horizontalAccuracy = 0.0f,
+                verticalAccuracyMeters = 0.0f,
+                coveredDistance = 0.0,
+                lap = 0,
+                startDateTime = startDateTimeState.value,
+                averageSpeed = 0.0,
+                locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs),
+                totalAscent = 0.0,
+                totalDescent = 0.0
+            )
+        }
+
         var users by remember { mutableStateOf<List<User>>(emptyList()) }
         var events by remember { mutableStateOf<List<Event>>(emptyList()) }
         var records by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
@@ -480,9 +506,7 @@ class MainActivity : ComponentActivity() {
             onEventsSelected(selectedRecords)
         }
 
-        // Search state
         var searchQuery by remember { mutableStateOf("") }
-
         val coroutineScope = rememberCoroutineScope()
 
         suspend fun delete(eventId: Int) {
@@ -501,39 +525,20 @@ class MainActivity : ComponentActivity() {
                 database.deviceStatusDao().deleteDeviceStatusByEventId(eventId)
                 database.eventDao().delete(eventId)
 
-                Toast.makeText(
-                    context,
-                    "Event deleted successfully",
-                    Toast.LENGTH_SHORT
-                ).show()
-
-                // Update the records list after successful deletion
+                Toast.makeText(context, "Event deleted successfully", Toast.LENGTH_SHORT).show()
                 records = records.filter { it.eventId != eventId }
             } catch (e: Exception) {
                 Log.e("MainActivity", "Error deleting event", e)
-                Toast.makeText(
-                    context,
-                    "Error deleting event: ${e.message}",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(context, "Error deleting event: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
 
         suspend fun loadData() {
             try {
                 users = database.userDao().getAllUsers()
-                Log.d("Loaded", "${users.size} users")
-
                 events = database.eventDao().getEventDateEventNameGroupByEventDate()
-                Log.d("Loaded", "${events.size} events")
-
                 records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
-                Log.d("Loaded", "${records.size} records")
-
-                // Load lap times separately
-                lapTimesMap = database.eventDao().getLapTimesForEvents()
-                    .groupBy { it.eventId }
-
+                lapTimesMap = database.eventDao().getLapTimesForEvents().groupBy { it.eventId }
             } catch (e: Exception) {
                 e.printStackTrace()
                 Log.d("Error", "loading data: ${e.message}")
@@ -546,7 +551,6 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Handle expanded state changes
         LaunchedEffect(expanded) {
             if (expanded) {
                 coroutineScope.launch {
@@ -562,7 +566,6 @@ class MainActivity : ComponentActivity() {
                 .verticalScroll(scrollState)
                 .background(Color.LightGray)
         ) {
-            // Display actual statistics
             Text("Actual Statistics", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
             LocationEventPanel(actualStatistics)
@@ -570,7 +573,6 @@ class MainActivity : ComponentActivity() {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
-            // Event selector
             Text(text = "Select an event", style = MaterialTheme.typography.titleMedium)
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -618,17 +620,14 @@ class MainActivity : ComponentActivity() {
                         },
                         onEdit = { eventId, newName, newDate ->
                             if (eventId == -1) {
-                                // Cancel edit
                                 editState = EditState()
                             } else if (editState.isEditing) {
-                                // Save edit
                                 coroutineScope.launch {
                                     updateEvent(eventId, newName, newDate)
-                                    loadData() // Reload data after update
-                                    editState = EditState() // Reset edit state
+                                    loadData()
+                                    editState = EditState()
                                 }
                             } else {
-                                // Start edit
                                 editState = EditState(
                                     isEditing = true,
                                     eventId = eventId,
@@ -664,18 +663,14 @@ class MainActivity : ComponentActivity() {
                             } else {
                                 context.startService(Intent(context, DatabaseBackupService::class.java))
                             }
-                            Toast.makeText(
-                                context,
-                                "Database backup started",
-                                Toast.LENGTH_SHORT
-                            ).show()
+                            Toast.makeText(context, "Database backup started", Toast.LENGTH_SHORT).show()
                             expanded = false
                         }
                     )
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
-            // Display statistics of all selected events
+
             selectedRecords.forEach { record ->
                 SelectedEventPanel(record)
             }
@@ -1082,11 +1077,22 @@ class MainActivity : ComponentActivity() {
 //    }
 
     private fun getCurrentlyRecordingEventId(): Int {
+        val sharedPreferences = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
         return if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                .getInt("active_event_id", -1)
+            sharedPreferences.getInt("active_event_id", -1)
         } else {
-            -1
+            // Return the last recorded event ID when not recording
+            sharedPreferences.getInt("last_event_id", -1)
+        }
+    }
+
+    private fun saveLastEventId() {
+        val sharedPreferences = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+        val currentEventId = sharedPreferences.getInt("active_event_id", -1)
+        if (currentEventId != -1) {
+            sharedPreferences.edit()
+                .putInt("last_event_id", currentEventId)
+                .apply()
         }
     }
 
@@ -1406,7 +1412,6 @@ class MainActivity : ComponentActivity() {
 
                         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                             override fun onViewAttachedToWindow(v: View) {
-                                // Redraw path when view is reattached (screen turned on)
                                 if (persistedRoutePoints.isNotEmpty()) {
                                     val oldPolyline = overlays.find { it is Polyline } as? Polyline
                                     if (oldPolyline != null) {
@@ -1422,11 +1427,11 @@ class MainActivity : ComponentActivity() {
                                     invalidate()
                                 }
                             }
+
                             override fun onViewDetachedFromWindow(v: View) {
-                                // Save current state when view is detached (screen turned off)
                                 try {
-                                    if (::polyline.isInitialized && polyline.points != null) {
-                                        persistedRoutePoints = polyline.points.toMutableList()
+                                    if (::polyline.isInitialized && polyline.actualPoints != null) {
+                                        persistedRoutePoints = polyline.actualPoints.toMutableList()
                                     }
                                     if (::marker.isInitialized && marker.position != null) {
                                         persistedMarkerPoint = LatLng(marker.position.latitude, marker.position.longitude)
@@ -1439,22 +1444,18 @@ class MainActivity : ComponentActivity() {
                             }
                         })
 
-                        // Initialize with persisted data if available
                         if (persistedRoutePoints.isNotEmpty()) {
                             polyline = Polyline().apply {
                                 outlinePaint.strokeWidth = 10f
-                                outlinePaint.color =
-                                    ContextCompat.getColor(context, android.R.color.holo_purple)
+                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
                                 setPoints(persistedRoutePoints)
                             }
                             overlays.add(polyline)
 
-                            // Restore marker if available
                             persistedMarkerPoint?.let { point ->
                                 createMarker(point)
                             }
 
-                            // Restore zoom and center position
                             controller.setCenter(persistedMapCenter ?: persistedRoutePoints[0])
                             persistedZoomLevel?.let { zoom ->
                                 controller.setZoom(zoom)
@@ -1462,13 +1463,11 @@ class MainActivity : ComponentActivity() {
                         } else if (savedLocationData.points.isNotEmpty()) {
                             polyline = Polyline().apply {
                                 outlinePaint.strokeWidth = 10f
-                                outlinePaint.color =
-                                    ContextCompat.getColor(context, android.R.color.holo_purple)
+                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
                                 setPoints(savedLocationData.points)
                             }
                             overlays.add(polyline)
 
-                            // Use saved location data for initial position if no persisted state
                             if (persistedMapCenter == null) {
                                 controller.setCenter(savedLocationData.points[0])
                             }
@@ -1477,7 +1476,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // Restore previous zoom and center if available
                         persistedMapCenter?.let { center ->
                             controller.setCenter(center)
                         }
@@ -1485,7 +1483,6 @@ class MainActivity : ComponentActivity() {
                             controller.setZoom(zoom)
                         }
 
-                        // Rest of the MapView setup...
                         val dm: DisplayMetrics = context.resources.displayMetrics
                         val scaleBarOverlay = ScaleBarOverlay(this).apply {
                             setCentred(true)
@@ -1493,10 +1490,9 @@ class MainActivity : ComponentActivity() {
                         }
                         overlays.add(scaleBarOverlay)
 
-                        val mLocationOverlay =
-                            MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
-                                enableMyLocation()
-                            }
+                        val mLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
+                            enableMyLocation()
+                        }
                         overlays.add(mLocationOverlay)
                     }
                     marker = Marker(mapView)
@@ -1504,12 +1500,10 @@ class MainActivity : ComponentActivity() {
                     if (persistedMarkerPoint != null) {
                         createMarker(persistedMarkerPoint!!)
                     } else if (savedLocationData.points.isNotEmpty()) {
-                        createMarker(
-                            LatLng(
-                                savedLocationData.points[0].latitude,
-                                savedLocationData.points[0].longitude
-                            )
-                        )
+                        createMarker(LatLng(
+                            savedLocationData.points[0].latitude,
+                            savedLocationData.points[0].longitude
+                        ))
                     } else {
                         createMarker(LatLng(0.0, 0.0))
                     }
@@ -1520,7 +1514,6 @@ class MainActivity : ComponentActivity() {
                 },
                 modifier = Modifier.fillMaxSize(),
                 update = { mapView ->
-                    // Update map when switching back to tab
                     val points = if (persistedRoutePoints.isNotEmpty()) {
                         persistedRoutePoints
                     } else if (savedLocationData.points.isNotEmpty()) {
@@ -1532,19 +1525,17 @@ class MainActivity : ComponentActivity() {
                     if (points.isNotEmpty()) {
                         val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
                         if (oldPolyline != null) {
-                            mapView.overlays.remove(oldPolyline)
+                            oldPolyline.setPoints(points)
+                        } else {
+                            val newPolyline = Polyline().apply {
+                                outlinePaint.strokeWidth = 10f
+                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                                setPoints(points)
+                            }
+                            mapView.overlays.add(newPolyline)
+                            polyline = newPolyline
                         }
 
-                        val newPolyline = Polyline().apply {
-                            outlinePaint.strokeWidth = 10f
-                            outlinePaint.color =
-                                ContextCompat.getColor(context, android.R.color.holo_purple)
-                            setPoints(points)
-                        }
-                        mapView.overlays.add(newPolyline)
-                        polyline = newPolyline
-
-                        // Only set center and zoom if they haven't been persisted yet
                         if (persistedMapCenter == null) {
                             mapView.controller.setCenter(points[0])
                         }
@@ -1556,8 +1547,8 @@ class MainActivity : ComponentActivity() {
                                 mapView.overlays.add(polyline)
                             }
                         }
+                        mapView.invalidate()
                     }
-                    mapView.invalidate()
                 }
             )
 
@@ -1613,6 +1604,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable {
+                                saveLastEventId()
                                 Toast
                                     .makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
                                     .show()
