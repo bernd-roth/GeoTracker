@@ -13,27 +13,23 @@ class TrackingServer:
         self.connected_clients = set()
         self.tracking_history = defaultdict(list)
         self.retention_hours = 24
-        self.cleanup_interval = 30  # Run cleanup every x seconds
-        self.timestamp_format = '%d-%m-%Y %H:%M:%S'  # Changed to match existing format
+        self.cleanup_interval = 30
+        self.timestamp_format = '%d-%m-%Y %H:%M:%S'
+        self.batch_size = 100  # Number of points to send in each batch
 
     def clean_old_data(self):
-        """Remove data older than retention_hours"""
         try:
             cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=self.retention_hours)
             cleaned_count = 0
 
             for session_id in list(self.tracking_history.keys()):
                 original_length = len(self.tracking_history[session_id])
-
-                # Convert string timestamps to datetime objects for comparison
                 self.tracking_history[session_id] = [
                     point for point in self.tracking_history[session_id]
                     if datetime.datetime.strptime(point['timestamp'], self.timestamp_format) > cutoff_time
                 ]
-
                 cleaned_count += original_length - len(self.tracking_history[session_id])
 
-                # Remove empty sessions
                 if not self.tracking_history[session_id]:
                     del self.tracking_history[session_id]
 
@@ -42,23 +38,39 @@ class TrackingServer:
 
         except Exception as e:
             logging.error(f"Error during data cleanup: {str(e)}")
-            logging.error(f"Current tracking history: {json.dumps(self.tracking_history, indent=2)}")
 
     async def periodic_cleanup(self):
-        """Run cleanup periodically"""
         while True:
             await asyncio.sleep(self.cleanup_interval)
             self.clean_old_data()
 
     async def send_history(self, websocket):
-        """Send historical data to newly connected client"""
+        """Send historical data to newly connected client in batches"""
         try:
-            # Clean old data before sending history
             self.clean_old_data()
 
+            # Prepare all points from all sessions
+            all_points = []
             for session_id, points in self.tracking_history.items():
-                for point in points:
-                    await websocket.send(json.dumps(point))
+                all_points.extend(points)
+
+            # Sort points by timestamp
+            all_points.sort(key=lambda x: datetime.datetime.strptime(x['timestamp'], self.timestamp_format))
+
+            # Send points in batches
+            for i in range(0, len(all_points), self.batch_size):
+                batch = all_points[i:i + self.batch_size]
+                await websocket.send(json.dumps({
+                    'type': 'batch',
+                    'points': batch
+                }))
+                # Small delay between batches to prevent overwhelming the client
+                await asyncio.sleep(0.05)
+
+            # Send completion message
+            await websocket.send(json.dumps({
+                'type': 'history_complete'
+            }))
 
         except Exception as e:
             logging.error(f"Error sending history: {str(e)}")
@@ -69,25 +81,19 @@ class TrackingServer:
         logging.info(f"New client connected from {client_address}")
 
         try:
-            # Send historical data to new client
             await self.send_history(websocket)
 
             async for message in websocket:
                 try:
-                    logging.info(f"Received message: {message}")
-
-                    # Handle ping messages
                     if message == "ping":
                         await websocket.send("pong")
                         continue
 
                     message_data = json.loads(message)
-
                     required_fields = ["person", "sessionId", "latitude", "longitude",
                                        "distance", "currentSpeed", "averageSpeed"]
 
                     if all(key in message_data for key in required_fields):
-                        # Add timestamp using consistent format
                         tracking_point = {
                             "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
                             **message_data,
@@ -96,15 +102,17 @@ class TrackingServer:
 
                         self.tracking_history[message_data['sessionId']].append(tracking_point)
 
-                        # Broadcast to all connected clients
+                        # Send real-time updates individually
                         websockets_to_remove = set()
                         for client in self.connected_clients:
                             try:
-                                await client.send(json.dumps(tracking_point))
+                                await client.send(json.dumps({
+                                    'type': 'update',
+                                    'point': tracking_point
+                                }))
                             except websockets.exceptions.ConnectionClosed:
                                 websockets_to_remove.add(client)
 
-                        # Clean up disconnected clients
                         self.connected_clients -= websockets_to_remove
 
                     else:
@@ -112,7 +120,7 @@ class TrackingServer:
                         logging.error(f"Missing required fields: {missing_fields}")
 
                 except json.JSONDecodeError as e:
-                    if message != "ping":  # Don't log errors for ping messages
+                    if message != "ping":
                         logging.error(f"Invalid JSON received: {str(e)}")
                 except Exception as e:
                     logging.error(f"Error processing message: {str(e)}")
@@ -124,8 +132,6 @@ class TrackingServer:
 
 async def main():
     server = TrackingServer()
-
-    # Start the periodic cleanup task
     cleanup_task = asyncio.create_task(server.periodic_cleanup())
 
     logging.info("WebSocket server starting on port 6789")
