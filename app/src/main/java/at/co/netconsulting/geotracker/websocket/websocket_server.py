@@ -45,7 +45,7 @@ class TrackingServer:
             self.clean_old_data()
 
     async def send_history(self, websocket):
-        """Send historical data to newly connected client in batches"""
+        """Send historical data to newly connected client one point at a time"""
         try:
             self.clean_old_data()
 
@@ -57,15 +57,13 @@ class TrackingServer:
             # Sort points by timestamp
             all_points.sort(key=lambda x: datetime.datetime.strptime(x['timestamp'], self.timestamp_format))
 
-            # Send points in batches
-            for i in range(0, len(all_points), self.batch_size):
-                batch = all_points[i:i + self.batch_size]
+            # Send each point individually
+            for point in all_points:
                 await websocket.send(json.dumps({
-                    'type': 'batch',
-                    'points': batch
+                    'type': 'update',
+                    'point': point
                 }))
-                # Small delay between batches to prevent overwhelming the client
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.01)  # Small delay to prevent overwhelming the connection
 
             # Send completion message
             await websocket.send(json.dumps({
@@ -76,11 +74,11 @@ class TrackingServer:
             logging.error(f"Error sending history: {str(e)}")
 
     async def handle_client(self, websocket):
-        self.connected_clients.add(websocket)
-        client_address = websocket.remote_address
-        logging.info(f"New client connected from {client_address}")
-
         try:
+            self.connected_clients.add(websocket)
+            client_address = websocket.remote_address
+            logging.info(f"New client connected from {client_address}")
+
             await self.send_history(websocket)
 
             async for message in websocket:
@@ -90,10 +88,10 @@ class TrackingServer:
                         continue
 
                     message_data = json.loads(message)
-                    required_fields = ["person", "sessionId", "latitude", "longitude",
-                                       "distance", "currentSpeed", "averageSpeed"]
+                    required_fields = ["person", "sessionId", "latitude", "longitude", "distance", "currentSpeed", "averageSpeed"]
 
                     if all(key in message_data for key in required_fields):
+                        logging.info(f"Received message: {message}")
                         tracking_point = {
                             "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
                             **message_data,
@@ -103,17 +101,20 @@ class TrackingServer:
                         self.tracking_history[message_data['sessionId']].append(tracking_point)
 
                         # Send real-time updates individually
-                        websockets_to_remove = set()
-                        for client in self.connected_clients:
+                        disconnected_clients = set()
+                        for client in self.connected_clients.copy():  # Use copy to avoid modification during iteration
                             try:
                                 await client.send(json.dumps({
                                     'type': 'update',
                                     'point': tracking_point
                                 }))
                             except websockets.exceptions.ConnectionClosed:
-                                websockets_to_remove.add(client)
+                                disconnected_clients.add(client)
 
-                        self.connected_clients -= websockets_to_remove
+                        # Remove disconnected clients after iteration
+                        for client in disconnected_clients:
+                            if client in self.connected_clients:
+                                self.connected_clients.remove(client)
 
                     else:
                         missing_fields = [field for field in required_fields if field not in message_data]
@@ -127,8 +128,12 @@ class TrackingServer:
 
         except websockets.exceptions.ConnectionClosed:
             logging.info(f"Client disconnected from {client_address}")
+        except Exception as e:
+            logging.error(f"Unexpected error in handle_client: {str(e)}")
         finally:
-            self.connected_clients.remove(websocket)
+            if websocket in self.connected_clients:
+                self.connected_clients.remove(websocket)
+                logging.info(f"Removed client {client_address} from connected_clients")
 
 async def main():
     server = TrackingServer()

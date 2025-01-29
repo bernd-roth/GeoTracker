@@ -457,27 +457,25 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        val actualStatistics = if (!isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
-            && lastEventMetrics != null && lastEventMetrics!!.isNotEmpty()) {
-            val lastMetric = lastEventMetrics!!.last()
-            LocationEvent(
+        val actualStatistics = if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+            locationEventState.value ?: LocationEvent(
                 latitude = 0.0,
                 longitude = 0.0,
-                speed = lastMetric.speed,
+                speed = 0.0f,
                 speedAccuracyMetersPerSecond = 0.0f,
-                altitude = lastMetric.elevation.toDouble(),
+                altitude = 0.0,
                 horizontalAccuracy = 0.0f,
                 verticalAccuracyMeters = 0.0f,
-                coveredDistance = lastMetric.distance,
-                lap = lastMetric.lap,
+                coveredDistance = 0.0,
+                lap = 0,
                 startDateTime = startDateTimeState.value,
-                averageSpeed = lastMetric.speed.toDouble(),
+                averageSpeed = 0.0,
                 locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs),
-                totalAscent = lastMetric.elevationGain.toDouble(),
-                totalDescent = lastMetric.elevationLoss.toDouble()
+                totalAscent = 0.0,
+                totalDescent = 0.0
             )
         } else {
-            locationEventState.value ?: LocationEvent(
+            LocationEvent(
                 latitude = 0.0,
                 longitude = 0.0,
                 speed = 0.0f,
@@ -1390,16 +1388,20 @@ class MainActivity : ComponentActivity() {
                         persistedZoomLevel = mapView.zoomLevelDouble
                         persistedMapCenter = mapView.mapCenter as? GeoPoint
                         if (::polyline.isInitialized) {
-                            // Safely get points
-                            polyline.actualPoints?.let { points ->
-                                persistedRoutePoints = points.toMutableList()
-                            }
+                            persistedRoutePoints = polyline.points as MutableList<GeoPoint>
                         }
+                        saveMapState()
                         mapView.onPause()
                     }
                 } catch (e: Exception) {
                     Log.e("MainActivity", "Error during map cleanup", e)
                 }
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            if (::mapView.isInitialized) {
+                restoreMapState()
             }
         }
 
@@ -1424,6 +1426,10 @@ class MainActivity : ComponentActivity() {
                                         setPoints(persistedRoutePoints)
                                     }
                                     overlays.add(polyline)
+
+                                    persistedZoomLevel?.let { controller.setZoom(it) }
+                                    persistedMapCenter?.let { controller.setCenter(it) }
+
                                     invalidate()
                                 }
                             }
@@ -1584,15 +1590,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            // Stop Recording Button (shown only if recording)
+
             if (isRecording) {
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .offset(
-                            x = (-16).dp,
-                            y = (-180).dp
-                        ) // Same position as the recording button
+                        .offset(x = (-16).dp, y = (-180).dp)
                         .padding(16.dp)
                         .size(50.dp),
                     shape = CircleShape,
@@ -1851,9 +1854,29 @@ class MainActivity : ComponentActivity() {
         FitnessTrackerDatabase.getInstance(applicationContext)
     }
 
-    // Override
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Fresh start vs restored state logic
+        if (savedInstanceState != null) {
+            // Restore polyline points if available (your existing code)
+            savedInstanceState.getString("polylinePoints")?.let { pointsString ->
+                try {
+                    val points = pointsString.split("|")
+                        .map { pointStr ->
+                            val (lat, lon) = pointStr.split(",")
+                            GeoPoint(lat.toDouble(), lon.toDouble())
+                        }
+                    persistedRoutePoints = points.toMutableList()
+                } catch (e: Exception) {
+                    Log.e("MainActivity", "Error restoring polyline points", e)
+                }
+            }
+        } else {
+            // Clear saved state on fresh start
+            clearSavedMapState()
+        }
+
         satelliteInfoManager = SatelliteInfoManager(this)
         checkServiceStateOnStart()
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
@@ -1910,11 +1933,107 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        satelliteInfoManager.startListening()
+    private fun saveMapState() {
         if (::mapView.isInitialized) {
-            mapView.onResume()
+            val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
+            val editor = sharedPreferences.edit()
+
+            // Save zoom level first (keeping existing functionality)
+            persistedZoomLevel = mapView.zoomLevelDouble
+            editor.putFloat("zoomLevel", persistedZoomLevel?.toFloat() ?: 15f)
+
+            // Save map center (keeping existing functionality)
+            persistedMapCenter = mapView.mapCenter as? GeoPoint
+            persistedMapCenter?.let { center ->
+                editor.putString("mapCenter", "${center.latitude},${center.longitude}")
+            }
+
+            // Save current location data if available
+            if (locationChangeEventState.value.latLngs.isNotEmpty()) {
+                val points = locationChangeEventState.value.latLngs
+                val pointsString = points.joinToString("|") { "${it.latitude},${it.longitude}" }
+                editor.putString("currentRoutePoints", pointsString)
+            }
+
+            // Save persisted route points
+            if (persistedRoutePoints.isNotEmpty()) {
+                val pointsString = persistedRoutePoints.joinToString("|") { "${it.latitude},${it.longitude}" }
+                editor.putString("persistedRoutePoints", pointsString)
+            }
+
+            // Save active recording state
+            editor.putBoolean("isActiveRecording",
+                isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService"))
+
+            editor.apply()
+        }
+    }
+
+    private fun restoreMapState() {
+        if (::mapView.isInitialized) {
+            val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
+
+            // First restore zoom level (keeping existing functionality)
+            persistedZoomLevel = sharedPreferences.getFloat("zoomLevel", 15f).toDouble()
+            persistedZoomLevel?.let { zoom ->
+                mapView.controller.setZoom(zoom)
+            }
+
+            // Restore map center (keeping existing functionality)
+            sharedPreferences.getString("mapCenter", null)?.let { centerStr ->
+                val (lat, lon) = centerStr.split(",")
+                persistedMapCenter = GeoPoint(lat.toDouble(), lon.toDouble())
+                mapView.controller.setCenter(persistedMapCenter)
+            }
+
+            // Restore path data
+            val currentPointsString = sharedPreferences.getString("currentRoutePoints", null)
+            val persistedPointsString = sharedPreferences.getString("persistedRoutePoints", null)
+            val isActiveRecording = sharedPreferences.getBoolean("isActiveRecording", false)
+
+            try {
+                // Restore points based on recording state
+                val pointsToUse = when {
+                    isActiveRecording && currentPointsString != null -> currentPointsString
+                    persistedPointsString != null -> persistedPointsString
+                    else -> null
+                }
+
+                pointsToUse?.let { pointsString ->
+                    val points = pointsString.split("|")
+                        .map { pointStr ->
+                            val (lat, lon) = pointStr.split(",")
+                            GeoPoint(lat.toDouble(), lon.toDouble())
+                        }
+
+                    // Update the state
+                    persistedRoutePoints = points.toMutableList()
+
+                    // Update location state if recording
+                    if (isActiveRecording) {
+                        locationChangeEventState.value = CustomLocationListener.LocationChangeEvent(
+                            points.map { LatLng(it.latitude, it.longitude) }
+                        )
+                    }
+
+                    // Redraw the polyline
+                    val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
+                    if (oldPolyline != null) {
+                        mapView.overlays.remove(oldPolyline)
+                    }
+
+                    polyline = Polyline().apply {
+                        outlinePaint.strokeWidth = 10f
+                        outlinePaint.color = ContextCompat.getColor(this@MainActivity, android.R.color.holo_purple)
+                        setPoints(points)
+                    }
+                    mapView.overlays.add(polyline)
+
+                    mapView.invalidate()
+                }
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Error restoring map state", e)
+            }
         }
     }
 
@@ -1922,7 +2041,34 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         satelliteInfoManager.stopListening()
         if (::mapView.isInitialized) {
+            // Save zoom level and map center (keeping existing functionality)
+            persistedZoomLevel = mapView.zoomLevelDouble
+            persistedMapCenter = mapView.mapCenter as? GeoPoint
+
+            // Save path data
+            saveMapState()
+
             mapView.onPause()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        satelliteInfoManager.startListening()
+        if (::mapView.isInitialized) {
+            // First restore the map state
+            restoreMapState()
+
+            // Apply zoom and center if not already done by restoreMapState
+            if (persistedZoomLevel != null && mapView.zoomLevelDouble != persistedZoomLevel) {
+                mapView.controller.setZoom(persistedZoomLevel!!)
+            }
+            if (persistedMapCenter != null) {
+                mapView.controller.setCenter(persistedMapCenter)
+            }
+
+            mapView.onResume()
+            mapView.invalidate()
         }
     }
 
@@ -1942,20 +2088,31 @@ class MainActivity : ComponentActivity() {
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         when (level) {
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
-            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
-                // Critical memory situation - try to keep service alive
-                System.gc() // Request garbage collection
-                Runtime.getRuntime().gc() // Alternative way to request GC
+            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
+                // Screen turned off
+                if (::mapView.isInitialized) {
+                    persistedZoomLevel = mapView.zoomLevelDouble
+                    persistedMapCenter = mapView.mapCenter as? GeoPoint
+                    if (::polyline.isInitialized) {
+                        persistedRoutePoints = polyline.points as MutableList<GeoPoint>
+                    }
+                    saveMapState()
+                }
+            }
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE,
+            ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
+                // App went to background
+                saveMapState()
+            }
+        }
+    }
 
-                // Notify service to reduce memory usage if possible
-                EventBus.getDefault().post(MemoryPressureEvent(level))
-            }
-            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
-                // Memory pressure has been relieved
-                EventBus.getDefault().post(MemoryPressureEvent(level))
-            }
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (::polyline.isInitialized && polyline.actualPoints != null) {
+            val points = polyline.actualPoints
+            val pointsString = points.joinToString("|") { "${it.latitude},${it.longitude}" }
+            outState.putString("polylinePoints", pointsString)
         }
     }
 
@@ -2384,6 +2541,7 @@ class MainActivity : ComponentActivity() {
             currentEventPrefs.edit()
                 .remove("active_event_id")
                 .apply()
+            clearSavedMapState()
         } else {
             // Service is running - ensure UI state is correct
             sharedPreferences.edit()
@@ -2412,6 +2570,18 @@ class MainActivity : ComponentActivity() {
                 Toast.LENGTH_LONG
             ).show()
         }
+    }
+
+    private fun clearSavedMapState() {
+        val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
+        sharedPreferences.edit().clear().apply()
+
+        // Clear in-memory state
+        persistedRoutePoints.clear()
+        persistedMarkerPoint = null
+        persistedZoomLevel = null
+        persistedMapCenter = null
+        savedLocationData = SavedLocationData(emptyList(), false)
     }
 
     private fun displaySelectedEvents(events: List<SingleEventWithMetric>) {
