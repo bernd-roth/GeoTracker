@@ -1412,83 +1412,31 @@ class MainActivity : ComponentActivity() {
                         setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
 
-                        addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                            override fun onViewAttachedToWindow(v: View) {
-                                if (persistedRoutePoints.isNotEmpty()) {
-                                    val oldPolyline = overlays.find { it is Polyline } as? Polyline
-                                    if (oldPolyline != null) {
-                                        overlays.remove(oldPolyline)
-                                    }
-
-                                    polyline = Polyline().apply {
-                                        outlinePaint.strokeWidth = 10f
-                                        outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
-                                        setPoints(persistedRoutePoints)
-                                    }
-                                    overlays.add(polyline)
-
-                                    persistedZoomLevel?.let { controller.setZoom(it) }
-                                    persistedMapCenter?.let { controller.setCenter(it) }
-
-                                    invalidate()
-                                }
+                        if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+                            // If service is running, use location change event data
+                            val currentPoints = locationChangeEventState.value.latLngs.map {
+                                GeoPoint(it.latitude, it.longitude)
                             }
-
-                            override fun onViewDetachedFromWindow(v: View) {
-                                try {
-                                    if (::polyline.isInitialized && polyline.actualPoints != null) {
-                                        persistedRoutePoints = polyline.actualPoints.toMutableList()
-                                    }
-                                    if (::marker.isInitialized && marker.position != null) {
-                                        persistedMarkerPoint = LatLng(marker.position.latitude, marker.position.longitude)
-                                    }
-                                    persistedZoomLevel = zoomLevelDouble
-                                    persistedMapCenter = mapCenter as GeoPoint?
-                                } catch (e: Exception) {
-                                    Log.e("MainActivity", "Error saving map state during detachment", e)
+                            if (currentPoints.isNotEmpty()) {
+                                polyline = Polyline().apply {
+                                    outlinePaint.strokeWidth = 10f
+                                    outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
+                                    setPoints(currentPoints)
                                 }
+                                overlays.add(polyline)
+                                persistedRoutePoints = currentPoints.toMutableList()
                             }
-                        })
-
-                        if (persistedRoutePoints.isNotEmpty()) {
+                        } else if (persistedRoutePoints.isNotEmpty()) {
+                            // If no service but we have persisted points
                             polyline = Polyline().apply {
                                 outlinePaint.strokeWidth = 10f
                                 outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
                                 setPoints(persistedRoutePoints)
                             }
                             overlays.add(polyline)
-
-                            persistedMarkerPoint?.let { point ->
-                                createMarker(point)
-                            }
-
-                            controller.setCenter(persistedMapCenter ?: persistedRoutePoints[0])
-                            persistedZoomLevel?.let { zoom ->
-                                controller.setZoom(zoom)
-                            }
-                        } else if (savedLocationData.points.isNotEmpty()) {
-                            polyline = Polyline().apply {
-                                outlinePaint.strokeWidth = 10f
-                                outlinePaint.color = ContextCompat.getColor(context, android.R.color.holo_purple)
-                                setPoints(savedLocationData.points)
-                            }
-                            overlays.add(polyline)
-
-                            if (persistedMapCenter == null) {
-                                controller.setCenter(savedLocationData.points[0])
-                            }
-                            if (persistedZoomLevel == null) {
-                                controller.setZoom(15.0)
-                            }
                         }
 
-                        persistedMapCenter?.let { center ->
-                            controller.setCenter(center)
-                        }
-                        persistedZoomLevel?.let { zoom ->
-                            controller.setZoom(zoom)
-                        }
-
+                        // Add default overlays
                         val dm: DisplayMetrics = context.resources.displayMetrics
                         val scaleBarOverlay = ScaleBarOverlay(this).apply {
                             setCentred(true)
@@ -1500,22 +1448,38 @@ class MainActivity : ComponentActivity() {
                             enableMyLocation()
                         }
                         overlays.add(mLocationOverlay)
+
+                        // Set appropriate zoom and center
+                        if (persistedZoomLevel != null) {
+                            controller.setZoom(persistedZoomLevel!!)
+                        } else {
+                            controller.setZoom(15.0)
+                        }
+
+                        if (persistedMapCenter != null) {
+                            controller.setCenter(persistedMapCenter)
+                        } else if (persistedRoutePoints.isNotEmpty()) {
+                            controller.setCenter(persistedRoutePoints[0])
+                        }
                     }
+
+                    // Initialize marker
                     marker = Marker(mapView)
 
+                    // Handle marker creation
                     if (persistedMarkerPoint != null) {
                         createMarker(persistedMarkerPoint!!)
-                    } else if (savedLocationData.points.isNotEmpty()) {
+                    } else if (persistedRoutePoints.isNotEmpty()) {
                         createMarker(LatLng(
-                            savedLocationData.points[0].latitude,
-                            savedLocationData.points[0].longitude
+                            persistedRoutePoints[0].latitude,
+                            persistedRoutePoints[0].longitude
                         ))
-                    } else {
-                        createMarker(LatLng(0.0, 0.0))
                     }
+
                     if (selectedEvents.isNotEmpty()) {
                         displaySelectedEvents(selectedEvents)
                     }
+
                     mapView
                 },
                 modifier = Modifier.fillMaxSize(),
