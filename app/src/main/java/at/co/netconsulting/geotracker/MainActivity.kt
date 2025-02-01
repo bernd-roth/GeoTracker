@@ -67,6 +67,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults.textFieldColors
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -129,7 +130,9 @@ import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getTotalAscent
 import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -484,6 +487,8 @@ class MainActivity : ComponentActivity() {
         val scrollState = rememberScrollState()
         var showGPXDialog by remember { mutableStateOf(false) }
         var lastEventMetrics by remember { mutableStateOf<List<Metric>?>(null) }
+        var importProgress by remember { mutableStateOf(0f) }
+        var showProgressDialog by remember { mutableStateOf(false) }
 
         LaunchedEffect(Unit) {
             val lastEventId = getCurrentlyRecordingEventId()
@@ -713,20 +718,61 @@ class MainActivity : ComponentActivity() {
             GPXFileSelectionDialog(
                 context = context,
                 onDismissRequest = { showGPXDialog = false },
-                onFileSelected = { file ->
+                onFileSelected = { files ->
+                    showGPXDialog = false
+                    showProgressDialog = true
                     coroutineScope.launch {
-                        importGPXFile(
-                            file = file,
+                        importMultipleGPXFiles(
+                            files = files,
                             database = database,
+                            onProgressUpdate = { progress ->
+                                importProgress = progress
+                            },
                             onComplete = { success ->
                                 if (success) {
                                     coroutineScope.launch {
                                         loadData()
                                     }
                                 }
-                                showGPXDialog = false
+                                showProgressDialog = false
+                                importProgress = 0f
+                                Toast.makeText(
+                                    context,
+                                    if (success) "Import completed" else "Import failed",
+                                    Toast.LENGTH_SHORT
+                                ).show()
                             }
                         )
+                    }
+                }
+            )
+        }
+
+// Add progress dialog
+        if (showProgressDialog) {
+            AlertDialog(
+                onDismissRequest = { },
+                title = { Text("Importing GPX Files") },
+                text = {
+                    Column {
+                        LinearProgressIndicator(
+                            progress = { importProgress },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            text = "${(importProgress * 100).toInt()}%",
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                    }
+                },
+                confirmButton = {
+                    if (importProgress >= 1f) {
+                        Button(onClick = {
+                            showProgressDialog = false
+                            importProgress = 0f
+                        }) {
+                            Text("Done")
+                        }
                     }
                 }
             )
@@ -1024,39 +1070,39 @@ class MainActivity : ComponentActivity() {
     }
     @Composable
     fun GPXFileSelectionDialog(
-        context: Context, // Add context parameter
+        context: Context,
         onDismissRequest: () -> Unit,
-        onFileSelected: (File) -> Unit
+        onFileSelected: (List<File>) -> Unit  // Modified to accept a list of files
     ) {
         var showError by remember { mutableStateOf(false) }
 
         // Function to convert Uri to File
-        fun uriToFile(uri: Uri): File? {
-            return try {
-                // Create a temporary file
-                val tempFile = File(context.cacheDir, "temp_gpx_file.gpx")
-
-                // Copy the URI content to the temporary file
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
+        fun urisToFiles(uris: List<Uri>): List<File> {
+            return uris.mapNotNull { uri ->
+                try {
+                    val tempFile = File(context.cacheDir, "temp_gpx_file_${System.currentTimeMillis()}.gpx")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
                     }
+                    tempFile
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    null
                 }
-                tempFile
-            } catch (e: Exception) {
-                e.printStackTrace()
-                null
             }
         }
 
+        // Modified to use GetMultipleContents
         val launcher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.GetContent()
-        ) { uri ->
-            uri?.let { selectedUri ->
-                // Convert URI to File and handle the selection
-                uriToFile(selectedUri)?.let { file ->
-                    onFileSelected(file)
-                } ?: run {
+            contract = ActivityResultContracts.GetMultipleContents()
+        ) { uris ->
+            if (uris.isNotEmpty()) {
+                val files = urisToFiles(uris)
+                if (files.isNotEmpty()) {
+                    onFileSelected(files)
+                } else {
                     showError = true
                 }
             }
@@ -1064,19 +1110,21 @@ class MainActivity : ComponentActivity() {
 
         AlertDialog(
             onDismissRequest = onDismissRequest,
-            title = { Text("Select GPX File") },
+            title = { Text("Select GPX Files") },
             text = {
                 if (showError) {
-                    Text("Error importing GPX file. Please try again.")
+                    Text("Error importing GPX files. Please try again.")
+                } else {
+                    Text("Select one or more GPX files to import")
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        launcher.launch("*/*") // Changed to accept all file types since GPX mime type might not be recognized
+                        launcher.launch("*/*")
                     }
                 ) {
-                    Text("Choose File")
+                    Text("Choose Files")
                 }
             },
             dismissButton = {
@@ -1085,6 +1133,34 @@ class MainActivity : ComponentActivity() {
                 }
             }
         )
+    }
+
+    private suspend fun importMultipleGPXFiles(
+        files: List<File>,
+        database: FitnessTrackerDatabase,
+        onProgressUpdate: (Float) -> Unit,
+        onComplete: (Boolean) -> Unit
+    ) {
+        try {
+            var successCount = 0
+            files.forEachIndexed { index, file ->
+                try {
+                    withContext(Dispatchers.IO) {
+                        importGPXFile(file, database) { success ->
+                            if (success) successCount++
+                        }
+                    }
+                    // Update progress
+                    onProgressUpdate((index + 1).toFloat() / files.size)
+                } catch (e: Exception) {
+                    Log.e("GPXImport", "Error importing file: ${file.name}", e)
+                }
+            }
+            onComplete(successCount > 0)
+        } catch (e: Exception) {
+            Log.e("GPXImport", "Error in batch import", e)
+            onComplete(false)
+        }
     }
 
     private fun exportGPX() {
