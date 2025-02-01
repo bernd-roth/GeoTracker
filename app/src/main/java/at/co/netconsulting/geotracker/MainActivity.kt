@@ -748,7 +748,6 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-// Add progress dialog
         if (showProgressDialog) {
             AlertDialog(
                 onDismissRequest = { },

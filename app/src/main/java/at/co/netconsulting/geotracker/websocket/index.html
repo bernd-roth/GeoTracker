@@ -96,19 +96,21 @@
         }
 
         .session-info {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;  /* Changed from 50% to align left */
-            background-color: white;
-            padding: 5px 10px;
-            border-radius: 3px;
-            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-            font-family: Arial, sans-serif;
-            font-size: 12px;
-            color: #333;
-            z-index: 1000;
-            transform: none;  /* Remove the centering transform */
-            display: inline-block;
+          position: fixed;
+          bottom: 10px;
+          left: 10px;
+          /* Changed from 50% to align left */
+          background-color: white;
+          padding: 5px 10px;
+          border-radius: 3px;
+          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+          font-family: Arial, sans-serif;
+          font-size: 12px;
+          color: #333;
+          z-index: 1000;
+          transform: none;
+          /* Remove the centering transform */
+          display: inline-block;
         }
     </style>
 </head>
@@ -175,35 +177,38 @@
     const BUFFER_SIZE = 5;
 
     function parseSessionId(sessionId) {
-        const [name, timestamp] = sessionId.split('_');
-        if (!timestamp) return { name: sessionId, timestamp: null };
-
-        // Parse timestamp (yyyyMMdd_HHmmss)
-        const year = timestamp.substr(0, 4);
-        const month = timestamp.substr(4, 2);
-        const day = timestamp.substr(6, 2);
-        const hour = timestamp.substr(9, 2);
-        const minute = timestamp.substr(11, 2);
-        const second = timestamp.substr(13, 2);
-
-        const date = new Date(year, month - 1, day, hour, minute, second);
-        return {
-            name: name,
-            formattedTime: `${day}/${month}/${year} ${hour}:${minute}:${second}`
-        };
+      const [name, timestamp] = sessionId.split('_');
+      if (!timestamp) return {
+        name: sessionId,
+        timestamp: null
+      };
+      // Parse timestamp (yyyyMMdd_HHmmss)
+      const year = timestamp.substr(0, 4);
+      const month = timestamp.substr(4, 2);
+      const day = timestamp.substr(6, 2);
+      const hour = timestamp.substr(9, 2);
+      const minute = timestamp.substr(11, 2);
+      const second = timestamp.substr(13, 2);
+      const date = new Date(year, month - 1, day, hour, minute, second);
+      return {
+        name: name,
+        formattedTime: `${day}/${month}/${year} ${hour}:${minute}:${second}`
+      };
     }
 
     function getColorForUser(sessionId) {
-        if (!userColors[sessionId]) {
-            // Use the name part of the session ID for consistent colors per user
-            const { name } = parseSessionId(sessionId);
-            const hash = name.split('').reduce((acc, char) => {
-                return char.charCodeAt(0) + ((acc << 5) - acc);
-            }, 0);
-            const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
-            userColors[sessionId] = color;
-        }
-        return userColors[sessionId];
+      if (!userColors[sessionId]) {
+        // Use the name part of the session ID for consistent colors per user
+        const {
+          name
+        } = parseSessionId(sessionId);
+        const hash = name.split('').reduce((acc, char) => {
+          return char.charCodeAt(0) + ((acc << 5) - acc);
+        }, 0);
+        const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+        userColors[sessionId] = color;
+      }
+      return userColors[sessionId];
     }
 
     function initMap() {
@@ -473,277 +478,255 @@
       speedChart.update('none');
     }
 
-    function updateMapTrack(sessionId) {
-      const points = trackPoints[sessionId];
-      if (!points || points.length === 0) return;
-      // Remove existing polyline and markers
-      if (polylines[sessionId]) {
-        map.removeLayer(polylines[sessionId]);
-      }
-      if (startMarkers[sessionId]) {
-        map.removeLayer(startMarkers[sessionId]);
-      }
-      if (endMarkers[sessionId]) {
-        map.removeLayer(endMarkers[sessionId]);
-      }
-      // Create new polyline with sorted points
-      const coordinates = points.map(point => [point.lat, point.lng]);
-      const userColor = getColorForUser(sessionId);
-      polylines[sessionId] = L.polyline(coordinates, {
-        color: userColor,
-        weight: 3
-      }).addTo(map);
-      // Add start marker
-      startMarkers[sessionId] = L.marker(coordinates[0], {
-        title: "Start Position - " + sessionId
-      }).bindPopup('Start - ' + sessionId).addTo(map);
-      // Add end marker at the last known position
-      endMarkers[sessionId] = L.marker(coordinates[coordinates.length - 1], {
-        title: "Current Position - " + sessionId
-      }).bindPopup('Current - ' + sessionId).addTo(map);
-      // Update map bounds to show the full track
-      const bounds = polylines[sessionId].getBounds();
-      map.fitBounds(bounds, {
-        padding: [50, 50]
-      });
-    }
+function updateMapTrack(sessionId) {
+  const points = trackPoints[sessionId];
+  if (!points || points.length === 0) return;
 
-    function handleRealtimeUpdate(data) {
-      if (processingBatch) {
-        updateBuffer.points.push(data);
-        if (!updateBuffer.timer) {
-          updateBuffer.timer = setTimeout(flushUpdateBuffer, 1000);
+  // Remove existing polyline and markers
+  if (polylines[sessionId]) {
+    map.removeLayer(polylines[sessionId]);
+  }
+  if (startMarkers[sessionId]) {
+    map.removeLayer(startMarkers[sessionId]);
+  }
+  if (endMarkers[sessionId]) {
+    map.removeLayer(endMarkers[sessionId]);
+  }
+
+  // Create new polyline with sorted points
+  const coordinates = points.map(point => [point.lat, point.lng]);
+  const userColor = getColorForUser(sessionId);
+  polylines[sessionId] = L.polyline(coordinates, {
+    color: userColor,
+    weight: 3
+  }).addTo(map);
+
+  // Add start marker
+  startMarkers[sessionId] = L.marker(coordinates[0], {
+    title: "Start Position - " + sessionId
+  }).bindPopup('Start - ' + sessionId).addTo(map);
+
+  // Add end marker at the last known position
+  endMarkers[sessionId] = L.marker(coordinates[coordinates.length - 1], {
+    title: "Current Position - " + sessionId
+  }).bindPopup('Current - ' + sessionId).addTo(map);
+}
+
+function updateMapWithNewCoordinate(lat, lng, sessionId) {
+  if (!polylines[sessionId]) {
+    const userColor = getColorForUser(sessionId);
+    polylines[sessionId] = L.polyline([], {
+      color: userColor,
+      weight: 3
+    }).addTo(map);
+    // Add start marker
+    startMarkers[sessionId] = L.marker([lat, lng], {
+      title: "Start Position - " + sessionId
+    }).bindPopup('Start - ' + sessionId).addTo(map);
+  }
+
+  // Add point to polyline
+  polylines[sessionId].addLatLng([lat, lng]);
+
+  // Update end marker
+  if (!endMarkers[sessionId]) {
+    endMarkers[sessionId] = L.marker([lat, lng], {
+      title: "Current Position - " + sessionId
+    }).bindPopup('Current - ' + sessionId).addTo(map);
+  } else {
+    endMarkers[sessionId].setLatLng([lat, lng]);
+  }
+
+  // Remove automatic bounds fitting
+  // The map will maintain its current view
+}
+
+      function updateChartsForSession(sessionId, altitudeData, speedData) {
+        // Update altitude chart
+        let altDatasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+        if (altDatasetIndex === -1) {
+          altDatasetIndex = altitudeChart.data.datasets.length;
+          altitudeChart.data.datasets.push({
+            label: sessionId,
+            borderColor: getColorForUser(sessionId),
+            fill: false,
+            data: []
+          });
         }
-        return;
-      }
-      const lat = parseFloat(data.latitude);
-      const lng = parseFloat(data.longitude);
-      const sessionId = data.sessionId || "default";
-      const distance = parseFloat(data.distance) / 1000; // Convert to kilometers
-      const altitude = parseFloat(data.altitude || 0);
-      const speed = parseFloat(data.currentSpeed || 0);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        updateMapWithNewCoordinate(lat, lng, sessionId);
-        // Update charts
-        updateAltitudeChart(distance, altitude, sessionId);
-        updateSpeedChart(distance, speed, sessionId);
-      }
-      updateSpeedDisplay(sessionId, speed, data);
-    }
-
-    function updateMapWithNewCoordinate(lat, lng, sessionId) {
-      if (!polylines[sessionId]) {
-        const userColor = getColorForUser(sessionId);
-        polylines[sessionId] = L.polyline([], {
-          color: userColor,
-          weight: 3
-        }).addTo(map);
-        // Add start marker
-        startMarkers[sessionId] = L.marker([lat, lng], {
-          title: "Start Position - " + sessionId
-        }).bindPopup('Start - ' + sessionId).addTo(map);
-      }
-      // Add point to polyline
-      polylines[sessionId].addLatLng([lat, lng]);
-      // Update end marker
-      if (!endMarkers[sessionId]) {
-        endMarkers[sessionId] = L.marker([lat, lng], {
-          title: "Current Position - " + sessionId
-        }).bindPopup('Current - ' + sessionId).addTo(map);
-      } else {
-        endMarkers[sessionId].setLatLng([lat, lng]);
-      }
-      // Update map bounds
-      const bounds = polylines[sessionId].getBounds();
-      map.fitBounds(bounds, {
-        padding: [50, 50]
-      });
-    }
-
-    function updateChartsForSession(sessionId, altitudeData, speedData) {
-      // Update altitude chart
-      let altDatasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (altDatasetIndex === -1) {
-        altDatasetIndex = altitudeChart.data.datasets.length;
-        altitudeChart.data.datasets.push({
-          label: sessionId,
-          borderColor: getColorForUser(sessionId),
-          fill: false,
-          data: []
+        altitudeChart.data.datasets[altDatasetIndex].data = altitudeData;
+        // Update speed chart
+        let speedDatasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+        if (speedDatasetIndex === -1) {
+          speedDatasetIndex = speedChart.data.datasets.length;
+          speedChart.data.datasets.push({
+            label: sessionId,
+            borderColor: getColorForUser(sessionId),
+            fill: false,
+            data: []
+          });
+        }
+        speedChart.data.datasets[speedDatasetIndex].data = speedData;
+        // Batch update both charts
+        requestAnimationFrame(() => {
+          altitudeChart.update('none');
+          speedChart.update('none');
         });
       }
-      altitudeChart.data.datasets[altDatasetIndex].data = altitudeData;
-      // Update speed chart
-      let speedDatasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (speedDatasetIndex === -1) {
-        speedDatasetIndex = speedChart.data.datasets.length;
-        speedChart.data.datasets.push({
-          label: sessionId,
-          borderColor: getColorForUser(sessionId),
-          fill: false,
-          data: []
+
+function updateMapWithBufferedPoints(sessionId) {
+  if (!pointBuffer[sessionId] || pointBuffer[sessionId].length === 0) return;
+
+  if (!polylines[sessionId]) {
+    const userColor = getColorForUser(sessionId);
+    polylines[sessionId] = L.polyline([], {
+      color: userColor,
+      weight: 3
+    }).addTo(map);
+    // Add start marker for first point
+    const firstPoint = pointBuffer[sessionId][0];
+    startMarkers[sessionId] = L.marker(firstPoint, {
+      title: "Start Position - " + sessionId
+    }).bindPopup('Start - ' + sessionId).addTo(map);
+  }
+
+  // Add all buffered points to the polyline
+  pointBuffer[sessionId].forEach(point => {
+    polylines[sessionId].addLatLng(point);
+  });
+
+  // Update end marker to last point
+  const lastPoint = pointBuffer[sessionId][pointBuffer[sessionId].length - 1];
+  if (!endMarkers[sessionId]) {
+    endMarkers[sessionId] = L.marker(lastPoint, {
+      title: "Current Position - " + sessionId
+    }).bindPopup('Current - ' + sessionId).addTo(map);
+  } else {
+    endMarkers[sessionId].setLatLng(lastPoint);
+  }
+
+  // Clear the buffer
+  pointBuffer[sessionId] = [];
+
+  // Remove automatic bounds fitting
+  // The map will maintain its current view
+}
+
+      function updateSpeedDisplay(sessionId, speed, data) {
+        if (!speedHistory[sessionId]) {
+          speedHistory[sessionId] = {
+            speeds: [],
+            maxSpeed: 0,
+            avgSpeed: 0,
+            movingAvg: 0,
+            lastUpdate: new Date()
+          };
+        }
+        const history = speedHistory[sessionId];
+        history.speeds.push(speed);
+        history.lastUpdate = new Date();
+        // Update current speed
+        const currentSpeedElement = document.getElementById('currentSpeed');
+        currentSpeedElement.textContent = speed.toFixed(1);
+        // Update color based on speed
+        if (speed < 5) {
+          currentSpeedElement.style.color = '#2196F3';
+        } else if (speed < 10) {
+          currentSpeedElement.style.color = '#4CAF50';
+        } else {
+          currentSpeedElement.style.color = '#F44336';
+        }
+        // Update max speed
+        history.maxSpeed = Math.max(history.maxSpeed, speed);
+        document.getElementById('maxSpeed').textContent = history.maxSpeed.toFixed(1);
+        // Update average speed from data
+        if (data && data.averageSpeed !== undefined) {
+          const avgSpeed = parseFloat(data.averageSpeed);
+          document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(1);
+        }
+        // Calculate moving average from last 5 points
+        const recentSpeeds = history.speeds.slice(-5);
+        history.movingAvg = recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
+        document.getElementById('movingAvg').textContent = history.movingAvg.toFixed(1);
+      }
+
+      function updateAltitudeChart(distance, altitude, sessionId) {
+        let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+        if (datasetIndex === -1) {
+          datasetIndex = altitudeChart.data.datasets.length;
+          altitudeChart.data.datasets.push({
+            label: sessionId,
+            borderColor: getColorForUser(sessionId),
+            fill: false,
+            data: []
+          });
+        }
+        altitudeChart.data.datasets[datasetIndex].data.push({
+          x: distance,
+          y: altitude
         });
+        altitudeChart.update();
       }
-      speedChart.data.datasets[speedDatasetIndex].data = speedData;
-      // Batch update both charts
-      requestAnimationFrame(() => {
-        altitudeChart.update('none');
-        speedChart.update('none');
-      });
-    }
 
-    function updateMapWithBufferedPoints(sessionId) {
-      if (!pointBuffer[sessionId] || pointBuffer[sessionId].length === 0) return;
-      if (!polylines[sessionId]) {
-        const userColor = getColorForUser(sessionId);
-        polylines[sessionId] = L.polyline([], {
-          color: userColor,
-          weight: 3
-        }).addTo(map);
-        // Add start marker for first point
-        const firstPoint = pointBuffer[sessionId][0];
-        startMarkers[sessionId] = L.marker(firstPoint, {
-          title: "Start Position - " + sessionId
-        }).bindPopup('Start - ' + sessionId).addTo(map);
-      }
-      // Add all buffered points to the polyline
-      pointBuffer[sessionId].forEach(point => {
-        polylines[sessionId].addLatLng(point);
-      });
-      // Update end marker to last point
-      const lastPoint = pointBuffer[sessionId][pointBuffer[sessionId].length - 1];
-      if (!endMarkers[sessionId]) {
-        endMarkers[sessionId] = L.marker(lastPoint, {
-          title: "Current Position - " + sessionId
-        }).bindPopup('Current - ' + sessionId).addTo(map);
-      } else {
-        endMarkers[sessionId].setLatLng(lastPoint);
-      }
-      // Clear the buffer
-      pointBuffer[sessionId] = [];
-      // Auto-pan map to show the full track
-      const bounds = polylines[sessionId].getBounds();
-      map.fitBounds(bounds, {
-        padding: [50, 50]
-      });
-    }
-
-    function updateSpeedDisplay(sessionId, speed, data) {
-      if (!speedHistory[sessionId]) {
-        speedHistory[sessionId] = {
-          speeds: [],
-          maxSpeed: 0,
-          avgSpeed: 0,
-          movingAvg: 0,
-          lastUpdate: new Date()
-        };
-      }
-      const history = speedHistory[sessionId];
-      history.speeds.push(speed);
-      history.lastUpdate = new Date();
-      // Update current speed
-      const currentSpeedElement = document.getElementById('currentSpeed');
-      currentSpeedElement.textContent = speed.toFixed(1);
-      // Update color based on speed
-      if (speed < 5) {
-        currentSpeedElement.style.color = '#2196F3';
-      } else if (speed < 10) {
-        currentSpeedElement.style.color = '#4CAF50';
-      } else {
-        currentSpeedElement.style.color = '#F44336';
-      }
-      // Update max speed
-      history.maxSpeed = Math.max(history.maxSpeed, speed);
-      document.getElementById('maxSpeed').textContent = history.maxSpeed.toFixed(1);
-      // Update average speed from data
-      if (data && data.averageSpeed !== undefined) {
-        const avgSpeed = parseFloat(data.averageSpeed);
-        document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(1);
-      }
-      // Calculate moving average from last 5 points
-      const recentSpeeds = history.speeds.slice(-5);
-      history.movingAvg = recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
-      document.getElementById('movingAvg').textContent = history.movingAvg.toFixed(1);
-    }
-
-    function updateAltitudeChart(distance, altitude, sessionId) {
-      let datasetIndex = altitudeChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (datasetIndex === -1) {
-        datasetIndex = altitudeChart.data.datasets.length;
-        altitudeChart.data.datasets.push({
-          label: sessionId,
-          borderColor: getColorForUser(sessionId),
-          fill: false,
-          data: []
+      function updateSpeedChart(distance, speed, sessionId) {
+        let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
+        if (datasetIndex === -1) {
+          datasetIndex = speedChart.data.datasets.length;
+          speedChart.data.datasets.push({
+            label: sessionId,
+            borderColor: getColorForUser(sessionId),
+            fill: false,
+            data: []
+          });
+        }
+        speedChart.data.datasets[datasetIndex].data.push({
+          x: distance,
+          y: speed
         });
+        speedChart.update();
       }
-      altitudeChart.data.datasets[datasetIndex].data.push({
-        x: distance,
-        y: altitude
-      });
-      altitudeChart.update();
-    }
 
-    function updateSpeedChart(distance, speed, sessionId) {
-      let datasetIndex = speedChart.data.datasets.findIndex(dataset => dataset.label === sessionId);
-      if (datasetIndex === -1) {
-        datasetIndex = speedChart.data.datasets.length;
-        speedChart.data.datasets.push({
-          label: sessionId,
-          borderColor: getColorForUser(sessionId),
-          fill: false,
-          data: []
-        });
+      function resetMap() {
+        // Clear all stored track points
+        trackPoints = {};
+        speedHistory = {};
+        userColors = {};
+        // Reset speed display
+        document.getElementById('currentSpeed').textContent = '0.0';
+        document.getElementById('maxSpeed').textContent = '0.0';
+        document.getElementById('avgSpeed').textContent = '0.0';
+        document.getElementById('movingAvg').textContent = '0.0';
+        // Remove all layers from map
+        Object.values(polylines).forEach(polyline => map.removeLayer(polyline));
+        Object.values(startMarkers).forEach(marker => map.removeLayer(marker));
+        Object.values(endMarkers).forEach(marker => map.removeLayer(marker));
+        // Clear references
+        polylines = {};
+        startMarkers = {};
+        endMarkers = {};
+        // Clear GPX track if exists
+        if (gpxPolyline) {
+          map.removeLayer(gpxPolyline);
+          gpxPolyline = null;
+        }
+        // Reset charts
+        altitudeChart.data.datasets = [];
+        altitudeChart.update();
+        speedChart.data.datasets = [];
+        speedChart.update();
+        // Reset map view
+        const initialLocation = [48.1818798, 16.3607528];
+        map.setView(initialLocation, 10);
       }
-      speedChart.data.datasets[datasetIndex].data.push({
-        x: distance,
-        y: speed
-      });
-      speedChart.update();
-    }
 
-    function resetMap() {
-      // Clear all stored track points
-      trackPoints = {};
-      speedHistory = {};
-      userColors = {};
-      // Reset speed display
-      document.getElementById('currentSpeed').textContent = '0.0';
-      document.getElementById('maxSpeed').textContent = '0.0';
-      document.getElementById('avgSpeed').textContent = '0.0';
-      document.getElementById('movingAvg').textContent = '0.0';
-      // Remove all layers from map
-      Object.values(polylines).forEach(polyline => map.removeLayer(polyline));
-      Object.values(startMarkers).forEach(marker => map.removeLayer(marker));
-      Object.values(endMarkers).forEach(marker => map.removeLayer(marker));
-      // Clear references
-      polylines = {};
-      startMarkers = {};
-      endMarkers = {};
-      // Clear GPX track if exists
-      if (gpxPolyline) {
-        map.removeLayer(gpxPolyline);
-        gpxPolyline = null;
+      function getRandomColor() {
+        const letters = '0123456789ABCDEF';
+        let color = '#';
+        for (let i = 0; i < 6; i++) {
+          color += letters[Math.floor(Math.random() * 16)];
+        }
+        return color;
       }
-      // Reset charts
-      altitudeChart.data.datasets = [];
-      altitudeChart.update();
-      speedChart.data.datasets = [];
-      speedChart.update();
-      // Reset map view
-      const initialLocation = [48.1818798, 16.3607528];
-      map.setView(initialLocation, 10);
-    }
-
-    function getRandomColor() {
-      const letters = '0123456789ABCDEF';
-      let color = '#';
-      for (let i = 0; i < 6; i++) {
-        color += letters[Math.floor(Math.random() * 16)];
-      }
-      return color;
-    }
-    document.addEventListener('DOMContentLoaded', initMap);
+      document.addEventListener('DOMContentLoaded', initMap);
 </script>
 </body>
 </html>

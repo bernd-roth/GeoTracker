@@ -21,7 +21,6 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import at.co.netconsulting.geotracker.MainActivity
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.data.MemoryPressureEvent
@@ -59,11 +58,8 @@ import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import java.io.IOException
 import java.lang.System.currentTimeMillis
-import java.text.SimpleDateFormat
 import java.time.Duration
 import java.time.LocalDateTime
-import java.util.Date
-import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
