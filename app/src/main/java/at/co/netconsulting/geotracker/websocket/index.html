@@ -94,6 +94,22 @@
           height: 100%;
           width: 100%;
         }
+
+        .session-info {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;  /* Changed from 50% to align left */
+            background-color: white;
+            padding: 5px 10px;
+            border-radius: 3px;
+            box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            color: #333;
+            z-index: 1000;
+            transform: none;  /* Remove the centering transform */
+            display: inline-block;
+        }
     </style>
 </head>
 <body>
@@ -135,6 +151,7 @@
         <canvas id="speedChart"></canvas>
     </div>
 </div>
+<div id="sessionInfo" class="session-info"></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
@@ -157,16 +174,36 @@
     const pointBuffer = {};
     const BUFFER_SIZE = 5;
 
+    function parseSessionId(sessionId) {
+        const [name, timestamp] = sessionId.split('_');
+        if (!timestamp) return { name: sessionId, timestamp: null };
+
+        // Parse timestamp (yyyyMMdd_HHmmss)
+        const year = timestamp.substr(0, 4);
+        const month = timestamp.substr(4, 2);
+        const day = timestamp.substr(6, 2);
+        const hour = timestamp.substr(9, 2);
+        const minute = timestamp.substr(11, 2);
+        const second = timestamp.substr(13, 2);
+
+        const date = new Date(year, month - 1, day, hour, minute, second);
+        return {
+            name: name,
+            formattedTime: `${day}/${month}/${year} ${hour}:${minute}:${second}`
+        };
+    }
+
     function getColorForUser(sessionId) {
-      if (!userColors[sessionId]) {
-        const letters = '0123456789ABCDEF';
-        let color = '#';
-        for (let i = 0; i < 6; i++) {
-          color += letters[Math.floor(Math.random() * 16)];
+        if (!userColors[sessionId]) {
+            // Use the name part of the session ID for consistent colors per user
+            const { name } = parseSessionId(sessionId);
+            const hash = name.split('').reduce((acc, char) => {
+                return char.charCodeAt(0) + ((acc << 5) - acc);
+            }, 0);
+            const color = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+            userColors[sessionId] = color;
         }
-        userColors[sessionId] = color;
-      }
-      return userColors[sessionId];
+        return userColors[sessionId];
     }
 
     function initMap() {

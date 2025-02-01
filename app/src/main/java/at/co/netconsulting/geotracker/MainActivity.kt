@@ -96,6 +96,7 @@ import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -109,6 +110,7 @@ import at.co.netconsulting.geotracker.data.EventDetails
 import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.data.MemoryPressureEvent
+import at.co.netconsulting.geotracker.data.PathTrackingData
 import at.co.netconsulting.geotracker.data.SavedLocationData
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.data.StopServiceEvent
@@ -201,6 +203,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var satelliteInfoManager: SatelliteInfoManager
     //redraw path if mobile phone is turned off/on
     private var lifecycleRegistered = false
+    private var pathTrackingData: PathTrackingData? = null
 
     private fun loadSharedPreferences() {
         val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -215,6 +218,38 @@ class MainActivity : ComponentActivity() {
         return permissions.all { permission ->
             ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
         }
+    }
+
+    private fun updateMapWithFullPath(points: List<GeoPoint>) {
+        if (!::mapView.isInitialized) return
+
+        // Remove existing polyline
+        val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
+        if (oldPolyline != null) {
+            mapView.overlays.remove(oldPolyline)
+        }
+
+        // Create new polyline with all points
+        if (points.isNotEmpty()) {
+            polyline = Polyline().apply {
+                outlinePaint.strokeWidth = 10f
+                outlinePaint.color = ContextCompat.getColor(this@MainActivity, android.R.color.holo_purple)
+                setPoints(points)
+            }
+            mapView.overlays.add(polyline)
+
+            // Update marker if needed
+            createMarker(LatLng(points.first().latitude, points.first().longitude))
+
+            mapView.invalidate()
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onPathTrackingDataReceived(data: PathTrackingData) {
+        pathTrackingData = data
+        // Update the map with complete path
+        updateMapWithFullPath(data.points)
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -1453,7 +1488,7 @@ class MainActivity : ComponentActivity() {
                         if (persistedZoomLevel != null) {
                             controller.setZoom(persistedZoomLevel!!)
                         } else {
-                            controller.setZoom(15.0)
+                            controller.setZoom(4.0)
                         }
 
                         if (persistedMapCenter != null) {
@@ -1657,8 +1692,8 @@ class MainActivity : ComponentActivity() {
             sprocket: String,
             comment: String,
             clothing: String
-        ) -> Unit, // Callback for save action
-        onDismiss: () -> Unit // Callback for dismiss action
+        ) -> Unit,
+        onDismiss: () -> Unit
     ) {
         var eventName by remember { mutableStateOf("") }
         var eventDate by remember { mutableStateOf("") }
@@ -1667,6 +1702,11 @@ class MainActivity : ComponentActivity() {
         var sprocket by remember { mutableStateOf("") }
         var comment by remember { mutableStateOf("") }
         var clothing by remember { mutableStateOf("") }
+        val context = LocalContext.current
+
+        // Get firstname from SharedPreferences for session ID
+        val firstname = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+            .getString("firstname", "user") ?: "user"
 
         AlertDialog(
             onDismissRequest = onDismiss,
@@ -1739,6 +1779,15 @@ class MainActivity : ComponentActivity() {
             },
             confirmButton = {
                 Button(onClick = {
+                    // Generate session ID
+                    val sessionId = Tools().generateSessionId(firstname)
+
+                    // Save session ID to SharedPreferences
+                    context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("current_session_id", sessionId)
+                        .apply()
+
                     // Save the event details and trigger the foreground service
                     onSave(eventName, eventDate, artOfSport, wheelSize, sprocket, comment, clothing)
                 }) {
@@ -1747,7 +1796,7 @@ class MainActivity : ComponentActivity() {
             },
             dismissButton = {
                 Button(onClick = onDismiss) {
-                    Text(getString(R.string.cancel))
+                    Text(stringResource(R.string.cancel))
                 }
             }
         )
@@ -1823,26 +1872,52 @@ class MainActivity : ComponentActivity() {
 
         // Fresh start vs restored state logic
         if (savedInstanceState != null) {
-            // Restore polyline points if available (your existing code)
-            savedInstanceState.getString("polylinePoints")?.let { pointsString ->
+            // Try to restore path from PathTrackingData first
+            savedInstanceState.getString("pathPoints")?.let { pointsString ->
                 try {
                     val points = pointsString.split("|")
                         .map { pointStr ->
                             val (lat, lon) = pointStr.split(",")
                             GeoPoint(lat.toDouble(), lon.toDouble())
                         }
-                    persistedRoutePoints = points.toMutableList()
+                    pathTrackingData = PathTrackingData(
+                        points = points,
+                        isRecording = savedInstanceState.getBoolean("isRecording", false),
+                        startPoint = points.firstOrNull()
+                    )
                 } catch (e: Exception) {
-                    Log.e("MainActivity", "Error restoring polyline points", e)
+                    Log.e("MainActivity", "Error restoring path tracking data", e)
+                }
+            }
+
+            // Fallback to polyline points if needed
+            if (pathTrackingData == null) {
+                savedInstanceState.getString("polylinePoints")?.let { pointsString ->
+                    try {
+                        val points = pointsString.split("|")
+                            .map { pointStr ->
+                                val (lat, lon) = pointStr.split(",")
+                                GeoPoint(lat.toDouble(), lon.toDouble())
+                            }
+                        persistedRoutePoints = points.toMutableList()
+                    } catch (e: Exception) {
+                        Log.e("MainActivity", "Error restoring polyline points", e)
+                    }
                 }
             }
         } else {
-            // Clear saved state on fresh start
             clearSavedMapState()
+            persistedMapCenter = GeoPoint(48.2082, 16.3738)
+            persistedZoomLevel = 12.0
         }
 
+        // Initialize satellite info manager
         satelliteInfoManager = SatelliteInfoManager(this)
+
+        // Check service state and initialize services
         checkServiceStateOnStart()
+
+        // Register activity lifecycle callbacks
         registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
             override fun onActivityStarted(activity: Activity) {}
@@ -1853,20 +1928,26 @@ class MainActivity : ComponentActivity() {
             override fun onActivityDestroyed(activity: Activity) {}
         })
 
+        // Load user settings
         loadSharedPreferences()
 
+        // Check and request permissions if needed
         if (!arePermissionsGranted()) {
             ActivityCompat.requestPermissions(this, permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
         }
 
+        // Initialize OSMDroid configuration
         val context = applicationContext
         Configuration.getInstance().load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
 
+        // Start background location service
         val intent = Intent(context, BackgroundLocationService::class.java)
         context.startService(intent)
 
+        // Register for EventBus events
         EventBus.getDefault().register(this)
 
+        // Setup screen state monitoring if not already registered
         if (!lifecycleRegistered) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             registerComponentCallbacks(object : ComponentCallbacks2 {
@@ -1884,6 +1965,10 @@ class MainActivity : ComponentActivity() {
                                 if (::polyline.isInitialized) {
                                     persistedRoutePoints = polyline.points as MutableList<GeoPoint>
                                 }
+                                // Also save current PathTrackingData state
+                                pathTrackingData?.let { data ->
+                                    saveMapState()
+                                }
                             }
                         }
                     }
@@ -1891,7 +1976,6 @@ class MainActivity : ComponentActivity() {
             })
             lifecycleRegistered = true
         }
-
         setContent {
             MainScreen()
         }
@@ -1938,7 +2022,7 @@ class MainActivity : ComponentActivity() {
             val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
 
             // First restore zoom level (keeping existing functionality)
-            persistedZoomLevel = sharedPreferences.getFloat("zoomLevel", 15f).toDouble()
+            persistedZoomLevel = sharedPreferences.getFloat("zoomLevel", 4f).toDouble()
             persistedZoomLevel?.let { zoom ->
                 mapView.controller.setZoom(zoom)
             }
@@ -2018,12 +2102,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+
+        // Start satellite tracking
         satelliteInfoManager.startListening()
+
         if (::mapView.isInitialized) {
-            // First restore the map state
+            // Restore the path first
+            pathTrackingData?.let { data ->
+                updateMapWithFullPath(data.points)
+            }
+
+            // Then restore map state (zoom, center, etc.)
             restoreMapState()
 
-            // Apply zoom and center if not already done by restoreMapState
+            // Apply any pending zoom/center changes
             if (persistedZoomLevel != null && mapView.zoomLevelDouble != persistedZoomLevel) {
                 mapView.controller.setZoom(persistedZoomLevel!!)
             }
@@ -2031,6 +2123,7 @@ class MainActivity : ComponentActivity() {
                 mapView.controller.setCenter(persistedMapCenter)
             }
 
+            // Required OSMDroid lifecycle calls
             mapView.onResume()
             mapView.invalidate()
         }
@@ -2073,10 +2166,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        if (::polyline.isInitialized && polyline.actualPoints != null) {
-            val points = polyline.actualPoints
-            val pointsString = points.joinToString("|") { "${it.latitude},${it.longitude}" }
-            outState.putString("polylinePoints", pointsString)
+
+        // First try to save from PathTrackingData as it's more reliable
+        pathTrackingData?.let { data ->
+            val pointsString = data.points.joinToString("|") { "${it.latitude},${it.longitude}" }
+            outState.putString("pathPoints", pointsString)
+            outState.putBoolean("isRecording", data.isRecording)
+        } ?: run {
+            // Fallback to polyline points if PathTrackingData is null
+            if (::polyline.isInitialized && polyline.actualPoints != null) {
+                val points = polyline.actualPoints
+                val pointsString = points.joinToString("|") { "${it.latitude},${it.longitude}" }
+                outState.putString("polylinePoints", pointsString)
+            }
         }
     }
 

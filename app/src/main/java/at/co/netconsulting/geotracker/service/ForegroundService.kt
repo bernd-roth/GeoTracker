@@ -108,6 +108,9 @@ class ForegroundService : Service() {
     private var weatherJob: Job? = null
     private val weatherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     //Weather
+    //sessionID
+    private var sessionId: String = ""
+    //sessionID
 
     data class HeartbeatEvent(val timestamp: Long)
 
@@ -269,6 +272,15 @@ class ForegroundService : Service() {
 
         requestHighPriority()
         startHeartbeat()
+        createSessionID()
+    }
+
+    private fun createSessionID() {
+        sessionId = Tools().generateSessionId(firstname)
+        getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("current_session_id", sessionId)
+            .apply()
     }
 
     private fun requestHighPriority() {
@@ -780,16 +792,16 @@ class ForegroundService : Service() {
 
          private fun triggerLocationChange(customLocationListener: CustomLocationListener) {
              val mockLocationStart = android.location.Location(LocationManager.GPS_PROVIDER).apply {
-                 latitude = 48.181894
-                 longitude = 16.360820
+                 latitude = 53.9612919
+                 longitude = -6.3868329
                  speed = 3.0f
                  altitude = 10.0
                  accuracy = 5.0f
              }
 
              val mockLocationEnd = android.location.Location(LocationManager.GPS_PROVIDER).apply {
-                 latitude = 48.1989050245536
-                 longitude = 16.94202690892697
+                 latitude = 55.9612919
+                 longitude = -4.3868329
                  speed = 3.0f
                  altitude = 10.0
                  accuracy = 5.0f

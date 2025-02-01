@@ -4,7 +4,6 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.UUID
 
 class Tools {
     private val EARTH_RADIUS = 6371008.8
@@ -61,11 +60,9 @@ class Tools {
         var formattedTimestamp = now.format(formatter)
         return formattedTimestamp
     }
-
-    fun createUUID(): String {
-        val uuid = UUID.randomUUID()
-        val uuidFromString = UUID.fromString("123e4567-b12b-123a-a123-817714174999")
-        val uuidString = UUID.randomUUID().toString()
-        return uuidString
+    fun generateSessionId(firstname: String): String {
+        val timestamp = LocalDateTime.now()
+            .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
+        return "${firstname}_$timestamp"
     }
 }

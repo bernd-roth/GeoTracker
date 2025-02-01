@@ -14,6 +14,7 @@ import at.co.netconsulting.geotracker.tools.calculateElevationChanges
 import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.data.MemoryPressureReliefEvent
+import at.co.netconsulting.geotracker.data.PathTrackingData
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getTotalAscent
@@ -36,6 +37,7 @@ import okio.ByteString
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
+import org.osmdroid.util.GeoPoint
 import timber.log.Timber
 import java.time.Duration
 import java.time.LocalDateTime
@@ -81,9 +83,12 @@ class CustomLocationListener: LocationListener {
     private var isConnectionHealthy = AtomicBoolean(false)
     private var connectionMonitorJob: Job? = null
     private val maxCacheSize = 1000
+    private val pathPoints = mutableListOf<GeoPoint>()
 
     data class LocationChangeEvent(val latLngs: List<LatLng>)
     data class AdjustLocationFrequencyEvent(val reduceFrequency: Boolean)
+
+    fun getCollectedPoints(): List<GeoPoint> = pathPoints.toList()
 
     constructor(context: Context) {
         EventBus.getDefault().register(this)
@@ -264,56 +269,117 @@ class CustomLocationListener: LocationListener {
 
     override fun onLocationChanged(location: Location) {
         location?.let {
-            Log.d("CustomLocationListener", "Latitude: ${location!!.latitude} / Longitude: ${location!!.longitude}")
-            if(checkSpeed(it.speed)) {
-                if(oldLatitude != location.latitude || oldLongitude != location.longitude) {
+            Log.d("CustomLocationListener", "Latitude: ${location.latitude} / Longitude: ${location.longitude}")
+            if (checkSpeed(it.speed)) {
+                if (oldLatitude != location.latitude || oldLongitude != location.longitude) {
                     Log.d("CustomLocationListener", "New coordinates detected...")
+
+                    // Calculate distance and other metrics
                     val (coveredDistance, distanceIncrement) = calculateDistance(it)
                     averageSpeed = calculateAverageSpeed(coveredDistance)
                     lap = calculateLap(distanceIncrement)
                     calculateElevationChanges(location, oldLatitude, oldLongitude)
+
+                    // Add point to both tracking collections
+                    val newPoint = GeoPoint(location.latitude, location.longitude)
+                    pathPoints.add(newPoint)
                     latLngs.add(LatLng(location.latitude, location.longitude))
+
+                    // Manage cache size for memory efficiency
                     manageCacheSize()
-                    //sendDataToEventBus(LocationEvent(it.latitude,it.longitude,(it.speed / 1000) * 3600,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs),getTotalAscent(),getTotalDescent()))
-                    sendDataToEventBus(LocationEvent(
-                        it.latitude,
-                        it.longitude,
-                        (it.speed / 1000) * 3600,
-                        it.speedAccuracyMetersPerSecond,
-                        it.altitude,
-                        it.accuracy,
-                        it.verticalAccuracyMeters,
-                        coveredDistance,
-                        lap,
-                        startDateTime,
-                        averageSpeed,
-                        LocationChangeEvent(latLngs),
-                        getTotalAscent(),
-                        getTotalDescent()
-                    ))
-                    //sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),(it.speed / 1000) * 3600,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed)))
-                    sendDataToWebsocketServer(Gson().toJson(
-                        FellowRunner(
-                            firstname,
-                            firstname,
-                            location.latitude,
-                            location.longitude,
-                            coveredDistance.toString(),
-                            (it.speed / 1000) * 3600,
-                            it.altitude.toString(),
-                            formattedTimestamp = Tools().formatCurrentTimestamp(),
-                            averageSpeed,
-                            getTotalAscent(),
-                            getTotalDescent()
+
+                    // Create path tracking data for complete path persistence
+                    val pathTrackingData = PathTrackingData(
+                        points = pathPoints.toList(),
+                        isRecording = true,
+                        startPoint = pathPoints.firstOrNull()
+                    )
+
+                    // Send location event with all necessary data
+                    sendDataToEventBus(
+                        LocationEvent(
+                            latitude = it.latitude,
+                            longitude = it.longitude,
+                            speed = (it.speed / 1000) * 3600,
+                            speedAccuracyMetersPerSecond = it.speedAccuracyMetersPerSecond,
+                            altitude = it.altitude,
+                            horizontalAccuracy = it.accuracy,
+                            verticalAccuracyMeters = it.verticalAccuracyMeters,
+                            coveredDistance = coveredDistance,
+                            lap = lap,
+                            startDateTime = startDateTime,
+                            averageSpeed = averageSpeed,
+                            locationChangeEventList = LocationChangeEvent(latLngs),
+                            totalAscent = getTotalAscent(),
+                            totalDescent = getTotalDescent()
                         )
-                    ))
+                    )
+
+                    // Send path tracking data event
+                    EventBus.getDefault().post(pathTrackingData)
+
+                    // Send data to websocket server
+                    sendDataToWebsocketServer(
+                        Gson().toJson(
+                            FellowRunner(
+                                person = firstname,
+                                sessionId = firstname,
+                                latitude = location.latitude,
+                                longitude = location.longitude,
+                                distance = coveredDistance.toString(),
+                                speed = (it.speed / 1000) * 3600,
+                                altitude = it.altitude.toString(),
+                                formattedTimestamp = Tools().formatCurrentTimestamp(),
+                                averageSpeed = averageSpeed,
+                                totalAscent = getTotalAscent(),
+                                totalDescent = getTotalDescent()
+                            )
+                        )
+                    )
                 } else {
                     Log.d("CustomLocationListener", "Duplicate coordinates ignored")
                 }
             } else {
                 Log.d("CustomLocationListener", "Speed is 0.0 km/h")
-                sendDataToEventBus(LocationEvent(it.latitude,it.longitude,0F,it.speedAccuracyMetersPerSecond,it.altitude,it.accuracy,it.verticalAccuracyMeters,coveredDistance,lap,startDateTime,averageSpeed,LocationChangeEvent(latLngs), getTotalAscent(), getTotalDescent()))
-                sendDataToWebsocketServer(Gson().toJson(FellowRunner(firstname,firstname,location.latitude,location.longitude,coveredDistance.toString(),0F,it.altitude.toString(),formattedTimestamp = Tools().formatCurrentTimestamp(),averageSpeed, getTotalAscent(), getTotalDescent())))
+
+                // Even for zero speed, send updates with current state
+                sendDataToEventBus(
+                    LocationEvent(
+                        latitude = it.latitude,
+                        longitude = it.longitude,
+                        speed = 0F,
+                        speedAccuracyMetersPerSecond = it.speedAccuracyMetersPerSecond,
+                        altitude = it.altitude,
+                        horizontalAccuracy = it.accuracy,
+                        verticalAccuracyMeters = it.verticalAccuracyMeters,
+                        coveredDistance = coveredDistance,
+                        lap = lap,
+                        startDateTime = startDateTime,
+                        averageSpeed = averageSpeed,
+                        locationChangeEventList = LocationChangeEvent(latLngs),
+                        totalAscent = getTotalAscent(),
+                        totalDescent = getTotalDescent()
+                    )
+                )
+
+                // Send zero speed update to websocket
+                sendDataToWebsocketServer(
+                    Gson().toJson(
+                        FellowRunner(
+                            person = firstname,
+                            sessionId = firstname,
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            distance = coveredDistance.toString(),
+                            speed = 0F,
+                            altitude = it.altitude.toString(),
+                            formattedTimestamp = Tools().formatCurrentTimestamp(),
+                            averageSpeed = averageSpeed,
+                            totalAscent = getTotalAscent(),
+                            totalDescent = getTotalDescent()
+                        )
+                    )
+                )
             }
         }
     }
