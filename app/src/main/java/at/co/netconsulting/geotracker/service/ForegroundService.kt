@@ -272,7 +272,7 @@ class ForegroundService : Service() {
     }
 
     private fun createSessionID() {
-        sessionId = Tools().generateSessionId(firstname)
+        sessionId = Tools().generateSessionId(firstname, this)
         getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
             .edit()
             .putString("current_session_id", sessionId)

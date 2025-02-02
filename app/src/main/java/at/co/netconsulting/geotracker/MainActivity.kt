@@ -1855,7 +1855,7 @@ class MainActivity : ComponentActivity() {
             confirmButton = {
                 Button(onClick = {
                     // Generate session ID
-                    val sessionId = Tools().generateSessionId(firstname)
+                    val sessionId = Tools().generateSessionId(firstname, context)
 
                     // Save session ID to SharedPreferences
                     context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)

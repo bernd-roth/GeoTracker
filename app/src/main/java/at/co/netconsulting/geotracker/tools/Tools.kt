@@ -1,5 +1,7 @@
 package at.co.netconsulting.geotracker.tools
 
+import android.content.Context
+import android.provider.Settings
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -60,9 +62,11 @@ class Tools {
         var formattedTimestamp = now.format(formatter)
         return formattedTimestamp
     }
-    fun generateSessionId(firstname: String): String {
-        val timestamp = LocalDateTime.now()
-            .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
-        return "${firstname}_$timestamp"
+    fun generateSessionId(firstname: String, context: Context): String {
+        val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmssSSS"))
+        val deviceId = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        val random = (0..999999).random().toString().padStart(6, '0')
+
+        return "${firstname}_${timestamp}_${deviceId}_$random"
     }
 }

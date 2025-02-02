@@ -62,9 +62,6 @@ class CustomLocationListener: LocationListener {
     private var webSocket: WebSocket? = null
     private var fellowRunnerPerson: String? = null
     private var fellowRunnerSessionId: String? = null
-    private val currentLatitude: Double = 0.0
-    private val currentLongitude: Double = 0.0
-    private val altitude: Double = 0.0
     private var fellowRunnerLatitude: Double = 0.0
     private var fellowRunnerLongitude: Double = 0.0
     private var fellowRunnerCurrentSpeed: Double = 0.0
@@ -84,6 +81,7 @@ class CustomLocationListener: LocationListener {
     private var connectionMonitorJob: Job? = null
     private val maxCacheSize = 1000
     private val pathPoints = mutableListOf<GeoPoint>()
+    private var sessionId: String? = null
 
     data class LocationChangeEvent(val latLngs: List<LatLng>)
     data class AdjustLocationFrequencyEvent(val reduceFrequency: Boolean)
@@ -323,7 +321,7 @@ class CustomLocationListener: LocationListener {
                         Gson().toJson(
                             FellowRunner(
                                 person = firstname,
-                                sessionId = firstname,
+                                sessionId = sessionId ?: Tools().generateSessionId(firstname, context).also { sessionId = it },
                                 latitude = location.latitude,
                                 longitude = location.longitude,
                                 distance = coveredDistance.toString(),
@@ -367,7 +365,7 @@ class CustomLocationListener: LocationListener {
                     Gson().toJson(
                         FellowRunner(
                             person = firstname,
-                            sessionId = firstname,
+                            sessionId = sessionId ?: Tools().generateSessionId(firstname, context).also { sessionId = it },
                             latitude = location.latitude,
                             longitude = location.longitude,
                             distance = coveredDistance.toString(),
