@@ -22,7 +22,6 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
-import android.view.View
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -110,7 +109,7 @@ import at.co.netconsulting.geotracker.data.EditState
 import at.co.netconsulting.geotracker.data.EventDetails
 import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.LocationEvent
-import at.co.netconsulting.geotracker.data.MemoryPressureEvent
+import at.co.netconsulting.geotracker.data.MapState
 import at.co.netconsulting.geotracker.data.PathTrackingData
 import at.co.netconsulting.geotracker.data.SavedLocationData
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
@@ -171,8 +170,6 @@ class MainActivity : ComponentActivity() {
     private val locationChangeEventState = mutableStateOf(CustomLocationListener.LocationChangeEvent(emptyList()))
     private lateinit var mapView: MapView
     private lateinit var polyline: Polyline
-    private var usedInFixCount = 0
-    private var satelliteCount = 0
     private lateinit var marker: Marker
     private val PERMISSION_REQUEST_CODE = 1001
     private val permissions = listOf(
@@ -226,13 +223,8 @@ class MainActivity : ComponentActivity() {
     private fun updateMapWithFullPath(points: List<GeoPoint>) {
         if (!::mapView.isInitialized) return
 
-        // Remove existing polyline
-        val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
-        if (oldPolyline != null) {
-            mapView.overlays.remove(oldPolyline)
-        }
+        mapView.overlays.removeAll { it is Polyline }
 
-        // Create new polyline with all points
         if (points.isNotEmpty()) {
             polyline = Polyline().apply {
                 outlinePaint.strokeWidth = 10f
@@ -242,9 +234,8 @@ class MainActivity : ComponentActivity() {
             mapView.overlays.add(polyline)
 
             // Update marker if needed
-            createMarker(LatLng(points.first().latitude, points.first().longitude))
-
-            mapView.invalidate()
+            val firstPoint = points.first()
+            createMarker(LatLng(firstPoint.latitude, firstPoint.longitude))
         }
     }
 
@@ -270,35 +261,21 @@ class MainActivity : ComponentActivity() {
         )
         locationEventState.value = event
         latitudeState.value = event.latitude
-        longitudeState.value = event.longitude
-        speedState.value = event.speed
-        speedAccuracyInMetersState.value = event.speedAccuracyMetersPerSecond
-        altitudeState.value = event.altitude
-        verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
-        coveredDistanceState.value = event.coveredDistance
-        startDateTimeState.value = event.startDateTime
-        locationChangeEventState.value = event.locationChangeEventList
-        horizontalAccuracyInMetersState.value = event.horizontalAccuracy
-        usedInFixCount = satelliteInfoManager.currentSatelliteInfo.value.visibleSatellites
-        satelliteCount = satelliteInfoManager.currentSatelliteInfo.value.totalSatellites
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            val newPoints = locationChangeEventState.value.latLngs.map {
+            val newPoints = event.locationChangeEventList.latLngs.map {
                 GeoPoint(it.latitude, it.longitude)
             }
 
             if (newPoints.isNotEmpty() && !(newPoints.last().latitude == 0.0 && newPoints.last().longitude == 0.0)) {
-                savedLocationData = SavedLocationData(newPoints, true)
-                persistedRoutePoints = newPoints.toMutableList()  // Save immediately for persistence
+                pathTrackingData = PathTrackingData(
+                    points = newPoints,
+                    isRecording = true,
+                    startPoint = newPoints.firstOrNull()
+                )
 
                 if (::mapView.isInitialized) {
-                    val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
-                    if (oldPolyline != null) {
-                        oldPolyline.setPoints(newPoints)
-                        mapView.invalidate()
-                    } else {
-                        drawPolyline(locationChangeEventState.value)
-                    }
+                    updateMapWithFullPath(newPoints)
                 }
             }
         }
@@ -1947,8 +1924,7 @@ class MainActivity : ComponentActivity() {
 
         // Fresh start vs restored state logic
         if (savedInstanceState != null) {
-            // Try to restore path from PathTrackingData first
-            savedInstanceState.getString("pathPoints")?.let { pointsString ->
+            savedInstanceState.getString("pathTrackingData")?.let { pointsString ->
                 try {
                     val points = pointsString.split("|")
                         .map { pointStr ->
@@ -1964,32 +1940,13 @@ class MainActivity : ComponentActivity() {
                     Log.e("MainActivity", "Error restoring path tracking data", e)
                 }
             }
-
-            // Fallback to polyline points if needed
-            if (pathTrackingData == null) {
-                savedInstanceState.getString("polylinePoints")?.let { pointsString ->
-                    try {
-                        val points = pointsString.split("|")
-                            .map { pointStr ->
-                                val (lat, lon) = pointStr.split(",")
-                                GeoPoint(lat.toDouble(), lon.toDouble())
-                            }
-                        persistedRoutePoints = points.toMutableList()
-                    } catch (e: Exception) {
-                        Log.e("MainActivity", "Error restoring polyline points", e)
-                    }
-                }
-            }
         } else {
             clearSavedMapState()
             persistedMapCenter = GeoPoint(48.2082, 16.3738)
             persistedZoomLevel = 12.0
         }
 
-        // Initialize satellite info manager
         satelliteInfoManager = SatelliteInfoManager(this)
-
-        // Check service state and initialize services
         checkServiceStateOnStart()
 
         // Register activity lifecycle callbacks
@@ -2057,106 +2014,91 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun saveMapState() {
-        if (::mapView.isInitialized) {
-            val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
-            val editor = sharedPreferences.edit()
+        if (!::mapView.isInitialized) return
 
-            // Save zoom level first (keeping existing functionality)
-            persistedZoomLevel = mapView.zoomLevelDouble
-            editor.putFloat("zoomLevel", persistedZoomLevel?.toFloat() ?: 15f)
+        val state = MapState(
+            points = pathTrackingData?.points ?:
+            (if (::polyline.isInitialized) polyline.actualPoints else emptyList()),
+            zoomLevel = mapView.zoomLevelDouble,
+            center = mapView.mapCenter as? GeoPoint,
+            isRecording = isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+        )
 
-            // Save map center (keeping existing functionality)
-            persistedMapCenter = mapView.mapCenter as? GeoPoint
-            persistedMapCenter?.let { center ->
-                editor.putString("mapCenter", "${center.latitude},${center.longitude}")
+        val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
+        sharedPreferences.edit().apply {
+            putString("points", state.points.joinToString("|") { "${it.latitude},${it.longitude}" })
+            putFloat("zoomLevel", state.zoomLevel?.toFloat() ?: 15f)
+            state.center?.let { center ->
+                putString("mapCenter", "${center.latitude},${center.longitude}")
             }
+            putBoolean("isRecording", state.isRecording)
 
-            // Save current location data if available
+            // Keep existing location data if available
             if (locationChangeEventState.value.latLngs.isNotEmpty()) {
                 val points = locationChangeEventState.value.latLngs
                 val pointsString = points.joinToString("|") { "${it.latitude},${it.longitude}" }
-                editor.putString("currentRoutePoints", pointsString)
+                putString("currentRoutePoints", pointsString)
             }
 
-            // Save persisted route points
-            if (persistedRoutePoints.isNotEmpty()) {
-                val pointsString = persistedRoutePoints.joinToString("|") { "${it.latitude},${it.longitude}" }
-                editor.putString("persistedRoutePoints", pointsString)
-            }
-
-            // Save active recording state
-            editor.putBoolean("isActiveRecording",
-                isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService"))
-
-            editor.apply()
+            apply()
         }
     }
 
     private fun restoreMapState() {
-        if (::mapView.isInitialized) {
-            val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
+        if (!::mapView.isInitialized) return
 
-            // First restore zoom level (keeping existing functionality)
-            persistedZoomLevel = sharedPreferences.getFloat("zoomLevel", 4f).toDouble()
-            persistedZoomLevel?.let { zoom ->
-                mapView.controller.setZoom(zoom)
-            }
+        val sharedPreferences = getSharedPreferences("MapState", Context.MODE_PRIVATE)
 
-            // Restore map center (keeping existing functionality)
+        try {
+            // First restore zoom level
+            val zoomLevel = sharedPreferences.getFloat("zoomLevel", 4f).toDouble()
+            mapView.controller.setZoom(zoomLevel)
+
+            // Restore map center
             sharedPreferences.getString("mapCenter", null)?.let { centerStr ->
                 val (lat, lon) = centerStr.split(",")
-                persistedMapCenter = GeoPoint(lat.toDouble(), lon.toDouble())
-                mapView.controller.setCenter(persistedMapCenter)
+                val center = GeoPoint(lat.toDouble(), lon.toDouble())
+                mapView.controller.setCenter(center)
             }
 
             // Restore path data
             val currentPointsString = sharedPreferences.getString("currentRoutePoints", null)
-            val persistedPointsString = sharedPreferences.getString("persistedRoutePoints", null)
-            val isActiveRecording = sharedPreferences.getBoolean("isActiveRecording", false)
+            val isActiveRecording = sharedPreferences.getBoolean("isRecording", false)
 
-            try {
-                // Restore points based on recording state
-                val pointsToUse = when {
-                    isActiveRecording && currentPointsString != null -> currentPointsString
-                    persistedPointsString != null -> persistedPointsString
-                    else -> null
-                }
+            if (isActiveRecording && currentPointsString != null) {
+                val points = currentPointsString.split("|")
+                    .map { pointStr ->
+                        val (lat, lon) = pointStr.split(",")
+                        GeoPoint(lat.toDouble(), lon.toDouble())
+                    }
 
-                pointsToUse?.let { pointsString ->
+                pathTrackingData = PathTrackingData(
+                    points = points,
+                    isRecording = true,
+                    startPoint = points.firstOrNull()
+                )
+
+                // Update location state if recording
+                locationChangeEventState.value = CustomLocationListener.LocationChangeEvent(
+                    points.map { LatLng(it.latitude, it.longitude) }
+                )
+
+                updateMapWithFullPath(points)
+            } else {
+                // Restore from persistent points if not recording
+                sharedPreferences.getString("points", null)?.let { pointsString ->
                     val points = pointsString.split("|")
                         .map { pointStr ->
                             val (lat, lon) = pointStr.split(",")
                             GeoPoint(lat.toDouble(), lon.toDouble())
                         }
-
-                    // Update the state
-                    persistedRoutePoints = points.toMutableList()
-
-                    // Update location state if recording
-                    if (isActiveRecording) {
-                        locationChangeEventState.value = CustomLocationListener.LocationChangeEvent(
-                            points.map { LatLng(it.latitude, it.longitude) }
-                        )
-                    }
-
-                    // Redraw the polyline
-                    val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
-                    if (oldPolyline != null) {
-                        mapView.overlays.remove(oldPolyline)
-                    }
-
-                    polyline = Polyline().apply {
-                        outlinePaint.strokeWidth = 10f
-                        outlinePaint.color = ContextCompat.getColor(this@MainActivity, android.R.color.holo_purple)
-                        setPoints(points)
-                    }
-                    mapView.overlays.add(polyline)
-
-                    mapView.invalidate()
+                    updateMapWithFullPath(points)
                 }
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Error restoring map state", e)
             }
+
+            mapView.invalidate()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error restoring map state", e)
         }
     }
 
@@ -2164,21 +2106,15 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         satelliteInfoManager.stopListening()
         if (::mapView.isInitialized) {
-            // Save zoom level and map center (keeping existing functionality)
-            persistedZoomLevel = mapView.zoomLevelDouble
-            persistedMapCenter = mapView.mapCenter as? GeoPoint
-
-            // Save path data
+            // Save map state
             saveMapState()
-
             mapView.onPause()
         }
     }
 
     override fun onResume() {
         super.onResume()
-
-        // Start satellite tracking
+        // Restore satellite tracking
         satelliteInfoManager.startListening()
 
         if (::mapView.isInitialized) {
@@ -2187,16 +2123,8 @@ class MainActivity : ComponentActivity() {
                 updateMapWithFullPath(data.points)
             }
 
-            // Then restore map state (zoom, center, etc.)
+            // Then restore map state
             restoreMapState()
-
-            // Apply any pending zoom/center changes
-            if (persistedZoomLevel != null && mapView.zoomLevelDouble != persistedZoomLevel) {
-                mapView.controller.setZoom(persistedZoomLevel!!)
-            }
-            if (persistedMapCenter != null) {
-                mapView.controller.setCenter(persistedMapCenter)
-            }
 
             // Required OSMDroid lifecycle calls
             mapView.onResume()
@@ -2242,18 +2170,10 @@ class MainActivity : ComponentActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
 
-        // First try to save from PathTrackingData as it's more reliable
         pathTrackingData?.let { data ->
             val pointsString = data.points.joinToString("|") { "${it.latitude},${it.longitude}" }
-            outState.putString("pathPoints", pointsString)
+            outState.putString("pathTrackingData", pointsString)
             outState.putBoolean("isRecording", data.isRecording)
-        } ?: run {
-            // Fallback to polyline points if PathTrackingData is null
-            if (::polyline.isInitialized && polyline.actualPoints != null) {
-                val points = polyline.actualPoints
-                val pointsString = points.joinToString("|") { "${it.latitude},${it.longitude}" }
-                outState.putString("polylinePoints", pointsString)
-            }
         }
     }
 
