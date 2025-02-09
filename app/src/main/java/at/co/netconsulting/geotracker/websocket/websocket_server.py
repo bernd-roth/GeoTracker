@@ -114,6 +114,8 @@ class TrackingServer:
             "longitude",
             "distance",
             "currentSpeed",
+            "maxSpeed",
+            "movingAverageSpeed",
             "averageSpeed"
         ]
 
@@ -127,6 +129,9 @@ class TrackingServer:
         return {
             "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
             **message_data,
+            "currentSpeed": float(message_data["currentSpeed"]),
+            "maxSpeed": float(message_data["maxSpeed"]),
+            "movingAverageSpeed": float(message_data["movingAverageSpeed"]),
             "averageSpeed": float(message_data["averageSpeed"])
         }
 
@@ -147,6 +152,8 @@ class TrackingServer:
                     if message == "ping":
                         await websocket.send("pong")
                         continue
+
+                    logging.info(f"Received message: {message}")
 
                     message_data = json.loads(message)
 

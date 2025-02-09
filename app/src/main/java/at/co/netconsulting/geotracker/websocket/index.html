@@ -21,13 +21,35 @@
 
         #gpxUpload {
           position: absolute;
-          top: 80px;
-          left: 10px;
+          top: 12px;
+          left: 50px;
           z-index: 1000;
           background-color: white;
-          padding: 10px;
-          border-radius: 5px;
-          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+          padding: 5px;
+          border-radius: 4px;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+          display: flex;
+          gap: 5px;
+          align-items: center;
+        }
+
+        #gpxUpload input[type="file"] {
+          font-size: 12px;
+          max-width: 200px;
+        }
+
+        #gpxUpload button {
+          padding: 4px 8px;
+          background-color: white;
+          border: 2px solid rgba(0,0,0,0.2);
+          border-radius: 4px;
+          font-size: 12px;
+          cursor: pointer;
+          color: #666;
+        }
+
+        #gpxUpload button:hover {
+          background-color: #f4f4f4;
         }
 
         #speedDisplay {
@@ -98,7 +120,6 @@
           position: fixed;
           bottom: 10px;
           left: 10px;
-          /* Changed from 50% to align left */
           background-color: white;
           padding: 5px 10px;
           border-radius: 3px;
@@ -108,7 +129,6 @@
           color: #333;
           z-index: 1000;
           transform: none;
-          /* Remove the centering transform */
           display: inline-block;
         }
     </style>
@@ -169,6 +189,10 @@
     let userColors = {};
     let trackPoints = {};
     let isProcessingBatch = false;
+
+    function getRandomInRange(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
 
     function initMap() {
         const initialLocation = [48.1818798, 16.3607528];
@@ -332,35 +356,39 @@
         });
     }
 
-    function handlePoint(data) {
-        if (!data || isProcessingBatch) return;
+function handlePoint(data) {
+    if (!data || isProcessingBatch) return;
 
-        const sessionId = data.sessionId || "default";
-        const processedPoint = {
-            lat: parseFloat(data.latitude),
-            lng: parseFloat(data.longitude),
-            distance: parseFloat(data.distance) / 1000,
-            altitude: parseFloat(data.altitude || 0),
-            speed: parseFloat(data.currentSpeed || 0),
-            averageSpeed: parseFloat(data.averageSpeed || 0),
-            timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'))
-        };
+    const sessionId = data.sessionId || "default";
+    const processedPoint = {
+        lat: parseFloat(data.latitude),
+        lng: parseFloat(data.longitude),
+        distance: parseFloat(data.distance) / 1000,
+        altitude: parseFloat(data.altitude || 0),
+        speed: parseFloat(data.currentSpeed || 0),
+        averageSpeed: parseFloat(data.averageSpeed || 0),
+        maxSpeed: parseFloat(data.maxSpeed || 0),  // Add this line
+        movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),  // Add this line
+        timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'))
+    };
 
-        if (!trackPoints[sessionId]) {
-            trackPoints[sessionId] = [];
-        }
-
-        trackPoints[sessionId].push(processedPoint);
-
-        // Use requestAnimationFrame for smooth updates
-        requestAnimationFrame(() => {
-            updateMapTrack(sessionId);
-            updateCharts(sessionId);
-            updateSpeedDisplay(sessionId, processedPoint.speed, {
-                averageSpeed: processedPoint.averageSpeed
-            });
-        });
+    if (!trackPoints[sessionId]) {
+        trackPoints[sessionId] = [];
     }
+
+    trackPoints[sessionId].push(processedPoint);
+
+    // Use requestAnimationFrame for smooth updates
+    requestAnimationFrame(() => {
+        updateMapTrack(sessionId);
+        updateCharts(sessionId);
+        updateSpeedDisplay(sessionId, processedPoint.speed, {
+            averageSpeed: processedPoint.averageSpeed,
+            maxSpeed: processedPoint.maxSpeed,  // Pass maxSpeed
+            movingAverageSpeed: processedPoint.movingAverageSpeed  // Pass movingAverageSpeed
+        });
+    });
+}
 
     function updateMapTrack(sessionId) {
         const points = trackPoints[sessionId];
@@ -456,6 +484,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
     if (defaultDisplay && sessionId) {
         defaultDisplay.remove();
     }
+
     let speedContainer = document.getElementById(`speed-${sessionId}`);
     if (!speedContainer) {
         const speedDisplay = document.getElementById('speedDisplay');
@@ -506,20 +535,32 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
     // Update current speed
     const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
-    currentSpeedElement.textContent = speed.toFixed(1);
-    currentSpeedElement.style.color = speed < 5 ? '#2196F3' : speed < 10 ? '#4CAF50' : '#F44336';
+    if (currentSpeedElement) {
+        currentSpeedElement.textContent = speed.toFixed(1);
+        currentSpeedElement.style.color = getSpeedColor(speed);
+    }
 
-    // Update max speed
-    history.maxSpeed = Math.max(history.maxSpeed, speed);
-    document.getElementById(`maxSpeed-${sessionId}`).textContent = history.maxSpeed.toFixed(1);
+    // Update max speed from the data
+    const maxSpeedElement = document.getElementById(`maxSpeed-${sessionId}`);
+    if (maxSpeedElement && data.maxSpeed !== undefined) {
+        history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
+        maxSpeedElement.textContent = history.maxSpeed.toFixed(1);
+        maxSpeedElement.style.color = getSpeedColor(history.maxSpeed);
+    }
 
     // Update average speed
-    document.getElementById(`avgSpeed-${sessionId}`).textContent = data.averageSpeed.toFixed(1);
+    const avgSpeedElement = document.getElementById(`avgSpeed-${sessionId}`);
+    if (avgSpeedElement && data.averageSpeed !== undefined) {
+        avgSpeedElement.textContent = data.averageSpeed.toFixed(1);
+        avgSpeedElement.style.color = getSpeedColor(data.averageSpeed);
+    }
 
-    // Calculate moving average
-    const recentSpeeds = history.speeds.slice(-5);
-    history.movingAvg = recentSpeeds.reduce((a, b) => a + b, 0) / recentSpeeds.length;
-    document.getElementById(`movingAvg-${sessionId}`).textContent = history.movingAvg.toFixed(1);
+    // Update moving average
+    const movingAvgElement = document.getElementById(`movingAvg-${sessionId}`);
+    if (movingAvgElement && data.movingAverageSpeed !== undefined) {
+        movingAvgElement.textContent = data.movingAverageSpeed.toFixed(1);
+        movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
+    }
 
     // Clean up old sessions
     cleanupOldSessions();
@@ -547,11 +588,31 @@ function cleanupOldSessions() {
 
     function getColorForUser(sessionId) {
         if (!userColors[sessionId]) {
-            const { name } = parseSessionId(sessionId);
-            const hash = name.split('').reduce((acc, char) => {
+            // Generate random RGB values within specific ranges to ensure visibility
+            // We'll avoid very light colors (high values) and very dark colors (low values)
+            const ranges = [
+                // R, G, B ranges for different color characteristics
+                [150, 255, 0, 100, 0, 100],    // Reddish
+                [0, 100, 150, 255, 0, 100],    // Greenish
+                [0, 100, 0, 100, 150, 255],    // Bluish
+                [150, 255, 150, 255, 0, 100],  // Yellowish
+                [150, 255, 0, 100, 150, 255],  // Purplish
+                [0, 100, 150, 255, 150, 255]   // Cyanish
+            ];
+
+            // Use the sessionId to consistently select a range
+            const hash = sessionId.split('').reduce((acc, char) => {
                 return char.charCodeAt(0) + ((acc << 5) - acc);
             }, 0);
-            userColors[sessionId] = `hsl(${Math.abs(hash) % 360}, 70%, 50%)`;
+
+            const selectedRange = ranges[Math.abs(hash) % ranges.length];
+
+            // Generate random RGB values within the selected range
+            const r = getRandomInRange(selectedRange[0], selectedRange[1]);
+            const g = getRandomInRange(selectedRange[2], selectedRange[3]);
+            const b = getRandomInRange(selectedRange[4], selectedRange[5]);
+
+            userColors[sessionId] = `rgb(${r}, ${g}, ${b})`;
         }
         return userColors[sessionId];
     }

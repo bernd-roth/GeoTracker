@@ -39,7 +39,6 @@ import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.util.GeoPoint
 import timber.log.Timber
-import java.time.Duration
 import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -82,6 +81,9 @@ class CustomLocationListener: LocationListener {
     private val maxCacheSize = 1000
     private val pathPoints = mutableListOf<GeoPoint>()
     private var sessionId: String? = null
+    private var maxSpeedRecorded: Double = 0.0
+    private val speedQueue = ArrayDeque<Double>(5) //moving average
+    private val allSpeeds = mutableListOf<Double>()
 
     data class LocationChangeEvent(val latLngs: List<LatLng>)
     data class AdjustLocationFrequencyEvent(val reduceFrequency: Boolean)
@@ -293,6 +295,7 @@ class CustomLocationListener: LocationListener {
                         startPoint = pathPoints.firstOrNull()
                     )
 
+                    updateMaxSpeed(it.speed)
                     // Send location event with all necessary data
                     sendDataToEventBus(
                         LocationEvent(
@@ -316,6 +319,7 @@ class CustomLocationListener: LocationListener {
                     // Send path tracking data event
                     EventBus.getDefault().post(pathTrackingData)
 
+                    val currentAvgSpeed = calculateAverageSpeed(coveredDistance)
                     // Send data to websocket server
                     sendDataToWebsocketServer(
                         Gson().toJson(
@@ -325,10 +329,12 @@ class CustomLocationListener: LocationListener {
                                 latitude = location.latitude,
                                 longitude = location.longitude,
                                 distance = coveredDistance.toString(),
-                                speed = (it.speed / 1000) * 3600,
+                                speed = (it.speed / 1000) * 3600,  // Convert to km/h
+                                maxSpeed = maxSpeedRecorded,
+                                movingAverageSpeed = calculateMovingAverage(it.speed),
+                                averageSpeed = currentAvgSpeed,
                                 altitude = it.altitude.toString(),
                                 formattedTimestamp = Tools().formatCurrentTimestamp(),
-                                averageSpeed = averageSpeed,
                                 totalAscent = getTotalAscent(),
                                 totalDescent = getTotalDescent()
                             )
@@ -360,6 +366,7 @@ class CustomLocationListener: LocationListener {
                     )
                 )
 
+                val currentAvgSpeed = calculateAverageSpeed(coveredDistance)
                 // Send zero speed update to websocket
                 sendDataToWebsocketServer(
                     Gson().toJson(
@@ -369,10 +376,12 @@ class CustomLocationListener: LocationListener {
                             latitude = location.latitude,
                             longitude = location.longitude,
                             distance = coveredDistance.toString(),
-                            speed = 0F,
+                            speed = (it.speed / 1000) * 3600,
+                            maxSpeed = maxSpeedRecorded,
+                            movingAverageSpeed = calculateMovingAverage(it.speed),
+                            averageSpeed = currentAvgSpeed,
                             altitude = it.altitude.toString(),
                             formattedTimestamp = Tools().formatCurrentTimestamp(),
-                            averageSpeed = averageSpeed,
                             totalAscent = getTotalAscent(),
                             totalDescent = getTotalDescent()
                         )
@@ -411,10 +420,11 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun calculateAverageSpeed(coveredDistance: Double): Double {
-        var mCoveredDistance = coveredDistance
-        totalDateTime = LocalDateTime.now()
-        var duration = Duration.between(startDateTime, totalDateTime)
-        return (mCoveredDistance / (duration.toNanos()/1_000_000_000.0)) * 3.6
+        return if (allSpeeds.isNotEmpty()) {
+            allSpeeds.average()
+        } else {
+            0.0
+        }
     }
 
     private fun calculateDistance(location: Location): Pair<Double, Double> {
@@ -568,6 +578,23 @@ class CustomLocationListener: LocationListener {
         // Restore normal frequency
         adjustUpdateFrequency(false)
         Log.i("CustomLocationListener", "Restored default update frequency after memory pressure relief")
+    }
+
+    private fun calculateMovingAverage(currentSpeedMps: Float): Double {
+        val currentSpeedKmh = (currentSpeedMps / 1000) * 3600
+
+        speedQueue.addLast(currentSpeedKmh.toDouble())
+        if (speedQueue.size > 5) {
+            speedQueue.removeFirst()
+        }
+
+        return speedQueue.average()
+    }
+
+    private fun updateMaxSpeed(currentSpeedMps: Float) {
+        val currentSpeedKmh = (currentSpeedMps * 3.6) // Correct conversion from m/s to km/h
+        allSpeeds.add(currentSpeedKmh)
+        maxSpeedRecorded = allSpeeds.maxOrNull() ?: 0.0
     }
 
     companion object {

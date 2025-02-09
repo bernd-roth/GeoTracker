@@ -2,7 +2,6 @@ package at.co.netconsulting.geotracker.service
 
 import android.annotation.SuppressLint
 import android.app.Service
-import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.location.Location
@@ -11,24 +10,17 @@ import android.location.LocationManager
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
-import at.co.netconsulting.geotracker.data.FellowRunner
 import at.co.netconsulting.geotracker.data.LocationEvent
-import at.co.netconsulting.geotracker.data.MemoryPressureEvent
-import at.co.netconsulting.geotracker.data.MemoryPressureReliefEvent
 import at.co.netconsulting.geotracker.location.CustomLocationListener
-import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getTotalAscent
 import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.android.gms.maps.model.LatLng
-import com.google.gson.Gson
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.greenrobot.eventbus.EventBus
-import org.greenrobot.eventbus.Subscribe
-import org.greenrobot.eventbus.ThreadMode
 import java.time.Duration
 import java.time.LocalDateTime
 
@@ -40,7 +32,6 @@ class BackgroundLocationService : Service(), LocationListener {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
-    private var speed: Float = 0f
     private var webSocket: WebSocket? = null
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
@@ -54,7 +45,7 @@ class BackgroundLocationService : Service(), LocationListener {
         startLocationUpdates()
         startDateTime = LocalDateTime.now()
         loadSharedPreferences()
-        initializeWebsocket()
+        //initializeWebsocket()
     }
 
     private fun initializeWebsocket() {
@@ -73,7 +64,7 @@ class BackgroundLocationService : Service(), LocationListener {
         })
     }
 
-    private fun sendToWebsocket(location: Location, coveredDistance: Double) {
+/*    private fun sendToWebsocket(location: Location, coveredDistance: Double) {
         val json: String = Gson().toJson(
             FellowRunner(
                 firstname,
@@ -91,7 +82,7 @@ class BackgroundLocationService : Service(), LocationListener {
         )
         //send json via websocket to server
         webSocket!!.send(json)
-    }
+    }*/
 
     private fun loadSharedPreferences() {
         val sharedPreferences = getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -121,32 +112,32 @@ class BackgroundLocationService : Service(), LocationListener {
             "BackgroundService", "Location Updated: Latitude: ${location.latitude}, " +
                     "Longitude: ${location.longitude}, Accuracy: ${location.accuracy}"
         )
-//        val latLngs = listOf(LatLng(location.latitude, location.longitude))
+        val latLngs = listOf(LatLng(location.latitude, location.longitude))
 
-//        speed = location.speed
+        EventBus.getDefault().post(latLngs.let {
+            CustomLocationListener.LocationChangeEvent(it)
+        }?.let {
+            LocationEvent(
+                location.latitude,
+                location.longitude,
+                location.speed,
+                location.speedAccuracyMetersPerSecond,
+                location.altitude,
+                location.accuracy,
+                location.verticalAccuracyMeters,
+                coveredDistance = coveredDistance,
+                lap = 0,
+                startDateTime = startDateTime,
+                averageSpeed = averageSpeed,
+                it,
+                getTotalAscent(),
+                getTotalDescent()
+            )
+        })
+        val (newCoveredDistance, distanceIncrement) = calculateDistance(location)
+        coveredDistance = newCoveredDistance
+        averageSpeed = calculateAverageSpeed(coveredDistance)
 
-//        EventBus.getDefault().post(latLngs.let {
-//            CustomLocationListener.LocationChangeEvent(it)
-//        }?.let {
-//            LocationEvent(
-//                location.latitude,
-//                location.longitude,
-//                location.speed,
-//                location.speedAccuracyMetersPerSecond,
-//                location.altitude,
-//                location.accuracy,
-//                location.verticalAccuracyMeters,
-//                coveredDistance = coveredDistance,
-//                lap = 0,
-//                startDateTime = startDateTime,
-//                averageSpeed = averageSpeed,
-//                it,
-//                getTotalAscent(),
-//                getTotalDescent()
-//            )
-//        })
-//        val (coveredDistance, distanceIncrement) = calculateDistance(location)
-//        averageSpeed = calculateAverageSpeed(coveredDistance)
         //For now we do not want to see the user on the website
         //sendToWebsocket(location, coveredDistance)
     }
@@ -173,23 +164,49 @@ class BackgroundLocationService : Service(), LocationListener {
 
     private fun calculateDistance(location: Location): Pair<Double, Double> {
         val distanceIncrement: Double
-        if (oldLatitude != -999.0 && oldLongitude != -999.0) {
-            distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(oldLatitude, oldLongitude, location.latitude, location.longitude)
-            coveredDistance += distanceIncrement
+        if (checkSpeed(location)) {
+            if (oldLatitude != -999.0 && oldLongitude != -999.0) {
+                distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
+                    oldLatitude,
+                    oldLongitude,
+                    location.latitude,
+                    location.longitude
+                )
+                coveredDistance += distanceIncrement
+            } else {
+                distanceIncrement = 0.0
+            }
+            oldLatitude = location.latitude
+            oldLongitude = location.longitude
+            Log.d("CustomLocationListener", "Distance Increment: $distanceIncrement")
+            return Pair(coveredDistance, distanceIncrement)
         } else {
-            distanceIncrement = 0.0
+            return Pair(0.0, 0.0)
         }
-        oldLatitude = location.latitude
-        oldLongitude = location.longitude
-        Log.d("CustomLocationListener", "Distance Increment: $distanceIncrement")
-        return Pair(coveredDistance, distanceIncrement)
     }
 
-    private fun calculateAverageSpeed(coveredDistance: Double): Double{
-        var mCoveredDistance = coveredDistance
-        totalDateTime = LocalDateTime.now()
-        var duration = Duration.between(startDateTime, totalDateTime)
-        return (mCoveredDistance / (duration.toNanos()/1_000_000_000.0)) * 3.6
+    private fun checkSpeed(location: Location): Boolean {
+        var speed = location.speed
+        val thresholdInMetersPerSecond = MIN_SPEED_THRESHOLD / 3.6
+        return speed >= thresholdInMetersPerSecond
+    }
+
+    private fun calculateAverageSpeed(coveredDistance: Double): Double {
+        return try {
+            totalDateTime = LocalDateTime.now()
+            val duration = Duration.between(startDateTime, totalDateTime)
+            val durationSeconds = duration.toNanos() / 1_000_000_000.0
+
+            // Check for division by zero or very small values
+            if (durationSeconds > 0.001) {  // Using a small threshold instead of exactly 0
+                (coveredDistance / durationSeconds) * 3.6
+            } else {
+                0.0  // Return 0 if duration is too small
+            }
+        } catch (e: Exception) {
+            Log.e("BackgroundService", "Error calculating average speed", e)
+            0.0  // Return 0 in case of any error
+        }
     }
 
     private fun calculateDistanceBetweenOldLatLngNewLatLng(
@@ -206,56 +223,15 @@ class BackgroundLocationService : Service(), LocationListener {
             //current location
             newLatitude,
             newLongitude,
-            result);
+            result
+        );
         return result[0].toDouble()
-    }
-
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onMemoryPressureEvent(event: MemoryPressureEvent) {
-        when (event.level) {
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
-            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
-                System.gc()
-                // Clear any caches
-                webSocket?.close(1000, "Memory pressure")
-                webSocket = null
-                // Reset tracking variables
-                oldLatitude = -999.0
-                oldLongitude = -999.0
-                // Restart location updates with lower frequency
-                locationManager.removeUpdates(this)
-                startLocationUpdates(lowFrequencyMode = true)
-            }
-            // Add these new cases
-            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
-                // Memory pressure has been relieved
-                EventBus.getDefault().post(MemoryPressureReliefEvent(event.level))
-                startLocationUpdates(lowFrequencyMode = false)
-            }
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun startLocationUpdates(lowFrequencyMode: Boolean = false) {
-        try {
-            val interval = if (lowFrequencyMode) 5000L else MIN_TIME_BETWEEN_UPDATES
-            val distance = if (lowFrequencyMode) 5f else MIN_DISTANCE_BETWEEN_UPDATES
-
-            locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                interval,
-                distance,
-                this
-            )
-        } catch (e: SecurityException) {
-            Log.e("BackgroundService", "Missing permissions for location updates.", e)
-        }
     }
 
     companion object {
         private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
         private const val TAG_WEBSOCKET: String = "BackgroundLocationService: WebSocketService"
+        private val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
     }
 }

@@ -261,6 +261,13 @@ class MainActivity : ComponentActivity() {
         )
         locationEventState.value = event
         latitudeState.value = event.latitude
+        longitudeState.value = event.longitude
+        speedState.value = event.speed
+        speedAccuracyInMetersState.value = event.speedAccuracyMetersPerSecond
+        altitudeState.value = event.altitude
+        horizontalAccuracyInMetersState.value = event.horizontalAccuracy
+        verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
+        coveredDistanceState.value = event.coveredDistance
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
             val newPoints = event.locationChangeEventList.latLngs.map {
