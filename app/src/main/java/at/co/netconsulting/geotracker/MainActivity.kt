@@ -511,7 +511,7 @@ class MainActivity : ComponentActivity() {
                 lap = 0,
                 startDateTime = startDateTimeState.value,
                 averageSpeed = 0.0,
-                locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs),
+                locationChangeEventList = CustomLocationListener.LocationChangeEvent(emptyList()),
                 totalAscent = 0.0,
                 totalDescent = 0.0
             )

@@ -8,128 +8,113 @@
     <style>
         body,
         html {
-          margin: 0;
-          padding: 0;
-          height: 100%;
-          overflow: hidden;
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
         }
-
         #map {
-          height: 67vh;
-          width: 100%;
+        height: 67vh;
+        width: 100%;
         }
-
         #gpxUpload {
-          position: absolute;
-          top: 12px;
-          left: 50px;
-          z-index: 1000;
-          background-color: white;
-          padding: 5px;
-          border-radius: 4px;
-          box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-          display: flex;
-          gap: 5px;
-          align-items: center;
+        position: absolute;
+        top: 12px;
+        left: 50px;
+        z-index: 1000;
+        background-color: white;
+        padding: 5px;
+        border-radius: 4px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        display: flex;
+        gap: 5px;
+        align-items: center;
         }
-
         #gpxUpload input[type="file"] {
-          font-size: 12px;
-          max-width: 200px;
+        font-size: 12px;
+        max-width: 200px;
         }
-
         #gpxUpload button {
-          padding: 4px 8px;
-          background-color: white;
-          border: 2px solid rgba(0,0,0,0.2);
-          border-radius: 4px;
-          font-size: 12px;
-          cursor: pointer;
-          color: #666;
+        padding: 4px 8px;
+        background-color: white;
+        border: 2px solid rgba(0,0,0,0.2);
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        color: #666;
         }
-
         #gpxUpload button:hover {
-          background-color: #f4f4f4;
+        background-color: #f4f4f4;
         }
-
         #speedDisplay {
-          position: absolute;
-          top: 10px;
-          right: 10px;
-          z-index: 1000;
-          background-color: white;
-          padding: 15px;
-          border-radius: 5px;
-          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-          font-family: Arial, sans-serif;
-          width: 250px;
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 1000;
+        background-color: white;
+        padding: 15px;
+        border-radius: 5px;
+        box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+        font-family: Arial, sans-serif;
+        width: 250px;
         }
-
         .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-          padding: 10px;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        padding: 10px;
         }
-
         .stat-box {
-          background-color: #f5f5f5;
-          padding: 10px;
-          border-radius: 4px;
-          text-align: center;
+        background-color: #f5f5f5;
+        padding: 10px;
+        border-radius: 4px;
+        text-align: center;
         }
-
         .speed-value {
-          font-size: 24px;
-          font-weight: bold;
-          color: #2196F3;
+        font-size: 24px;
+        font-weight: bold;
+        color: #2196F3;
         }
-
         .speed-unit {
-          font-size: 14px;
-          color: #666;
+        font-size: 14px;
+        color: #666;
         }
-
         .speed-label {
-          font-size: 12px;
-          color: #999;
-          margin-bottom: 5px;
+        font-size: 12px;
+        color: #999;
+        margin-bottom: 5px;
         }
-
         .charts-container {
-          height: 33vh;
-          width: 100%;
-          display: flex;
-          padding: 0;
+        height: 33vh;
+        width: 100%;
+        display: flex;
+        padding: 0;
         }
-
         #altitudeChartContainer,
         #speedChartContainer {
-          height: 100%;
-          width: 50%;
-          padding: 0;
+        height: 100%;
+        width: 50%;
+        padding: 0;
         }
-
         #altitudeChart,
         #speedChart {
-          height: 100%;
-          width: 100%;
+        height: 100%;
+        width: 100%;
         }
-
         .session-info {
-          position: fixed;
-          bottom: 10px;
-          left: 10px;
-          background-color: white;
-          padding: 5px 10px;
-          border-radius: 3px;
-          box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-          font-family: Arial, sans-serif;
-          font-size: 12px;
-          color: #333;
-          z-index: 1000;
-          transform: none;
-          display: inline-block;
+        position: fixed;
+        bottom: 10px;
+        left: 10px;
+        background-color: white;
+        padding: 5px 10px;
+        border-radius: 3px;
+        box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+        font-family: Arial, sans-serif;
+        font-size: 12px;
+        color: #333;
+        z-index: 1000;
+        transform: none;
+        display: inline-block;
         }
     </style>
 </head>
@@ -231,7 +216,12 @@
                     },
                     min: 0
                 }
-            }
+            },
+            plugins: {
+                legend: {
+                    onClick: handleLegendClick
+                }
+           }
         };
 
         altitudeChart = new Chart(
@@ -272,6 +262,56 @@
                 }
             }
         );
+    }
+
+    function handleLegendClick(e, legendItem, legend) {
+        const index = legendItem.datasetIndex;
+        const sessionId = legend.chart.data.datasets[index].label;
+        const isVisible = legend.chart.isDatasetVisible(index);
+
+        // Toggle visibility in both charts
+        [altitudeChart, speedChart].forEach(chart => {
+            const datasetIndex = chart.data.datasets.findIndex(ds => ds.label === sessionId);
+            if (datasetIndex !== -1) {
+                chart.setDatasetVisibility(datasetIndex, !isVisible);
+                chart.update();
+            }
+        });
+
+        // Toggle map elements visibility
+        toggleMapElementsVisibility(sessionId, !isVisible);
+    }
+
+    function toggleMapElementsVisibility(sessionId, visible) {
+        // Toggle polyline
+        if (polylines[sessionId]) {
+            if (visible) {
+                if (!map.hasLayer(polylines[sessionId])) {
+                    map.addLayer(polylines[sessionId]);
+                }
+            } else {
+                if (map.hasLayer(polylines[sessionId])) {
+                    map.removeLayer(polylines[sessionId]);
+                }
+            }
+        }
+        [startMarkers, endMarkers].forEach(markers => {
+            if (markers[sessionId]) {
+                if (visible) {
+                    if (!map.hasLayer(markers[sessionId])) {
+                        map.addLayer(markers[sessionId]);
+                    }
+                } else {
+                    if (map.hasLayer(markers[sessionId])) {
+                        map.removeLayer(markers[sessionId]);
+                    }
+                }
+            }
+        });
+        const speedContainer = document.getElementById(`speed-${sessionId}`);
+        if (speedContainer) {
+            speedContainer.style.display = visible ? 'block' : 'none';
+        }
     }
 
     function connectToWebSocket() {
@@ -354,44 +394,43 @@
                     });
                 }
             });
-
             isProcessingBatch = false;
         });
     }
 
-function handlePoint(data) {
-    if (!data || isProcessingBatch) return;
+    function handlePoint(data) {
+        if (!data || isProcessingBatch) return;
 
-    const sessionId = data.sessionId || "default";
-    const processedPoint = {
-        lat: parseFloat(data.latitude),
-        lng: parseFloat(data.longitude),
-        distance: parseFloat(data.distance) / 1000,
-        altitude: parseFloat(data.altitude || 0),
-        speed: parseFloat(data.currentSpeed || 0),
-        averageSpeed: parseFloat(data.averageSpeed || 0),
-        maxSpeed: parseFloat(data.maxSpeed || 0),  // Add this line
-        movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),  // Add this line
-        timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'))
-    };
+        const sessionId = data.sessionId || "default";
+        const processedPoint = {
+            lat: parseFloat(data.latitude),
+            lng: parseFloat(data.longitude),
+            distance: parseFloat(data.distance) / 1000,
+            altitude: parseFloat(data.altitude || 0),
+            speed: parseFloat(data.currentSpeed || 0),
+            averageSpeed: parseFloat(data.averageSpeed || 0),
+            maxSpeed: parseFloat(data.maxSpeed || 0),  // Add this line
+            movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),  // Add this line
+            timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'))
+        };
 
-    if (!trackPoints[sessionId]) {
-        trackPoints[sessionId] = [];
-    }
+        if (!trackPoints[sessionId]) {
+            trackPoints[sessionId] = [];
+        }
 
-    trackPoints[sessionId].push(processedPoint);
+        trackPoints[sessionId].push(processedPoint);
 
-    // Use requestAnimationFrame for smooth updates
-    requestAnimationFrame(() => {
-        updateMapTrack(sessionId);
-        updateCharts(sessionId);
-        updateSpeedDisplay(sessionId, processedPoint.speed, {
-            averageSpeed: processedPoint.averageSpeed,
-            maxSpeed: processedPoint.maxSpeed,  // Pass maxSpeed
-            movingAverageSpeed: processedPoint.movingAverageSpeed  // Pass movingAverageSpeed
+        // Use requestAnimationFrame for smooth updates
+        requestAnimationFrame(() => {
+            updateMapTrack(sessionId);
+            updateCharts(sessionId);
+            updateSpeedDisplay(sessionId, processedPoint.speed, {
+                averageSpeed: processedPoint.averageSpeed,
+                maxSpeed: processedPoint.maxSpeed,  // Pass maxSpeed
+                movingAverageSpeed: processedPoint.movingAverageSpeed  // Pass movingAverageSpeed
+            });
         });
-    });
-}
+    }
 
     function updateMapTrack(sessionId) {
         const points = trackPoints[sessionId];
@@ -482,106 +521,106 @@ function handlePoint(data) {
         });
     }
 
-function updateSpeedDisplay(sessionId, speed, data) {
-    const defaultDisplay = document.querySelector('#speedDisplay > div:not([id^="speed-"])');
-    if (defaultDisplay && sessionId) {
-        defaultDisplay.remove();
-    }
+    function updateSpeedDisplay(sessionId, speed, data) {
+        const defaultDisplay = document.querySelector('#speedDisplay > div:not([id^="speed-"])');
+        if (defaultDisplay && sessionId) {
+            defaultDisplay.remove();
+        }
 
-    let speedContainer = document.getElementById(`speed-${sessionId}`);
-    if (!speedContainer) {
-        const speedDisplay = document.getElementById('speedDisplay');
-        speedContainer = document.createElement('div');
-        speedContainer.id = `speed-${sessionId}`;
-        speedContainer.className = 'mb-4 border-b pb-4';
-        speedContainer.innerHTML = `
-            <div class="text-sm font-bold mb-2">${sessionId}</div>
-            <div class="stats-grid">
-                <div class="stat-box">
-                    <div class="speed-label">Current Speed</div>
-                    <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
+        let speedContainer = document.getElementById(`speed-${sessionId}`);
+        if (!speedContainer) {
+            const speedDisplay = document.getElementById('speedDisplay');
+            speedContainer = document.createElement('div');
+            speedContainer.id = `speed-${sessionId}`;
+            speedContainer.className = 'mb-4 border-b pb-4';
+            speedContainer.innerHTML = `
+                <div class="text-sm font-bold mb-2">${sessionId}</div>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="speed-label">Current Speed</div>
+                        <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="speed-label">Maximum Speed</div>
+                        <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="speed-label">Average Speed</div>
+                        <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="speed-label">Moving Average</div>
+                        <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
                 </div>
-                <div class="stat-box">
-                    <div class="speed-label">Maximum Speed</div>
-                    <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box">
-                    <div class="speed-label">Average Speed</div>
-                    <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box">
-                    <div class="speed-label">Moving Average</div>
-                    <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-            </div>
-        `;
-        speedDisplay.appendChild(speedContainer);
+            `;
+            speedDisplay.appendChild(speedContainer);
+        }
+
+        if (!speedHistory[sessionId]) {
+            speedHistory[sessionId] = {
+                speeds: [],
+                maxSpeed: 0,
+                avgSpeed: 0,
+                movingAvg: 0,
+                lastUpdate: new Date()
+            };
+        }
+
+        const history = speedHistory[sessionId];
+        history.speeds.push(speed);
+        history.lastUpdate = new Date();
+
+        // Update current speed
+        const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
+        if (currentSpeedElement) {
+            currentSpeedElement.textContent = speed.toFixed(1);
+            currentSpeedElement.style.color = getSpeedColor(speed);
+        }
+
+        // Update max speed from the data
+        const maxSpeedElement = document.getElementById(`maxSpeed-${sessionId}`);
+        if (maxSpeedElement && data.maxSpeed !== undefined) {
+            history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
+            maxSpeedElement.textContent = history.maxSpeed.toFixed(1);
+            maxSpeedElement.style.color = getSpeedColor(history.maxSpeed);
+        }
+
+        // Update average speed
+        const avgSpeedElement = document.getElementById(`avgSpeed-${sessionId}`);
+        if (avgSpeedElement && data.averageSpeed !== undefined) {
+            avgSpeedElement.textContent = data.averageSpeed.toFixed(1);
+            avgSpeedElement.style.color = getSpeedColor(data.averageSpeed);
+        }
+
+        // Update moving average
+        const movingAvgElement = document.getElementById(`movingAvg-${sessionId}`);
+        if (movingAvgElement && data.movingAverageSpeed !== undefined) {
+            movingAvgElement.textContent = data.movingAverageSpeed.toFixed(1);
+            movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
+        }
+
+        // Clean up old sessions
+        cleanupOldSessions();
     }
 
-    if (!speedHistory[sessionId]) {
-        speedHistory[sessionId] = {
-            speeds: [],
-            maxSpeed: 0,
-            avgSpeed: 0,
-            movingAvg: 0,
-            lastUpdate: new Date()
-        };
-    }
-
-    const history = speedHistory[sessionId];
-    history.speeds.push(speed);
-    history.lastUpdate = new Date();
-
-    // Update current speed
-    const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
-    if (currentSpeedElement) {
-        currentSpeedElement.textContent = speed.toFixed(1);
-        currentSpeedElement.style.color = getSpeedColor(speed);
-    }
-
-    // Update max speed from the data
-    const maxSpeedElement = document.getElementById(`maxSpeed-${sessionId}`);
-    if (maxSpeedElement && data.maxSpeed !== undefined) {
-        history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
-        maxSpeedElement.textContent = history.maxSpeed.toFixed(1);
-        maxSpeedElement.style.color = getSpeedColor(history.maxSpeed);
-    }
-
-    // Update average speed
-    const avgSpeedElement = document.getElementById(`avgSpeed-${sessionId}`);
-    if (avgSpeedElement && data.averageSpeed !== undefined) {
-        avgSpeedElement.textContent = data.averageSpeed.toFixed(1);
-        avgSpeedElement.style.color = getSpeedColor(data.averageSpeed);
-    }
-
-    // Update moving average
-    const movingAvgElement = document.getElementById(`movingAvg-${sessionId}`);
-    if (movingAvgElement && data.movingAverageSpeed !== undefined) {
-        movingAvgElement.textContent = data.movingAverageSpeed.toFixed(1);
-        movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
-    }
-
-    // Clean up old sessions
-    cleanupOldSessions();
-}
-
-function cleanupOldSessions() {
-    const now = new Date();
-    for (const sessionId in speedHistory) {
-        const timeDiff = now - speedHistory[sessionId].lastUpdate;
-        if (timeDiff > 300000) { // 5 minutes timeout
-            const container = document.getElementById(`speed-${sessionId}`);
-            if (container) {
-                container.remove();
+    function cleanupOldSessions() {
+        const now = new Date();
+        for (const sessionId in speedHistory) {
+            const timeDiff = now - speedHistory[sessionId].lastUpdate;
+            if (timeDiff > 300000) { // 5 minutes timeout
+                const container = document.getElementById(`speed-${sessionId}`);
+                if (container) {
+                    container.remove();
+                }
+                delete speedHistory[sessionId];
             }
-            delete speedHistory[sessionId];
         }
     }
-}
 
     function getSpeedColor(speed) {
         if (speed < 5) return '#2196F3';
