@@ -105,6 +105,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import at.co.netconsulting.geotracker.TileSourceConfig.customTileSource
 import at.co.netconsulting.geotracker.data.EditState
 import at.co.netconsulting.geotracker.data.EventDetails
 import at.co.netconsulting.geotracker.data.LapTimeInfo
@@ -136,7 +137,6 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -260,16 +260,17 @@ class MainActivity : ComponentActivity() {
                     " CoveredDistance: ${event.coveredDistance}"
         )
         locationEventState.value = event
-        latitudeState.value = event.latitude
-        longitudeState.value = event.longitude
-        speedState.value = event.speed
-        speedAccuracyInMetersState.value = event.speedAccuracyMetersPerSecond
-        altitudeState.value = event.altitude
-        horizontalAccuracyInMetersState.value = event.horizontalAccuracy
-        verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
-        coveredDistanceState.value = event.coveredDistance
 
         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+            latitudeState.value = event.latitude
+            longitudeState.value = event.longitude
+            speedState.value = event.speed
+            speedAccuracyInMetersState.value = event.speedAccuracyMetersPerSecond
+            altitudeState.value = event.altitude
+            horizontalAccuracyInMetersState.value = event.horizontalAccuracy
+            verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
+            coveredDistanceState.value = event.coveredDistance
+
             val newPoints = event.locationChangeEventList.latLngs.map {
                 GeoPoint(it.latitude, it.longitude)
             }
@@ -285,6 +286,16 @@ class MainActivity : ComponentActivity() {
                     updateMapWithFullPath(newPoints)
                 }
             }
+        } else {
+            // Reset all state values when not recording
+            latitudeState.value = 0.0
+            longitudeState.value = 0.0
+            speedState.value = 0.0f
+            speedAccuracyInMetersState.value = 0.0f
+            altitudeState.value = 0.0
+            horizontalAccuracyInMetersState.value = 0.0f
+            verticalAccuracyInMetersState.value = 0.0f
+            coveredDistanceState.value = 0.0
         }
     }
 
@@ -1503,7 +1514,7 @@ class MainActivity : ComponentActivity() {
             AndroidView(
                 factory = {
                     mapView = MapView(context).apply {
-                        setTileSource(TileSourceFactory.MAPNIK)
+                        setTileSource(customTileSource)
                         setMultiTouchControls(true)
 
                         if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
@@ -1978,6 +1989,7 @@ class MainActivity : ComponentActivity() {
         // Initialize OSMDroid configuration
         val context = applicationContext
         Configuration.getInstance().load(context, context.getSharedPreferences("osm_pref", MODE_PRIVATE))
+        Configuration.getInstance().userAgentValue = "GeoTracker/1.0"
 
         // Start background location service
         val intent = Intent(context, BackgroundLocationService::class.java)
@@ -2212,7 +2224,7 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
         val eventMapView = remember {
             MapView(context).apply {
-                setTileSource(TileSourceFactory.MAPNIK)
+                setTileSource(customTileSource)
                 setMultiTouchControls(true)
                 controller.setZoom(12.0)
             }
