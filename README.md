@@ -13,12 +13,12 @@ GeoTracker supports tracking for a wide range of activities, including but not l
 - Cycling
 - Swimming
 - Kayaking
-- And much more!
+- and much more!
 
 ### 📊 Comprehensive Metrics
 Record and analyze the following metrics:
 - **Distance**: Measure how far you’ve gone.
-- **Speed**: Track your current and maximum speeds.
+- **Speed**: Track your current, maximum, average, and moving speeds.
 - **Altitude**: Understand your elevation levels.
 - **Average Speed**: Monitor consistency over your activity.
 - **Time**: Log total duration.
