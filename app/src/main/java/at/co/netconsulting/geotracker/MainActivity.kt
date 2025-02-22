@@ -287,15 +287,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
         } else {
-            // Reset all state values when not recording
-            latitudeState.value = 0.0
-            longitudeState.value = 0.0
+            // Only reset speed-related values when not recording
             speedState.value = 0.0f
             speedAccuracyInMetersState.value = 0.0f
-            altitudeState.value = 0.0
-            horizontalAccuracyInMetersState.value = 0.0f
-            verticalAccuracyInMetersState.value = 0.0f
-            coveredDistanceState.value = 0.0
+
+            // Keep other values as is
+            latitudeState.value = event.latitude
+            longitudeState.value = event.longitude
+            altitudeState.value = event.altitude
+            horizontalAccuracyInMetersState.value = event.horizontalAccuracy
+            verticalAccuracyInMetersState.value = event.verticalAccuracyMeters
+            coveredDistanceState.value = event.coveredDistance
         }
     }
 
@@ -484,6 +486,8 @@ class MainActivity : ComponentActivity() {
         var lastEventMetrics by remember { mutableStateOf<List<Metric>?>(null) }
         var importProgress by remember { mutableStateOf(0f) }
         var showProgressDialog by remember { mutableStateOf(false) }
+        // Keep track of the last non-zero values
+        var lastValidStatistics by remember { mutableStateOf<LocationEvent?>(null) }
 
         LaunchedEffect(Unit) {
             val lastEventId = getCurrentlyRecordingEventId()
@@ -493,40 +497,25 @@ class MainActivity : ComponentActivity() {
         }
 
         val actualStatistics = if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            locationEventState.value ?: LocationEvent(
-                latitude = 0.0,
-                longitude = 0.0,
-                speed = 0.0f,
-                speedAccuracyMetersPerSecond = 0.0f,
-                altitude = 0.0,
-                horizontalAccuracy = 0.0f,
-                verticalAccuracyMeters = 0.0f,
-                coveredDistance = 0.0,
-                lap = 0,
-                startDateTime = startDateTimeState.value,
-                averageSpeed = 0.0,
-                locationChangeEventList = CustomLocationListener.LocationChangeEvent(latLngs),
-                totalAscent = 0.0,
-                totalDescent = 0.0
-            )
+            locationEventState.value?.also { lastValidStatistics = it }
         } else {
-            LocationEvent(
-                latitude = 0.0,
-                longitude = 0.0,
-                speed = 0.0f,
-                speedAccuracyMetersPerSecond = 0.0f,
-                altitude = 0.0,
-                horizontalAccuracy = 0.0f,
-                verticalAccuracyMeters = 0.0f,
-                coveredDistance = 0.0,
-                lap = 0,
-                startDateTime = startDateTimeState.value,
-                averageSpeed = 0.0,
-                locationChangeEventList = CustomLocationListener.LocationChangeEvent(emptyList()),
-                totalAscent = 0.0,
-                totalDescent = 0.0
-            )
-        }
+            locationEventState.value
+        } ?: LocationEvent(
+            latitude = 0.0,
+            longitude = 0.0,
+            speed = 0.0f,
+            speedAccuracyMetersPerSecond = 0.0f,
+            altitude = 0.0,
+            horizontalAccuracy = 0.0f,
+            verticalAccuracyMeters = 0.0f,
+            coveredDistance = locationEventState.value?.coveredDistance ?: 0.0,
+            lap = locationEventState.value?.lap ?: 0,
+            startDateTime = startDateTimeState.value,
+            averageSpeed = 0.0,
+            locationChangeEventList = CustomLocationListener.LocationChangeEvent(emptyList()),
+            totalAscent = locationEventState.value?.totalAscent ?: 0.0,
+            totalDescent = locationEventState.value?.totalDescent ?: 0.0
+        )
 
         var users by remember { mutableStateOf<List<User>>(emptyList()) }
         var events by remember { mutableStateOf<List<Event>>(emptyList()) }
@@ -1218,8 +1207,8 @@ class MainActivity : ComponentActivity() {
             Text("Speed: ${"%.2f".format(event.speed)} Km/h", style = MaterialTheme.typography.bodyLarge)
             Text("Ø speed: ${"%.2f".format(event.averageSpeed)} Km/h", style = MaterialTheme.typography.bodyLarge)
             Text("Covered distance: ${"%.3f".format(event.coveredDistance/1000)} Km", style = MaterialTheme.typography.bodyLarge)
-            Text("Total ascent: ${"%.3f".format(getTotalAscent())} meter", style = MaterialTheme.typography.bodyLarge)
-            Text("Total descent: ${"%.3f".format(getTotalDescent())} meter", style = MaterialTheme.typography.bodyLarge)
+            Text("Total ascent: ${"%.3f".format(event.totalAscent)} meter", style = MaterialTheme.typography.bodyLarge)
+            Text("Total descent: ${"%.3f".format(event.totalDescent)} meter", style = MaterialTheme.typography.bodyLarge)
         }
     }
 
@@ -1688,9 +1677,15 @@ class MainActivity : ComponentActivity() {
                                     .apply()
 
                                 isRecording = false
+
+                                // Only reset speed-related values
+                                speedState.value = 0.0f
+                                speedAccuracyInMetersState.value = 0.0f
+
                                 //stop the ForegroundService
                                 val stopIntent = Intent(context, ForegroundService::class.java)
                                 context.stopService(stopIntent)
+
                                 //start the BackgroundLocationService again
                                 val intent = Intent(context, BackgroundLocationService::class.java)
                                 context.startService(intent)

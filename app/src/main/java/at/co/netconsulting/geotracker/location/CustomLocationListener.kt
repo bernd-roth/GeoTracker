@@ -270,12 +270,15 @@ class CustomLocationListener: LocationListener {
     override fun onLocationChanged(location: Location) {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location.latitude} / Longitude: ${location.longitude}")
+
+            // Only calculate new metrics if speed is above threshold
             if (checkSpeed(it.speed)) {
                 if (oldLatitude != location.latitude || oldLongitude != location.longitude) {
                     Log.d("CustomLocationListener", "New coordinates detected...")
 
                     // Calculate distance and other metrics
-                    val (coveredDistance, distanceIncrement) = calculateDistance(it)
+                    val (newCoveredDistance, distanceIncrement) = calculateDistance(it)
+                    coveredDistance = newCoveredDistance  // Store the new distance
                     averageSpeed = calculateAverageSpeed(coveredDistance)
                     lap = calculateLap(distanceIncrement)
                     calculateElevationChanges(location, oldLatitude, oldLongitude)
@@ -288,106 +291,60 @@ class CustomLocationListener: LocationListener {
                     // Manage cache size for memory efficiency
                     manageCacheSize()
 
-                    // Create path tracking data for complete path persistence
-                    val pathTrackingData = PathTrackingData(
-                        points = pathPoints.toList(),
-                        isRecording = true,
-                        startPoint = pathPoints.firstOrNull()
-                    )
-
                     updateMaxSpeed(it.speed)
-                    // Send location event with all necessary data
-                    sendDataToEventBus(
-                        LocationEvent(
-                            latitude = it.latitude,
-                            longitude = it.longitude,
-                            speed = (it.speed / 1000) * 3600,
-                            speedAccuracyMetersPerSecond = it.speedAccuracyMetersPerSecond,
-                            altitude = it.altitude,
-                            horizontalAccuracy = it.accuracy,
-                            verticalAccuracyMeters = it.verticalAccuracyMeters,
-                            coveredDistance = coveredDistance,
-                            lap = lap,
-                            startDateTime = startDateTime,
-                            averageSpeed = averageSpeed,
-                            locationChangeEventList = LocationChangeEvent(latLngs),
-                            totalAscent = getTotalAscent(),
-                            totalDescent = getTotalDescent()
-                        )
-                    )
-
-                    // Send path tracking data event
-                    EventBus.getDefault().post(pathTrackingData)
-
-                    val currentAvgSpeed = calculateAverageSpeed(coveredDistance)
-                    // Send data to websocket server
-                    sendDataToWebsocketServer(
-                        Gson().toJson(
-                            FellowRunner(
-                                person = firstname,
-                                sessionId = sessionId ?: Tools().generateSessionId(firstname, context).also { sessionId = it },
-                                latitude = location.latitude,
-                                longitude = location.longitude,
-                                distance = coveredDistance.toString(),
-                                speed = (it.speed / 1000) * 3600,  // Convert to km/h
-                                maxSpeed = maxSpeedRecorded,
-                                movingAverageSpeed = calculateMovingAverage(it.speed),
-                                averageSpeed = currentAvgSpeed,
-                                altitude = it.altitude.toString(),
-                                formattedTimestamp = Tools().formatCurrentTimestamp(),
-                                totalAscent = getTotalAscent(),
-                                totalDescent = getTotalDescent()
-                            )
-                        )
-                    )
-                } else {
-                    Log.d("CustomLocationListener", "Duplicate coordinates ignored")
                 }
-            } else {
-                Log.d("CustomLocationListener", "Speed is 0.0 km/h")
+            }
 
-                // Even for zero speed, send updates with current state
-                sendDataToEventBus(
-                    LocationEvent(
-                        latitude = it.latitude,
-                        longitude = it.longitude,
-                        speed = 0F,
-                        speedAccuracyMetersPerSecond = it.speedAccuracyMetersPerSecond,
-                        altitude = it.altitude,
-                        horizontalAccuracy = it.accuracy,
-                        verticalAccuracyMeters = it.verticalAccuracyMeters,
-                        coveredDistance = coveredDistance,
-                        lap = lap,
-                        startDateTime = startDateTime,
+            // Create path tracking data for complete path persistence
+            val pathTrackingData = PathTrackingData(
+                points = pathPoints.toList(),
+                isRecording = true,
+                startPoint = pathPoints.firstOrNull()
+            )
+
+            // Always send updates with current state, but only with new calculations if speed was sufficient
+            sendDataToEventBus(
+                LocationEvent(
+                    latitude = it.latitude,
+                    longitude = it.longitude,
+                    speed = if (checkSpeed(it.speed)) (it.speed / 1000) * 3600 else 0f,
+                    speedAccuracyMetersPerSecond = it.speedAccuracyMetersPerSecond,
+                    altitude = it.altitude,
+                    horizontalAccuracy = it.accuracy,
+                    verticalAccuracyMeters = it.verticalAccuracyMeters,
+                    coveredDistance = coveredDistance,  // Use stored value
+                    lap = lap,
+                    startDateTime = startDateTime,
+                    averageSpeed = averageSpeed,
+                    locationChangeEventList = LocationChangeEvent(latLngs),
+                    totalAscent = getTotalAscent(),
+                    totalDescent = getTotalDescent()
+                )
+            )
+
+            // Send path tracking data event
+            EventBus.getDefault().post(pathTrackingData)
+
+            // Send data to websocket server with current state
+            sendDataToWebsocketServer(
+                Gson().toJson(
+                    FellowRunner(
+                        person = firstname,
+                        sessionId = sessionId ?: Tools().generateSessionId(firstname, context).also { sessionId = it },
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        distance = coveredDistance.toString(),
+                        speed = if (checkSpeed(it.speed)) (it.speed / 1000) * 3600 else 0f,
+                        maxSpeed = maxSpeedRecorded,
+                        movingAverageSpeed = calculateMovingAverage(it.speed),
                         averageSpeed = averageSpeed,
-                        locationChangeEventList = LocationChangeEvent(latLngs),
+                        altitude = it.altitude.toString(),
+                        formattedTimestamp = Tools().formatCurrentTimestamp(),
                         totalAscent = getTotalAscent(),
                         totalDescent = getTotalDescent()
                     )
                 )
-
-                val currentAvgSpeed = calculateAverageSpeed(coveredDistance)
-                // Send zero speed update to websocket
-                sendDataToWebsocketServer(
-                    Gson().toJson(
-                        FellowRunner(
-                            person = firstname,
-                            sessionId = sessionId ?: Tools().generateSessionId(firstname, context).also { sessionId = it },
-                            latitude = location.latitude,
-                            longitude = location.longitude,
-                            distance = coveredDistance.toString(),
-                            speed = (it.speed / 1000) * 3600,
-                            maxSpeed = maxSpeedRecorded,
-                            movingAverageSpeed = calculateMovingAverage(it.speed),
-                            averageSpeed = currentAvgSpeed,
-                            altitude = it.altitude.toString(),
-                            formattedTimestamp = Tools().formatCurrentTimestamp(),
-                            totalAscent = getTotalAscent(),
-                            totalDescent = getTotalDescent()
-                        )
-                    )
-                )
-            }
+            )
         }
     }
 
