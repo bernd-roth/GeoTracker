@@ -59,6 +59,7 @@ class CustomLocationListener: LocationListener {
     private var averageSpeed: Double = 0.0
     private var latLngs = mutableListOf<LatLng>()
     private var webSocket: WebSocket? = null
+    private var websocketserver: String = "0.0.0.0"
     private var fellowRunnerPerson: String? = null
     private var fellowRunnerSessionId: String? = null
     private var fellowRunnerLatitude: Double = 0.0
@@ -162,6 +163,7 @@ class CustomLocationListener: LocationListener {
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
         height = sharedPreferences.getFloat("height", 0f)
         weight = sharedPreferences.getFloat("weight", 0f)
+        websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
     }
 
     private fun createLocationUpdates() {
@@ -205,7 +207,7 @@ class CustomLocationListener: LocationListener {
             .build()
 
         val request = Request.Builder()
-            .url("ws://62.178.111.184:8011/runningtracker")
+            .url("ws://" + websocketserver + ":8011/runningtracker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {

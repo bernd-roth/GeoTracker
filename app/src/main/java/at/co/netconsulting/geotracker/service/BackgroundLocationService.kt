@@ -32,6 +32,7 @@ class BackgroundLocationService : Service(), LocationListener {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
+    private var websocketserver: String = "0.0.0.0"
     private var webSocket: WebSocket? = null
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
@@ -51,7 +52,7 @@ class BackgroundLocationService : Service(), LocationListener {
     private fun initializeWebsocket() {
         val client = OkHttpClient()
         val request = Request.Builder()
-            .url("ws://62.178.111.184:8011/runningtracker")
+            .url("ws://" + websocketserver + "/runningtracker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
@@ -91,6 +92,7 @@ class BackgroundLocationService : Service(), LocationListener {
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
         height = sharedPreferences.getFloat("height", 0f)
         weight = sharedPreferences.getFloat("weight", 0f)
+        websocketserver = sharedPreferences.getString("websocketserver","0.0.0.0").toString()
     }
 
     @SuppressLint("MissingPermission")
