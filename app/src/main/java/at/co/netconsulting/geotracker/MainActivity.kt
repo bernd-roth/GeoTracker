@@ -115,6 +115,7 @@ import at.co.netconsulting.geotracker.data.PathTrackingData
 import at.co.netconsulting.geotracker.data.SavedLocationData
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.data.StopServiceEvent
+import at.co.netconsulting.geotracker.data.TotalStatistics
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Location
@@ -488,12 +489,17 @@ class MainActivity : ComponentActivity() {
         var showProgressDialog by remember { mutableStateOf(false) }
         // Keep track of the last non-zero values
         var lastValidStatistics by remember { mutableStateOf<LocationEvent?>(null) }
+        // Add state for total statistics
+        var totalStatistics by remember { mutableStateOf<TotalStatistics?>(null) }
 
         LaunchedEffect(Unit) {
             val lastEventId = getCurrentlyRecordingEventId()
             if (lastEventId != -1) {
                 lastEventMetrics = database.metricDao().getMetricsByEventId(lastEventId)
             }
+
+            // Load total statistics when component is first displayed
+            totalStatistics = calculateTotalStatistics()
         }
 
         val actualStatistics = if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
@@ -549,6 +555,9 @@ class MainActivity : ComponentActivity() {
 
                 Toast.makeText(context, "Event deleted successfully", Toast.LENGTH_SHORT).show()
                 records = records.filter { it.eventId != eventId }
+
+                // Update total statistics after deletion
+                totalStatistics = calculateTotalStatistics()
             } catch (e: Exception) {
                 Log.e("MainActivity", "Error deleting event", e)
                 Toast.makeText(context, "Error deleting event: ${e.message}", Toast.LENGTH_LONG).show()
@@ -561,6 +570,9 @@ class MainActivity : ComponentActivity() {
                 events = database.eventDao().getEventDateEventNameGroupByEventDate()
                 records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
                 lapTimesMap = database.eventDao().getLapTimesForEvents().groupBy { it.eventId }
+
+                // Update total statistics when data is loaded
+                totalStatistics = calculateTotalStatistics()
             } catch (e: Exception) {
                 e.printStackTrace()
                 Log.d("Error", "loading data: ${e.message}")
@@ -593,6 +605,16 @@ class MainActivity : ComponentActivity() {
             LocationEventPanel(actualStatistics)
             Spacer(modifier = Modifier.height(16.dp))
 
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Add Total Statistics section
+            Text("Total Statistics", style = MaterialTheme.typography.titleMedium)
+            Spacer(modifier = Modifier.height(8.dp))
+            totalStatistics?.let { stats ->
+                TotalStatisticsPanel(stats)
+            } ?: Text("Loading statistics...", style = MaterialTheme.typography.bodyMedium)
+
+            Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             Text(text = "Select an event", style = MaterialTheme.typography.titleMedium)
@@ -759,6 +781,24 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             )
+        }
+    }
+    @Composable
+    fun TotalStatisticsPanel(totalStatistics: TotalStatistics) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            Text("Total distance covered: ${"%.3f".format(totalStatistics.totalDistanceKm)} Km",
+                style = MaterialTheme.typography.bodyLarge)
+
+            // Show distance by year if available
+            if (totalStatistics.distanceByYear.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Distance by year:", style = MaterialTheme.typography.bodyMedium)
+
+                totalStatistics.distanceByYear.forEach { (year, distance) ->
+                    Text("$year: ${"%.3f".format(distance)} Km",
+                        style = MaterialTheme.typography.bodyLarge)
+                }
+            }
         }
     }
     @Composable
@@ -2712,5 +2752,23 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+    private suspend fun calculateTotalStatistics(): TotalStatistics {
+        val allEvents = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
+
+        // Calculate total distance in kilometers
+        val totalDistanceKm = allEvents.sumOf { it.distance ?: 0.0 } / 1000.0
+
+        // Calculate by year
+        val distanceByYear = allEvents
+            .filter { it.eventDate != null && it.distance != null }
+            .groupBy { it.eventDate?.substring(0, 4) ?: "Unknown" } // Group by year
+            .mapValues { (_, events) -> events.sumOf { it.distance ?: 0.0 } / 1000.0 } // Sum distances and convert to km
+            .toSortedMap()
+
+        return TotalStatistics(
+            totalDistanceKm = totalDistanceKm,
+            distanceByYear = distanceByYear
+        )
     }
 }
