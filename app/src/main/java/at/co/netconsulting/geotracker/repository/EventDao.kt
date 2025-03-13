@@ -107,4 +107,16 @@ interface EventDao {
 
     @Query("UPDATE events SET eventName = :eventName, eventDate = :eventDate WHERE eventId = :eventId")
     suspend fun updateEventDetails(eventId: Int, eventName: String, eventDate: String)
+
+    @Query("""
+    SELECT 
+        m.eventId AS eventId,
+        m.lap AS lapNumber,
+        (MAX(m.timeInMilliseconds) - MIN(m.timeInMilliseconds)) AS timeInMillis
+    FROM metrics m
+    WHERE m.eventId IN (:eventIds)
+    GROUP BY m.eventId, m.lap
+    ORDER BY m.eventId, m.lap
+""")
+    suspend fun getLapTimesForSpecificEvents(eventIds: List<Int>): List<LapTimeInfo>
 }

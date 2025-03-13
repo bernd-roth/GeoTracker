@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -43,6 +44,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -57,6 +61,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -100,6 +105,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
@@ -112,6 +118,7 @@ import at.co.netconsulting.geotracker.data.LapTimeInfo
 import at.co.netconsulting.geotracker.data.LocationEvent
 import at.co.netconsulting.geotracker.data.MapState
 import at.co.netconsulting.geotracker.data.PathTrackingData
+import at.co.netconsulting.geotracker.data.RouteSegment
 import at.co.netconsulting.geotracker.data.SavedLocationData
 import at.co.netconsulting.geotracker.data.SingleEventWithMetric
 import at.co.netconsulting.geotracker.data.StopServiceEvent
@@ -128,6 +135,7 @@ import at.co.netconsulting.geotracker.service.DatabaseBackupService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.service.GpxExportService
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.getCurrentlyRecordingEventId
 import at.co.netconsulting.geotracker.tools.getTotalAscent
 import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.android.gms.maps.model.LatLng
@@ -492,50 +500,60 @@ class MainActivity : ComponentActivity() {
         // Add state for total statistics
         var totalStatistics by remember { mutableStateOf<TotalStatistics?>(null) }
 
+        // Separate states for different data types to avoid loading everything at once
+        var records by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
+        var expanded by remember { mutableStateOf(false) }
+        var lapTimesMap by remember { mutableStateOf<Map<Int, List<LapTimeInfo>>>(emptyMap()) }
+        var showDeleteErrorDialog by remember { mutableStateOf(false) }
+        var loadingRecords by remember { mutableStateOf(false) }
+        var loadingLapTimes by remember { mutableStateOf(false) }
+
+        val coroutineScope = rememberCoroutineScope()
+
+        // Function to load records asynchronously
+        fun loadRecordsAsync() {
+            coroutineScope.launch {
+                loadingRecords = true
+                try {
+                    records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
+                } catch (e: Exception) {
+                    Log.e("Statistics", "Error loading records", e)
+                } finally {
+                    loadingRecords = false
+                }
+            }
+        }
+
+        // Function to load lap times asynchronously only when needed
+        fun loadLapTimesAsync(recordIds: List<Int>) {
+            if (loadingLapTimes) return
+
+            coroutineScope.launch {
+                loadingLapTimes = true
+                try {
+                    // Load lap times only for selected and visible records
+                    val lapTimes = database.eventDao().getLapTimesForSpecificEvents(recordIds)
+                    lapTimesMap = lapTimes.groupBy { it.eventId }
+                } catch (e: Exception) {
+                    Log.e("Statistics", "Error loading lap times", e)
+                } finally {
+                    loadingLapTimes = false
+                }
+            }
+        }
+
         LaunchedEffect(Unit) {
-            val lastEventId = getCurrentlyRecordingEventId()
+            val lastEventId = getCurrentlyRecordingEventId(context)
             if (lastEventId != -1) {
                 lastEventMetrics = database.metricDao().getMetricsByEventId(lastEventId)
             }
 
             // Load total statistics when component is first displayed
             totalStatistics = calculateTotalStatistics()
+
+            // Load records initially but not lap times
+            loadRecordsAsync()
         }
-
-        val actualStatistics = if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            locationEventState.value?.also { lastValidStatistics = it }
-        } else {
-            locationEventState.value
-        } ?: LocationEvent(
-            latitude = 0.0,
-            longitude = 0.0,
-            speed = 0.0f,
-            speedAccuracyMetersPerSecond = 0.0f,
-            altitude = 0.0,
-            horizontalAccuracy = 0.0f,
-            verticalAccuracyMeters = 0.0f,
-            coveredDistance = locationEventState.value?.coveredDistance ?: 0.0,
-            lap = locationEventState.value?.lap ?: 0,
-            startDateTime = startDateTimeState.value,
-            averageSpeed = 0.0,
-            locationChangeEventList = CustomLocationListener.LocationChangeEvent(emptyList()),
-            totalAscent = locationEventState.value?.totalAscent ?: 0.0,
-            totalDescent = locationEventState.value?.totalDescent ?: 0.0
-        )
-
-        var users by remember { mutableStateOf<List<User>>(emptyList()) }
-        var events by remember { mutableStateOf<List<Event>>(emptyList()) }
-        var records by remember { mutableStateOf<List<SingleEventWithMetric>>(emptyList()) }
-        var expanded by remember { mutableStateOf(false) }
-        var lapTimesMap by remember { mutableStateOf<Map<Int, List<LapTimeInfo>>>(emptyMap()) }
-        var showDeleteErrorDialog by remember { mutableStateOf(false) }
-
-        LaunchedEffect(selectedRecords) {
-            onEventsSelected(selectedRecords)
-        }
-
-        var searchQuery by remember { mutableStateOf("") }
-        val coroutineScope = rememberCoroutineScope()
 
         suspend fun delete(eventId: Int) {
             val currentRecordingEventId = getCurrentlyRecordingEventId()
@@ -564,34 +582,40 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        suspend fun loadData() {
-            try {
-                users = database.userDao().getAllUsers()
-                events = database.eventDao().getEventDateEventNameGroupByEventDate()
-                records = database.eventDao().getDetailsFromEventJoinedOnMetricsWithRecordingData()
-                lapTimesMap = database.eventDao().getLapTimesForEvents().groupBy { it.eventId }
-
-                // Update total statistics when data is loaded
-                totalStatistics = calculateTotalStatistics()
-            } catch (e: Exception) {
-                e.printStackTrace()
-                Log.d("Error", "loading data: ${e.message}")
-            }
-        }
-
-        LaunchedEffect(Unit) {
-            coroutineScope.launch {
-                loadData()
-            }
+        LaunchedEffect(selectedRecords) {
+            onEventsSelected(selectedRecords)
         }
 
         LaunchedEffect(expanded) {
             if (expanded) {
-                coroutineScope.launch {
-                    loadData()
-                }
+                // Load lap times for visible records when dropdown is opened
+                val recordIds = records.take(100).map { it.eventId }
+                loadLapTimesAsync(recordIds)
             }
         }
+
+        val actualStatistics = if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+            locationEventState.value?.also { lastValidStatistics = it }
+        } else {
+            locationEventState.value
+        } ?: LocationEvent(
+            latitude = 0.0,
+            longitude = 0.0,
+            speed = 0.0f,
+            speedAccuracyMetersPerSecond = 0.0f,
+            altitude = 0.0,
+            horizontalAccuracy = 0.0f,
+            verticalAccuracyMeters = 0.0f,
+            coveredDistance = locationEventState.value?.coveredDistance ?: 0.0,
+            lap = locationEventState.value?.lap ?: 0,
+            startDateTime = startDateTimeState.value,
+            averageSpeed = 0.0,
+            locationChangeEventList = CustomLocationListener.LocationChangeEvent(emptyList()),
+            totalAscent = locationEventState.value?.totalAscent ?: 0.0,
+            totalDescent = locationEventState.value?.totalDescent ?: 0.0
+        )
+
+        var searchQuery by remember { mutableStateOf("") }
 
         Column(
             modifier = Modifier
@@ -637,80 +661,93 @@ class MainActivity : ComponentActivity() {
 
             if (expanded) {
                 Dialog(onDismissRequest = { expanded = false }) {
-                    EventSelectionDialog(
-                        records = records,
-                        selectedRecords = selectedRecords,
-                        editState = editState,
-                        lapTimesMap = lapTimesMap,
-                        onRecordSelected = { record ->
-                            onSelectedRecordsChange(
-                                if (selectedRecords.contains(record)) {
-                                    selectedRecords.filter { it != record }
-                                } else {
-                                    selectedRecords + record
-                                }
-                            )
-                        },
-                        onDismiss = { expanded = false },
-                        onDelete = { eventId ->
-                            coroutineScope.launch {
-                                delete(eventId)
-                            }
-                        },
-                        onExport = { eventId ->
-                            coroutineScope.launch {
-                                export(eventId, applicationContext)
-                            }
-                        },
-                        onEdit = { eventId, newName, newDate ->
-                            if (eventId == -1) {
-                                editState = EditState()
-                            } else if (editState.isEditing) {
-                                coroutineScope.launch {
-                                    updateEvent(eventId, newName, newDate)
-                                    loadData()
-                                    editState = EditState()
-                                }
-                            } else {
-                                editState = EditState(
-                                    isEditing = true,
-                                    eventId = eventId,
-                                    currentEventName = newName,
-                                    currentEventDate = newDate
-                                )
-                            }
-                        },
-                        onDeleteAllContent = {
-                            coroutineScope.launch {
-                                deleteContentAllTables()
-                                records = emptyList()
-                                expanded = false
-                            }
-                        },
-                        onExportGPX = {
-                            coroutineScope.launch {
-                                exportGPX()
-                            }
-                        },
-                        onImportGPX = {
-                            showGPXDialog = true
-                            expanded = false
-                        },
-                        onBackupDatabase = {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                                val backupIntent = Intent(context, DatabaseBackupService::class.java).apply {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                                        addFlags(Intent.FLAG_FROM_BACKGROUND)
+                    if (loadingRecords) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        EventSelectionDialog(
+                            records = records,
+                            selectedRecords = selectedRecords,
+                            editState = editState,
+                            lapTimesMap = lapTimesMap,
+                            onRecordSelected = { record ->
+                                // Load lap times for this record if needed
+                                if (!lapTimesMap.containsKey(record.eventId)) {
+                                    coroutineScope.launch {
+                                        loadLapTimesAsync(listOf(record.eventId))
                                     }
                                 }
-                                ContextCompat.startForegroundService(context, backupIntent)
-                            } else {
-                                context.startService(Intent(context, DatabaseBackupService::class.java))
+
+                                onSelectedRecordsChange(
+                                    if (selectedRecords.contains(record)) {
+                                        selectedRecords.filter { it != record }
+                                    } else {
+                                        selectedRecords + record
+                                    }
+                                )
+                            },
+                            onDismiss = { expanded = false },
+                            onDelete = { eventId ->
+                                coroutineScope.launch {
+                                    delete(eventId)
+                                }
+                            },
+                            onExport = { eventId ->
+                                coroutineScope.launch {
+                                    export(eventId, applicationContext)
+                                }
+                            },
+                            onEdit = { eventId, newName, newDate ->
+                                if (eventId == -1) {
+                                    editState = EditState()
+                                } else if (editState.isEditing) {
+                                    coroutineScope.launch {
+                                        updateEvent(eventId, newName, newDate)
+                                        loadRecordsAsync()
+                                        editState = EditState()
+                                    }
+                                } else {
+                                    editState = EditState(
+                                        isEditing = true,
+                                        eventId = eventId,
+                                        currentEventName = newName,
+                                        currentEventDate = newDate
+                                    )
+                                }
+                            },
+                            onDeleteAllContent = {
+                                coroutineScope.launch {
+                                    deleteContentAllTables()
+                                    records = emptyList()
+                                    expanded = false
+                                }
+                            },
+                            onExportGPX = {
+                                coroutineScope.launch {
+                                    exportGPX()
+                                }
+                            },
+                            onImportGPX = {
+                                showGPXDialog = true
+                                expanded = false
+                            },
+                            onBackupDatabase = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    val backupIntent = Intent(context, DatabaseBackupService::class.java).apply {
+                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                                            addFlags(Intent.FLAG_FROM_BACKGROUND)
+                                        }
+                                    }
+                                    ContextCompat.startForegroundService(context, backupIntent)
+                                } else {
+                                    context.startService(Intent(context, DatabaseBackupService::class.java))
+                                }
+                                Toast.makeText(context, "Database backup started", Toast.LENGTH_SHORT).show()
+                                expanded = false
                             }
-                            Toast.makeText(context, "Database backup started", Toast.LENGTH_SHORT).show()
-                            expanded = false
-                        }
-                    )
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -737,7 +774,7 @@ class MainActivity : ComponentActivity() {
                             onComplete = { success ->
                                 if (success) {
                                     coroutineScope.launch {
-                                        loadData()
+                                        loadRecordsAsync()
                                     }
                                 }
                                 showProgressDialog = false
@@ -818,6 +855,7 @@ class MainActivity : ComponentActivity() {
         onBackupDatabase: () -> Unit
     ) {
         var searchQuery by remember { mutableStateOf("") }
+        val lazyListState = rememberLazyListState()
 
         Surface(
             modifier = Modifier
@@ -826,9 +864,7 @@ class MainActivity : ComponentActivity() {
             shape = RoundedCornerShape(12.dp)
         ) {
             Column(
-                modifier = Modifier
-                    .verticalScroll(rememberScrollState())
-                    .padding(vertical = 8.dp)
+                modifier = Modifier.padding(vertical = 8.dp)
             ) {
                 OutlinedTextField(
                     value = searchQuery,
@@ -848,203 +884,27 @@ class MainActivity : ComponentActivity() {
                     eventNameMatch || eventDateMatch || distanceMatch
                 }
 
-                filteredRecords.forEach { record ->
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp)
-                            .clickable {
-                                if (!editState.isEditing) {
-                                    onRecordSelected(record)
-                                }
-                            },
-                        color = if (selectedRecords.contains(record)) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        }
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(8.dp)
-                        ) {
-                            if (editState.isEditing && editState.eventId == record.eventId) {
-                                // Edit mode fields
-                                var editedName by remember { mutableStateOf(editState.currentEventName) }
-                                var editedDate by remember { mutableStateOf(editState.currentEventDate) }
-
-                                OutlinedTextField(
-                                    value = editedName,
-                                    onValueChange = { editedName = it },
-                                    label = { Text("Event Name") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                OutlinedTextField(
-                                    value = editedDate,
-                                    onValueChange = { editedDate = it },
-                                    label = { Text("Event Date (YYYY-MM-DD)") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
-                                ) {
-                                    TextButton(onClick = { onEdit(-1, "", "") }) {
-                                        Text("Cancel")
-                                    }
-                                    TextButton(
-                                        onClick = { onEdit(record.eventId, editedName, editedDate) }
-                                    ) {
-                                        Text("Save")
-                                    }
-                                }
-                            } else {
-                                // Normal display mode
-                                Text(
-                                    text = "Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}",
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    text = "Event name: ${record.eventName}",
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-
-                                if (record.eventId == getCurrentlyRecordingEventId() &&
+                // Replace scrolling Column with LazyColumn for better performance
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(
+                        items = filteredRecords,
+                        key = { it.eventId }
+                    ) { record ->
+                        EventItemCard(
+                            record = record,
+                            isSelected = selectedRecords.contains(record),
+                            editState = editState,
+                            lapTimes = lapTimesMap[record.eventId] ?: emptyList(),
+                            onRecordSelected = onRecordSelected,
+                            onDelete = onDelete,
+                            onExport = onExport,
+                            onEdit = onEdit,
+                            isCurrentlyRecording = record.eventId == getCurrentlyRecordingEventId() &&
                                     isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
-                                ) {
-                                    Text(
-                                        text = "⚫ Ongoing Recording",
-                                        style = MaterialTheme.typography.bodyMedium.copy(
-                                            color = MaterialTheme.colorScheme.error,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    )
-                                }
-
-                                // Lap times section with colored backgrounds for fastest/slowest laps
-                                lapTimesMap[record.eventId]?.let { lapTimes ->
-                                    if (lapTimes.isNotEmpty()) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 8.dp)
-                                        ) {
-                                            Text(
-                                                text = "Lap Times",
-                                                style = MaterialTheme.typography.bodyMedium.copy(
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            )
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                                    .padding(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "Lap",
-                                                    modifier = Modifier.weight(1f),
-                                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                )
-                                                Text(
-                                                    text = "Time",
-                                                    modifier = Modifier.weight(2f),
-                                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                )
-                                            }
-
-                                            // Find fastest and slowest completed laps (only considering laps that cover 1km)
-                                            // Get last lap number to exclude it from consideration
-                                            val lastLapNumber = lapTimes.maxOfOrNull { it.lapNumber } ?: 0
-
-                                            val completedLaps = lapTimes.filter { lapTime ->
-                                                // Filter laps that are:
-                                                // 1. Started (lap number > 0)
-                                                // 2. Not the current/last lap
-                                                // 3. Have valid time (> 0 and < MAX_VALUE)
-                                                lapTime.lapNumber > 0 &&
-                                                        lapTime.lapNumber < lastLapNumber &&
-                                                        lapTime.timeInMillis > 0 &&
-                                                        lapTime.timeInMillis < Long.MAX_VALUE
-                                            }
-
-                                            val fastestLap = completedLaps.minByOrNull { it.timeInMillis }
-                                            val slowestLap = completedLaps.maxByOrNull { it.timeInMillis }
-
-                                            lapTimes.forEach { lapTime ->
-                                                val backgroundColor = when {
-                                                    lapTime.lapNumber == lastLapNumber -> Color.Transparent // Current lap
-                                                    lapTime.timeInMillis <= 0 || lapTime.timeInMillis == Long.MAX_VALUE -> Color.Transparent // Invalid/incomplete lap
-                                                    lapTime == fastestLap -> Color(0xFF90EE90)
-                                                    lapTime == slowestLap -> Color(0xFFF44336)
-                                                    else -> Color.Transparent
-                                                }
-
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .background(backgroundColor)
-                                                        .padding(8.dp)
-                                                ) {
-                                                    Text(
-                                                        text = lapTime.lapNumber.toString(),
-                                                        modifier = Modifier.weight(1f),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                    Text(
-                                                        text = Tools().formatTime(lapTime.timeInMillis),
-                                                        modifier = Modifier.weight(2f),
-                                                        style = MaterialTheme.typography.bodyMedium
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Action buttons
-                                if (!(record.eventId == getCurrentlyRecordingEventId() &&
-                                            isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService"))) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState())
-                                            .padding(vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Button(onClick = { onDelete(record.eventId) }) {
-                                            Text("Delete")
-                                        }
-                                        Button(onClick = { onExport(record.eventId) }) {
-                                            Text("Export")
-                                        }
-                                        Button(
-                                            onClick = {
-                                                onEdit(
-                                                    record.eventId,
-                                                    record.eventName,
-                                                    record.eventDate ?: ""
-                                                )
-                                            }
-                                        ) {
-                                            Text("Edit")
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        )
                     }
                 }
 
@@ -1089,6 +949,256 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    @Composable
+    fun EventItemCard(
+        record: SingleEventWithMetric,
+        isSelected: Boolean,
+        editState: EditState,
+        lapTimes: List<LapTimeInfo>,
+        onRecordSelected: (SingleEventWithMetric) -> Unit,
+        onDelete: (Int) -> Unit,
+        onExport: (Int) -> Unit,
+        onEdit: (Int, String, String) -> Unit,
+        isCurrentlyRecording: Boolean
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 4.dp)
+                .clickable(
+                    enabled = !isCurrentlyRecording && !editState.isEditing,
+                    onClick = {
+                        onRecordSelected(record)
+                    }
+                ),
+            color = if (isSelected) {
+                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            ) {
+                if (editState.isEditing && editState.eventId == record.eventId) {
+                    // Edit mode fields
+                    var editedName by remember { mutableStateOf(editState.currentEventName) }
+                    var editedDate by remember { mutableStateOf(editState.currentEventDate) }
+
+                    OutlinedTextField(
+                        value = editedName,
+                        onValueChange = { editedName = it },
+                        label = { Text("Event Name") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedTextField(
+                        value = editedDate,
+                        onValueChange = { editedDate = it },
+                        label = { Text("Event Date (YYYY-MM-DD)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { onEdit(-1, "", "") }) {
+                            Text("Cancel")
+                        }
+                        TextButton(
+                            onClick = { onEdit(record.eventId, editedName, editedDate) }
+                        ) {
+                            Text("Save")
+                        }
+                    }
+                } else {
+                    // Normal display mode
+                    Text(
+                        text = "Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "Event name: ${record.eventName}",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    Text(
+                        text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+
+                    if (isCurrentlyRecording) {
+                        Text(
+                            text = "⚫ Ongoing Recording",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.error,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+
+                    // Use a separate collapsible section for lap times to reduce initial render cost
+                    if (lapTimes.isNotEmpty()) {
+                        var showLapTimes by remember { mutableStateOf(false) }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .clickable { showLapTimes = !showLapTimes },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Lap Times",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Icon(
+                                imageVector = if (showLapTimes)
+                                    Icons.Default.KeyboardArrowUp
+                                else
+                                    Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Toggle lap times"
+                            )
+                        }
+
+                        if (showLapTimes) {
+                            LapTimesSection(lapTimes)
+                        }
+                    }
+
+                    // Action buttons
+                    if (!isCurrentlyRecording) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Button(onClick = { onDelete(record.eventId) }) {
+                                Text("Delete")
+                            }
+                            Button(onClick = { onExport(record.eventId) }) {
+                                Text("Export")
+                            }
+                            Button(
+                                onClick = {
+                                    onEdit(
+                                        record.eventId,
+                                        record.eventName,
+                                        record.eventDate ?: ""
+                                    )
+                                }
+                            ) {
+                                Text("Edit")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun LapTimesSection(lapTimes: List<LapTimeInfo>) {
+        // Find fastest and slowest completed laps
+        val lastLapNumber = lapTimes.maxOfOrNull { it.lapNumber } ?: 0
+
+        val completedLaps = lapTimes.filter { lapTime ->
+            lapTime.lapNumber > 0 &&
+                    lapTime.lapNumber < lastLapNumber &&
+                    lapTime.timeInMillis > 0 &&
+                    lapTime.timeInMillis < Long.MAX_VALUE
+        }
+
+        val fastestLap = completedLaps.minByOrNull { it.timeInMillis }
+        val slowestLap = completedLaps.maxByOrNull { it.timeInMillis }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = "Lap",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                Text(
+                    text = "Time",
+                    modifier = Modifier.weight(2f),
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+            }
+
+            // Use LazyColumn for lap times if there are many
+            if (lapTimes.size > 20) {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 200.dp)
+                ) {
+                    items(lapTimes) { lapTime ->
+                        LapTimeRow(lapTime, fastestLap, slowestLap, lastLapNumber)
+                    }
+                }
+            } else {
+                // Use Column for fewer lap times
+                lapTimes.forEach { lapTime ->
+                    LapTimeRow(lapTime, fastestLap, slowestLap, lastLapNumber)
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun LapTimeRow(
+        lapTime: LapTimeInfo,
+        fastestLap: LapTimeInfo?,
+        slowestLap: LapTimeInfo?,
+        lastLapNumber: Int
+    ) {
+        val backgroundColor = when {
+            lapTime.lapNumber == lastLapNumber -> Color.Transparent // Current lap
+            lapTime.timeInMillis <= 0 || lapTime.timeInMillis == Long.MAX_VALUE -> Color.Transparent // Invalid lap
+            lapTime == fastestLap -> Color(0xFF90EE90) // Fastest lap
+            lapTime == slowestLap -> Color(0xFFF44336) // Slowest lap
+            else -> Color.Transparent
+        }
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(backgroundColor)
+                .padding(8.dp)
+        ) {
+            Text(
+                text = lapTime.lapNumber.toString(),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Text(
+                text = Tools().formatTime(lapTime.timeInMillis),
+                modifier = Modifier.weight(2f),
+                style = MaterialTheme.typography.bodyMedium
+            )
         }
     }
     @Composable
@@ -1255,6 +1365,7 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun SelectedEventPanel(record: SingleEventWithMetric) {
         var eventDetails by remember { mutableStateOf<EventDetails?>(null) }
+        var speedRanges by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
         val coroutineScope = rememberCoroutineScope()
         val context = LocalContext.current
         val database = remember { FitnessTrackerDatabase.getInstance(context) }
@@ -1277,6 +1388,18 @@ class MainActivity : ComponentActivity() {
                 // Calculate other statistics
                 val maxSpeed = metrics.maxOfOrNull { it.speed } ?: 0f
                 val avgSpeed = metrics.map { it.speed }.average().toFloat()
+
+                // Calculate speed distribution
+                val speeds = metrics.map { it.speed }
+                if (speeds.isNotEmpty()) {
+                    speedRanges = mapOf(
+                        "0-5 km/h" to speeds.count { it < 5.0f }.toFloat() / speeds.size,
+                        "5-10 km/h" to speeds.count { it >= 5.0f && it < 10.0f }.toFloat() / speeds.size,
+                        "10-15 km/h" to speeds.count { it >= 10.0f && it < 15.0f }.toFloat() / speeds.size,
+                        "15-20 km/h" to speeds.count { it >= 15.0f && it < 20.0f }.toFloat() / speeds.size,
+                        "20+ km/h" to speeds.count { it >= 20.0f }.toFloat() / speeds.size
+                    )
+                }
 
                 // Calculate actual duration from first to last metric
                 val duration = if (metrics.isNotEmpty()) {
@@ -1322,13 +1445,98 @@ class MainActivity : ComponentActivity() {
                     style = MaterialTheme.typography.bodyLarge)
                 Text("Humidity: ${details.humidity}%",
                     style = MaterialTheme.typography.bodyLarge)
+
+                // Add speed distribution visualization
+                if (speedRanges.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Speed Distribution:", style = MaterialTheme.typography.bodyLarge)
+                    SpeedDistributionChart(speedRanges)
+                }
             }
 
-            // Existing map view
+            // Event map with color-coded speeds
             EventMapView(record = record)
         }
     }
+    @Composable
+    fun SpeedDistributionChart(speedRanges: Map<String, Float>) {
+        val colors = listOf(
+            Color(0xFF0000FF), // Blue (0-5 km/h)
+            Color(0xFF00FF00), // Green (5-10 km/h)
+            Color(0xFFFFFF00), // Yellow (10-15 km/h)
+            Color(0xFFFFA500), // Orange (15-20 km/h)
+            Color(0xFFFF0000)  // Red (20+ km/h)
+        )
 
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            // Draw the colored bars
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(24.dp)
+            ) {
+                speedRanges.values.forEachIndexed { index, percentage ->
+                    if (percentage > 0) {
+                        Box(
+                            modifier = Modifier
+                                .weight(percentage)
+                                .fillMaxHeight()
+                                .background(colors[index])
+                        )
+                    }
+                }
+            }
+
+            // Draw the legend
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                speedRanges.keys.forEachIndexed { index, range ->
+                    if (speedRanges.values.elementAt(index) > 0) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .background(colors[index])
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = range,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                speedRanges.values.forEach { percentage ->
+                    if (percentage > 0) {
+                        Text(
+                            text = "${(percentage * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        }
+    }
     private fun saveAllSettings(
         sharedPreferences: SharedPreferences,
         firstName: String,
@@ -2121,32 +2329,49 @@ class MainActivity : ComponentActivity() {
 
             if (isActiveRecording && currentPointsString != null) {
                 val points = currentPointsString.split("|")
+                    .filter { it.isNotEmpty() }
                     .map { pointStr ->
-                        val (lat, lon) = pointStr.split(",")
-                        GeoPoint(lat.toDouble(), lon.toDouble())
+                        val parts = pointStr.split(",")
+                        if (parts.size >= 2) {
+                            GeoPoint(parts[0].toDouble(), parts[1].toDouble())
+                        } else {
+                            null
+                        }
                     }
+                    .filterNotNull()
 
-                pathTrackingData = PathTrackingData(
-                    points = points,
-                    isRecording = true,
-                    startPoint = points.firstOrNull()
-                )
+                if (points.isNotEmpty()) {
+                    pathTrackingData = PathTrackingData(
+                        points = points,
+                        isRecording = true,
+                        startPoint = points.firstOrNull()
+                    )
 
-                // Update location state if recording
-                locationChangeEventState.value = CustomLocationListener.LocationChangeEvent(
-                    points.map { LatLng(it.latitude, it.longitude) }
-                )
+                    // Update location state if recording
+                    locationChangeEventState.value = CustomLocationListener.LocationChangeEvent(
+                        points.map { LatLng(it.latitude, it.longitude) }
+                    )
 
-                updateMapWithFullPath(points)
+                    updateMapWithFullPath(points)
+                }
             } else {
                 // Restore from persistent points if not recording
                 sharedPreferences.getString("points", null)?.let { pointsString ->
                     val points = pointsString.split("|")
+                        .filter { it.isNotEmpty() }
                         .map { pointStr ->
-                            val (lat, lon) = pointStr.split(",")
-                            GeoPoint(lat.toDouble(), lon.toDouble())
+                            val parts = pointStr.split(",")
+                            if (parts.size >= 2) {
+                                GeoPoint(parts[0].toDouble(), parts[1].toDouble())
+                            } else {
+                                null
+                            }
                         }
-                    updateMapWithFullPath(points)
+                        .filterNotNull()
+
+                    if (points.isNotEmpty()) {
+                        updateMapWithFullPath(points)
+                    }
                 }
             }
 
@@ -2266,12 +2491,50 @@ class MainActivity : ComponentActivity() {
         }
 
         var routePoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
+        var routeSegments by remember { mutableStateOf<List<RouteSegment>>(emptyList()) }
         val coroutineScope = rememberCoroutineScope()
 
         LaunchedEffect(record.eventId) {
             coroutineScope.launch {
-                routePoints = database.eventDao().getRoutePointsForEvent(record.eventId)
-                    .map { GeoPoint(it.latitude, it.longitude) }
+                try {
+                    // Get route points
+                    val locations = database.eventDao().getRoutePointsForEvent(record.eventId)
+                    routePoints = locations.map { GeoPoint(it.latitude, it.longitude) }
+
+                    // Get metrics with speed data
+                    val metrics = database.metricDao().getMetricsByEventId(record.eventId)
+
+                    // Create route segments with speed information if we have enough data
+                    if (locations.size > 1 && metrics.isNotEmpty()) {
+                        val segments = mutableListOf<RouteSegment>()
+
+                        // Normalize metrics to match location array length
+                        val normalizedMetrics = if (metrics.size != locations.size) {
+                            // Stretch or shrink metrics to match location count
+                            val ratio = locations.size.toDouble() / metrics.size.toDouble()
+                            locations.indices.map { i ->
+                                val metricIndex = (i / ratio).toInt().coerceIn(0, metrics.size - 1)
+                                metrics[metricIndex]
+                            }
+                        } else {
+                            metrics
+                        }
+
+                        // Create segments using simple index matching
+                        for (i in 0 until locations.size - 1) {
+                            val startPoint = GeoPoint(locations[i].latitude, locations[i].longitude)
+                            val endPoint = GeoPoint(locations[i + 1].latitude, locations[i + 1].longitude)
+
+                            // Use the normalized metric at this index
+                            val speed = normalizedMetrics[i].speed
+                            segments.add(RouteSegment(startPoint, endPoint, speed))
+                        }
+
+                        routeSegments = segments
+                    }
+                } catch (e: Exception) {
+                    Log.e("EventMapView", "Error loading route data", e)
+                }
             }
         }
 
@@ -2288,13 +2551,27 @@ class MainActivity : ComponentActivity() {
                     if (routePoints.isNotEmpty()) {
                         map.overlays.clear()
 
-                        // Main polyline
-                        val polyline = Polyline().apply {
-                            outlinePaint.strokeWidth = 5f
-                            outlinePaint.color = android.graphics.Color.BLUE
-                            setPoints(routePoints)
+                        if (routeSegments.isNotEmpty()) {
+                            // Create colored segments based on speed
+                            routeSegments.forEach { segment ->
+                                val segmentColor = getSpeedColor(segment.speed)
+                                val segmentPolyline = Polyline().apply {
+                                    outlinePaint.strokeWidth = 5f
+                                    outlinePaint.color = segmentColor
+                                    addPoint(segment.startPoint)
+                                    addPoint(segment.endPoint)
+                                }
+                                map.overlays.add(segmentPolyline)
+                            }
+                        } else {
+                            // Fallback to regular polyline if no segments with speed data
+                            val polyline = Polyline().apply {
+                                outlinePaint.strokeWidth = 5f
+                                outlinePaint.color = android.graphics.Color.BLUE
+                                setPoints(routePoints)
+                            }
+                            map.overlays.add(polyline)
                         }
-                        map.overlays.add(polyline)
 
                         try {
                             // Add direction arrows
@@ -2307,9 +2584,11 @@ class MainActivity : ComponentActivity() {
                             // Set bounds to show full route
                             val bounds = BoundingBox.fromGeoPoints(routePoints)
                             map.zoomToBoundingBox(bounds, true, 50, 17.0, 1L)
-                            map.controller.setCenter(routePoints.first())
+
+                            // Add speed legend
+                            addSpeedLegend(map)
                         } catch (e: Exception) {
-                            Log.e("MainActivity", "Error adding markers or arrows", e)
+                            Log.e("EventMapView", "Error adding overlays", e)
                         }
 
                         map.invalidate()
@@ -2770,5 +3049,90 @@ class MainActivity : ComponentActivity() {
             totalDistanceKm = totalDistanceKm,
             distanceByYear = distanceByYear
         )
+    }
+    private fun getSpeedColor(speed: Float): Int {
+        return when {
+            speed < 5.0f -> android.graphics.Color.rgb(0, 0, 255)    // Slow - Blue
+            speed < 10.0f -> android.graphics.Color.rgb(0, 255, 0)   // Medium - Green
+            speed < 15.0f -> android.graphics.Color.rgb(255, 255, 0) // Fast - Yellow
+            speed < 20.0f -> android.graphics.Color.rgb(255, 165, 0) // Faster - Orange
+            else -> android.graphics.Color.rgb(255, 0, 0)            // Fastest - Red
+        }
+    }
+
+    // Add a legend to show speed colors
+    private fun addSpeedLegend(mapView: MapView) {
+        // Check if legend already exists
+        val existingLegend = mapView.overlays.find { it is SpeedLegendOverlay }
+        if (existingLegend != null) return
+
+        mapView.overlays.add(SpeedLegendOverlay(mapView.context))
+    }
+
+    // Custom overlay class for the speed legend
+    private class SpeedLegendOverlay(context: Context) : Overlay(context) {
+        override fun draw(canvas: Canvas, map: MapView, shadow: Boolean) {
+            if (shadow) return
+
+            val paint = Paint().apply {
+                style = Paint.Style.FILL
+                isAntiAlias = true
+            }
+
+            val textPaint = Paint().apply {
+                color = android.graphics.Color.BLACK
+                textSize = 30f
+                isAntiAlias = true
+            }
+
+            // Position in bottom-left corner with some padding
+            val padding = 10
+            val boxWidth = 30
+            val boxHeight = 20
+            val totalHeight = 5 * (boxHeight + padding) + padding
+
+            // Draw background
+            paint.color = android.graphics.Color.WHITE
+            paint.alpha = 180
+            canvas.drawRect(
+                padding.toFloat(),
+                (map.height - totalHeight - padding).toFloat(),
+                (150 + padding).toFloat(),
+                (map.height - padding).toFloat(),
+                paint
+            )
+
+            // Draw color boxes and labels
+            val speeds = listOf("0-5", "5-10", "10-15", "15-20", "20+")
+            val colors = listOf(
+                android.graphics.Color.rgb(0, 0, 255),
+                android.graphics.Color.rgb(0, 255, 0),
+                android.graphics.Color.rgb(255, 255, 0),
+                android.graphics.Color.rgb(255, 165, 0),
+                android.graphics.Color.rgb(255, 0, 0)
+            )
+
+            for (i in speeds.indices) {
+                val top = map.height - totalHeight + (i * (boxHeight + padding)) + padding
+
+                // Draw color box
+                paint.color = colors[i]
+                canvas.drawRect(
+                    (padding * 2).toFloat(),
+                    top.toFloat(),
+                    (padding * 2 + boxWidth).toFloat(),
+                    (top + boxHeight).toFloat(),
+                    paint
+                )
+
+                // Draw label
+                canvas.drawText(
+                    "${speeds[i]} km/h",
+                    (padding * 2 + boxWidth + padding).toFloat(),
+                    (top + boxHeight - 4).toFloat(),
+                    textPaint
+                )
+            }
+        }
     }
 }
