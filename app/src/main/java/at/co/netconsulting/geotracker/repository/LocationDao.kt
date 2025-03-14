@@ -21,4 +21,10 @@ interface LocationDao {
 
     @Query("SELECT * FROM locations WHERE eventId = :eventId ORDER BY locationId ASC")
     suspend fun getLocationsByEventId(eventId: Int): List<Location>
+
+    @Query("SELECT * FROM locations WHERE eventId = :eventId ORDER BY locationId")
+    suspend fun getLocationsForEvent(eventId: Int): List<Location>
+
+    @Query("SELECT * FROM locations WHERE eventId = :eventId ORDER BY locationId LIMIT 1")
+    suspend fun getFirstLocationForEvent(eventId: Int): Location?
 }
