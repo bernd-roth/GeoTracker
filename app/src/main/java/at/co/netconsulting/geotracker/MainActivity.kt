@@ -14,6 +14,8 @@ import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
 import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
@@ -99,6 +101,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -136,8 +139,6 @@ import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.service.GpxExportService
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getCurrentlyRecordingEventId
-import at.co.netconsulting.geotracker.tools.getTotalAscent
-import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -1366,6 +1367,10 @@ class MainActivity : ComponentActivity() {
     fun SelectedEventPanel(record: SingleEventWithMetric) {
         var eventDetails by remember { mutableStateOf<EventDetails?>(null) }
         var speedRanges by remember { mutableStateOf<Map<String, Float>>(emptyMap()) }
+
+        // Use this for highlighting the selected point on the map
+        var selectedLocation by remember { mutableStateOf<Location?>(null) }
+
         val coroutineScope = rememberCoroutineScope()
         val context = LocalContext.current
         val database = remember { FitnessTrackerDatabase.getInstance(context) }
@@ -1420,7 +1425,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        Column(modifier = Modifier.padding(8.dp)) {
+        Column(
+            modifier = Modifier
+                .padding(8.dp)
+        ) {
             // Existing fields
             Text("Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}",
                 style = MaterialTheme.typography.bodyLarge)
@@ -1454,8 +1462,121 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            // Event map with color-coded speeds
-            EventMapView(record = record)
+            // Event map with color-coded speeds and selected point highlight
+            EventMapView(
+                record = record,
+                selectedLocation = selectedLocation
+            )
+
+            // Add a divider between map and charts
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider()
+
+            // Add our new chart section title
+            Text(
+                "Event Data Analysis",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+
+            // Add our charts component with location preview handling
+            EventChartsView(
+                record = record,
+                onLocationSelected = { newLocation ->
+                    // Debug log
+                    Log.d("SelectedEventPanel", "Location selected: ${newLocation.latitude}, ${newLocation.longitude}")
+                    selectedLocation = newLocation
+                }
+            )
+
+            // Display selected location data as text instead of a map
+            selectedLocation?.let { location ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            "Selected Point Data",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Coordinates: ${String.format("%.6f", location.latitude)}, ${String.format("%.6f", location.longitude)}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            "Altitude: ${String.format("%.1f", location.altitude)} m",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+        }
+    }
+    @Composable
+    fun LocationMapView(location: Location, mapId: String) {
+        // This composable will be recreated whenever mapId changes
+        Log.d("LocationMapView", "Creating map for location: $mapId")
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(180.dp)
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    // Create a fresh MapView
+                    MapView(ctx).apply {
+                        setTileSource(org.osmdroid.tileprovider.tilesource.TileSourceFactory.MAPNIK)
+                        setMultiTouchControls(true)
+                        controller.setZoom(16.0)
+
+                        // Center map on the location
+                        val geoPoint = GeoPoint(location.latitude, location.longitude)
+                        controller.setCenter(geoPoint)
+
+                        // Add a more visible marker
+                        val marker = Marker(this).apply {
+                            position = geoPoint
+                            title = "Alt: ${location.altitude.toInt()} m"
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+
+                            // Use a large and colorful icon for better visibility
+                            icon = ContextCompat.getDrawable(ctx, R.drawable.ic_start_marker)
+
+                            // Show the info window by default so it's obvious
+                            showInfoWindow()
+                        }
+
+                        // Add a circle under the marker for even better visibility
+                        val circleOverlay = object : Overlay(ctx) {
+                            private val paint = Paint().apply {
+                                color = android.graphics.Color.RED
+                                style = Paint.Style.FILL
+                                alpha = 100
+                            }
+
+                            override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
+                                if (shadow) return
+
+                                val point = mapView.projection.toPixels(geoPoint, null)
+                                canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 20f, paint)
+                            }
+                        }
+
+                        // Add the circle first so it appears under the marker
+                        overlays.add(circleOverlay)
+                        overlays.add(marker)
+
+                        // Debug logging
+                        Log.d("LocationMapView", "Created new MapView for location: ${location.latitude}, ${location.longitude}")
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
     @Composable
@@ -2480,7 +2601,10 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    fun EventMapView(record: SingleEventWithMetric) {
+    fun EventMapView(
+        record: SingleEventWithMetric,
+        selectedLocation: Location? = null
+    ) {
         val context = LocalContext.current
         val eventMapView = remember {
             MapView(context).apply {
@@ -2493,6 +2617,11 @@ class MainActivity : ComponentActivity() {
         var routePoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
         var routeSegments by remember { mutableStateOf<List<RouteSegment>>(emptyList()) }
         val coroutineScope = rememberCoroutineScope()
+
+        // Keep track of the highlight marker separately
+        var highlightMarker by remember { mutableStateOf<Marker?>(null) }
+
+        // The highlight marker is now handled directly in the AndroidView update lambda
 
         LaunchedEffect(record.eventId) {
             coroutineScope.launch {
@@ -2538,6 +2667,8 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // We'll handle the selectedLocation in the AndroidView's update lambda instead
+
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2548,8 +2679,38 @@ class MainActivity : ComponentActivity() {
                 factory = { eventMapView },
                 modifier = Modifier.fillMaxSize(),
                 update = { map ->
+                    // First handle highlight marker updates if there's a selected location
+                    if (selectedLocation != null) {
+                        // Remove existing highlight marker if any
+                        highlightMarker?.let { marker ->
+                            map.overlays.remove(marker)
+                        }
+
+                        // Create a new highlight marker
+                        val intRedColor: Int = Color.Red.toArgb()
+                        val highlightPoint = GeoPoint(selectedLocation.latitude, selectedLocation.longitude)
+                        val marker = Marker(map).apply {
+                            position = highlightPoint
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                            icon = ContextCompat.getDrawable(context, R.drawable.ic_start_marker)?.apply {
+                                colorFilter = PorterDuffColorFilter(intRedColor, PorterDuff.Mode.SRC_IN)
+                            }
+                            title = "Alt: ${selectedLocation.altitude.toInt()} m"
+
+                            // Show info window by default
+                            showInfoWindow()
+                        }
+
+                        map.overlays.add(marker)
+                        highlightMarker = marker
+
+                        // Center map on the selected location
+                        map.controller.animateTo(highlightPoint)
+                    }
+
                     if (routePoints.isNotEmpty()) {
-                        map.overlays.clear()
+                        // Clear existing route overlays but keep the highlight marker if any
+                        map.overlays.removeAll { it is Polyline }
 
                         if (routeSegments.isNotEmpty()) {
                             // Create colored segments based on speed
@@ -2581,18 +2742,20 @@ class MainActivity : ComponentActivity() {
                             addStartMarker(map, routePoints.first())
                             addEndMarker(map, routePoints.last())
 
-                            // Set bounds to show full route
-                            val bounds = BoundingBox.fromGeoPoints(routePoints)
-                            map.zoomToBoundingBox(bounds, true, 50, 17.0, 1L)
+                            // Set bounds to show full route (only if no point is selected)
+                            if (selectedLocation == null) {
+                                val bounds = BoundingBox.fromGeoPoints(routePoints)
+                                map.zoomToBoundingBox(bounds, true, 50, 17.0, 1L)
+                            }
 
                             // Add speed legend
                             addSpeedLegend(map)
                         } catch (e: Exception) {
                             Log.e("EventMapView", "Error adding overlays", e)
                         }
-
-                        map.invalidate()
                     }
+
+                    map.invalidate()
                 }
             )
         }

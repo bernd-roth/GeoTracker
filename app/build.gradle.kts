@@ -109,6 +109,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.jakewharton.timber:timber:4.7.1")
     implementation("joda-time:joda-time:2.13.0")
-    implementation ("com.squareup.okhttp3:okhttp:4.9.3")
-    implementation ("com.google.code.gson:gson:2.8.9")
+    implementation("com.squareup.okhttp3:okhttp:4.9.3")
+    implementation("com.google.code.gson:gson:2.8.9")
+    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
 }
