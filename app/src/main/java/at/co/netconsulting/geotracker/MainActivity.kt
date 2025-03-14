@@ -99,7 +99,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -3441,64 +3440,6 @@ class MainActivity : ComponentActivity() {
                     textPaint
                 )
             }
-        }
-    }
-    fun createEnhancedMarker(
-        map: MapView,
-        selectedLocation: Location,
-        speed: Float,
-        distance: Double
-    ): Marker {
-        val marker = Marker(map).apply {
-            position = GeoPoint(selectedLocation.latitude, selectedLocation.longitude)
-            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-
-            infoWindow = ComposeInfoWindow(map) {
-                MarkerInfoContent(
-                    altitude = selectedLocation.altitude,
-                    speed = speed,
-                    distance = distance
-                )
-            }
-        }
-        return marker
-    }
-    @Composable
-    fun MarkerInfoContent(
-        altitude: Double,
-        speed: Float,
-        distance: Double
-    ) {
-        Column(
-            modifier = Modifier
-                .clip(RoundedCornerShape(8.dp))
-                .background(Color.White)
-                .padding(12.dp)
-        ) {
-            Text(
-                text = "Selected Point Data",
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp,
-                color = Color.Black
-            )
-
-            Text(
-                text = "Alt: ${String.format("%.1f", altitude)} m",
-                fontSize = 12.sp,
-                color = Color.Black
-            )
-
-            Text(
-                text = "Speed: ${String.format("%.1f", speed)} km/h",
-                fontSize = 12.sp,
-                color = Color.Black
-            )
-
-            Text(
-                text = "Distance: ${String.format("%.3f", distance/1000)} km",
-                fontSize = 12.sp,
-                color = Color.Black
-            )
         }
     }
 }
