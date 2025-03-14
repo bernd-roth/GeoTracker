@@ -99,6 +99,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -140,7 +141,11 @@ import at.co.netconsulting.geotracker.service.GpxExportService
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.getCurrentlyRecordingEventId
 import com.google.android.gms.maps.model.LatLng
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.greenrobot.eventbus.EventBus
@@ -164,6 +169,7 @@ import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 import javax.xml.parsers.DocumentBuilderFactory
 
 class MainActivity : ComponentActivity() {
@@ -2617,6 +2623,7 @@ class MainActivity : ComponentActivity() {
         var routePoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
         var routeSegments by remember { mutableStateOf<List<RouteSegment>>(emptyList()) }
         val coroutineScope = rememberCoroutineScope()
+        var loadedLocationData = remember { mutableStateOf<Triple<GeoPoint, Float, Double>?>(null) }
 
         // Keep track of the highlight marker separately
         var highlightMarker by remember { mutableStateOf<Marker?>(null) }
@@ -2667,12 +2674,10 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // We'll handle the selectedLocation in the AndroidView's update lambda instead
-
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp)
+                .height(400.dp) // Making the map preview big enough to have the full info window on it
                 .padding(vertical = 8.dp)
         ) {
             AndroidView(
@@ -2681,31 +2686,171 @@ class MainActivity : ComponentActivity() {
                 update = { map ->
                     // First handle highlight marker updates if there's a selected location
                     if (selectedLocation != null) {
-                        // Remove existing highlight marker if any
-                        highlightMarker?.let { marker ->
-                            map.overlays.remove(marker)
-                        }
+                        // First, remove ALL existing markers
+                        map.overlays.removeAll { it is Marker }
 
-                        // Create a new highlight marker
-                        val intRedColor: Int = Color.Red.toArgb()
+                        // Reset the highlightMarker reference
+                        highlightMarker = null
+
+                        // Create the GeoPoint for the selected location
                         val highlightPoint = GeoPoint(selectedLocation.latitude, selectedLocation.longitude)
-                        val marker = Marker(map).apply {
-                            position = highlightPoint
-                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                            icon = ContextCompat.getDrawable(context, R.drawable.ic_start_marker)?.apply {
-                                colorFilter = PorterDuffColorFilter(intRedColor, PorterDuff.Mode.SRC_IN)
+                        val intRedColor: Int = Color.Red.toArgb()
+
+                        // Check if we already have data for this exact location
+                        val existingData = loadedLocationData.value
+                        if (existingData != null &&
+                            existingData.first.latitude == selectedLocation.latitude &&
+                            existingData.first.longitude == selectedLocation.longitude) {
+
+                            // We already have data for this location, reuse it
+                            val (_, speed, distance) = existingData
+
+                            // Create marker with the cached data
+                            val marker = Marker(map).apply {
+                                position = highlightPoint
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                icon = ContextCompat.getDrawable(context, R.drawable.ic_start_marker)?.apply {
+                                    colorFilter = PorterDuffColorFilter(intRedColor, PorterDuff.Mode.SRC_IN)
+                                }
+
+                                // Use cached values
+                                title = "Alt: ${String.format("%.1f", selectedLocation.altitude)} m\n" +
+                                        "Speed: ${String.format("%.1f", speed)} km/h\n" +
+                                        "Distance: ${String.format("%.3f", distance/1000)} km"
+
+                                showInfoWindow()
                             }
-                            title = "Alt: ${selectedLocation.altitude.toInt()} m"
 
-                            // Show info window by default
-                            showInfoWindow()
+                            map.overlays.add(marker)
+                            highlightMarker = marker
+                            map.controller.animateTo(highlightPoint)
+
+                        } else if (record.eventId > 0) {
+                            // Need to load new data - show initial marker with loading message
+                            val initialMarker = Marker(map).apply {
+                                position = highlightPoint
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                icon = ContextCompat.getDrawable(context, R.drawable.ic_start_marker)?.apply {
+                                    colorFilter = PorterDuffColorFilter(intRedColor, PorterDuff.Mode.SRC_IN)
+                                }
+                                title = "Alt: ${String.format("%.1f", selectedLocation.altitude)} m\n" +
+                                        "Loading data..."
+                                showInfoWindow()
+                            }
+
+                            map.overlays.add(initialMarker)
+                            highlightMarker = initialMarker
+                            map.controller.animateTo(highlightPoint)
+
+                            // Launch a coroutine to load the data from the database
+                            // Use a key to track and cancel previous requests
+                            val currentLoadId = UUID.randomUUID().toString()
+                            val loadingJobKey = "load_$currentLoadId"
+
+                            // Cancel any existing loading job
+                            coroutineScope.coroutineContext[Job]?.children?.forEach { child ->
+                                if (child is CoroutineScope && child.coroutineContext[CoroutineName]?.name?.startsWith("load_") == true) {
+                                    child.cancel()
+                                }
+                            }
+
+                            coroutineScope.launch(CoroutineName(loadingJobKey)) {
+                                try {
+                                    // Use withContext(Dispatchers.IO) to ensure database operations run on IO thread
+                                    val metrics = withContext(Dispatchers.IO) {
+                                        database.metricDao().getMetricsByEventId(record.eventId)
+                                    }
+                                    val locations = withContext(Dispatchers.IO) {
+                                        database.eventDao().getRoutePointsForEvent(record.eventId)
+                                    }
+
+                                    // Check if this coroutine has been cancelled or replaced
+                                    if (!isActive) return@launch
+
+                                    // Find closest location point
+                                    var closestDistance = Double.MAX_VALUE
+                                    var closestMetric: Metric? = null
+                                    var closestLocationIndex = -1
+
+                                    for (i in locations.indices) {
+                                        val loc = locations[i]
+                                        val latDiff = loc.latitude - selectedLocation.latitude
+                                        val lonDiff = loc.longitude - selectedLocation.longitude
+                                        val distanceSquared = latDiff * latDiff + lonDiff * lonDiff
+
+                                        if (distanceSquared < closestDistance) {
+                                            closestDistance = distanceSquared
+                                            closestLocationIndex = i
+                                        }
+                                    }
+
+                                    // Now find a metric with a similar index in the metrics list
+                                    if (closestLocationIndex >= 0 && metrics.isNotEmpty()) {
+                                        val metricIndex = if (metrics.size == locations.size) {
+                                            closestLocationIndex
+                                        } else {
+                                            (closestLocationIndex.toFloat() / locations.size * metrics.size).toInt()
+                                                .coerceIn(0, metrics.size - 1)
+                                        }
+
+                                        closestMetric = metrics[metricIndex]
+                                    }
+
+                                    // Extract speed and distance from the metric
+                                    val speed = closestMetric?.speed ?: 0f
+                                    val distance = closestMetric?.distance ?: 0.0
+
+                                    // Cache the data for this location
+                                    loadedLocationData.value = Triple(highlightPoint, speed, distance)
+
+                                    // Check if this coroutine has been cancelled or replaced
+                                    if (!isActive) return@launch
+
+                                    // Update the UI with the retrieved data on the Main thread
+                                    withContext(Dispatchers.Main) {
+                                        // Remove the loading marker
+                                        map.overlays.remove(initialMarker)
+
+                                        // Create the final marker with the data
+                                        val marker = Marker(map).apply {
+                                            position = highlightPoint
+                                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                            icon = ContextCompat.getDrawable(context, R.drawable.ic_start_marker)?.apply {
+                                                colorFilter = PorterDuffColorFilter(intRedColor, PorterDuff.Mode.SRC_IN)
+                                            }
+
+                                            title = "Alt: ${String.format("%.1f", selectedLocation.altitude)} m\n" +
+                                                    "Speed: ${String.format("%.1f", speed)} km/h\n" +
+                                                    "Distance: ${String.format("%.3f", distance/1000)} km"
+
+                                            showInfoWindow()
+                                        }
+
+                                        map.overlays.add(marker)
+                                        highlightMarker = marker
+                                    }
+
+                                } catch (e: Exception) {
+                                    Log.e("EventMapView", "Error finding closest metric", e)
+                                }
+                            }
+                        } else {
+                            // For cases with no event ID, just show altitude
+                            val marker = Marker(map).apply {
+                                position = highlightPoint
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                icon = ContextCompat.getDrawable(context, R.drawable.ic_start_marker)?.apply {
+                                    colorFilter = PorterDuffColorFilter(intRedColor, PorterDuff.Mode.SRC_IN)
+                                }
+
+                                title = "Alt: ${String.format("%.1f", selectedLocation.altitude)} m"
+                                showInfoWindow()
+                            }
+
+                            map.overlays.add(marker)
+                            highlightMarker = marker
+                            map.controller.animateTo(highlightPoint)
                         }
-
-                        map.overlays.add(marker)
-                        highlightMarker = marker
-
-                        // Center map on the selected location
-                        map.controller.animateTo(highlightPoint)
                     }
 
                     if (routePoints.isNotEmpty()) {
@@ -3296,6 +3441,64 @@ class MainActivity : ComponentActivity() {
                     textPaint
                 )
             }
+        }
+    }
+    fun createEnhancedMarker(
+        map: MapView,
+        selectedLocation: Location,
+        speed: Float,
+        distance: Double
+    ): Marker {
+        val marker = Marker(map).apply {
+            position = GeoPoint(selectedLocation.latitude, selectedLocation.longitude)
+            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+
+            infoWindow = ComposeInfoWindow(map) {
+                MarkerInfoContent(
+                    altitude = selectedLocation.altitude,
+                    speed = speed,
+                    distance = distance
+                )
+            }
+        }
+        return marker
+    }
+    @Composable
+    fun MarkerInfoContent(
+        altitude: Double,
+        speed: Float,
+        distance: Double
+    ) {
+        Column(
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.White)
+                .padding(12.dp)
+        ) {
+            Text(
+                text = "Selected Point Data",
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = Color.Black
+            )
+
+            Text(
+                text = "Alt: ${String.format("%.1f", altitude)} m",
+                fontSize = 12.sp,
+                color = Color.Black
+            )
+
+            Text(
+                text = "Speed: ${String.format("%.1f", speed)} km/h",
+                fontSize = 12.sp,
+                color = Color.Black
+            )
+
+            Text(
+                text = "Distance: ${String.format("%.3f", distance/1000)} km",
+                fontSize = 12.sp,
+                color = Color.Black
+            )
         }
     }
 }
