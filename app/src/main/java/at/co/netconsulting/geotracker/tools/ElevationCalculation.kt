@@ -2,7 +2,7 @@ package at.co.netconsulting.geotracker.tools
 
 import android.location.Location
 import android.util.Log
-import at.co.netconsulting.geotracker.SportType
+import at.co.netconsulting.geotracker.enums.SportType
 import kotlin.math.abs
 
 //ascending-descending

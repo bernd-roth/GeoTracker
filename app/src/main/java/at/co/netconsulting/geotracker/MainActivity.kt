@@ -10,18 +10,14 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.graphics.Canvas
-import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.PixelFormat
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
-import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
 import android.widget.Toast
@@ -31,7 +27,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,17 +36,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -78,11 +68,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
@@ -105,7 +93,6 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -115,6 +102,13 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import at.co.netconsulting.geotracker.TileSourceConfig.customTileSource
+import at.co.netconsulting.geotracker.composables.BottomSheetContent
+import at.co.netconsulting.geotracker.composables.EventChartsView
+import at.co.netconsulting.geotracker.composables.EventSelectionDialog
+import at.co.netconsulting.geotracker.composables.GPXFileSelectionDialog
+import at.co.netconsulting.geotracker.composables.LocationEventPanel
+import at.co.netconsulting.geotracker.composables.SettingsScreen
+import at.co.netconsulting.geotracker.composables.TotalStatisticsPanel
 import at.co.netconsulting.geotracker.data.EditState
 import at.co.netconsulting.geotracker.data.EventDetails
 import at.co.netconsulting.geotracker.data.LapTimeInfo
@@ -316,41 +310,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun isServiceRunning(serviceName: String): Boolean {
-        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
-        return manager.getRunningServices(Integer.MAX_VALUE)
-            .any { service ->
-                serviceName == service.service.className && service.foreground
-            }
-    }
-
-    private fun drawPolyline(
-        locationChangeEventList: CustomLocationListener.LocationChangeEvent
-    ) {
-        val latLngs = locationChangeEventList.latLngs
-
-        val oldPolyline = mapView.overlays.find { it is Polyline } as? Polyline
-        if (oldPolyline != null) {
-            mapView.overlays.remove(oldPolyline)
-        }
-
-        val newPolyline = Polyline().apply {
-            outlinePaint.strokeWidth = 10f
-            outlinePaint.color = ContextCompat.getColor(this@MainActivity, android.R.color.holo_purple)
-            latLngs.forEach { latLng ->
-                addPoint(GeoPoint(latLng.latitude, latLng.longitude))
-            }
-        }
-
-        if (latLngs.isNotEmpty()) {
-            createMarker(latLngs[0])
-        }
-
-        polyline = newPolyline
-        mapView.overlays.add(newPolyline)
-        mapView.invalidate()
-    }
-
     private fun createMarker(firstLatLng: LatLng) {
         if (!::marker.isInitialized) {
             marker = Marker(mapView)
@@ -490,7 +449,6 @@ class MainActivity : ComponentActivity() {
     fun StatisticsScreenPreview(
         context: Context,
         locationEventState: MutableState<LocationEvent?>,
-        latLngs: List<LatLng> = emptyList(),
         onEventsSelected: (List<SingleEventWithMetric>) -> Unit,
         selectedRecords: List<SingleEventWithMetric>,
         onSelectedRecordsChange: (List<SingleEventWithMetric>) -> Unit
@@ -621,8 +579,6 @@ class MainActivity : ComponentActivity() {
             totalDescent = locationEventState.value?.totalDescent ?: 0.0
         )
 
-        var searchQuery by remember { mutableStateOf("") }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -693,7 +649,6 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             },
-                            onDismiss = { expanded = false },
                             onDelete = { eventId ->
                                 coroutineScope.launch {
                                     delete(eventId)
@@ -826,452 +781,15 @@ class MainActivity : ComponentActivity() {
             )
         }
     }
-    @Composable
-    fun TotalStatisticsPanel(totalStatistics: TotalStatistics) {
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text("Total distance covered: ${"%.3f".format(totalStatistics.totalDistanceKm)} Km",
-                style = MaterialTheme.typography.bodyLarge)
 
-            // Show distance by year if available
-            if (totalStatistics.distanceByYear.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("Distance by year:", style = MaterialTheme.typography.bodyMedium)
-
-                totalStatistics.distanceByYear.forEach { (year, distance) ->
-                    Text("$year: ${"%.3f".format(distance)} Km",
-                        style = MaterialTheme.typography.bodyLarge)
-                }
-            }
+    private fun getCurrentlyRecordingEventId(): Int {
+        val sharedPreferences = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+        return if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
+            sharedPreferences.getInt("active_event_id", -1)
+        } else {
+            // Return the last recorded event ID when not recording
+            sharedPreferences.getInt("last_event_id", -1)
         }
-    }
-    @Composable
-    fun EventSelectionDialog(
-        records: List<SingleEventWithMetric>,
-        selectedRecords: List<SingleEventWithMetric>,
-        editState: EditState,
-        lapTimesMap: Map<Int, List<LapTimeInfo>>,
-        onRecordSelected: (SingleEventWithMetric) -> Unit,
-        onDismiss: () -> Unit,
-        onDelete: (Int) -> Unit,
-        onExport: (Int) -> Unit,
-        onEdit: (Int, String, String) -> Unit,
-        onDeleteAllContent: () -> Unit,
-        onExportGPX: () -> Unit,
-        onImportGPX: () -> Unit,
-        onBackupDatabase: () -> Unit
-    ) {
-        var searchQuery by remember { mutableStateOf("") }
-        val lazyListState = rememberLazyListState()
-
-        Surface(
-            modifier = Modifier
-                .width(400.dp)
-                .heightIn(max = 600.dp),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(
-                modifier = Modifier.padding(vertical = 8.dp)
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { query -> searchQuery = query },
-                    label = { Text("Search event") },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-
-                val filteredRecords = records.filter {
-                    val eventNameMatch = it.eventName.contains(searchQuery, ignoreCase = true)
-                    val eventDateMatch = it.eventDate?.contains(searchQuery, ignoreCase = true) ?: false
-                    val distanceMatch = it.distance?.let { distance ->
-                        "%.3f".format(distance / 1000).contains(searchQuery, ignoreCase = true)
-                    } ?: false
-                    eventNameMatch || eventDateMatch || distanceMatch
-                }
-
-                // Replace scrolling Column with LazyColumn for better performance
-                LazyColumn(
-                    state = lazyListState,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(
-                        items = filteredRecords,
-                        key = { it.eventId }
-                    ) { record ->
-                        EventItemCard(
-                            record = record,
-                            isSelected = selectedRecords.contains(record),
-                            editState = editState,
-                            lapTimes = lapTimesMap[record.eventId] ?: emptyList(),
-                            onRecordSelected = onRecordSelected,
-                            onDelete = onDelete,
-                            onExport = onExport,
-                            onEdit = onEdit,
-                            isCurrentlyRecording = record.eventId == getCurrentlyRecordingEventId() &&
-                                    isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
-                        )
-                    }
-                }
-
-                // Footer actions
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                ) {
-                    Button(
-                        onClick = { onDeleteAllContent() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(text = "Delete content of all tables")
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = { onExportGPX() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(text = "Export GPX files")
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = { onImportGPX() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(text = "Import GPX files")
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Button(
-                        onClick = { onBackupDatabase() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(text = "Backup database")
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun EventItemCard(
-        record: SingleEventWithMetric,
-        isSelected: Boolean,
-        editState: EditState,
-        lapTimes: List<LapTimeInfo>,
-        onRecordSelected: (SingleEventWithMetric) -> Unit,
-        onDelete: (Int) -> Unit,
-        onExport: (Int) -> Unit,
-        onEdit: (Int, String, String) -> Unit,
-        isCurrentlyRecording: Boolean
-    ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp)
-                .clickable(
-                    enabled = !isCurrentlyRecording && !editState.isEditing,
-                    onClick = {
-                        onRecordSelected(record)
-                    }
-                ),
-            color = if (isSelected) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp)
-            ) {
-                if (editState.isEditing && editState.eventId == record.eventId) {
-                    // Edit mode fields
-                    var editedName by remember { mutableStateOf(editState.currentEventName) }
-                    var editedDate by remember { mutableStateOf(editState.currentEventDate) }
-
-                    OutlinedTextField(
-                        value = editedName,
-                        onValueChange = { editedName = it },
-                        label = { Text("Event Name") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedTextField(
-                        value = editedDate,
-                        onValueChange = { editedDate = it },
-                        label = { Text("Event Date (YYYY-MM-DD)") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(onClick = { onEdit(-1, "", "") }) {
-                            Text("Cancel")
-                        }
-                        TextButton(
-                            onClick = { onEdit(record.eventId, editedName, editedDate) }
-                        ) {
-                            Text("Save")
-                        }
-                    }
-                } else {
-                    // Normal display mode
-                    Text(
-                        text = "Event date: ${record.eventDate?.takeIf { it.isNotEmpty() } ?: "No date provided"}",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        text = "Event name: ${record.eventName}",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                    Text(
-                        text = "Covered distance: ${"%.3f".format(record.distance?.div(1000) ?: 0.0)} Km",
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-
-                    if (isCurrentlyRecording) {
-                        Text(
-                            text = "⚫ Ongoing Recording",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = MaterialTheme.colorScheme.error,
-                                fontWeight = FontWeight.Bold
-                            )
-                        )
-                    }
-
-                    // Use a separate collapsible section for lap times to reduce initial render cost
-                    if (lapTimes.isNotEmpty()) {
-                        var showLapTimes by remember { mutableStateOf(false) }
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .clickable { showLapTimes = !showLapTimes },
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Lap Times",
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                modifier = Modifier.weight(1f)
-                            )
-                            Icon(
-                                imageVector = if (showLapTimes)
-                                    Icons.Default.KeyboardArrowUp
-                                else
-                                    Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Toggle lap times"
-                            )
-                        }
-
-                        if (showLapTimes) {
-                            LapTimesSection(lapTimes)
-                        }
-                    }
-
-                    // Action buttons
-                    if (!isCurrentlyRecording) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState())
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Button(onClick = { onDelete(record.eventId) }) {
-                                Text("Delete")
-                            }
-                            Button(onClick = { onExport(record.eventId) }) {
-                                Text("Export")
-                            }
-                            Button(
-                                onClick = {
-                                    onEdit(
-                                        record.eventId,
-                                        record.eventName,
-                                        record.eventDate ?: ""
-                                    )
-                                }
-                            ) {
-                                Text("Edit")
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun LapTimesSection(lapTimes: List<LapTimeInfo>) {
-        // Find fastest and slowest completed laps
-        val lastLapNumber = lapTimes.maxOfOrNull { it.lapNumber } ?: 0
-
-        val completedLaps = lapTimes.filter { lapTime ->
-            lapTime.lapNumber > 0 &&
-                    lapTime.lapNumber < lastLapNumber &&
-                    lapTime.timeInMillis > 0 &&
-                    lapTime.timeInMillis < Long.MAX_VALUE
-        }
-
-        val fastestLap = completedLaps.minByOrNull { it.timeInMillis }
-        val slowestLap = completedLaps.maxByOrNull { it.timeInMillis }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .padding(8.dp)
-            ) {
-                Text(
-                    text = "Lap",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Text(
-                    text = "Time",
-                    modifier = Modifier.weight(2f),
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-            }
-
-            // Use LazyColumn for lap times if there are many
-            if (lapTimes.size > 20) {
-                LazyColumn(
-                    modifier = Modifier.heightIn(max = 200.dp)
-                ) {
-                    items(lapTimes) { lapTime ->
-                        LapTimeRow(lapTime, fastestLap, slowestLap, lastLapNumber)
-                    }
-                }
-            } else {
-                // Use Column for fewer lap times
-                lapTimes.forEach { lapTime ->
-                    LapTimeRow(lapTime, fastestLap, slowestLap, lastLapNumber)
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun LapTimeRow(
-        lapTime: LapTimeInfo,
-        fastestLap: LapTimeInfo?,
-        slowestLap: LapTimeInfo?,
-        lastLapNumber: Int
-    ) {
-        val backgroundColor = when {
-            lapTime.lapNumber == lastLapNumber -> Color.Transparent // Current lap
-            lapTime.timeInMillis <= 0 || lapTime.timeInMillis == Long.MAX_VALUE -> Color.Transparent // Invalid lap
-            lapTime == fastestLap -> Color(0xFF90EE90) // Fastest lap
-            lapTime == slowestLap -> Color(0xFFF44336) // Slowest lap
-            else -> Color.Transparent
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(backgroundColor)
-                .padding(8.dp)
-        ) {
-            Text(
-                text = lapTime.lapNumber.toString(),
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = Tools().formatTime(lapTime.timeInMillis),
-                modifier = Modifier.weight(2f),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-    @Composable
-    fun GPXFileSelectionDialog(
-        context: Context,
-        onDismissRequest: () -> Unit,
-        onFileSelected: (List<File>) -> Unit  // Modified to accept a list of files
-    ) {
-        var showError by remember { mutableStateOf(false) }
-
-        // Function to convert Uri to File
-        fun urisToFiles(uris: List<Uri>): List<File> {
-            return uris.mapNotNull { uri ->
-                try {
-                    val tempFile = File(context.cacheDir, "temp_gpx_file_${System.currentTimeMillis()}.gpx")
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(tempFile).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    tempFile
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    null
-                }
-            }
-        }
-
-        // Modified to use GetMultipleContents
-        val launcher = rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.GetMultipleContents()
-        ) { uris ->
-            if (uris.isNotEmpty()) {
-                val files = urisToFiles(uris)
-                if (files.isNotEmpty()) {
-                    onFileSelected(files)
-                } else {
-                    showError = true
-                }
-            }
-        }
-
-        AlertDialog(
-            onDismissRequest = onDismissRequest,
-            title = { Text("Select GPX Files") },
-            text = {
-                if (showError) {
-                    Text("Error importing GPX files. Please try again.")
-                } else {
-                    Text("Select one or more GPX files to import")
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        launcher.launch("*/*")
-                    }
-                ) {
-                    Text("Choose Files")
-                }
-            },
-            dismissButton = {
-                Button(onClick = onDismissRequest) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 
     private suspend fun importMultipleGPXFiles(
@@ -1320,20 +838,6 @@ class MainActivity : ComponentActivity() {
         Toast.makeText(applicationContext, "Edit not implemented yet", Toast.LENGTH_LONG).show()
     }
 
-//    private fun export(eventId: Int) {
-//        Toast.makeText(applicationContext, "Single export not implemented yet", Toast.LENGTH_LONG).show()
-//    }
-
-    private fun getCurrentlyRecordingEventId(): Int {
-        val sharedPreferences = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-        return if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            sharedPreferences.getInt("active_event_id", -1)
-        } else {
-            // Return the last recorded event ID when not recording
-            sharedPreferences.getInt("last_event_id", -1)
-        }
-    }
-
     private fun saveLastEventId() {
         val sharedPreferences = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
         val currentEventId = sharedPreferences.getInt("active_event_id", -1)
@@ -1341,30 +845,6 @@ class MainActivity : ComponentActivity() {
             sharedPreferences.edit()
                 .putInt("last_event_id", currentEventId)
                 .apply()
-        }
-    }
-
-    @Composable
-    fun LocationEventPanel(event: LocationEvent) {
-        val formattedTime = if (event.startDateTime == null) {
-            "N/A"
-        } else {
-            val zonedDateTime = event.startDateTime.atZone(ZoneId.systemDefault())
-            val epochMilli = zonedDateTime.toInstant().toEpochMilli()
-            val eventStartDateTimeFormatted = LocalDateTime.ofInstant(
-                Instant.ofEpochMilli(epochMilli),
-                ZoneId.systemDefault()
-            ).format(DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"))
-            eventStartDateTimeFormatted
-        }
-
-        Column(modifier = Modifier.padding(8.dp)) {
-            Text("Date and time: $formattedTime", style = MaterialTheme.typography.bodyLarge)
-            Text("Speed: ${"%.2f".format(event.speed)} Km/h", style = MaterialTheme.typography.bodyLarge)
-            Text("Ø speed: ${"%.2f".format(event.averageSpeed)} Km/h", style = MaterialTheme.typography.bodyLarge)
-            Text("Covered distance: ${"%.3f".format(event.coveredDistance/1000)} Km", style = MaterialTheme.typography.bodyLarge)
-            Text("Total ascent: ${"%.3f".format(event.totalAscent)} meter", style = MaterialTheme.typography.bodyLarge)
-            Text("Total descent: ${"%.3f".format(event.totalDescent)} meter", style = MaterialTheme.typography.bodyLarge)
         }
     }
 
@@ -1493,32 +973,6 @@ class MainActivity : ComponentActivity() {
                     selectedLocation = newLocation
                 }
             )
-
-            // Display selected location data as text instead of a map
-            selectedLocation?.let { location ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            "Selected Point Data",
-                            style = MaterialTheme.typography.titleMedium
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Coordinates: ${String.format("%.6f", location.latitude)}, ${String.format("%.6f", location.longitude)}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            "Altitude: ${String.format("%.1f", location.altitude)} m",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-            }
         }
     }
     @Composable
@@ -1681,160 +1135,6 @@ class MainActivity : ComponentActivity() {
             putString("websocketserver", websocketserver)
             apply()
         }
-    }
-
-    @Composable
-    fun SettingsScreen() {
-        val context = LocalContext.current
-        val sharedPreferences = remember {
-            context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-        }
-
-        val savedState = sharedPreferences.getBoolean("batteryOptimizationState", true)
-        var isBatteryOptimizationIgnoredState by remember { mutableStateOf(savedState) }
-
-        var firstName by remember {
-            mutableStateOf(sharedPreferences.getString("firstname", "") ?: "")
-        }
-        var lastName by remember {
-            mutableStateOf(sharedPreferences.getString("lastname", "") ?: "")
-        }
-        var birthDate by remember {
-            mutableStateOf(sharedPreferences.getString("birthdate", "") ?: "")
-        }
-        var height by remember { mutableStateOf(sharedPreferences.getFloat("height", 0f)) }
-        var weight by remember { mutableStateOf(sharedPreferences.getFloat("weight", 0f)) }
-        var websocketserver by remember {
-            mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "")
-        }
-
-        isBatteryOptimizationIgnored(context)
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-                .background(Color.LightGray)
-        ) {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
-
-            OutlinedTextField(
-                value = firstName,
-                onValueChange = { firstName = it },
-                label = { Text("Firstname") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = lastName,
-                onValueChange = { lastName = it },
-                label = { Text("Lastname") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = birthDate,
-                onValueChange = { birthDate = it },
-                label = { Text("Birthdate (YYYY-MM-DD)") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = height.toString(),
-                onValueChange = { input ->
-                    height = input.toFloatOrNull() ?: height
-                },
-                label = { Text("Height (cm)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = weight.toString(),
-                onValueChange = { input ->
-                    weight = input.toFloatOrNull() ?: weight
-                },
-                label = { Text("Weight (kg)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            OutlinedTextField(
-                value = websocketserver,
-                onValueChange = { websocketserver = it },
-                label = { Text("Websocket ip address") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Battery Optimization",
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            Switch(
-                checked = isBatteryOptimizationIgnoredState,
-                onCheckedChange = { isChecked ->
-                    isBatteryOptimizationIgnoredState = isChecked
-                    sharedPreferences.edit()
-                        .putBoolean("batteryOptimizationState", isChecked)
-                        .apply()
-
-                    if (isChecked) {
-                        requestIgnoreBatteryOptimizations(context)
-                    } else {
-                        Toast.makeText(
-                            context,
-                            "Background usage might still be enabled. Please disable manually.",
-                            Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = {
-                    saveAllSettings(
-                        sharedPreferences,
-                        firstName,
-                        lastName,
-                        birthDate,
-                        height,
-                        weight,
-                        websocketserver
-                    )
-
-                    Toast.makeText(context, "All settings saved", Toast.LENGTH_SHORT).show()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Save")
-            }
-        }
-    }
-
-    private fun isBatteryOptimizationIgnored(context: Context): Boolean {
-        val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-        val packageName = context.packageName
-        return powerManager.isIgnoringBatteryOptimizations(packageName)
-    }
-
-    private fun requestIgnoreBatteryOptimizations(context: Context) {
-        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${context.packageName}")
-        }
-        context.startActivity(intent)
     }
 
     @Composable
@@ -2119,6 +1419,14 @@ class MainActivity : ComponentActivity() {
                 }
             )
         }
+    }
+
+    private fun isServiceRunning(serviceName: String): Boolean {
+        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        return manager.getRunningServices(Integer.MAX_VALUE)
+            .any { service ->
+                serviceName == service.service.className && service.foreground
+            }
     }
 
     @Composable
@@ -2715,7 +2023,8 @@ class MainActivity : ComponentActivity() {
                                 // Use cached values
                                 title = "Alt: ${String.format("%.1f", selectedLocation.altitude)} m\n" +
                                         "Speed: ${String.format("%.1f", speed)} km/h\n" +
-                                        "Distance: ${String.format("%.3f", distance/1000)} km"
+                                        "Distance: ${String.format("%.3f", distance/1000)} km\n" +
+                                        "Coordinates: ${String.format("%.6f", selectedLocation.latitude)}, ${String.format("%.6f", selectedLocation.longitude)}"
 
                                 showInfoWindow()
                             }
@@ -3034,52 +2343,6 @@ class MainActivity : ComponentActivity() {
             mapView.invalidate()
         } catch (e: Exception) {
             Log.e("MainActivity", "Error adding direction arrows", e)
-        }
-    }
-
-    private fun createArrowDrawable(bearing: Double, size: Int): Drawable {
-        return object : Drawable() {
-            private val paint = Paint().apply {
-                color = android.graphics.Color.WHITE
-                style = Paint.Style.FILL
-                isAntiAlias = true
-                alpha = 180 // Semi-transparent arrows (about 70% opacity)
-            }
-
-            override fun draw(canvas: Canvas) {
-                val centerX = bounds.exactCenterX()
-                val centerY = bounds.exactCenterY()
-
-                canvas.save()
-                canvas.rotate(bearing.toFloat(), centerX, centerY)
-
-                // Scaled arrow shape
-                val arrowHeight = size.toFloat()
-                val arrowWidth = size * 0.6f
-
-                val path = Path().apply {
-                    moveTo(centerX, centerY - arrowHeight/2)  // Top point
-                    lineTo(centerX - arrowWidth/2, centerY + arrowHeight/2)  // Bottom left
-                    lineTo(centerX + arrowWidth/2, centerY + arrowHeight/2)  // Bottom right
-                    close()
-                }
-                canvas.drawPath(path, paint)
-
-                canvas.restore()
-            }
-
-            override fun setAlpha(alpha: Int) {
-                paint.alpha = alpha
-            }
-
-            override fun setColorFilter(colorFilter: ColorFilter?) {
-                paint.colorFilter = colorFilter
-            }
-
-            override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
-
-            override fun getIntrinsicWidth(): Int = size
-            override fun getIntrinsicHeight(): Int = size
         }
     }
 

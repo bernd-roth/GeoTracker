@@ -14,7 +14,7 @@ interface LocationDao {
     suspend fun getLastLocationByEvent(eventId: Int): Location?
 
     @Insert
-    suspend fun insertAll(locations: List<Location>)
+    suspend fun insertAll(locations: kotlin.collections.MutableList<at.co.netconsulting.geotracker.domain.Location>)
 
     @Query("DELETE FROM locations WHERE eventId = :eventId")
     suspend fun deleteLocationsByEventId(eventId: Int)

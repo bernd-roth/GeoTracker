@@ -1,4 +1,4 @@
-package at.co.netconsulting.geotracker
+package at.co.netconsulting.geotracker.composables
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column

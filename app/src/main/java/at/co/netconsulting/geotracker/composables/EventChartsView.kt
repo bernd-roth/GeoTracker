@@ -1,4 +1,4 @@
-package at.co.netconsulting.geotracker
+package at.co.netconsulting.geotracker.composables
 
 import android.content.Context
 import android.graphics.Color
@@ -40,9 +40,6 @@ import com.github.mikephil.charting.formatter.ValueFormatter
 import com.github.mikephil.charting.highlight.Highlight
 import com.github.mikephil.charting.listener.OnChartValueSelectedListener
 import kotlinx.coroutines.launch
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin

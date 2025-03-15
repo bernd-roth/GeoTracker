@@ -1,4 +1,4 @@
-package at.co.netconsulting.geotracker
+package at.co.netconsulting.geotracker.enums
 
 enum class SportType {
     RUNNING,
