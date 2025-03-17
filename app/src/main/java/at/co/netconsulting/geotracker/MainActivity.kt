@@ -1112,25 +1112,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    private fun saveAllSettings(
-        sharedPreferences: SharedPreferences,
-        firstName: String,
-        lastName: String,
-        birthDate: String,
-        height: Float,
-        weight: Float,
-        websocketserver: String
-    ) {
-        sharedPreferences.edit().apply {
-            putString("firstname", firstName)
-            putString("lastname", lastName)
-            putString("birthdate", birthDate)
-            putFloat("height", height)
-            putFloat("weight", weight)
-            putString("websocketserver", websocketserver)
-            apply()
-        }
-    }
 
     @Composable
     fun OpenStreetMapView(selectedEvents: List<SingleEventWithMetric> = emptyList()) {
