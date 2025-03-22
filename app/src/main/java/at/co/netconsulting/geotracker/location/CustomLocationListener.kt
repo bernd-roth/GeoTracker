@@ -9,17 +9,9 @@ import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
-import at.co.netconsulting.geotracker.tools.calculateElevationChanges
-import at.co.netconsulting.geotracker.data.FellowRunner
-import at.co.netconsulting.geotracker.data.LocationEvent
-import at.co.netconsulting.geotracker.data.MemoryPressureReliefEvent
-import at.co.netconsulting.geotracker.data.PathTrackingData
-import at.co.netconsulting.geotracker.service.ForegroundService
-import at.co.netconsulting.geotracker.tools.Tools
-import at.co.netconsulting.geotracker.tools.getTotalAscent
-import at.co.netconsulting.geotracker.tools.getTotalDescent
-import com.google.android.gms.maps.model.LatLng
+import at.co.netconsulting.geotracker.data.Metrics
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +19,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -35,74 +26,46 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import org.greenrobot.eventbus.EventBus
-import org.greenrobot.eventbus.Subscribe
-import org.greenrobot.eventbus.ThreadMode
-import org.osmdroid.util.GeoPoint
 import timber.log.Timber
 import java.time.LocalDateTime
-import java.util.concurrent.ConcurrentLinkedQueue
+import java.time.temporal.ChronoUnit
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.min
-import kotlin.math.pow
 
 class CustomLocationListener: LocationListener {
-    private lateinit var totalDateTime: LocalDateTime
-    lateinit var startDateTime: LocalDateTime
+    var startDateTime: LocalDateTime
     private var context: Context
     private var locationManager: LocationManager? = null
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
-    var coveredDistance: Double = 0.0
+    private var coveredDistance: Double = 0.0
     private var lapCounter: Double = 0.0
     private var lap: Int = 0
     private var averageSpeed: Double = 0.0
-    private var latLngs = mutableListOf<LatLng>()
+    private var maxSpeed: Double = 0.0
+    private var cumulativeElevationGain: Double = 0.0
+    private var startingAltitude: Double? = null
     private var webSocket: WebSocket? = null
     private var websocketserver: String = "0.0.0.0"
-    private var fellowRunnerPerson: String? = null
-    private var fellowRunnerSessionId: String? = null
-    private var fellowRunnerLatitude: Double = 0.0
-    private var fellowRunnerLongitude: Double = 0.0
-    private var fellowRunnerCurrentSpeed: Double = 0.0
-    private var person: String = ""
-    private var fellowRunnerCoveredDistance: Float = 0.0f
     private lateinit var firstname: String
     private lateinit var lastname: String
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
-    private var retryCount = 0
-    private var isRetrying = false
+    private var sessionId: String = ""  // Added sessionId field
     private val job = Job()
     private val coroutineScope = CoroutineScope(Dispatchers.IO + job)
-    private var lastMessageTimestamp = AtomicLong(System.currentTimeMillis())
-    private var isConnectionHealthy = AtomicBoolean(false)
-    private var connectionMonitorJob: Job? = null
-    private val maxCacheSize = 1000
-    private val pathPoints = mutableListOf<GeoPoint>()
-    private var sessionId: String? = null
-    private var maxSpeedRecorded: Double = 0.0
-    private val speedQueue = ArrayDeque<Double>(5) //moving average
-    private val allSpeeds = mutableListOf<Double>()
-    private val messageQueue = ConcurrentLinkedQueue<String>()
-    private var messageProcessorJob: Job? = null
-
-    data class LocationChangeEvent(val latLngs: List<LatLng>)
-    data class AdjustLocationFrequencyEvent(val reduceFrequency: Boolean)
-
-    fun getCollectedPoints(): List<GeoPoint> = pathPoints.toList()
+    private var isReconnecting = false
+    private var reconnectAttempts = 0
+    private val MAX_RECONNECT_ATTEMPTS = 5
+    private val BASE_RECONNECT_DELAY_MS = 1000L
 
     constructor(context: Context) {
-        EventBus.getDefault().register(this)
         this.context = context
+        startDateTime = LocalDateTime.now()
     }
 
     fun cleanup() {
-        EventBus.getDefault().unregister(this)
         stopLocationUpdates()
-        connectionMonitorJob?.cancel()
         job.cancel()
     }
 
@@ -110,7 +73,22 @@ class CustomLocationListener: LocationListener {
         createLocationManager()
         createLocationUpdates()
         loadSharedPreferences()
-        forceReconnectWebSocket()
+        loadSessionId()  // Load sessionId from SharedPreferences
+        connectWebSocket()
+        //sending data as a test to my websocket server
+        //sendTestDataToWebSocketServer(context)
+    }
+
+    // Load sessionId from SharedPreferences
+    private fun loadSessionId() {
+        sessionId = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+            .getString("current_session_id", "") ?: ""
+
+        if (sessionId.isEmpty()) {
+            Log.e(TAG_WEBSOCKET, "No session ID found in SharedPreferences")
+        } else {
+            Log.d(TAG_WEBSOCKET, "Loaded session ID: $sessionId")
+        }
     }
 
     fun stopLocationUpdates() {
@@ -125,65 +103,6 @@ class CustomLocationListener: LocationListener {
         } catch (e: Exception) {
             Log.e("CustomLocationListener", "Error stopping location updates", e)
         }
-    }
-
-    private fun startConnectionMonitoring() {
-        connectionMonitorJob?.cancel()
-        connectionMonitorJob = coroutineScope.launch {
-            while (isActive) {
-                try {
-                    val timeSinceLastMessage = System.currentTimeMillis() - lastMessageTimestamp.get()
-
-                    if (timeSinceLastMessage > CONNECTION_TIMEOUT && isConnectionHealthy.get()) {
-                        Timber.tag(TAG_WEBSOCKET).w("No messages received for ${timeSinceLastMessage}ms, connection appears dead")
-                        isConnectionHealthy.set(false)
-                        retryCount = 0
-                        webSocket?.cancel()
-                        connectWebSocket(initialConnect = false)
-                    }
-
-                    // Check connection even if not marked as healthy
-                    if (webSocket == null || !isConnectionHealthy.get()) {
-                        Log.d(TAG_WEBSOCKET, "WebSocket is null or marked unhealthy, reconnecting...")
-                        connectWebSocket(initialConnect = false)
-                    } else {
-                        // Send ping to verify connection
-                        if (!webSocket!!.send("ping")) {
-                            Timber.tag(TAG_WEBSOCKET).w("Failed to send ping, connection might be dead")
-                            isConnectionHealthy.set(false)
-                            webSocket?.cancel()
-                            connectWebSocket(initialConnect = false)
-                        }
-                    }
-
-                    delay(CONNECTION_CHECK_INTERVAL)
-
-                    webSocket?.let { socket ->
-                        if (!socket.send("ping")) {
-                            Timber.tag(TAG_WEBSOCKET).w("Failed to send ping, connection might be dead")
-                            isConnectionHealthy.set(false)
-                            socket.cancel()
-                            connectWebSocket(initialConnect = false)
-                        }
-                    }
-
-                    delay(CONNECTION_CHECK_INTERVAL)
-                } catch (e: Exception) {
-                    Timber.tag(TAG_WEBSOCKET).e(e, "Error in connection monitoring")
-                    // Try to recover from monitoring errors
-                    delay(5000)
-                }
-            }
-        }
-    }
-
-    fun forceReconnectWebSocket() {
-        Log.d(TAG_WEBSOCKET, "Forcing WebSocket reconnection")
-        webSocket?.cancel()
-        webSocket = null
-        isConnectionHealthy.set(false)
-        retryCount = 0
-        connectWebSocket(initialConnect = true)
     }
 
     private fun loadSharedPreferences() {
@@ -220,9 +139,12 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun connectWebSocket(initialConnect: Boolean = true) {
-        if (initialConnect) {
-            retryCount = 0
-            isRetrying = false
+        if (isReconnecting && !initialConnect) {
+            reconnectAttempts++
+            if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
+                Log.e(TAG_WEBSOCKET, "Maximum reconnection attempts reached")
+                return
+            }
         }
 
         Log.d(TAG_WEBSOCKET, "Attempting to connect to WebSocket server: ws://$websocketserver:8011/runningtracker")
@@ -241,64 +163,58 @@ class CustomLocationListener: LocationListener {
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 super.onMessage(webSocket, bytes)
-                updateConnectionHealth()
                 Timber.tag(TAG_WEBSOCKET).d("Received binary message: ${bytes.hex()}")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 super.onMessage(webSocket, text)
-                updateConnectionHealth()
-
-                if (text == "pong") {
-                    return
-                }
-
                 Timber.tag(TAG_WEBSOCKET).d("Raw JSON: $text")
-
-                try {
-                    val fellowRunner = Gson().fromJson(text, FellowRunner::class.java)
-                    processFellowRunnerData(fellowRunner)
-                } catch (e: Exception) {
-                    Timber.tag(TAG_WEBSOCKET).e(e, "Error processing message")
-                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 super.onFailure(webSocket, t, response)
-                isConnectionHealthy.set(false)
                 Timber.tag(TAG_WEBSOCKET).e(t, "WebSocket connection failed")
 
-                if (retryCount < MAX_RETRY_ATTEMPTS && !isRetrying) {
-                    retryWithBackoff()
-                } else if (retryCount >= MAX_RETRY_ATTEMPTS) {
-                    Timber.tag(TAG_WEBSOCKET).e("Max retry attempts reached")
+                // Handle reconnection with exponential backoff
+                if (!isReconnecting && job.isActive) {
+                    isReconnecting = true
+                    val delayMs = BASE_RECONNECT_DELAY_MS * (1 shl reconnectAttempts.coerceAtMost(10))
+
+                    coroutineScope.launch {
+                        delay(delayMs)
+                        if (isActive) {
+                            connectWebSocket(false)
+                        }
+                    }
                 }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 super.onClosing(webSocket, code, reason)
-                isConnectionHealthy.set(false)
                 Timber.tag(TAG_WEBSOCKET).d("WebSocket connection closing: $reason")
                 webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 super.onClosed(webSocket, code, reason)
-                isConnectionHealthy.set(false)
                 Timber.tag(TAG_WEBSOCKET).d("WebSocket connection closed: $reason")
             }
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 super.onOpen(webSocket, response)
                 Timber.tag(TAG_WEBSOCKET).d("WebSocket connection opened")
-                updateConnectionHealth()
-                startConnectionMonitoring()
+                // Reset reconnection state
+                isReconnecting = false
+                reconnectAttempts = 0
             }
         })
-        startConnectionMonitoring()
     }
 
     override fun onLocationChanged(location: Location) {
+        if (startingAltitude == null) {
+            startingAltitude = location.altitude
+            Log.d("LocationTracker", "Starting altitude set: $startingAltitude meters")
+        }
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location.latitude} / Longitude: ${location.longitude}")
 
@@ -307,124 +223,102 @@ class CustomLocationListener: LocationListener {
                 if (oldLatitude != location.latitude || oldLongitude != location.longitude) {
                     Log.d("CustomLocationListener", "New coordinates detected...")
 
-                    // Calculate distance and other metrics
                     val (newCoveredDistance, distanceIncrement) = calculateDistance(it)
-                    coveredDistance = newCoveredDistance  // Store the new distance
-                    averageSpeed = calculateAverageSpeed(coveredDistance)
+                    coveredDistance = newCoveredDistance
+                    averageSpeed = calculateAverageSpeed()
                     lap = calculateLap(distanceIncrement)
-                    calculateElevationChanges(location, oldLatitude, oldLongitude)
+                    cumulativeElevationGain = calculateCumulativeElevationGain(it, startingAltitude!!)
 
-                    // Add point to both tracking collections
-                    val newPoint = GeoPoint(location.latitude, location.longitude)
-                    pathPoints.add(newPoint)
-                    latLngs.add(LatLng(location.latitude, location.longitude))
 
-                    // Manage cache size for memory efficiency
-                    manageCacheSize()
+                    // Update max speed if current speed is higher
+                    val currentSpeedKmh = it.speed * 3.6
+                    if (currentSpeedKmh > maxSpeed) {
+                        maxSpeed = currentSpeedKmh
+                    }
 
-                    updateMaxSpeed(it.speed)
+                    // Create Metrics object with all required fields
+                    val metrics = Metrics(
+                        latitude = location.latitude,
+                        longitude = location.longitude,
+                        speed = location.speed * 3.6f,
+                        speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
+                        altitude = location.altitude,
+                        horizontalAccuracy = location.accuracy,
+                        verticalAccuracyMeters = location.verticalAccuracyMeters,
+                        coveredDistance = coveredDistance,
+                        lap = lap,
+                        startDateTime = startDateTime,
+                        averageSpeed = averageSpeed,
+                        maxSpeed = maxSpeed,
+                        cumulativeElevationGain = cumulativeElevationGain,
+                        sessionId = sessionId,
+                        person = "$firstname"
+                    )
+
+                    // Send data to websocket server
+                    sendDataToWebsocketServer(metrics)
+
+                    // Also post through EventBus for UI updates
+                    EventBus.getDefault().post(metrics)
                 }
             }
+        }
+    }
 
-            // Create path tracking data for complete path persistence
-            val pathTrackingData = PathTrackingData(
-                points = pathPoints.toList(),
-                isRecording = true,
-                startPoint = pathPoints.firstOrNull()
-            )
+    private fun calculateCumulativeElevationGain(location: Location, startingAltitude: Double): Double {
+        val altitudeDifference = location.altitude - startingAltitude
+        return altitudeDifference
+    }
 
-            // Always send updates with current state, but only with new calculations if speed was sufficient
-            sendDataToEventBus(
-                LocationEvent(
-                    latitude = it.latitude,
-                    longitude = it.longitude,
-                    speed = if (checkSpeed(it.speed)) (it.speed / 1000) * 3600 else 0f,
-                    speedAccuracyMetersPerSecond = it.speedAccuracyMetersPerSecond,
-                    altitude = it.altitude,
-                    horizontalAccuracy = it.accuracy,
-                    verticalAccuracyMeters = it.verticalAccuracyMeters,
-                    coveredDistance = coveredDistance,  // Use stored value
-                    lap = lap,
-                    startDateTime = startDateTime,
-                    averageSpeed = averageSpeed,
-                    locationChangeEventList = LocationChangeEvent(latLngs),
-                    totalAscent = getTotalAscent(),
-                    totalDescent = getTotalDescent()
-                )
-            )
+    private fun calculateAverageSpeed(): Double {
+        // Get current time and calculate duration since start in seconds
+        val currentTime = LocalDateTime.now()
+        val durationSeconds = ChronoUnit.SECONDS.between(startDateTime, currentTime).toDouble()
 
-            // Send path tracking data event
-            EventBus.getDefault().post(pathTrackingData)
+        // Avoid division by zero
+        if (durationSeconds <= 0) return 0.0
 
-            // REPLACE THIS PART
-            // Send data to websocket server with current state
-            val runnerData = Gson().toJson(
-                FellowRunner(
-                    person = firstname,
-                    sessionId = sessionId ?: Tools().generateSessionId(firstname, context).also { sessionId = it },
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    distance = coveredDistance.toString(),
-                    speed = if (checkSpeed(it.speed)) (it.speed / 1000) * 3600 else 0f,
-                    maxSpeed = maxSpeedRecorded,
-                    movingAverageSpeed = calculateMovingAverage(it.speed),
-                    averageSpeed = averageSpeed,
-                    altitude = it.altitude.toString(),
-                    formattedTimestamp = Tools().formatCurrentTimestamp(),
-                    totalAscent = getTotalAscent(),
-                    totalDescent = getTotalDescent()
-                )
-            )
+        // Calculate average speed in meters per second, then convert to km/h
+        val avgSpeedMps = coveredDistance / durationSeconds
+        val avgSpeedKmh = avgSpeedMps * 3.6
 
-            // Check connection and send or reconnect
-            if (webSocket != null && isConnectionHealthy.get()) {
-                sendDataToWebsocketServer(runnerData)
-            } else {
-                Log.d(TAG_WEBSOCKET, "WebSocket not available or healthy, attempting reconnection")
-                messageQueue.add(runnerData) // Add to the queue we created in point 7
-                forceReconnectWebSocket()
+        return if (avgSpeedKmh > 0) avgSpeedKmh else 0.0
+    }
+
+    private fun sendDataToWebsocketServer(metrics: Metrics) {
+        // Check if sessionId is available
+        if (sessionId.isEmpty()) {
+            Log.e(TAG_WEBSOCKET, "Cannot send data - missing sessionId")
+            loadSessionId() // Try to reload the session ID
+            return
+        }
+
+        // Convert metrics to JSON
+        val gson = Gson()
+        val jsonData = gson.toJson(metrics)
+
+        // Send via WebSocket if connection is available
+        webSocket?.let { socket ->
+            val sent = socket.send(jsonData)
+            if (!sent) {
+                Log.e(TAG_WEBSOCKET, "Failed to send data through WebSocket")
+
+                // Try to reconnect if send fails
+                if (!isReconnecting) {
+                    isReconnecting = true
+                    coroutineScope.launch {
+                        connectWebSocket(false)
+                    }
+                }
             }
-        }
-    }
-
-    private fun updateConnectionHealth() {
-        lastMessageTimestamp.set(System.currentTimeMillis())
-        isConnectionHealthy.set(true)
-        retryCount = 0
-        isRetrying = false
-    }
-
-    private fun processFellowRunnerData(fellowRunner: FellowRunner) {
-        fellowRunnerPerson = fellowRunner.person
-        if (fellowRunnerPerson != person) {
-            fellowRunnerSessionId = fellowRunner.sessionId.toString()
-            fellowRunnerLatitude = fellowRunner.latitude
-            fellowRunnerLongitude = fellowRunner.longitude
-            fellowRunnerCoveredDistance = fellowRunner.distance.toFloat()
-            fellowRunnerCurrentSpeed = fellowRunner.speed.toDouble()
-        }
-    }
-
-    private fun sendDataToEventBus(locationEvent: LocationEvent) {
-        EventBus.getDefault().post(locationEvent)
-    }
-
-    private fun sendDataToWebsocketServer(toJson: String?) {
-        if (toJson != null) {
-            if (webSocket != null && isConnectionHealthy.get()) {
-                webSocket?.send(toJson)
-            } else {
-                messageQueue.add(toJson)
-                Log.d(TAG_WEBSOCKET, "Added message to queue, queue size: ${messageQueue.size}")
+        } ?: run {
+            Log.e(TAG_WEBSOCKET, "WebSocket not connected, attempting to reconnect")
+            if (!isReconnecting) {
+                isReconnecting = true
+                coroutineScope.launch {
+                    connectWebSocket(false)
+                }
             }
-        }
-    }
-
-    private fun calculateAverageSpeed(coveredDistance: Double): Double {
-        return if (allSpeeds.isNotEmpty()) {
-            allSpeeds.average()
-        } else {
-            0.0
         }
     }
 
@@ -473,152 +367,88 @@ class CustomLocationListener: LocationListener {
         return speed >= thresholdInMetersPerSecond
     }
 
-    private fun retryWithBackoff() {
-        isRetrying = true
-        coroutineScope.launch {
-            val backoffMs = min(
-                INITIAL_BACKOFF_MS * (2.0.pow(retryCount.toDouble())).toLong(),
-                MAX_BACKOFF_MS
-            )
+    fun sendTestDataToWebSocketServer(context: Context) {
+        val websocketserver = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+            .getString("websocketserver", "0.0.0.0") ?: "0.0.0.0"
 
-            Timber.tag(TAG_WEBSOCKET).d("Retrying connection in ${backoffMs}ms (attempt ${retryCount + 1}/$MAX_RETRY_ATTEMPTS)")
-            Log.d(TAG_WEBSOCKET, "Retry attempt ${retryCount + 1} with backoff ${backoffMs}ms")
-
-            delay(backoffMs)
-            retryCount++
-
-            withContext(Dispatchers.Main) {
-                connectWebSocket(initialConnect = false)
-            }
-            // Reset retrying flag AFTER attempt
-            isRetrying = false
-        }
-    }
-
-    fun adjustUpdateFrequency(reduceFrequency: Boolean) {
-        if (reduceFrequency) {
-            MIN_TIME_BETWEEN_UPDATES = 2000L
-            MIN_DISTANCE_BETWEEN_UPDATES = 2f
-        } else {
-            MIN_TIME_BETWEEN_UPDATES = 1000L
-            MIN_DISTANCE_BETWEEN_UPDATES = 1f
-        }
-        stopLocationUpdates()
-        createLocationUpdates()
-    }
-
-    fun getCurrentLatLngs(): List<LatLng> {
-        return latLngs.toList()
-    }
-
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onAdjustFrequencyEvent(event: AdjustLocationFrequencyEvent) {
-        adjustUpdateFrequency(event.reduceFrequency)
-    }
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onHeartbeatEvent(event: ForegroundService.HeartbeatEvent) {
-        // Check if location manager is still active
-        if (locationManager == null) {
-            Log.w("CustomLocationListener", "LocationManager is null during heartbeat check")
-            createLocationManager()
-            createLocationUpdates()
+        if (websocketserver == "0.0.0.0") {
+            Log.e("WebSocketTest", "WebSocket server not configured")
+            Toast.makeText(context, "WebSocket server not configured", Toast.LENGTH_SHORT).show()
             return
         }
 
-        // Verify GPS provider is still enabled
-        locationManager?.let { manager ->
-            if (!manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                Log.w("CustomLocationListener", "GPS provider disabled during heartbeat check")
-                // Optionally notify the service about GPS being disabled
-                return
-            }
+        Log.d("WebSocketTest", "Attempting to connect to: ws://$websocketserver:8011/runningtracker")
 
-            // Check if we have necessary permissions
-            if (ActivityCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED) {
+        // Create test metrics data
+        val testMetrics = Metrics(
+            latitude = 48.2082,
+            longitude = 16.3738,
+            speed = 10.5f,
+            speedAccuracyMetersPerSecond = 0.5f,
+            altitude = 170.0,
+            horizontalAccuracy = 3.0f,
+            verticalAccuracyMeters = 5.0f,
+            coveredDistance = 1500.0,
+            lap = 1,
+            startDateTime = LocalDateTime.now(),
+            averageSpeed = 9.8,
+            maxSpeed = 12.5,
+            cumulativeElevationGain = 25.0,
+            sessionId = "test_session_${System.currentTimeMillis()}",
+            person = "Test User"
+        )
 
-                // Request a single update to verify provider is working
-                try {
-                    manager.requestLocationUpdates(
-                        LocationManager.GPS_PROVIDER,
-                        MIN_TIME_BETWEEN_UPDATES,
-                        MIN_DISTANCE_BETWEEN_UPDATES,
-                        this
-                    )
-                } catch (e: Exception) {
-                    Log.e("CustomLocationListener", "Error requesting location updates during heartbeat", e)
-                    // Attempt to recreate location updates
-                    createLocationUpdates()
-                }
-            }
-        }
+        // Create OkHttp client
+        val client = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .build()
 
-        // Check WebSocket connection health
-        webSocket?.let { socket ->
-            if (!isConnectionHealthy.get()) {
-                Log.w("CustomLocationListener", "WebSocket unhealthy during heartbeat check")
-                connectWebSocket(initialConnect = false)
-            }
-        }
-    }
+        // Create request
+        val request = Request.Builder()
+            .url("ws://$websocketserver:8011/runningtracker")
+            .build()
 
-    fun clearCache() {
-        latLngs.clear()
-        Log.d("CustomLocationListener", "Location cache cleared")
-    }
+        // Connect to WebSocket and send data
+        val testWebSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d("WebSocketTest", "WebSocket connection opened")
 
-    private fun manageCacheSize() {
-        if (latLngs.size > maxCacheSize) {
-            // Remove oldest entries to keep cache size in check
-            val removeCount = latLngs.size - maxCacheSize
-            latLngs = latLngs.drop(removeCount).toMutableList()
-        }
-    }
+                // Send the test data as JSON
+                val gson = Gson()
+                val jsonData = gson.toJson(testMetrics)
 
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onMemoryPressureReliefEvent(event: MemoryPressureReliefEvent) {
-        // Restore normal frequency
-        adjustUpdateFrequency(false)
-        Log.i("CustomLocationListener", "Restored default update frequency after memory pressure relief")
-    }
+                val sent = webSocket.send(jsonData)
+                if (sent) {
+                    Log.d("WebSocketTest", "Test data sent successfully: $jsonData")
 
-    private fun calculateMovingAverage(currentSpeedMps: Float): Double {
-        val currentSpeedKmh = (currentSpeedMps / 1000) * 3600
-
-        speedQueue.addLast(currentSpeedKmh.toDouble())
-        if (speedQueue.size > 5) {
-            speedQueue.removeFirst()
-        }
-
-        return speedQueue.average()
-    }
-
-    private fun updateMaxSpeed(currentSpeedMps: Float) {
-        val currentSpeedKmh = (currentSpeedMps * 3.6) // Correct conversion from m/s to km/h
-        allSpeeds.add(currentSpeedKmh)
-        maxSpeedRecorded = allSpeeds.maxOrNull() ?: 0.0
-    }
-
-    private fun startMessageProcessor() {
-        messageProcessorJob?.cancel()
-        messageProcessorJob = coroutineScope.launch {
-            while (isActive) {
-                try {
-                    if (webSocket != null && isConnectionHealthy.get() && messageQueue.isNotEmpty()) {
-                        val message = messageQueue.poll()
-                        if (message != null) {
-                            webSocket?.send(message)
-                            Log.d(TAG_WEBSOCKET, "Sent queued message")
-                        }
+                    // Show success toast on main thread
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(context, "Test data sent to server", Toast.LENGTH_SHORT).show()
                     }
-                    delay(500)
-                } catch (e: Exception) {
-                    Log.e(TAG_WEBSOCKET, "Error processing message queue", e)
+                } else {
+                    Log.e("WebSocketTest", "Failed to send test data")
+
+                    // Show error toast on main thread
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(context, "Failed to send test data", Toast.LENGTH_SHORT).show()
+                    }
+                }
+
+                // Close the WebSocket after sending data
+                webSocket.close(1000, "Test completed")
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e("WebSocketTest", "WebSocket error: ${t.message}")
+
+                // Show error toast on main thread
+                Handler(Looper.getMainLooper()).post {
+                    Toast.makeText(context, "WebSocket connection error: ${t.message}", Toast.LENGTH_SHORT).show()
                 }
             }
-        }
+        })
     }
 
     companion object {
@@ -626,12 +456,5 @@ class CustomLocationListener: LocationListener {
         private var MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
         private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
         const val TAG_WEBSOCKET: String = "CustomLocationListener: WebSocketService"
-        // Retry configuration
-        private const val MAX_RETRY_ATTEMPTS = 10
-        private const val INITIAL_BACKOFF_MS = 500L
-        private const val MAX_BACKOFF_MS = 15000L
-        // Connection monitoring
-        private const val CONNECTION_CHECK_INTERVAL = 10000L
-        private const val CONNECTION_TIMEOUT = 30000L
     }
 }

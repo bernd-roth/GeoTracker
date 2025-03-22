@@ -25,7 +25,6 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     phi2 = math.radians(lat2)
     delta_phi = math.radians(lat2 - lat1)
     delta_lambda = math.radians(lon2 - lon1)
-
     a = math.sin(delta_phi/2) * math.sin(delta_phi/2) + \
         math.cos(phi1) * math.cos(phi2) * \
         math.sin(delta_lambda/2) * math.sin(delta_lambda/2)
@@ -34,6 +33,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
 
 def simulate_run():
     ws = websocket.create_connection("ws://geotracker.duckdns.org:8011/runningtracker")
+
     # Starting point (Vienna, Austria)
     start_lat, start_lon = 48.1818798, 16.3607528
     route = generate_route(start_lat, start_lon)
@@ -45,6 +45,10 @@ def simulate_run():
     person_id = f"test_runner_{int(time.time())}"
     max_speed_recorded = 0  # Track max speed
     speed_queue = []  # For moving average
+
+    # For tracking elevation
+    last_altitude = 175  # Starting altitude
+    cumulative_elevation_gain = 0  # Cumulative elevation gain
 
     try:
         for i, (lat, lon) in enumerate(route):
@@ -68,8 +72,15 @@ def simulate_run():
             elapsed_time = time.time() - start_time
             average_speed = (total_distance / 1000) / (elapsed_time / 3600) if elapsed_time > 0 else 0
 
-            # Simulate altitude
+            # Simulate altitude with some variation
             altitude = 175 + math.sin(i / 10) * 25
+
+            # Calculate elevation gain since last point
+            if altitude > last_altitude:
+                elevation_gain = altitude - last_altitude
+                cumulative_elevation_gain += elevation_gain
+
+            last_altitude = altitude
 
             # Create data packet
             data = {
@@ -84,12 +95,11 @@ def simulate_run():
                 "averageSpeed": average_speed,
                 "distance": str(total_distance),  # Convert to string to match your format
                 "formattedTimestamp": datetime.now().strftime("%d-%m-%Y %H:%M:%S"),
-                "totalAscent": random.uniform(10, 20),  # Simulated values
-                "totalDescent": random.uniform(10, 20)  # Simulated values
+                "cumulativeElevationGain": cumulative_elevation_gain  # New field replacing totalAscent and totalDescent
             }
 
             ws.send(json.dumps(data))
-            print(f"Sent point {i+1}/{len(route)}: {lat}, {lon}")
+            print(f"Sent point {i+1}/{len(route)}: {lat}, {lon}, Elevation Gain: {cumulative_elevation_gain:.2f}m")
 
             last_lat, last_lon = lat, lon
             time.sleep(0.5)

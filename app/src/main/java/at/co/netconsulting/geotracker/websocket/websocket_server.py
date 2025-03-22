@@ -116,7 +116,8 @@ class TrackingServer:
             "currentSpeed",
             "maxSpeed",
             "movingAverageSpeed",
-            "averageSpeed"
+            "averageSpeed",
+            "cumulativeElevationGain"  # Updated to include cumulativeElevationGain
         ]
 
         return all(
@@ -132,7 +133,8 @@ class TrackingServer:
             "currentSpeed": float(message_data["currentSpeed"]),
             "maxSpeed": float(message_data["maxSpeed"]),
             "movingAverageSpeed": float(message_data["movingAverageSpeed"]),
-            "averageSpeed": float(message_data["averageSpeed"])
+            "averageSpeed": float(message_data["averageSpeed"]),
+            "cumulativeElevationGain": float(message_data["cumulativeElevationGain"])  # Ensure it's a float
         }
 
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol) -> None:
@@ -159,7 +161,10 @@ class TrackingServer:
 
                     if not self.validate_tracking_point(message_data):
                         missing_fields = [
-                            field for field in ["person", "sessionId", "latitude", "longitude", "distance", "currentSpeed", "averageSpeed"]
+                            field for field in [
+                                "person", "sessionId", "latitude", "longitude",
+                                "distance", "currentSpeed", "averageSpeed", "cumulativeElevationGain"
+                            ]
                             if field not in message_data
                         ]
                         logging.error(f"Missing required fields: {missing_fields}")

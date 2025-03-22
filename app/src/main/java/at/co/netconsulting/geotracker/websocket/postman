@@ -1,0 +1,21 @@
+ws://geotracker.duckdns.org:8011/runningtracker
+{
+    "latitude": 46.2082,
+    "longitude": 18.3738,
+    "speed": 10.5,
+    "speedAccuracyMetersPerSecond": 0.5,
+    "altitude": 170.0,
+    "horizontalAccuracy": 3.0,
+    "verticalAccuracyMeters": 5.0,
+    "coveredDistance": 1500.0,
+    "lap": 1,
+    "startDateTime": "2025-03-22T22:35:00",
+    "averageSpeed": 9.8,
+    "maxSpeed": 12.5,
+    "cumulativeElevationGain": 25.0,
+    "sessionId": "test_session_123456789",
+    "person": "Test User",
+    "distance": 1500.0,
+    "currentSpeed": 10.5,
+    "movingAverageSpeed": 9.8
+}

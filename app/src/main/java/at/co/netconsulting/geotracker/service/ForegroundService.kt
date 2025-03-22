@@ -1,17 +1,14 @@
 package at.co.netconsulting.geotracker.service
 
-import android.app.ActivityManager
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -22,9 +19,8 @@ import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
-import at.co.netconsulting.geotracker.data.LocationEvent
-import at.co.netconsulting.geotracker.data.MemoryPressureEvent
-import at.co.netconsulting.geotracker.data.StopServiceEvent
+import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.data.WeatherResponse
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
@@ -34,15 +30,11 @@ import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.tools.Tools
-import at.co.netconsulting.geotracker.tools.getTotalAscent
-import at.co.netconsulting.geotracker.tools.getTotalDescent
 import com.google.gson.Gson
 import com.google.gson.JsonSyntaxException
-import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -88,48 +80,24 @@ class ForegroundService : Service() {
     private var lap: Int = 0
     private var lazyFormattedTime: String = "00:00:00"
     private var movementFormattedTime: String = "00:00:00"
-    private val serviceJob = Job()
+    private val serviceJob = SupervisorJob() // Changed to SupervisorJob for better error handling
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
-    private lateinit var wakeLock: PowerManager.WakeLock
+    private var wakeLock: PowerManager.WakeLock? = null // Made nullable for safer handling
     private var lastUpdateTimestamp: Long = currentTimeMillis()
     private var isCurrentlyMoving = false
     private val movementState = StopwatchState()
     private val lazyState = StopwatchState()
-    private val heartbeatJob = Job()
-    private val heartbeatScope = CoroutineScope(Dispatchers.IO + heartbeatJob)
-    private var isHeartbeatActive = false
     private var customLocationListener: CustomLocationListener? = null
     private var currentEventId: Int = -1
+
     //Weather
     private var weatherJob: Job? = null
     private val weatherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    //Weather
-    //sessionID
+
+    //sessionId
     private var sessionId: String = ""
-    //sessionID
 
-    data class HeartbeatEvent(val timestamp: Long)
-
-    data class WeatherResponse(
-        @SerializedName("current_weather")
-        val currentWeather: CurrentWeather,
-        @SerializedName("hourly")
-        val hourly: HourlyData
-    )
-
-    data class CurrentWeather(
-        val temperature: Double,
-        val windspeed: Double,
-        val winddirection: Double,
-        val weathercode: Int,
-        val time: String
-    )
-
-    data class HourlyData(
-        @SerializedName("relativehumidity_2m")
-        val relativeHumidity: List<Int>,
-        val time: List<String>
-    )
+    private var isServiceStarted = false
 
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
@@ -198,11 +166,11 @@ class ForegroundService : Service() {
                     ensureActive() // Check before database operation
 
                     val currentTime = weatherResponse.currentWeather.time
-                    val hourlyIndex = weatherResponse.hourly.time.indexOfFirst { it == currentTime }
+                    val hourlyIndex = weatherResponse.time.indexOfFirst { it == currentTime }
                     val currentHumidity = if (hourlyIndex != -1) {
-                        weatherResponse.hourly.relativeHumidity[hourlyIndex]
+                        weatherResponse.relativeHumidity[hourlyIndex]
                     } else {
-                        weatherResponse.hourly.relativeHumidity.lastOrNull() ?: 0
+                        weatherResponse.relativeHumidity.lastOrNull() ?: 0
                     }
 
                     val weather = Weather(
@@ -255,7 +223,8 @@ class ForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         EventBus.getDefault().register(this)
-        currentEventId = getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE).getInt("active_event_id", -1)
+        currentEventId =
+            getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE).getInt("active_event_id", -1)
         loadSharedPreferences()
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         createNotificationChannel()
@@ -267,7 +236,6 @@ class ForegroundService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
         requestHighPriority()
-        startHeartbeat()
         createSessionID()
     }
 
@@ -277,12 +245,17 @@ class ForegroundService : Service() {
             .edit()
             .putString("current_session_id", sessionId)
             .apply()
+        Log.d(TAG, "Created and saved session ID: $sessionId")
     }
 
     private fun requestHighPriority() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             // Request maximum priority
-            startForeground(1, notificationBuilder.build(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            startForeground(
+                1,
+                notificationBuilder.build(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            )
 
             // Request ignore battery optimizations
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -297,53 +270,6 @@ class ForegroundService : Service() {
         }
     }
 
-    private fun startHeartbeat() {
-        if (!isHeartbeatActive) {
-            isHeartbeatActive = true
-            heartbeatScope.launch {
-                while (isActive) {
-                    try {
-                        // Send heartbeat event
-                        EventBus.getDefault().post(HeartbeatEvent(currentTimeMillis()))
-                        // Check if location updates are still coming
-                        checkLocationUpdates()
-                        delay(HEARTBEAT_INTERVAL)
-                    } catch (e: Exception) {
-                        Log.e("Heartbeat", "Error in heartbeat", e)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun checkLocationUpdates() {
-        val currentTime = currentTimeMillis()
-        if (currentTime - lastUpdateTimestamp > LOCATION_UPDATE_TIMEOUT) {
-            Log.w("LocationMonitor", "GPS/Network connection lost")
-            // Get the current latLngs from the CustomLocationListener
-            val currentLatLngs = customLocationListener?.getCurrentLatLngs() ?: emptyList()
-
-            // Instead of recreating listener, just log the disconnection
-            // and wait for reconnection
-            EventBus.getDefault().post(LocationEvent(
-                latitude = latitude,
-                longitude = longitude,
-                speed = 0f,
-                speedAccuracyMetersPerSecond = 0f,
-                altitude = altitude,
-                horizontalAccuracy = 0f,
-                verticalAccuracyMeters = 0f,
-                coveredDistance = distance,
-                lap = lap,
-                startDateTime = LocalDateTime.now(),
-                averageSpeed = 0.0,
-                locationChangeEventList = CustomLocationListener.LocationChangeEvent(currentLatLngs),
-                getTotalAscent(),
-                getTotalDescent()
-            ))
-        }
-    }
-
     private fun loadSharedPreferences() {
         val sharedPreferences = this.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
         firstname = sharedPreferences.getString("firstname", "") ?: ""
@@ -354,14 +280,31 @@ class ForegroundService : Service() {
     }
 
     private fun acquireWakeLock() {
-        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "GeoTracker:ForegroundService:WakeLock")
-        wakeLock.acquire()
+        try {
+            if (wakeLock == null || (wakeLock != null && !wakeLock!!.isHeld)) {
+                val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+                wakeLock = powerManager.newWakeLock(
+                    PowerManager.PARTIAL_WAKE_LOCK,
+                    "GeoTracker:ForegroundService:WakeLock"
+                )
+                // Set a timeout to ensure wake lock is eventually released even if something goes wrong
+                wakeLock?.acquire(10 * 60 * 60 * 1000L) // 10 hours max
+                Log.d(TAG, "Wake lock acquired")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error acquiring wake lock", e)
+        }
     }
 
     private fun releaseWakeLock() {
-        if (::wakeLock.isInitialized && wakeLock.isHeld) {
-            wakeLock.release()
+        try {
+            if (wakeLock != null && wakeLock!!.isHeld) {
+                wakeLock!!.release()
+                wakeLock = null
+                Log.d(TAG, "Wake lock released")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error releasing wake lock", e)
         }
     }
 
@@ -410,9 +353,13 @@ class ForegroundService : Service() {
     private fun createBackgroundCoroutine(eventIdDeferred: CompletableDeferred<Int>) {
         serviceScope.launch {
             try {
-                // Store the reference instead of just local variable
+                isServiceStarted = true
+
+                // Create the location listener
                 customLocationListener = CustomLocationListener(applicationContext).also {
                     it.startDateTime = LocalDateTime.now()
+                    // Make sure we wait until sessionId is created and saved
+                    delay(100) // Short delay to ensure sessionId is saved to SharedPreferences
                     it.startListener()
                 }
 
@@ -428,7 +375,6 @@ class ForegroundService : Service() {
                         resetValues()
                     }
                     if (speed >= MIN_SPEED_THRESHOLD) {
-                        //triggerLocationChange(customLocationListener!!)
                         showStopWatch()
                     } else {
                         showLazyStopWatch()
@@ -465,7 +411,7 @@ class ForegroundService : Service() {
     }
 
     private fun checkLatitudeLongitude(): Boolean {
-        return latitude!=-999.0 && longitude!=-999.0
+        return latitude != -999.0 && longitude != -999.0
     }
 
     private fun showStopWatch() {
@@ -478,9 +424,9 @@ class ForegroundService : Service() {
         } else {
             if (isCurrentlyMoving) {
                 movementState.stop()
+                isCurrentlyMoving = false
             }
         }
-
         val duration = movementState.getTotalDuration()
         val movementHours = duration.toHours()
         val movementMinutes = (duration.toMinutes() % 60)
@@ -522,11 +468,11 @@ class ForegroundService : Service() {
     private fun showNotification() {
         updateNotification(
             "Activity: " + movementFormattedTime +
-            "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
-            "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
-            "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
-            "\nLap: " + String.format("%2d", lap) +
-            "\nInactivity: " + lazyFormattedTime
+                    "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
+                    "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
+                    "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
+                    "\nLap: " + String.format("%2d", lap) +
+                    "\nInactivity: " + lazyFormattedTime
         )
     }
 
@@ -536,50 +482,13 @@ class ForegroundService : Service() {
             eventName = eventname,
             eventDate = Tools().provideDateTimeFormat(),
             artOfSport = artofsport,
-            comment = comment
+            comment = comment,
+            clothing = clothing
         )
 
         val eventId = database.eventDao().insertEvent(newEvent).toInt()
         println("New Event ID: $eventId")
         return eventId
-    }
-
-    private fun displayDatabaseContents() {
-        GlobalScope.launch(Dispatchers.IO) {
-            val users = database.userDao().getAllUsers()
-            users.forEach { user ->
-                Log.d("DatabaseDebug", "User: $user")
-            }
-            val events = database.eventDao().getAllEvents()
-            events.forEach { event ->
-                Log.d("DatabaseDebug", "Event: $event")
-            }
-/*            val metrics = database.metricDao().getAllMetrics()
-            metrics.forEach { metric ->
-                Log.d("DatabaseDebug", "Metric: $metric")
-            }*/
-        }
-    }
-
-    // Publisher/Subscriber
-    @Subscribe(threadMode = ThreadMode.BACKGROUND)
-    fun onLocationEvent(event: LocationEvent) {
-        Log.d("ForegroundService",
-            "Latitude: ${event.latitude}," +
-                    " Longitude: ${event.longitude}," +
-                    " Speed: ${event.speed}," +
-                    " SpeedAccuracyInMeters: ${event.speedAccuracyMetersPerSecond}," +
-                    " Altitude: ${event.altitude}," +
-                    " HorizontalAccuracyInMeters: ${event.horizontalAccuracy}," +
-                    " VerticalAccuracyInMeters: ${event.verticalAccuracyMeters}" +
-                    " CoveredDistance: ${event.coveredDistance}")
-        lastUpdateTimestamp = currentTimeMillis()
-        speed = event.speed
-        altitude = event.altitude
-        latitude = event.latitude
-        longitude = event.longitude
-        distance = event.coveredDistance
-        lap = event.lap
     }
 
     private fun updateNotification(newContent: String) {
@@ -596,117 +505,239 @@ class ForegroundService : Service() {
 
     private suspend fun insertDatabase(database: FitnessTrackerDatabase) {
         withContext(Dispatchers.IO) {
-            val metric = Metric(
-                eventId = eventId,
-                heartRate = 0,
-                heartRateDevice = "Chest Strap",
-                speed = speed,
-                distance = distance,
-                cadence = 0,
-                lap = lap,
-                timeInMilliseconds = currentTimeMillis(),
-                unity = "metric",
-                elevation = 0f,
-                elevationGain = 0f,
-                elevationLoss = 0f
-            )
-            database.metricDao().insertMetric(metric)
-            Log.d("ForegroundService: ", metric.timeInMilliseconds.toString())
+            try {
+                val metric = Metric(
+                    eventId = eventId,
+                    heartRate = 0,
+                    heartRateDevice = "Chest Strap",
+                    speed = speed,
+                    distance = distance,
+                    cadence = 0,
+                    lap = lap,
+                    timeInMilliseconds = currentTimeMillis(),
+                    unity = "metric",
+                    elevation = altitude.toFloat(),
+                    elevationGain = 0f,
+                    elevationLoss = 0f
+                )
+                database.metricDao().insertMetric(metric)
+                Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds}")
 
-            // Example location data
-            val location = Location(
-                eventId = eventId,
-                latitude = latitude,
-                longitude = longitude,
-                altitude = altitude
-            )
-            database.locationDao().insertLocation(location)
+                // Location data
+                val location = Location(
+                    eventId = eventId,
+                    latitude = latitude,
+                    longitude = longitude,
+                    altitude = altitude
+                )
+                database.locationDao().insertLocation(location)
+                Log.d("ForegroundService: ", "Location saved: lat=$latitude, lon=$longitude")
 
-            val deviceStatus = DeviceStatus(
-                eventId = eventId,
-                numberOfSatellites = 8,
-                sensorAccuracy = "High",
-                signalStrength = "Strong",
-                batteryLevel = "80%",
-                connectionStatus = "Connected"
-            )
-            database.deviceStatusDao().insertDeviceStatus(deviceStatus)
+                val deviceStatus = DeviceStatus(
+                    eventId = eventId,
+                    numberOfSatellites = 8,
+                    sensorAccuracy = "High",
+                    signalStrength = "Strong",
+                    batteryLevel = "80%",
+                    connectionStatus = "Connected",
+                    sessionId = sessionId
+                )
+                database.deviceStatusDao().insertDeviceStatus(deviceStatus)
+                Log.d("ForegroundService: ", "Device status saved with sessionId: $sessionId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error inserting data to database", e)
+            }
+        }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onLocationUpdate(metrics: Metrics) {
+        try {
+            // Update timestamp to prevent timeout
+            lastUpdateTimestamp = currentTimeMillis()
+
+            // Update values from location update
+            latitude = metrics.latitude
+            longitude = metrics.longitude
+            speed = metrics.speed
+            distance = metrics.coveredDistance
+            altitude = metrics.altitude
+            lap = metrics.lap
+
+            Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing location update", e)
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        eventname = intent?.getStringExtra("eventName") ?: "Unknown Event"
-        eventdate = intent?.getStringExtra("eventDate") ?: "Unknown Date"
-        artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
-        comment = intent?.getStringExtra("comment") ?: "No Comment"
-        clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
+        try {
+            // Check if we're restarting after crash
+            val prefs = getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+            val wasRunning = prefs.getBoolean("was_running", false)
 
-        val eventIdDeferred = CompletableDeferred<Int>()
-        createBackgroundCoroutine(eventIdDeferred)
+            if (wasRunning) {
+                // Restore state
+                eventId = prefs.getInt("event_id", -1)
+                sessionId = prefs.getString("session_id", "") ?: ""
+                Log.d(TAG, "Restoring service state: eventId=$eventId, sessionId=$sessionId")
 
-        serviceScope.launch {
-            try {
-                // Wait for event ID to be created
-                currentEventId = eventIdDeferred.await()
-                eventId = currentEventId  // Set the existing eventId field
-
-                // Save to SharedPreferences
-                getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                    .edit()
-                    .putInt("active_event_id", currentEventId)
-                    .apply()
-
-                Log.d(TAG, "Event ID created and saved: $currentEventId")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to create event ID", e)
+                // Clear restart flag
+                prefs.edit().putBoolean("was_running", false).apply()
             }
+
+            // Extract extras from intent
+            eventname = intent?.getStringExtra("eventName") ?: "Unknown Event"
+            eventdate = intent?.getStringExtra("eventDate") ?: "Unknown Date"
+            artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
+            comment = intent?.getStringExtra("comment") ?: "No Comment"
+            clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
+
+            Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport")
+
+            val eventIdDeferred = CompletableDeferred<Int>()
+            createBackgroundCoroutine(eventIdDeferred)
+
+            serviceScope.launch {
+                try {
+                    currentEventId = eventIdDeferred.await()
+                    eventId = currentEventId
+
+                    // Save to SharedPreferences
+                    getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                        .edit()
+                        .putInt("active_event_id", currentEventId)
+                        .apply()
+
+                    Log.d(TAG, "Event ID created and saved: $currentEventId")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to create event ID", e)
+                }
+            }
+
+            acquireWakeLock()
+            startForeground(1, notificationBuilder.build())
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in onStartCommand", e)
         }
 
-        acquireWakeLock()
-        startForeground(1, notificationBuilder.build())
         return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        stopWeatherUpdates()
-        weatherScope.cancel()
         Log.d(TAG, "onDestroy called, isStoppingIntentionally: $isStoppingIntentionally")
-        if (isStoppingIntentionally) {
-            // Only clear the event ID if this is a normal shutdown
-            getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                .edit()
-                .remove("active_event_id")
-                .apply()
+
+        try {
+            stopWeatherUpdates()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping weather updates", e)
         }
-        customLocationListener?.cleanup()
-        customLocationListener = null
-        isHeartbeatActive = false
-        heartbeatJob.cancel()
+
+        try {
+            weatherScope.cancel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling weather scope", e)
+        }
+
+        if (isStoppingIntentionally) {
+            try {
+                getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                    .edit()
+                    .remove("active_event_id")
+                    .apply()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error clearing event ID from preferences", e)
+            }
+        }
+
+        try {
+            customLocationListener?.cleanup()
+            customLocationListener = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cleaning up location listener", e)
+        }
+
         releaseWakeLock()
-        EventBus.getDefault().unregister(this)
-        serviceJob.cancel()
-        stopForeground(STOP_FOREGROUND_REMOVE)
+
+        try {
+            if (EventBus.getDefault().isRegistered(this)) {
+                EventBus.getDefault().unregister(this)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error unregistering from EventBus", e)
+        }
+
+        try {
+            serviceJob.cancel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling service job", e)
+        }
+
+        isServiceStarted = false
+
+        try {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping foreground service", e)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Schedule service restart
-        val restartIntent = Intent(applicationContext, ForegroundService::class.java)
-        val pendingIntent = PendingIntent.getService(
-            applicationContext,
-            1,
-            restartIntent,
-            PendingIntent.FLAG_IMMUTABLE
-        )
+        Log.d(TAG, "onTaskRemoved called, attempting to schedule restart")
 
-        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmManager.set(
-            AlarmManager.RTC_WAKEUP,
-            currentTimeMillis() + 1000,
-            pendingIntent
-        )
+        try {
+            // Save current state to survive restart
+            val prefs = getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("was_running", isServiceStarted)
+                .putInt("event_id", eventId)
+                .putString("session_id", sessionId)
+                .apply()
+
+            // Create intent with all necessary extras from the original intent
+            val restartIntent = Intent(applicationContext, ForegroundService::class.java).apply {
+                putExtra("eventName", eventname)
+                putExtra("eventDate", eventdate)
+                putExtra("artOfSport", artofsport)
+                putExtra("comment", comment)
+                putExtra("clothing", clothing)
+            }
+
+            // Create pending intent with FLAG_IMMUTABLE for security
+            val flags = PendingIntent.FLAG_IMMUTABLE
+            val pendingIntent = PendingIntent.getService(
+                applicationContext,
+                1,
+                restartIntent,
+                flags
+            )
+
+            // Use AlarmManager to schedule restart
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // Use setExactAndAllowWhileIdle for more reliable execution
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    currentTimeMillis() + 1000, // 1 second delay
+                    pendingIntent
+                )
+            } else {
+                alarmManager.set(
+                    AlarmManager.RTC_WAKEUP,
+                    currentTimeMillis() + 1000,
+                    pendingIntent
+                )
+            }
+
+            Log.d(TAG, "Service restart scheduled")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to schedule service restart", e)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -726,92 +757,6 @@ class ForegroundService : Service() {
         }
     }
 
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onMemoryPressureEvent(event: MemoryPressureEvent) {
-        when (event.level) {
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL,
-            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
-                System.gc()
-                Log.w("ForegroundService", "Handling critical memory pressure")
-
-                // Clear location cache
-                customLocationListener?.clearCache()
-
-                // Reduce update frequencies
-                EventBus.getDefault().post(CustomLocationListener.AdjustLocationFrequencyEvent(true))
-
-                // Clear weather job
-                weatherJob?.cancel()
-                weatherJob = null
-
-                showSimplifiedNotification()
-            }
-            ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN,
-            ComponentCallbacks2.TRIM_MEMORY_RUNNING_MODERATE -> {
-                Log.i("ForegroundService", "Memory pressure relieved")
-                // Restore normal frequencies
-                EventBus.getDefault().post(CustomLocationListener.AdjustLocationFrequencyEvent(false))
-
-                // Restart weather updates if they were stopped
-                if (weatherJob == null) {
-                    startWeatherUpdates()
-                }
-
-                // Show normal notification again
-                showNotification()
-            }
-        }
-    }
-
-    private fun showSimplifiedNotification() {
-        val simpleContent = "Distance: ${String.format("%.2f", distance / 1000)} Km"
-        updateNotification(simpleContent)
-    }
-
-     companion object {
-         private const val CHANNEL_ID = "ForegroundServiceChannel"
-         private const val MIN_SPEED_THRESHOLD = 2.5f
-         private const val EVENT_TIMEOUT_MS = 2000
-         private const val HEARTBEAT_INTERVAL = 30_000L
-         private const val LOCATION_UPDATE_TIMEOUT = 60_000L
-         private var isStoppingIntentionally = false
-         private const val TAG = "ForegroundService"
-         //Weather
-         private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
-         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
-
-         fun isServiceRunning(context: Context): Boolean {
-             val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-             return manager.getRunningServices(Integer.MAX_VALUE)
-                 .any { it.service.className == ForegroundService::class.java.name }
-         }
-
-         private fun triggerLocationChange(customLocationListener: CustomLocationListener) {
-             val mockLocationStart = android.location.Location(LocationManager.GPS_PROVIDER).apply {
-                 latitude = 53.9612919
-                 longitude = -6.3868329
-                 speed = 3.0f
-                 altitude = 10.0
-                 accuracy = 5.0f
-             }
-
-             val mockLocationEnd = android.location.Location(LocationManager.GPS_PROVIDER).apply {
-                 latitude = 55.9612919
-                 longitude = -4.3868329
-                 speed = 3.0f
-                 altitude = 10.0
-                 accuracy = 5.0f
-             }
-
-             customLocationListener.onLocationChanged(mockLocationStart)
-             customLocationListener.onLocationChanged(mockLocationEnd)
-         }
-     }
-    fun stopService() {
-        Log.d(TAG, "stopService called")
-        isStoppingIntentionally = true
-        stopSelf()
-    }
     private fun runOnUiThread(action: () -> Unit) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             action()
@@ -819,17 +764,23 @@ class ForegroundService : Service() {
             Handler(Looper.getMainLooper()).post(action)
         }
     }
-    @Subscribe(threadMode = ThreadMode.MAIN)
-    fun onStopServiceEvent(event: StopServiceEvent) {
-        Log.d(TAG, "Received stop event")
-        isStoppingIntentionally = true
-        customLocationListener?.cleanup()
-        customLocationListener = null
-        isHeartbeatActive = false
-        heartbeatJob.cancel()
-        serviceJob.cancel()
-        EventBus.getDefault().unregister(this)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+
+    companion object {
+        private const val CHANNEL_ID = "ForegroundServiceChannel"
+        private const val MIN_SPEED_THRESHOLD = 2.5f
+        private const val EVENT_TIMEOUT_MS = 2000
+        private var isStoppingIntentionally = false
+        private const val TAG = "ForegroundService"
+        //Weather
+        private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
+        private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
+
+        /**
+         * Call this method before stopping the service intentionally to mark it as an intentional stop
+         * This helps distinguish between normal shutdowns and crashes
+         */
+        fun markStoppingIntentionally() {
+            isStoppingIntentionally = true
+        }
     }
 }

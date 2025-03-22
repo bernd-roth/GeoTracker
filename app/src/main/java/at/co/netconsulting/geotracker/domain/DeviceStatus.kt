@@ -22,5 +22,6 @@ data class DeviceStatus(
     val sensorAccuracy: String,
     val signalStrength: String,
     val batteryLevel: String,
-    val connectionStatus: String
+    val connectionStatus: String,
+    val sessionId: String
 )

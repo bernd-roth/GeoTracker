@@ -1,20 +1,29 @@
 package at.co.netconsulting.geotracker.service
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.location.LocationProvider
+import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
-import at.co.netconsulting.geotracker.data.LocationEvent
-import at.co.netconsulting.geotracker.location.CustomLocationListener
-import at.co.netconsulting.geotracker.tools.getTotalAscent
-import at.co.netconsulting.geotracker.tools.getTotalDescent
-import com.google.android.gms.maps.model.LatLng
+import androidx.core.app.ActivityCompat
+import at.co.netconsulting.geotracker.data.LocationData
+import com.google.gson.Gson
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -23,7 +32,12 @@ import okhttp3.WebSocketListener
 import org.greenrobot.eventbus.EventBus
 import java.time.Duration
 import java.time.LocalDateTime
+import java.util.concurrent.TimeUnit
 
+/**
+ * BackgroundLocationService provides location tracking when the app is not actively recording.
+ * It sends location updates through EventBus to update the UI (BottomSheet).
+ */
 class BackgroundLocationService : Service(), LocationListener {
     private lateinit var locationManager: LocationManager
     private lateinit var startDateTime: LocalDateTime
@@ -37,53 +51,80 @@ class BackgroundLocationService : Service(), LocationListener {
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
     private var coveredDistance: Double = 0.0
+    private var lap: Int = 0
+    private var lapCounter: Double = 0.0
     private var averageSpeed: Double = 0.0
+    private var maxSpeed: Double = 0.0
+    private var cumulativeElevationGain: Double = 0.0
+    private var startingAltitude: Double? = null
     private lateinit var totalDateTime: LocalDateTime
+    private var sessionId: String = ""
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    private var isReconnecting = false
+    private var reconnectAttempts = 0
+    private val MAX_RECONNECT_ATTEMPTS = 5
+    private val BASE_RECONNECT_DELAY_MS = 1000L
+    private var isServiceStarted = false
+    private var numberOfSatellites: Int = 0
+    private var usedNumberOfSatellites: Int = 0
 
     override fun onCreate() {
         super.onCreate()
-        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        startLocationUpdates()
         startDateTime = LocalDateTime.now()
         loadSharedPreferences()
-        //initializeWebsocket()
+        createSessionId()
+        createLocationManager()
+        startLocationUpdates()
+        //isServiceStarted = true
+        //connectWebSocket()
+
+        // Log service start
+        Log.d(TAG, "BackgroundLocationService started with sessionId: $sessionId")
+
+        // Start a keep-alive coroutine to ensure regular updates to UI
+        startKeepAliveCoroutine()
     }
 
-    private fun initializeWebsocket() {
-        val client = OkHttpClient()
-        val request = Request.Builder()
-            .url("ws://" + websocketserver + "/runningtracker")
-            .build()
-
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("WebSocket", "Error : " + t.message)
-            }
-        })
+    private fun createSessionId() {
+        // Generate a simple session ID
+        sessionId = "bg_${System.currentTimeMillis()}"
+        Log.d(TAG, "Created new session ID: $sessionId")
     }
 
-/*    private fun sendToWebsocket(location: Location, coveredDistance: Double) {
-        val json: String = Gson().toJson(
-            FellowRunner(
-                firstname,
-                firstname,
-                location.latitude,
-                location.longitude,
-                coveredDistance.toString(),
-                (location.speed / 1000) * 3600,
-                location.altitude.toString(),
-                formattedTimestamp = Tools().formatCurrentTimestamp(),
-                averageSpeed,
-                getTotalAscent(),
-                getTotalDescent()
-            )
+    private fun startKeepAliveCoroutine() {
+        serviceScope.launch {
+            while (isActive) {
+                try {
+                    // Send a keep-alive event to ensure UI stays updated
+                    // This is helpful when the device is stationary
+                    if (oldLatitude != -999.0 && oldLongitude != -999.0) {
+                        val locationData = createLocationData()
+                        EventBus.getDefault().post(locationData)
+                        Log.d(TAG, "Sent keep-alive location update")
+                    }
+                    delay(KEEP_ALIVE_INTERVAL)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in keep-alive coroutine", e)
+                }
+            }
+        }
+    }
+
+    private fun createLocationData(): LocationData {
+        return LocationData(
+            latitude = oldLatitude,
+            longitude = oldLongitude,
+            speed = 0f,
+            speedAccuracyMetersPerSecond = 0f,
+            altitude = startingAltitude ?: 0.0,
+            horizontalAccuracy = 0f,
+            verticalAccuracy = 0f,
+            coveredDistance = coveredDistance,
+            numberOfSatellites = numberOfSatellites,
+            usedNumberOfSatellites = usedNumberOfSatellites
         )
-        //send json via websocket to server
-        webSocket!!.send(json)
-    }*/
+    }
 
     private fun loadSharedPreferences() {
         val sharedPreferences = getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -92,7 +133,11 @@ class BackgroundLocationService : Service(), LocationListener {
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
         height = sharedPreferences.getFloat("height", 0f)
         weight = sharedPreferences.getFloat("weight", 0f)
-        websocketserver = sharedPreferences.getString("websocketserver","0.0.0.0").toString()
+        websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
+    }
+
+    private fun createLocationManager() {
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
 
     @SuppressLint("MissingPermission")
@@ -104,71 +149,248 @@ class BackgroundLocationService : Service(), LocationListener {
                 MIN_DISTANCE_BETWEEN_UPDATES,
                 this
             )
+            Log.d(TAG, "Location updates requested")
         } catch (e: SecurityException) {
-            Log.e("BackgroundService", "Missing permissions for location updates.", e)
+            Log.e(TAG, "Missing permissions for location updates.", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error starting location updates", e)
         }
     }
 
-    override fun onLocationChanged(location: Location) {
-        Log.d(
-            "BackgroundService", "Location Updated: Latitude: ${location.latitude}, " +
-                    "Longitude: ${location.longitude}, Accuracy: ${location.accuracy}"
-        )
-        val latLngs = listOf(LatLng(location.latitude, location.longitude))
+    private fun connectWebSocket() {
+        if (websocketserver == "0.0.0.0") {
+            Log.d(TAG, "WebSocket server not configured, skipping connection")
+            return
+        }
 
-        EventBus.getDefault().post(latLngs.let {
-            CustomLocationListener.LocationChangeEvent(it)
-        }?.let {
-            LocationEvent(
-                location.latitude,
-                location.longitude,
-                location.speed,
-                location.speedAccuracyMetersPerSecond,
-                location.altitude,
-                location.accuracy,
-                location.verticalAccuracyMeters,
-                coveredDistance = coveredDistance,
-                lap = 0,
-                startDateTime = startDateTime,
-                averageSpeed = averageSpeed,
-                it,
-                getTotalAscent(),
-                getTotalDescent()
-            )
+        Log.d(TAG, "Attempting to connect to WebSocket server: ws://$websocketserver:8011/runningtracker")
+
+        val client = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .writeTimeout(10, TimeUnit.SECONDS)
+            .pingInterval(20, TimeUnit.SECONDS)
+            .build()
+
+        val request = Request.Builder()
+            .url("ws://$websocketserver:8011/runningtracker")
+            .build()
+
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d(TAG, "WebSocket connection opened")
+                // Reset reconnection state
+                isReconnecting = false
+                reconnectAttempts = 0
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                Log.d(TAG, "WebSocket message received: $text")
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                Log.e(TAG, "WebSocket connection failed: ${t.message}")
+
+                // Handle reconnection with exponential backoff
+                if (!isReconnecting && serviceJob.isActive) {
+                    isReconnecting = true
+                    val delayMs = BASE_RECONNECT_DELAY_MS * (1 shl reconnectAttempts.coerceAtMost(10))
+
+                    serviceScope.launch {
+                        delay(delayMs)
+                        if (isActive) {
+                            connectWebSocket()
+                        }
+                    }
+                }
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WebSocket connection closing: $reason")
+                webSocket.close(1000, null)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                Log.d(TAG, "WebSocket connection closed: $reason")
+            }
         })
-        val (newCoveredDistance, distanceIncrement) = calculateDistance(location)
-        coveredDistance = newCoveredDistance
-        averageSpeed = calculateAverageSpeed(coveredDistance)
-
-        //For now we do not want to see the user on the website
-        //sendToWebsocket(location, coveredDistance)
     }
 
-    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
-        Log.d("BackgroundService", "Status changed for provider $provider: $status")
+    override fun onLocationChanged(location: Location) {
+        try {
+            Log.d(
+                TAG, "Location Updated: Latitude: ${location.latitude}, " +
+                        "Longitude: ${location.longitude}, Accuracy: ${location.accuracy}"
+            )
+
+            if (startingAltitude == null) {
+                startingAltitude = location.altitude
+                Log.d(TAG, "Starting altitude set: $startingAltitude meters")
+            }
+
+            // Calculate distance and update metrics
+            val (newCoveredDistance, distanceIncrement) = calculateDistance(location)
+            coveredDistance = newCoveredDistance
+            averageSpeed = calculateAverageSpeed()
+            lap = calculateLap(distanceIncrement)
+
+            // Track max speed
+            val currentSpeedKmh = location.speed * 3.6
+            if (currentSpeedKmh > maxSpeed) {
+                maxSpeed = currentSpeedKmh
+            }
+
+            // Calculate elevation gain
+            if (startingAltitude != null) {
+                cumulativeElevationGain = calculateElevationGain(location, startingAltitude!!)
+            }
+
+            // Update satellite info - use a simpler approach
+            // Modern Android versions no longer expose direct satellite counts easily
+            // We'll use location properties instead
+            updateSatelliteInfo(location)
+
+            // Create location data object
+            val locationData = LocationData(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                speed = location.speed * 3.6f,
+                speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
+                altitude = location.altitude,
+                horizontalAccuracy = location.accuracy,
+                verticalAccuracy = location.verticalAccuracyMeters,
+                coveredDistance = coveredDistance,
+                numberOfSatellites = numberOfSatellites,
+                usedNumberOfSatellites = usedNumberOfSatellites
+            )
+
+            // Post to EventBus for UI updates
+            EventBus.getDefault().post(locationData)
+
+            // Send to WebSocket if configured
+//            if (websocketserver != "0.0.0.0") {
+//                sendDataToWebsocketServer(locationData)
+//            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing location update", e)
+        }
     }
 
-    override fun onProviderEnabled(provider: String) {
-        Log.d("BackgroundService", "Provider enabled: $provider")
+    /**
+     * Update satellite information based on location quality
+     */
+    private fun updateSatelliteInfo(location: Location) {
+        try {
+            // Use location accuracy as a proxy for satellite quality
+            // This is more compatible across Android versions
+            val accuracy = location.accuracy
+
+            // Estimate satellite information based on location accuracy
+            when {
+                accuracy < 4 -> {
+                    numberOfSatellites = 12
+                    usedNumberOfSatellites = 8
+                }
+                accuracy < 10 -> {
+                    numberOfSatellites = 8
+                    usedNumberOfSatellites = 5
+                }
+                accuracy < 20 -> {
+                    numberOfSatellites = 6
+                    usedNumberOfSatellites = 3
+                }
+                else -> {
+                    numberOfSatellites = 4
+                    usedNumberOfSatellites = 0
+                }
+            }
+
+            // If we have extra information from location extras, use it
+            location.extras?.let { extras ->
+                if (extras.containsKey("satellites")) {
+                    val satCount = extras.getInt("satellites", -1)
+                    if (satCount > 0) {
+                        numberOfSatellites = satCount
+                        // Estimate used satellites as 2/3 of visible ones
+                        usedNumberOfSatellites = (satCount * 2 / 3).coerceAtLeast(1)
+                    }
+                }
+            }
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error estimating satellite info", e)
+            // Default values if we can't get satellite info
+            numberOfSatellites = 4
+            usedNumberOfSatellites = 0
+        }
     }
 
-    override fun onProviderDisabled(provider: String) {
-        Log.d("BackgroundService", "Provider disabled: $provider")
+    private fun sendDataToWebsocketServer(locationData: LocationData) {
+        webSocket?.let { socket ->
+            try {
+                // Convert to JSON
+                val gson = Gson()
+                val jsonData = gson.toJson(locationData)
+
+                // Send via WebSocket
+                val sent = socket.send(jsonData)
+                if (!sent) {
+                    Log.e(TAG, "Failed to send data through WebSocket")
+
+                    // Try to reconnect if send fails
+                    if (!isReconnecting) {
+                        isReconnecting = true
+                        serviceScope.launch {
+                            connectWebSocket()
+                        }
+                    } else {
+
+                    }
+                } else {
+
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending data to WebSocket", e)
+            }
+        }
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    private fun calculateElevationGain(location: Location, startingAltitude: Double): Double {
+        val altitudeDifference = location.altitude - startingAltitude
+        return if (altitudeDifference > 0) altitudeDifference else 0.0
+    }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Remove location updates to prevent memory leaks
-        locationManager.removeUpdates(this)
+    private fun calculateLap(distanceIncrement: Double): Int {
+        lapCounter += distanceIncrement
+        val lapsToAdd = (lapCounter / 1000).toInt()
+        lap += lapsToAdd
+        lapCounter -= lapsToAdd * 1000
+        return lap
+    }
+
+    private fun calculateAverageSpeed(): Double {
+        return try {
+            val currentTime = LocalDateTime.now()
+            val durationSeconds = Duration.between(startDateTime, currentTime).seconds.toDouble()
+
+            // Check for division by zero or very small values
+            if (durationSeconds > 0.001) {  // Using a small threshold instead of exactly 0
+                (coveredDistance / durationSeconds) * 3.6
+            } else {
+                0.0  // Return 0 if duration is too small
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error calculating average speed", e)
+            0.0  // Return 0 in case of any error
+        }
     }
 
     private fun calculateDistance(location: Location): Pair<Double, Double> {
         val distanceIncrement: Double
         if (checkSpeed(location)) {
             if (oldLatitude != -999.0 && oldLongitude != -999.0) {
-                distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
+                distanceIncrement = calculateDistanceBetweenCoordinates(
                     oldLatitude,
                     oldLongitude,
                     location.latitude,
@@ -180,38 +402,23 @@ class BackgroundLocationService : Service(), LocationListener {
             }
             oldLatitude = location.latitude
             oldLongitude = location.longitude
-            Log.d("CustomLocationListener", "Distance Increment: $distanceIncrement")
+            Log.d(TAG, "Distance Increment: $distanceIncrement")
             return Pair(coveredDistance, distanceIncrement)
         } else {
-            return Pair(0.0, 0.0)
+            // Still update the coordinates even if we're not moving fast enough
+            oldLatitude = location.latitude
+            oldLongitude = location.longitude
+            return Pair(coveredDistance, 0.0)
         }
     }
 
     private fun checkSpeed(location: Location): Boolean {
-        var speed = location.speed
+        val speed = location.speed
         val thresholdInMetersPerSecond = MIN_SPEED_THRESHOLD / 3.6
         return speed >= thresholdInMetersPerSecond
     }
 
-    private fun calculateAverageSpeed(coveredDistance: Double): Double {
-        return try {
-            totalDateTime = LocalDateTime.now()
-            val duration = Duration.between(startDateTime, totalDateTime)
-            val durationSeconds = duration.toNanos() / 1_000_000_000.0
-
-            // Check for division by zero or very small values
-            if (durationSeconds > 0.001) {  // Using a small threshold instead of exactly 0
-                (coveredDistance / durationSeconds) * 3.6
-            } else {
-                0.0  // Return 0 if duration is too small
-            }
-        } catch (e: Exception) {
-            Log.e("BackgroundService", "Error calculating average speed", e)
-            0.0  // Return 0 in case of any error
-        }
-    }
-
-    private fun calculateDistanceBetweenOldLatLngNewLatLng(
+    private fun calculateDistanceBetweenCoordinates(
         oldLatitude: Double,
         oldLongitude: Double,
         newLatitude: Double,
@@ -219,21 +426,70 @@ class BackgroundLocationService : Service(), LocationListener {
     ): Double {
         val result = FloatArray(1)
         Location.distanceBetween(
-            //older location
             oldLatitude,
             oldLongitude,
-            //current location
             newLatitude,
             newLongitude,
             result
-        );
+        )
         return result[0].toDouble()
+    }
+
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
+        Log.d(TAG, "Status changed for provider $provider: $status")
+        Log.d(TAG, "Provider status code: $status")
+    }
+
+    override fun onProviderEnabled(provider: String) {
+        Log.d(TAG, "Provider enabled: $provider")
+    }
+
+    override fun onProviderDisabled(provider: String) {
+        Log.d(TAG, "Provider disabled: $provider")
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+
+        Log.d(TAG, "BackgroundLocationService destroying")
+
+        try {
+            // Remove location updates
+            locationManager.removeUpdates(this)
+            Log.d(TAG, "Location updates removed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error removing location updates", e)
+        }
+
+        try {
+            // Close WebSocket
+            webSocket?.let { socket ->
+                socket.close(1000, "Service shutting down")
+                webSocket = null
+                Log.d(TAG, "WebSocket closed")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error closing WebSocket", e)
+        }
+
+        try {
+            // Cancel all coroutines
+            serviceScope.cancel()
+            Log.d(TAG, "Service scope cancelled")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling service scope", e)
+        }
+
+        isServiceStarted = false
     }
 
     companion object {
         private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
-        private const val TAG_WEBSOCKET: String = "BackgroundLocationService: WebSocketService"
-        private val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
+        private const val TAG: String = "BackgroundLocationService"
+        private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
+        private const val KEEP_ALIVE_INTERVAL: Long = 5000 // 5 seconds
     }
 }
