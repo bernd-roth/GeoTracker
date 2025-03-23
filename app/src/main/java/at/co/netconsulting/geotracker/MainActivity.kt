@@ -2,7 +2,9 @@ package at.co.netconsulting.geotracker
 
 import android.Manifest
 import android.app.ActivityManager
+import android.app.AlertDialog
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -35,6 +37,7 @@ import at.co.netconsulting.geotracker.composables.BottomSheetContent
 import at.co.netconsulting.geotracker.composables.MapScreen
 import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
+import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import org.greenrobot.eventbus.EventBus
@@ -53,12 +56,10 @@ class MainActivity : ComponentActivity() {
     private var verticalAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var coveredDistanceState = mutableDoubleStateOf(0.0)
     private val locationEventState = mutableStateOf<Metrics?>(null)
-    private val startDateTimeState = mutableStateOf<LocalDateTime>(LocalDateTime.now())
     private lateinit var satelliteInfoManager: SatelliteInfoManager
 
     // Permissions
-    private val PERMISSION_REQUEST_CODE = 1001
-    private val permissions = listOf(
+    private val foregroundPermissions = listOf(
         Manifest.permission.INTERNET,
         Manifest.permission.ACCESS_NETWORK_STATE,
         Manifest.permission.POST_NOTIFICATIONS,
@@ -66,15 +67,12 @@ class MainActivity : ComponentActivity() {
         Manifest.permission.ACCESS_FINE_LOCATION,
         Manifest.permission.ACCESS_COARSE_LOCATION,
         Manifest.permission.FOREGROUND_SERVICE,
-        Manifest.permission.ACCESS_BACKGROUND_LOCATION,
         Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
         Manifest.permission.WAKE_LOCK
     )
-
-    // Database reference
-    private val database: FitnessTrackerDatabase by lazy {
-        FitnessTrackerDatabase.getInstance(applicationContext)
-    }
+    private val backgroundLocationPermission = Manifest.permission.ACCESS_BACKGROUND_LOCATION
+    private val FOREGROUND_PERMISSION_REQUEST_CODE = 1001
+    private val BACKGROUND_PERMISSION_REQUEST_CODE = 1002
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,10 +80,7 @@ class MainActivity : ComponentActivity() {
         // Initialize satellite info manager
         satelliteInfoManager = SatelliteInfoManager(this)
 
-        // Check and request permissions
-        if (!arePermissionsGranted()) {
-            ActivityCompat.requestPermissions(this, permissions.toTypedArray(), PERMISSION_REQUEST_CODE)
-        }
+        requestPermissionsInSequence()
 
         // Initialize OSMDroid configuration
         val context = applicationContext
@@ -99,6 +94,106 @@ class MainActivity : ComponentActivity() {
         setContent {
             MainScreen()
         }
+    }
+
+    private fun requestPermissionsInSequence() {
+        // First, check and request foreground permissions
+        if (!areForegroundPermissionsGranted()) {
+            ActivityCompat.requestPermissions(
+                this,
+                foregroundPermissions.toTypedArray(),
+                FOREGROUND_PERMISSION_REQUEST_CODE
+            )
+        } else {
+            // Only if foreground permissions are granted, check and request background location
+            checkAndRequestBackgroundPermission()
+        }
+    }
+
+    private fun areForegroundPermissionsGranted(): Boolean {
+        return foregroundPermissions.all { permission ->
+            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    private fun checkAndRequestBackgroundPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (ContextCompat.checkSelfPermission(
+                    this,
+                    backgroundLocationPermission
+                ) != PackageManager.PERMISSION_GRANTED) {
+
+                // Show explanation dialog first
+                AlertDialog.Builder(this)
+                    .setTitle("Background Location Permission Required")
+                    .setMessage("This app needs background location access to track your location even when the app is closed. Please grant this permission on the next screen.")
+                    .setPositiveButton("OK") { _, _ ->
+                        ActivityCompat.requestPermissions(
+                            this,
+                            arrayOf(backgroundLocationPermission),
+                            BACKGROUND_PERMISSION_REQUEST_CODE
+                        )
+                    }
+                    .create()
+                    .show()
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        when (requestCode) {
+            FOREGROUND_PERMISSION_REQUEST_CODE -> {
+                // If foreground permissions are granted, proceed to background permission
+                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
+                    checkAndRequestBackgroundPermission()
+                } else {
+                    // Some foreground permissions denied
+                    val deniedPermissions = permissions.zip(grantResults.toList())
+                        .filter { it.second != PackageManager.PERMISSION_GRANTED }
+                        .map { it.first }
+
+                    if (deniedPermissions.isNotEmpty()) {
+                        Toast.makeText(
+                            this,
+                            "Some permissions were denied. Functionality may be limited.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            BACKGROUND_PERMISSION_REQUEST_CODE -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    // Background location permission granted
+                    Log.d("Permissions", "Background location permission granted")
+                } else {
+                    // Background location permission denied
+                    Toast.makeText(
+                        this,
+                        "Background location permission denied. Location tracking will only work when the app is open.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
+    }
+
+    // arePermissionsGranted() needs to be updated to check both foreground and background
+    private fun arePermissionsGranted(): Boolean {
+        val foregroundGranted = areForegroundPermissionsGranted()
+        val backgroundGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContextCompat.checkSelfPermission(this, backgroundLocationPermission) ==
+                    PackageManager.PERMISSION_GRANTED
+        } else {
+            true // Background permission not needed for Android 9 and below
+        }
+
+        return foregroundGranted && backgroundGranted
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -217,10 +312,30 @@ class MainActivity : ComponentActivity() {
         coveredDistanceState.value = metrics.coveredDistance
     }
 
-    private fun arePermissionsGranted(): Boolean {
-        return permissions.all { permission ->
-            ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
-        }
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onLocationDataEvent(locationData: LocationData) {
+        Log.d(
+            "MainActivity",
+            "LocationData update received: " +
+                    "Lat=${locationData.latitude}, " +
+                    "Lon=${locationData.longitude}, " +
+                    "Speed=${locationData.speed}, " +
+                    "Distance=${locationData.coveredDistance}"
+        )
+
+        // Update state with new location data
+        latitudeState.value = locationData.latitude
+        longitudeState.value = locationData.longitude
+
+        // Update speed with new location data
+        speedState.value = locationData.speed
+        speedAccuracyInMetersState.value = locationData.speedAccuracyMetersPerSecond
+
+        // Always update these values
+        altitudeState.value = locationData.altitude
+        horizontalAccuracyInMetersState.value = locationData.horizontalAccuracy
+        verticalAccuracyInMetersState.value = locationData.verticalAccuracy
+        coveredDistanceState.value = locationData.coveredDistance
     }
 
     private fun isServiceRunning(serviceName: String): Boolean {
@@ -229,27 +344,6 @@ class MainActivity : ComponentActivity() {
             .any { service ->
                 serviceName == service.service.className && service.foreground
             }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            val deniedPermissions = permissions.zip(grantResults.toList())
-                .filter { it.second != PackageManager.PERMISSION_GRANTED }
-                .map { it.first }
-
-            if (deniedPermissions.isNotEmpty()) {
-                Toast.makeText(
-                    this,
-                    "Some permissions were denied. Functionality may be limited.",
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
     }
 
     override fun onResume() {

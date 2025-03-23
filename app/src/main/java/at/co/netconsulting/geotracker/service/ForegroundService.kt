@@ -30,7 +30,9 @@ import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.tools.Tools
+import com.google.gson.FieldNamingPolicy
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.google.gson.JsonSyntaxException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -137,6 +139,8 @@ class ForegroundService : Service() {
                 .build()
 
             val url = buildWeatherUrl(latitude, longitude)
+            Log.d(TAG, "Fetching weather from URL: $url")
+
             val request = Request.Builder()
                 .url(url)
                 .build()
@@ -156,34 +160,86 @@ class ForegroundService : Service() {
                         throw IOException("Empty response body")
                     }
 
-                    val weatherResponse = try {
-                        Gson().fromJson(responseBody, WeatherResponse::class.java)
+                    Log.d(TAG, "Weather API response: ${responseBody.take(500)}...") // Log the start of the response
+
+                    try {
+                        // Create a custom Gson instance with specific field naming policy
+                        val gson = GsonBuilder()
+                            .setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
+                            .create()
+
+                        val weatherResponse = gson.fromJson(responseBody, WeatherResponse::class.java)
+
+                        if (weatherResponse != null) {
+                            Log.d(TAG, "Weather response parsed successfully")
+
+                            // Check if currentWeather is available
+                            if (weatherResponse.currentWeather != null) {
+                                Log.d(TAG, "Current weather data: ${weatherResponse.currentWeather}")
+
+                                // Directly publish CurrentWeather to EventBus
+                                EventBus.getDefault().post(weatherResponse.currentWeather)
+                                Log.d(TAG, "Weather data published to EventBus: ${weatherResponse.currentWeather}")
+                            } else {
+                                Log.e(TAG, "Current weather data is null after parsing")
+                            }
+
+                            // Only try to save to DB if we have the required data
+                            val currentWeather = weatherResponse.currentWeather
+                            if (currentWeather != null) {
+                                try {
+                                    // Get humidity data if available
+                                    var currentHumidity = 0
+                                    val hourlyData = weatherResponse.hourly
+
+                                    if (hourlyData != null &&
+                                        hourlyData.time != null &&
+                                        hourlyData.relativeHumidity != null) {
+
+                                        val currentTime = currentWeather.time
+
+                                        if (currentTime.isNotEmpty()) {
+                                            val hourlyIndex = hourlyData.time.indexOfFirst { it == currentTime }
+
+                                            if (hourlyIndex != -1 && hourlyIndex < hourlyData.relativeHumidity.size) {
+                                                currentHumidity = hourlyData.relativeHumidity[hourlyIndex]
+                                            } else {
+                                                Log.d(TAG, "Couldn't find matching time entry or index out of bounds")
+                                            }
+                                        }
+                                    } else {
+                                        Log.d(TAG, "Hourly data is incomplete or null")
+                                    }
+
+                                    // Create and save weather object
+                                    val weather = Weather(
+                                        eventId = eventId,
+                                        weatherRestApi = "OpenMeteo",
+                                        temperature = currentWeather.temperature.toFloat(),
+                                        windSpeed = currentWeather.windspeed.toFloat(),
+                                        windDirection = getWindDirection(currentWeather.winddirection),
+                                        relativeHumidity = currentHumidity
+                                    )
+
+                                    database.weatherDao().insertWeather(weather)
+                                    Log.d(TAG, "Weather data saved to database: $weather")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error saving weather to database", e)
+                                    // Continue anyway, we already published to EventBus
+                                }
+                            } else {
+                                Log.e(TAG, "currentWeather is null")
+                            }
+                        } else {
+                            Log.e(TAG, "Weather response is null after parsing")
+                        }
                     } catch (e: JsonSyntaxException) {
-                        Log.e(TAG, "Failed to parse weather response: $responseBody")
+                        Log.e(TAG, "Failed to parse weather response, syntax error: ${e.message}")
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error processing weather data: ${e.message}")
                         throw e
                     }
-
-                    ensureActive() // Check before database operation
-
-                    val currentTime = weatherResponse.currentWeather.time
-                    val hourlyIndex = weatherResponse.time.indexOfFirst { it == currentTime }
-                    val currentHumidity = if (hourlyIndex != -1) {
-                        weatherResponse.relativeHumidity[hourlyIndex]
-                    } else {
-                        weatherResponse.relativeHumidity.lastOrNull() ?: 0
-                    }
-
-                    val weather = Weather(
-                        eventId = eventId,
-                        weatherRestApi = "OpenMeteo",
-                        temperature = weatherResponse.currentWeather.temperature.toFloat(),
-                        windSpeed = weatherResponse.currentWeather.windspeed.toFloat(),
-                        windDirection = getWindDirection(weatherResponse.currentWeather.winddirection),
-                        relativeHumidity = currentHumidity
-                    )
-
-                    database.weatherDao().insertWeather(weather)
-                    Log.d(TAG, "Weather data saved: $weather")
                 }
             }
         } catch (e: CancellationException) {
@@ -369,6 +425,9 @@ class ForegroundService : Service() {
                 // Complete the deferred with the new event ID
                 eventIdDeferred.complete(eventId)
 
+                // Start weather updates ONCE here
+                startWeatherUpdates()
+
                 while (isActive) {
                     val currentTime = currentTimeMillis()
                     if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
@@ -383,7 +442,7 @@ class ForegroundService : Service() {
                     showNotification()
                     if(checkLatitudeLongitude()) {
                         if(checkLatitudeLongitudeDuplicates()) {
-                            receiveWeatherData()
+                            // Don't call receiveWeatherData() here - removed
                             insertDatabase(database)
                         }
                     }
@@ -774,13 +833,5 @@ class ForegroundService : Service() {
         //Weather
         private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
-
-        /**
-         * Call this method before stopping the service intentionally to mark it as an intentional stop
-         * This helps distinguish between normal shutdowns and crashes
-         */
-        fun markStoppingIntentionally() {
-            isStoppingIntentionally = true
-        }
     }
 }

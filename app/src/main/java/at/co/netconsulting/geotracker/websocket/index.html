@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Running Tracker - Speed Display</title>
+    <title>Running Tracker - Speed & Elevation Display</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
     <style>
         body,
@@ -82,11 +82,16 @@
         font-weight: bold;
         color: #2196F3;
         }
-        .speed-unit {
+        .elevation-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #4CAF50;
+        }
+        .speed-unit, .elevation-unit {
         font-size: 14px;
         color: #666;
         }
-        .speed-label {
+        .speed-label, .elevation-label {
         font-size: 12px;
         color: #999;
         margin-bottom: 5px;
@@ -275,6 +280,11 @@
             <div class="speed-value" id="movingAvg">0.0</div>
             <div class="speed-unit">km/h</div>
         </div>
+        <div class="stat-box">
+            <div class="elevation-label">Elevation Gain</div>
+            <div class="elevation-value" id="elevationGain">0.0</div>
+            <div class="elevation-unit">m</div>
+        </div>
     </div>
 </div>
 <div id="map"></div>
@@ -317,10 +327,12 @@
     let altitudeChart;
     let speedChart;
     let speedHistory = {};
+    let elevationHistory = {}; // Added to track elevation gain
     let userColors = {};
     let trackPoints = {};
     let isProcessingBatch = false;
     let statsVisible = true; // Track the visibility state of stat boxes
+    let sessionPersonNames = {};
 
     // Debug variables
     let debugMessages = [];
@@ -331,22 +343,34 @@
         return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
-function initMap() {
-    const initialLocation = [0, 0];
-    map = L.map('map', {
-        worldCopyJump: false,
-        maxBounds: [[-90, -180], [90, 180]],
-        minZoom: 1
-    }).setView(initialLocation, 1);
+    function initMap() {
+        try {
+            console.log("Initializing map...");
+            const initialLocation = [48.1818798, 16.3607528]; // Use Vienna as default location
+            map = L.map('map', {
+                worldCopyJump: false,
+                maxBounds: [[-90, -180], [90, 180]],
+                minZoom: 1
+            }).setView(initialLocation, 13); // Set a more appropriate zoom level
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors',
-        noWrap: true
-    }).addTo(map);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                noWrap: true
+            }).addTo(map);
 
-    initCharts();
-    connectToWebSocket();
-}
+            console.log("Map initialized successfully");
+
+            initCharts();
+            connectToWebSocket();
+        } catch (error) {
+            console.error("Error initializing map:", error);
+            // Try to provide visual feedback that map initialization failed
+            const mapElement = document.getElementById('map');
+            if (mapElement) {
+                mapElement.innerHTML = '<div style="text-align: center; padding: 20px; color: red;">Error loading map. Please check console for details.</div>';
+            }
+        }
+    }
 
     function initCharts() {
         const chartOptions = {
@@ -427,15 +451,19 @@ function initMap() {
     function toggleStatBoxes() {
         const speedDisplay = document.getElementById('speedDisplay');
         const toggleBtn = document.getElementById('toggleStatsBtn');
+        const sessionLabels = document.querySelectorAll('.session-label');
+        const statBoxes = document.querySelectorAll('.stat-box');
 
         if (statsVisible) {
-            // Hide the entire speed display container
-            speedDisplay.style.display = 'none';
+            // Hide stat boxes and session labels
+            sessionLabels.forEach(label => label.style.display = 'none');
+            statBoxes.forEach(box => box.style.display = 'none');
             toggleBtn.textContent = 'Show Stats';
             statsVisible = false;
         } else {
-            // Show the speed display container
-            speedDisplay.style.display = 'block';
+            // Show stat boxes and session labels
+            sessionLabels.forEach(label => label.style.display = 'block');
+            statBoxes.forEach(box => box.style.display = 'block');
             toggleBtn.textContent = 'Hide Stats';
             statsVisible = true;
         }
@@ -462,32 +490,38 @@ function initMap() {
     }
 
     function toggleMapElementsVisibility(sessionId, visible) {
+        // Extract the actual sessionId from the displayId if necessary
+        const actualSessionId = sessionId.includes('_') ? sessionId.split('_').pop() : sessionId;
+
         // Toggle polyline
-        if (polylines[sessionId]) {
+        if (polylines[actualSessionId]) {
             if (visible) {
-                if (!map.hasLayer(polylines[sessionId])) {
-                    map.addLayer(polylines[sessionId]);
+                if (!map.hasLayer(polylines[actualSessionId])) {
+                    map.addLayer(polylines[actualSessionId]);
                 }
             } else {
-                if (map.hasLayer(polylines[sessionId])) {
-                    map.removeLayer(polylines[sessionId]);
+                if (map.hasLayer(polylines[actualSessionId])) {
+                    map.removeLayer(polylines[actualSessionId]);
                 }
             }
         }
+
         [startMarkers, endMarkers].forEach(markers => {
-            if (markers[sessionId]) {
+            if (markers[actualSessionId]) {
                 if (visible) {
-                    if (!map.hasLayer(markers[sessionId])) {
-                        map.addLayer(markers[sessionId]);
+                    if (!map.hasLayer(markers[actualSessionId])) {
+                        map.addLayer(markers[actualSessionId]);
                     }
                 } else {
-                    if (map.hasLayer(markers[sessionId])) {
-                        map.removeLayer(markers[sessionId]);
+                    if (map.hasLayer(markers[actualSessionId])) {
+                        map.removeLayer(markers[actualSessionId]);
                     }
                 }
             }
         });
-        const speedContainer = document.getElementById(`speed-${sessionId}`);
+
+        // Use the container ID
+        const speedContainer = document.getElementById(`speed-container-${actualSessionId}`);
         if (speedContainer) {
             speedContainer.style.display = visible ? 'block' : 'none';
         }
@@ -542,6 +576,13 @@ function initMap() {
 
         points.forEach(point => {
             const sessionId = point.sessionId || "default";
+            const personName = point.person || "";
+
+            // Store the person name mapping
+            if (personName) {
+                sessionPersonNames[sessionId] = personName;
+            }
+
             if (!trackPoints[sessionId]) {
                 trackPoints[sessionId] = [];
             }
@@ -554,7 +595,9 @@ function initMap() {
                 altitude: parseFloat(point.altitude || 0),
                 speed: parseFloat(point.currentSpeed || 0),
                 averageSpeed: parseFloat(point.averageSpeed || 0),
-                timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'))
+                cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
+                timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+                personName: personName
             };
 
             trackPoints[sessionId].push(processedPoint);
@@ -579,7 +622,10 @@ function initMap() {
                 const latestPoint = trackPoints[sessionId][trackPoints[sessionId].length - 1];
                 if (latestPoint) {
                     updateSpeedDisplay(sessionId, latestPoint.speed, {
-                        averageSpeed: latestPoint.averageSpeed
+                        averageSpeed: latestPoint.averageSpeed,
+                        cumulativeElevationGain: latestPoint.cumulativeElevationGain,
+                        personName: latestPoint.personName ||
+                            (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || ""
                     });
                 }
             });
@@ -591,6 +637,16 @@ function initMap() {
         if (!data || isProcessingBatch) return;
 
         const sessionId = data.sessionId || "default";
+        // Extract the person's name from the data
+        const personName = data.person || "";
+
+        if (personName) {
+            sessionPersonNames[sessionId] = personName;
+        }
+
+        // Create a display ID that combines name and session ID
+        const displayId = personName ? `${personName}_${sessionId}` : sessionId;
+
         const processedPoint = {
             lat: parseFloat(data.latitude),
             lng: parseFloat(data.longitude),
@@ -600,7 +656,10 @@ function initMap() {
             averageSpeed: parseFloat(data.averageSpeed || 0),
             maxSpeed: parseFloat(data.maxSpeed || 0),
             movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
-            timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'))
+            cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
+            timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+            // Store the person's name for use in display
+            personName: personName
         };
 
         if (!trackPoints[sessionId]) {
@@ -616,7 +675,10 @@ function initMap() {
             updateSpeedDisplay(sessionId, processedPoint.speed, {
                 averageSpeed: processedPoint.averageSpeed,
                 maxSpeed: processedPoint.maxSpeed,
-                movingAverageSpeed: processedPoint.movingAverageSpeed
+                movingAverageSpeed: processedPoint.movingAverageSpeed,
+                cumulativeElevationGain: processedPoint.cumulativeElevationGain,
+                // Pass the person name to the display function
+                personName: processedPoint.personName
             });
         });
     }
@@ -659,6 +721,11 @@ function initMap() {
         const points = trackPoints[sessionId];
         if (!points || points.length === 0) return;
 
+        // Get the person name from our saved mapping
+        const personName = sessionPersonNames[sessionId] || "";
+        // Create a display ID that combines name and session ID
+        const displayId = personName ? `${personName}_${sessionId}` : sessionId;
+
         const chartData = points.map(point => ({
             x: point.distance,
             y: point.altitude
@@ -671,34 +738,40 @@ function initMap() {
 
         // Update altitude chart
         let altDatasetIndex = altitudeChart.data.datasets.findIndex(
-            dataset => dataset.label === sessionId
+            dataset => dataset.label === sessionId || dataset.label === displayId
         );
 
         if (altDatasetIndex === -1) {
             altDatasetIndex = altitudeChart.data.datasets.length;
             altitudeChart.data.datasets.push({
-                label: sessionId,
+                label: displayId,
                 borderColor: getColorForUser(sessionId),
                 fill: false,
                 data: []
             });
+        } else if (personName && altitudeChart.data.datasets[altDatasetIndex].label !== displayId) {
+            // Update the label if we now have a person name
+            altitudeChart.data.datasets[altDatasetIndex].label = displayId;
         }
 
         altitudeChart.data.datasets[altDatasetIndex].data = chartData;
 
         // Update speed chart
         let speedDatasetIndex = speedChart.data.datasets.findIndex(
-            dataset => dataset.label === sessionId
+            dataset => dataset.label === sessionId || dataset.label === displayId
         );
 
         if (speedDatasetIndex === -1) {
             speedDatasetIndex = speedChart.data.datasets.length;
             speedChart.data.datasets.push({
-                label: sessionId,
+                label: displayId,
                 borderColor: getColorForUser(sessionId),
                 fill: false,
                 data: []
             });
+        } else if (personName && speedChart.data.datasets[speedDatasetIndex].label !== displayId) {
+            // Update the label if we now have a person name
+            speedChart.data.datasets[speedDatasetIndex].label = displayId;
         }
 
         speedChart.data.datasets[speedDatasetIndex].data = speedData;
@@ -710,7 +783,25 @@ function initMap() {
         });
     }
 
+    function getSpeedColor(speed) {
+        if (speed < 5) return '#2196F3';
+        if (speed < 10) return '#4CAF50';
+        return '#F44336';
+    }
+
+    function getElevationColor(elevation) {
+        if (elevation < 10) return '#2196F3';  // Low elevation gain
+        if (elevation < 50) return '#4CAF50';  // Medium elevation gain
+        return '#F44336';                      // High elevation gain
+    }
+
     function updateSpeedDisplay(sessionId, speed, data) {
+        // Get the person name from the data or from our saved mapping
+        const personName = data.personName || sessionPersonNames[sessionId] || "";
+
+        // Create a display ID that combines name and session ID
+        const displayId = personName ? `${personName}_${sessionId}` : sessionId;
+
         // If stats are hidden and we're updating, just keep track of the data without updating the DOM
         if (!statsVisible && document.getElementById('speedDisplay').style.display === 'none') {
             if (!speedHistory[sessionId]) {
@@ -719,7 +810,9 @@ function initMap() {
                     maxSpeed: 0,
                     avgSpeed: 0,
                     movingAvg: 0,
-                    lastUpdate: new Date()
+                    elevationGain: 0,
+                    lastUpdate: new Date(),
+                    personName: personName // Store the person name
                 };
             }
 
@@ -727,8 +820,17 @@ function initMap() {
             history.speeds.push(speed);
             history.lastUpdate = new Date();
 
+            // Update person name if it exists and wasn't set before
+            if (personName && !history.personName) {
+                history.personName = personName;
+            }
+
             if (data.maxSpeed !== undefined) {
                 history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
+            }
+
+            if (data.cumulativeElevationGain !== undefined) {
+                history.elevationGain = data.cumulativeElevationGain;
             }
 
             // Clean up old sessions
@@ -736,53 +838,115 @@ function initMap() {
             return;
         }
 
-        const defaultDisplay = document.querySelector('#speedDisplay > div:not([id^="speed-"])');
-        if (defaultDisplay && sessionId) {
-            defaultDisplay.remove();
+        // FIXED: Check if this is the first data point we're receiving
+        const isFirstDataPoint = Object.keys(speedHistory).length === 0;
+
+        // FIXED: If it's the first data point, clear the default display once
+        const speedDisplay = document.getElementById('speedDisplay');
+        const defaultDisplay = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
+
+        if (defaultDisplay && isFirstDataPoint) {
+            // Instead of removing the default display, clear its content and give it an ID
+            defaultDisplay.innerHTML = '';
+            defaultDisplay.id = `speed-grid-${sessionId}`;
         }
 
-        let speedContainer = document.getElementById(`speed-${sessionId}`);
+        // Update the main dashboard values (only if it's the first session and no custom displays exist)
+        if (Object.keys(speedHistory).length <= 1 && speedDisplay.children.length <= 1) {
+            if (data.maxSpeed !== undefined) {
+                const mainMaxSpeed = document.getElementById('maxSpeed');
+                if (mainMaxSpeed) {
+                    mainMaxSpeed.textContent = data.maxSpeed.toFixed(1);
+                    mainMaxSpeed.style.color = getSpeedColor(data.maxSpeed);
+                }
+            }
+
+            if (data.movingAverageSpeed !== undefined) {
+                const mainMovingAvg = document.getElementById('movingAvg');
+                if (mainMovingAvg) {
+                    mainMovingAvg.textContent = data.movingAverageSpeed.toFixed(1);
+                    mainMovingAvg.style.color = getSpeedColor(data.movingAverageSpeed);
+                }
+            }
+        }
+
+        // Check if a container for this session already exists
+        let speedContainer = document.getElementById(`speed-container-${sessionId}`);
+
         if (!speedContainer) {
-            const speedDisplay = document.getElementById('speedDisplay');
+            // Create a new container for this session
             speedContainer = document.createElement('div');
-            speedContainer.id = `speed-${sessionId}`;
-            speedContainer.className = 'mb-4 border-b pb-4';
-            speedContainer.innerHTML = `
-                <div class="text-sm font-bold mb-2 session-label" style="${!statsVisible ? 'display: none;' : ''}">${sessionId}</div>
-                <div class="stats-grid">
-                    <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                        <div class="speed-label">Current Speed</div>
-                        <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
-                    <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                        <div class="speed-label">Maximum Speed</div>
-                        <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
-                    <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                        <div class="speed-label">Average Speed</div>
-                        <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
-                    <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                        <div class="speed-label">Moving Average</div>
-                        <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
+            speedContainer.id = `speed-container-${sessionId}`;
+            speedContainer.className = 'session-container';
+
+            // Create the grid for this session
+            const statsGrid = document.createElement('div');
+            statsGrid.id = `speed-grid-${sessionId}`;
+            statsGrid.className = 'stats-grid';
+
+            // Add the session label
+            const sessionLabel = document.createElement('div');
+            sessionLabel.className = 'text-sm font-bold mb-2 session-label';
+            sessionLabel.textContent = displayId;
+            sessionLabel.style.display = statsVisible ? 'block' : 'none';
+
+            // Add these elements to the container
+            speedContainer.appendChild(sessionLabel);
+            speedContainer.appendChild(statsGrid);
+
+            // Add the container to the speed display
+            speedDisplay.appendChild(speedContainer);
+
+            // Create all the stat boxes
+            statsGrid.innerHTML = `
+                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
+                    <div class="speed-label">Current Speed</div>
+                    <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
+                    <div class="speed-label">Maximum Speed</div>
+                    <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
+                    <div class="speed-label">Average Speed</div>
+                    <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
+                    <div class="speed-label">Moving Average</div>
+                    <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
+                    <div class="elevation-label">Elevation Gain</div>
+                    <div class="elevation-value" id="elevationGain-${sessionId}">0.0</div>
+                    <div class="elevation-unit">m</div>
                 </div>
             `;
-            speedDisplay.appendChild(speedContainer);
+        } else {
+            // Update the session label if the person name has changed
+            const sessionLabel = speedContainer.querySelector('.session-label');
+            if (sessionLabel && personName) {
+                sessionLabel.textContent = displayId;
+            }
         }
 
+        // Initialize or update the speed history
         if (!speedHistory[sessionId]) {
             speedHistory[sessionId] = {
                 speeds: [],
                 maxSpeed: 0,
                 avgSpeed: 0,
                 movingAvg: 0,
-                lastUpdate: new Date()
+                elevationGain: 0,
+                lastUpdate: new Date(),
+                personName: personName
             };
+        } else if (personName && !speedHistory[sessionId].personName) {
+            // Update the person name if it wasn't set before
+            speedHistory[sessionId].personName = personName;
         }
 
         const history = speedHistory[sessionId];
@@ -818,6 +982,14 @@ function initMap() {
             movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
         }
 
+        // Update elevation gain
+        const elevationGainElement = document.getElementById(`elevationGain-${sessionId}`);
+        if (elevationGainElement && data.cumulativeElevationGain !== undefined) {
+            history.elevationGain = data.cumulativeElevationGain;
+            elevationGainElement.textContent = history.elevationGain.toFixed(1);
+            elevationGainElement.style.color = getElevationColor(history.elevationGain);
+        }
+
         // Clean up old sessions
         cleanupOldSessions();
     }
@@ -827,7 +999,8 @@ function initMap() {
         for (const sessionId in speedHistory) {
             const timeDiff = now - speedHistory[sessionId].lastUpdate;
             if (timeDiff > 300000) { // 5 minutes timeout
-                const container = document.getElementById(`speed-${sessionId}`);
+                // Remove the container instead of just the element
+                const container = document.getElementById(`speed-container-${sessionId}`);
                 if (container) {
                     container.remove();
                 }
@@ -1234,10 +1407,36 @@ function initMap() {
         addDebugMessage(`Speed chart updated with ${speeds.length} calculated speed points from GPX`, 'gpx');
     }
 
-    // Initialize map when DOM is loaded
     document.addEventListener('DOMContentLoaded', () => {
-        initMap();
-        addDebugMessage('Running Tracker application initialized', 'system');
+        try {
+            console.log("DOM content loaded, initializing application...");
+            initMap();
+            addDebugMessage('Running Tracker application initialized', 'system');
+        } catch (error) {
+            console.error("Error during application initialization:", error);
+            alert("There was an error initializing the application. Please check the console for details.");
+        }
+    });
+
+    document.addEventListener('DOMContentLoaded', () => {
+        // Create a style element
+        const style = document.createElement('style');
+        style.textContent = `
+            #speedDisplay {
+                /* Ensure there's enough space for multiple session boxes */
+                max-height: 80vh;
+                overflow-y: auto;
+            }
+            .session-container {
+                margin-bottom: 15px;
+                border-bottom: 1px solid #eee;
+                padding-bottom: 15px;
+            }
+            .session-container:last-child {
+                border-bottom: none;
+            }
+        `;
+        document.head.appendChild(style);
     });
 </script>
 </body>

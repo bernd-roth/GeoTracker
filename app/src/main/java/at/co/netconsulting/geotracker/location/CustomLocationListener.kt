@@ -29,6 +29,7 @@ import org.greenrobot.eventbus.EventBus
 import timber.log.Timber
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
+import java.util.LinkedList
 import java.util.concurrent.TimeUnit
 
 class CustomLocationListener: LocationListener {
@@ -51,13 +52,18 @@ class CustomLocationListener: LocationListener {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
-    private var sessionId: String = ""  // Added sessionId field
+    private var sessionId: String = ""
     private val job = Job()
     private val coroutineScope = CoroutineScope(Dispatchers.IO + job)
     private var isReconnecting = false
     private var reconnectAttempts = 0
     private val MAX_RECONNECT_ATTEMPTS = 5
     private val BASE_RECONNECT_DELAY_MS = 1000L
+    //moving average speed
+    private val speedBuffer = LinkedList<Double>()
+    private val SPEED_BUFFER_SIZE = 5
+    private var movingAverageSpeed: Double = 0.0
+
 
     constructor(context: Context) {
         this.context = context
@@ -229,12 +235,14 @@ class CustomLocationListener: LocationListener {
                     lap = calculateLap(distanceIncrement)
                     cumulativeElevationGain = calculateCumulativeElevationGain(it, startingAltitude!!)
 
-
                     // Update max speed if current speed is higher
                     val currentSpeedKmh = it.speed * 3.6
                     if (currentSpeedKmh > maxSpeed) {
                         maxSpeed = currentSpeedKmh
                     }
+
+                    //calculate moving average speed
+                    movingAverageSpeed = calculateMovingAverageSpeed(currentSpeedKmh)
 
                     // Create Metrics object with all required fields
                     val metrics = Metrics(
@@ -250,9 +258,10 @@ class CustomLocationListener: LocationListener {
                         startDateTime = startDateTime,
                         averageSpeed = averageSpeed,
                         maxSpeed = maxSpeed,
+                        movingAverageSpeed = movingAverageSpeed,
                         cumulativeElevationGain = cumulativeElevationGain,
                         sessionId = sessionId,
-                        person = "$firstname"
+                        person = firstname
                     )
 
                     // Send data to websocket server
@@ -381,9 +390,9 @@ class CustomLocationListener: LocationListener {
 
         // Create test metrics data
         val testMetrics = Metrics(
-            latitude = 48.2082,
-            longitude = 16.3738,
-            speed = 10.5f,
+            latitude = 48.4855,
+            longitude = 18.3738,
+            speed = 11.5f,
             speedAccuracyMetersPerSecond = 0.5f,
             altitude = 170.0,
             horizontalAccuracy = 3.0f,
@@ -393,9 +402,10 @@ class CustomLocationListener: LocationListener {
             startDateTime = LocalDateTime.now(),
             averageSpeed = 9.8,
             maxSpeed = 12.5,
+            movingAverageSpeed = 10.0,
             cumulativeElevationGain = 25.0,
             sessionId = "test_session_${System.currentTimeMillis()}",
-            person = "Test User"
+            person = "Test_User"
         )
 
         // Create OkHttp client
@@ -449,6 +459,22 @@ class CustomLocationListener: LocationListener {
                 }
             }
         })
+    }
+
+    //moving average speed calculation
+    private fun calculateMovingAverageSpeed(currentSpeed: Double): Double {
+        speedBuffer.add(currentSpeed)
+
+        if (speedBuffer.size > SPEED_BUFFER_SIZE) {
+            speedBuffer.removeFirst()
+        }
+
+        val average = if (speedBuffer.isNotEmpty()) {
+            speedBuffer.sum() / speedBuffer.size
+        } else {
+            0.0
+        }
+        return average
     }
 
     companion object {

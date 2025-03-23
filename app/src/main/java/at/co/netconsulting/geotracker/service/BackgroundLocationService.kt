@@ -1,20 +1,15 @@
 package at.co.netconsulting.geotracker.service
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
-import android.location.LocationProvider
-import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.LocationData
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
@@ -41,29 +36,16 @@ import java.util.concurrent.TimeUnit
 class BackgroundLocationService : Service(), LocationListener {
     private lateinit var locationManager: LocationManager
     private lateinit var startDateTime: LocalDateTime
-    private lateinit var firstname: String
-    private lateinit var lastname: String
-    private lateinit var birthdate: String
-    private var height: Float = 0f
-    private var weight: Float = 0f
     private var websocketserver: String = "0.0.0.0"
     private var webSocket: WebSocket? = null
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
     private var coveredDistance: Double = 0.0
-    private var lap: Int = 0
-    private var lapCounter: Double = 0.0
-    private var averageSpeed: Double = 0.0
-    private var maxSpeed: Double = 0.0
-    private var cumulativeElevationGain: Double = 0.0
     private var startingAltitude: Double? = null
-    private lateinit var totalDateTime: LocalDateTime
-    private var sessionId: String = ""
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private var isReconnecting = false
     private var reconnectAttempts = 0
-    private val MAX_RECONNECT_ATTEMPTS = 5
     private val BASE_RECONNECT_DELAY_MS = 1000L
     private var isServiceStarted = false
     private var numberOfSatellites: Int = 0
@@ -72,24 +54,13 @@ class BackgroundLocationService : Service(), LocationListener {
     override fun onCreate() {
         super.onCreate()
         startDateTime = LocalDateTime.now()
-        loadSharedPreferences()
-        createSessionId()
         createLocationManager()
         startLocationUpdates()
         //isServiceStarted = true
         //connectWebSocket()
 
-        // Log service start
-        Log.d(TAG, "BackgroundLocationService started with sessionId: $sessionId")
-
         // Start a keep-alive coroutine to ensure regular updates to UI
         startKeepAliveCoroutine()
-    }
-
-    private fun createSessionId() {
-        // Generate a simple session ID
-        sessionId = "bg_${System.currentTimeMillis()}"
-        Log.d(TAG, "Created new session ID: $sessionId")
     }
 
     private fun startKeepAliveCoroutine() {
@@ -124,16 +95,6 @@ class BackgroundLocationService : Service(), LocationListener {
             numberOfSatellites = numberOfSatellites,
             usedNumberOfSatellites = usedNumberOfSatellites
         )
-    }
-
-    private fun loadSharedPreferences() {
-        val sharedPreferences = getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-        firstname = sharedPreferences.getString("firstname", "") ?: ""
-        lastname = sharedPreferences.getString("lastname", "") ?: ""
-        birthdate = sharedPreferences.getString("birthdate", "") ?: ""
-        height = sharedPreferences.getFloat("height", 0f)
-        weight = sharedPreferences.getFloat("weight", 0f)
-        websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
     }
 
     private fun createLocationManager() {
@@ -231,23 +192,7 @@ class BackgroundLocationService : Service(), LocationListener {
             // Calculate distance and update metrics
             val (newCoveredDistance, distanceIncrement) = calculateDistance(location)
             coveredDistance = newCoveredDistance
-            averageSpeed = calculateAverageSpeed()
-            lap = calculateLap(distanceIncrement)
 
-            // Track max speed
-            val currentSpeedKmh = location.speed * 3.6
-            if (currentSpeedKmh > maxSpeed) {
-                maxSpeed = currentSpeedKmh
-            }
-
-            // Calculate elevation gain
-            if (startingAltitude != null) {
-                cumulativeElevationGain = calculateElevationGain(location, startingAltitude!!)
-            }
-
-            // Update satellite info - use a simpler approach
-            // Modern Android versions no longer expose direct satellite counts easily
-            // We'll use location properties instead
             updateSatelliteInfo(location)
 
             // Create location data object
@@ -353,36 +298,6 @@ class BackgroundLocationService : Service(), LocationListener {
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending data to WebSocket", e)
             }
-        }
-    }
-
-    private fun calculateElevationGain(location: Location, startingAltitude: Double): Double {
-        val altitudeDifference = location.altitude - startingAltitude
-        return if (altitudeDifference > 0) altitudeDifference else 0.0
-    }
-
-    private fun calculateLap(distanceIncrement: Double): Int {
-        lapCounter += distanceIncrement
-        val lapsToAdd = (lapCounter / 1000).toInt()
-        lap += lapsToAdd
-        lapCounter -= lapsToAdd * 1000
-        return lap
-    }
-
-    private fun calculateAverageSpeed(): Double {
-        return try {
-            val currentTime = LocalDateTime.now()
-            val durationSeconds = Duration.between(startDateTime, currentTime).seconds.toDouble()
-
-            // Check for division by zero or very small values
-            if (durationSeconds > 0.001) {  // Using a small threshold instead of exactly 0
-                (coveredDistance / durationSeconds) * 3.6
-            } else {
-                0.0  // Return 0 if duration is too small
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error calculating average speed", e)
-            0.0  // Return 0 in case of any error
         }
     }
 
