@@ -640,8 +640,8 @@
             sessionPersonNames[sessionId] = personName;
         }
 
-        // Create a display ID that combines name and session ID
-        const displayId = personName ? `${personName}_${sessionId}` : sessionId;
+        // Create a display ID using our helper function
+        const displayId = createDisplayId(sessionId, personName);
 
         const processedPoint = {
             lat: parseFloat(data.latitude),
@@ -719,8 +719,9 @@
 
         // Get the person name from our saved mapping
         const personName = sessionPersonNames[sessionId] || "";
-        // Create a display ID that combines name and session ID
-        const displayId = personName ? `${personName}_${sessionId}` : sessionId;
+
+        // Use helper function to create display ID
+        const displayId = createDisplayId(sessionId, personName);
 
         const chartData = points.map(point => ({
             x: point.distance,
@@ -795,8 +796,8 @@
         // Get the person name from the data or from our saved mapping
         const personName = data.personName || sessionPersonNames[sessionId] || "";
 
-        // Create a display ID that combines name and session ID
-        const displayId = personName ? `${personName}_${sessionId}` : sessionId;
+        // Use helper function to create display ID
+        const displayId = createDisplayId(sessionId, personName);
 
         // If stats are hidden and we're updating, just keep track of the data without updating the DOM
         if (!statsVisible && document.getElementById('speedDisplay').style.display === 'none') {
@@ -1401,6 +1402,17 @@
         });
 
         addDebugMessage(`Speed chart updated with ${speeds.length} calculated speed points from GPX`, 'gpx');
+    }
+
+    function createDisplayId(sessionId, personName) {
+        if (!personName) return sessionId;
+
+        // Check if the sessionId already starts with the person name to avoid duplication
+        if (sessionId.startsWith(personName + '_')) {
+            return sessionId;  // Session ID already includes the name properly
+        } else {
+            return `${personName}_${sessionId}`;  // Combine name with session ID
+        }
     }
 
     document.addEventListener('DOMContentLoaded', () => {

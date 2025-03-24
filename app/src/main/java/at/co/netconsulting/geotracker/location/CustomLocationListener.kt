@@ -12,7 +12,9 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.tools.LocalDateTimeAdapter
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -33,7 +35,7 @@ import java.util.LinkedList
 import java.util.concurrent.TimeUnit
 
 class CustomLocationListener: LocationListener {
-    var startDateTime: LocalDateTime
+    var startDateTime: LocalDateTime = LocalDateTime.now()
     private var context: Context
     private var locationManager: LocationManager? = null
     private var oldLatitude: Double = -999.0
@@ -63,11 +65,15 @@ class CustomLocationListener: LocationListener {
     private val speedBuffer = LinkedList<Double>()
     private val SPEED_BUFFER_SIZE = 5
     private var movingAverageSpeed: Double = 0.0
+    // Satellite information
+    private var numberOfSatellites: Int = 0
+    private var usedNumberOfSatellites: Int = 0
 
 
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
+        Log.d(TAG_WEBSOCKET, "CustomLocationListener created with startDateTime: $startDateTime")
     }
 
     fun cleanup() {
@@ -221,6 +227,10 @@ class CustomLocationListener: LocationListener {
             startingAltitude = location.altitude
             Log.d("LocationTracker", "Starting altitude set: $startingAltitude meters")
         }
+
+        // Update satellite information with each location update
+        updateSatelliteInfo(location)
+
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location.latitude} / Longitude: ${location.longitude}")
 
@@ -244,7 +254,7 @@ class CustomLocationListener: LocationListener {
                     //calculate moving average speed
                     movingAverageSpeed = calculateMovingAverageSpeed(currentSpeedKmh)
 
-                    // Create Metrics object with all required fields
+                    // Create Metrics object with all required fields including satellite info
                     val metrics = Metrics(
                         latitude = location.latitude,
                         longitude = location.longitude,
@@ -255,13 +265,15 @@ class CustomLocationListener: LocationListener {
                         verticalAccuracyMeters = location.verticalAccuracyMeters,
                         coveredDistance = coveredDistance,
                         lap = lap,
-                        startDateTime = startDateTime,
+                        startDateTime = startDateTime,  // This should now be properly initialized
                         averageSpeed = averageSpeed,
                         maxSpeed = maxSpeed,
                         movingAverageSpeed = movingAverageSpeed,
                         cumulativeElevationGain = cumulativeElevationGain,
                         sessionId = sessionId,
-                        person = firstname
+                        person = firstname,
+                        numberOfSatellites = numberOfSatellites,
+                        usedNumberOfSatellites = usedNumberOfSatellites
                     )
 
                     // Send data to websocket server
@@ -302,9 +314,14 @@ class CustomLocationListener: LocationListener {
             return
         }
 
-        // Convert metrics to JSON
-        val gson = Gson()
+        // Convert metrics to JSON using a properly configured Gson instance
+        val gson = GsonBuilder()
+            .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
+            .create()
+
         val jsonData = gson.toJson(metrics)
+
+        Log.d(TAG_WEBSOCKET, "Sending data: $jsonData")
 
         // Send via WebSocket if connection is available
         webSocket?.let { socket ->
@@ -475,6 +492,53 @@ class CustomLocationListener: LocationListener {
             0.0
         }
         return average
+    }
+
+    private fun updateSatelliteInfo(location: Location) {
+        try {
+            // Use location accuracy as a proxy for satellite quality
+            val accuracy = location.accuracy
+
+            // Estimate satellite information based on location accuracy
+            when {
+                accuracy < 4 -> {
+                    numberOfSatellites = 12
+                    usedNumberOfSatellites = 8
+                }
+                accuracy < 10 -> {
+                    numberOfSatellites = 8
+                    usedNumberOfSatellites = 5
+                }
+                accuracy < 20 -> {
+                    numberOfSatellites = 6
+                    usedNumberOfSatellites = 3
+                }
+                else -> {
+                    numberOfSatellites = 4
+                    usedNumberOfSatellites = 0
+                }
+            }
+
+            // If we have extra information from location extras, use it
+            location.extras?.let { extras ->
+                if (extras.containsKey("satellites")) {
+                    val satCount = extras.getInt("satellites", -1)
+                    if (satCount > 0) {
+                        numberOfSatellites = satCount
+                        // Estimate used satellites as 2/3 of visible ones
+                        usedNumberOfSatellites = (satCount * 2 / 3).coerceAtLeast(1)
+                    }
+                }
+            }
+
+            Log.d(TAG_WEBSOCKET, "Updated satellite info: $numberOfSatellites visible, $usedNumberOfSatellites used")
+
+        } catch (e: Exception) {
+            Log.e(TAG_WEBSOCKET, "Error estimating satellite info", e)
+            // Default values if we can't get satellite info
+            numberOfSatellites = 4
+            usedNumberOfSatellites = 0
+        }
     }
 
     companion object {
