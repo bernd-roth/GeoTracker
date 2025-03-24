@@ -451,19 +451,15 @@
     function toggleStatBoxes() {
         const speedDisplay = document.getElementById('speedDisplay');
         const toggleBtn = document.getElementById('toggleStatsBtn');
-        const sessionLabels = document.querySelectorAll('.session-label');
-        const statBoxes = document.querySelectorAll('.stat-box');
 
         if (statsVisible) {
-            // Hide stat boxes and session labels
-            sessionLabels.forEach(label => label.style.display = 'none');
-            statBoxes.forEach(box => box.style.display = 'none');
+            // Hide the entire speed display container
+            speedDisplay.style.display = 'none';
             toggleBtn.textContent = 'Show Stats';
             statsVisible = false;
         } else {
-            // Show stat boxes and session labels
-            sessionLabels.forEach(label => label.style.display = 'block');
-            statBoxes.forEach(box => box.style.display = 'block');
+            // Show the speed display container
+            speedDisplay.style.display = 'block';
             toggleBtn.textContent = 'Hide Stats';
             statsVisible = true;
         }
