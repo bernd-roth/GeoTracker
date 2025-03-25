@@ -15,7 +15,7 @@ import at.co.netconsulting.geotracker.repository.WeatherDao
 
 @Database(
     entities = [User::class, Event::class, Metric::class, Location::class, Weather::class, DeviceStatus::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {

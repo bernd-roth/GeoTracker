@@ -9,7 +9,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -47,8 +46,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import at.co.netconsulting.geotracker.receiver.AutoBackupReceiver
+import at.co.netconsulting.geotracker.service.AutoBackupService
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -181,6 +181,112 @@ fun SettingsScreen() {
         )
         Spacer(modifier = Modifier.height(16.dp))
 
+        // Automatic Backup Settings Section
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Automatic Backup",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Enable daily backup",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = autoBackupEnabled,
+                        onCheckedChange = { isEnabled ->
+                            autoBackupEnabled = isEnabled
+                            // Schedule or cancel based on toggle
+                            if (isEnabled) {
+                                // Schedule using our receiver's companion function
+                                AutoBackupReceiver.scheduleBackup(context, backupHour, backupMinute)
+
+                                // Refresh next backup time
+                                nextBackupTime.value = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE)
+                                    .getString("nextBackupTime", null)
+                            } else {
+                                // Cancel scheduled backup
+                                cancelScheduledBackup(context)
+                                nextBackupTime.value = null
+                            }
+                        }
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Time picker
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "Backup time:", modifier = Modifier.weight(1f))
+                    OutlinedButton(
+                        onClick = { showTimePickerDialog = true },
+                        enabled = autoBackupEnabled,
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Text(formatTime(backupHour, backupMinute))
+                    }
+                }
+
+                Text(
+                    text = "Database and GPX files will be backed up daily to Downloads/GeoTracker",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+
+                // Display backup status information
+                if (nextBackupTime.value != null || lastBackupTime.value != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (autoBackupEnabled && nextBackupTime.value != null) {
+                        Text(
+                            text = "Next backup: ${nextBackupTime.value}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    if (lastBackupTime.value != null) {
+                        Text(
+                            text = "Last backup: ${lastBackupTime.value}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+
+                // Manual backup button
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            val backupIntent = Intent(context, AutoBackupService::class.java)
+                            ContextCompat.startForegroundService(context, backupIntent)
+                        } else {
+                            context.startService(Intent(context, AutoBackupService::class.java))
+                        }
+                        Toast.makeText(context, "Manual backup started", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Run Backup Now")
+                }
+            }
+        }
+
         Text(
             text = "Battery Optimization",
             style = MaterialTheme.typography.bodyLarge,
@@ -220,12 +326,44 @@ fun SettingsScreen() {
                     backupHour,
                     backupMinute
                 )
-                Toast.makeText(context, "All settings are saved", Toast.LENGTH_SHORT).show()
+
+                // If auto backup is enabled, reschedule it with the new time
+                if (autoBackupEnabled) {
+                    AutoBackupReceiver.scheduleBackup(context, backupHour, backupMinute)
+
+                    // Refresh next backup time
+                    nextBackupTime.value = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE)
+                        .getString("nextBackupTime", null)
+                }
+
+                Toast.makeText(context, "All settings saved", Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.fillMaxWidth()
         ) {
             Text("Save")
         }
+    }
+
+    // Show time picker dialog
+    if (showTimePickerDialog) {
+        TimePickerDialog(
+            onDismissRequest = { showTimePickerDialog = false },
+            onTimeSelected = { hour, minute ->
+                backupHour = hour
+                backupMinute = minute
+                showTimePickerDialog = false
+                // Update schedule if auto backup is enabled
+                if (autoBackupEnabled) {
+                    AutoBackupReceiver.scheduleBackup(context, hour, minute)
+
+                    // Refresh next backup time
+                    nextBackupTime.value = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE)
+                        .getString("nextBackupTime", null)
+                }
+            },
+            initialHour = backupHour,
+            initialMinute = backupMinute
+        )
     }
 }
 
@@ -345,4 +483,24 @@ private fun requestIgnoreBatteryOptimizations(context: Context) {
         data = Uri.parse("package:${context.packageName}")
     }
     context.startActivity(intent)
+}
+
+private fun cancelScheduledBackup(context: Context) {
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val intent = Intent(context, AutoBackupReceiver::class.java)
+    val pendingIntent = PendingIntent.getBroadcast(
+        context,
+        1234, // AUTO_BACKUP_REQUEST_CODE
+        intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    // Cancel the alarm
+    alarmManager.cancel(pendingIntent)
+    pendingIntent.cancel()
+
+    // Clear stored next backup time
+    context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE).edit()
+        .remove("nextBackupTime")
+        .apply()
 }

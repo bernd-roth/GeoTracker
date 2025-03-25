@@ -9,4 +9,7 @@ import at.co.netconsulting.geotracker.domain.Location
 interface LocationDao {
     @Insert
     suspend fun insertLocation(location: Location): Long
+
+    @Query("SELECT * FROM locations WHERE eventId = :eventId ORDER BY locationId ASC")
+    suspend fun getLocationsByEventId(eventId: Int): List<Location>
 }

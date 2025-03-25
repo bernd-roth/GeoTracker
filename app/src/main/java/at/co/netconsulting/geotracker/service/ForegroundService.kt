@@ -541,8 +541,7 @@ class ForegroundService : Service() {
             eventName = eventname,
             eventDate = Tools().provideDateTimeFormat(),
             artOfSport = artofsport,
-            comment = comment,
-            clothing = clothing
+            comment = comment
         )
 
         val eventId = database.eventDao().insertEvent(newEvent).toInt()

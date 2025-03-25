@@ -9,4 +9,7 @@ import at.co.netconsulting.geotracker.domain.Metric
 interface MetricDao {
     @Insert
     suspend fun insertMetric(metric: Metric): Long
+
+    @Query("SELECT * FROM metrics WHERE eventId = :eventId ORDER BY metricId ASC")
+    suspend fun getMetricsByEventId(eventId: Int): List<Metric>
 }

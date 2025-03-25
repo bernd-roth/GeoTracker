@@ -48,5 +48,32 @@
             android:name=".service.BackgroundLocationService"
             android:foregroundServiceType="location"
             android:exported="true" />
+        <service
+            android:name=".service.DatabaseBackupService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+        <service
+            android:name=".service.GpxExportService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="specialUse" />
+        <service
+            android:name=".service.AutoBackupService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <receiver
+            android:name=".receiver.AutoBackupReceiver"
+            android:enabled="true"
+            android:exported="false" />
+        <receiver
+            android:name=".receiver.BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

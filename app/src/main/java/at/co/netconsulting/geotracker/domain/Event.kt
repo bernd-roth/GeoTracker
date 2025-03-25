@@ -21,6 +21,5 @@ data class Event(
     val eventName: String,
     val eventDate: String, // Store as ISO date (YYYY-MM-DD)
     val artOfSport: String,
-    val comment: String,
-    val clothing: String
+    val comment: String
 )
