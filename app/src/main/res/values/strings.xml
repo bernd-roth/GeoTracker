@@ -4,6 +4,7 @@
     <string name="map">Map</string>
     <string name="statistics">Statistics</string>
     <string name="settings">Settings</string>
+    <string name="events">Events</string>
     <!--Marker-->
     <string name="marker_title">Start</string>
     <!--Toast messages-->

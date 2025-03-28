@@ -33,18 +33,24 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import at.co.netconsulting.geotracker.composables.BottomSheetContent
+import at.co.netconsulting.geotracker.composables.EditEventScreen
+import at.co.netconsulting.geotracker.composables.EventsScreen
 import at.co.netconsulting.geotracker.composables.MapScreen
 import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
 import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.Metrics
-import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import androidx.navigation.NavType
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
-import java.time.LocalDateTime
 
 class MainActivity : ComponentActivity() {
     private var latitudeState = mutableDoubleStateOf(-999.0)
@@ -57,6 +63,15 @@ class MainActivity : ComponentActivity() {
     private var coveredDistanceState = mutableDoubleStateOf(0.0)
     private val locationEventState = mutableStateOf<Metrics?>(null)
     private lateinit var satelliteInfoManager: SatelliteInfoManager
+
+    // Navigation routes
+    object Routes {
+        const val EVENTS = "events"
+        const val EDIT_EVENT = "edit_event/{eventId}"
+
+        // Create actual navigation path with parameters
+        fun editEvent(eventId: Int) = "edit_event/$eventId"
+    }
 
     // Permissions
     private val foregroundPermissions = listOf(
@@ -205,11 +220,15 @@ class MainActivity : ComponentActivity() {
         // Remember the selected tab index
         var selectedTabIndex by remember { mutableStateOf(0) }
 
+        // Main navigation controller for edit event navigation
+        val mainNavController = rememberNavController()
+
         // List of tab titles
         val tabs = listOf(
             getString(R.string.map),
             getString(R.string.statistics),
-            getString(R.string.settings)
+            getString(R.string.events),
+            getString(R.string.settings),
         )
 
         // Satellite info
@@ -271,11 +290,52 @@ class MainActivity : ComponentActivity() {
                         when (selectedTabIndex) {
                             0 -> MapScreen()
                             1 -> StatisticsScreen()
-                            2 -> SettingsScreen()
+                            2 -> AppNavHost(mainNavController)
+                            3 -> SettingsScreen()
                         }
                     }
                 }
             )
+        }
+    }
+
+    @Composable
+    fun AppNavHost(navController: NavHostController) {
+        NavHost(
+            navController = navController,
+            startDestination = Routes.EVENTS
+        ) {
+            // Events list screen
+            composable(Routes.EVENTS) {
+                Log.d("MainActivity", "Navigated to Events screen")
+                EventsScreen(
+                    onEditEvent = { eventId ->
+                        Log.d("MainActivity", "Navigating to edit event with ID: $eventId")
+                        navController.navigate(Routes.editEvent(eventId))
+                    }
+                )
+            }
+
+            // Edit event screen
+            composable(
+                route = Routes.EDIT_EVENT,
+                arguments = listOf(
+                    navArgument("eventId") {
+                        type = NavType.IntType
+                    }
+                )
+            ) { backStackEntry ->
+                val eventId = backStackEntry.arguments?.getInt("eventId") ?: 0
+                Log.d("MainActivity", "Showing edit event screen with ID: $eventId")
+
+                EditEventScreen(
+                    eventId = eventId,
+                    onNavigateBack = {
+                        Log.d("MainActivity", "Navigating back from edit event")
+                        navController.popBackStack()
+                    }
+                )
+            }
         }
     }
 

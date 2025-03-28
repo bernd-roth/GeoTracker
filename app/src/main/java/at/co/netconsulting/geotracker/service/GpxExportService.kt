@@ -17,6 +17,7 @@ import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileWriter
@@ -46,14 +47,17 @@ class GpxExportService : Service() {
     private suspend fun exportAllEvents() {
         try {
             val database = FitnessTrackerDatabase.getInstance(applicationContext)
-            val events = database.eventDao().getAllEvents()
+
+            // Get events from the Flow by collecting the first emission
+            val events = database.eventDao().getAllEvents().first()
 
             updateNotification("Found ${events.size} events to export")
 
             events.forEachIndexed { index, event ->
                 try {
-                    val locations = database.locationDao().getLocationsByEventId(event.eventId.toInt())
-                    val metrics = database.metricDao().getMetricsByEventId(event.eventId.toInt())
+                    val eventId = event.eventId.toInt()
+                    val locations = database.locationDao().getLocationsByEventId(eventId)
+                    val metrics = database.metricDao().getMetricsByEventId(eventId)
 
                     if (locations.isNotEmpty()) {
                         val gpxContent = createGPXContent(event, locations, metrics)
@@ -61,7 +65,8 @@ class GpxExportService : Service() {
                         updateNotification("Exported ${index + 1}/${events.size} events")
                     }
                 } catch (e: Exception) {
-                    Log.e("GPXExport", "Error exporting event ${event.eventId}: ${e.message}")
+                    Log.e("GPXExport", "Error exporting event: ${e.message}")
+                    e.printStackTrace()
                 }
             }
 
@@ -69,6 +74,7 @@ class GpxExportService : Service() {
             stopSelf()
         } catch (e: Exception) {
             Log.e("GPXExport", "Error during export: ${e.message}")
+            e.printStackTrace()
             updateNotification("Export failed: ${e.message}")
             stopSelf()
         }

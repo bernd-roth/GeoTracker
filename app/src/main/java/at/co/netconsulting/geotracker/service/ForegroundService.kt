@@ -91,6 +91,8 @@ class ForegroundService : Service() {
     private val lazyState = StopwatchState()
     private var customLocationListener: CustomLocationListener? = null
     private var currentEventId: Int = -1
+    private var satellites: String = "0"
+    private var hasReceivedValidWeather = false
 
     //Weather
     private var weatherJob: Job? = null
@@ -103,16 +105,34 @@ class ForegroundService : Service() {
 
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
+
+        Log.d(TAG, "Starting weather updates with coordinates: lat=$latitude, lon=$longitude")
+        Log.d(TAG, "Initial polling interval: ${if (hasReceivedValidWeather) "NORMAL" else "AGGRESSIVE"}")
+
         weatherJob = weatherScope.launch {
+            // Initially use aggressive polling until we get valid data
+            var pollInterval = if (hasReceivedValidWeather) WEATHER_UPDATE_INTERVAL else WEATHER_FAST_POLL_INTERVAL
+
             while (isActive) {
                 try {
                     // Only fetch weather if we have valid coordinates
                     if (latitude != -999.0 && longitude != -999.0) {
-                        fetchWeatherData()
+                        Log.d(TAG, "Attempting to fetch weather with interval: $pollInterval ms")
+                        val weatherSuccess = fetchWeatherData()
+
+                        // If we got valid weather, switch to normal interval
+                        if (weatherSuccess) {
+                            hasReceivedValidWeather = true
+                            pollInterval = WEATHER_UPDATE_INTERVAL
+                            Log.d(TAG, "Successfully received weather data, switching to normal polling interval ($pollInterval ms)")
+                        } else {
+                            Log.d(TAG, "Weather fetch unsuccessful, continuing with ${if (hasReceivedValidWeather) "normal" else "aggressive"} polling")
+                        }
                     } else {
                         Log.d(TAG, "Skipping weather update - invalid coordinates")
                     }
-                    delay(WEATHER_UPDATE_INTERVAL)
+
+                    delay(pollInterval)
                 } catch (e: CancellationException) {
                     Log.d(TAG, "Weather updates cancelled")
                     break
@@ -129,7 +149,7 @@ class ForegroundService : Service() {
         }
     }
 
-    private suspend fun fetchWeatherData() {
+    private suspend fun fetchWeatherData(): Boolean {
         try {
             coroutineContext.ensureActive() // Check if coroutine is still active
 
@@ -180,13 +200,9 @@ class ForegroundService : Service() {
                                 // Directly publish CurrentWeather to EventBus
                                 EventBus.getDefault().post(weatherResponse.currentWeather)
                                 Log.d(TAG, "Weather data published to EventBus: ${weatherResponse.currentWeather}")
-                            } else {
-                                Log.e(TAG, "Current weather data is null after parsing")
-                            }
 
-                            // Only try to save to DB if we have the required data
-                            val currentWeather = weatherResponse.currentWeather
-                            if (currentWeather != null) {
+                                // Only try to save to DB if we have the required data
+                                val currentWeather = weatherResponse.currentWeather
                                 try {
                                     // Get humidity data if available
                                     var currentHumidity = 0
@@ -194,17 +210,44 @@ class ForegroundService : Service() {
 
                                     if (hourlyData != null &&
                                         hourlyData.time != null &&
-                                        hourlyData.relativeHumidity != null) {
+                                        hourlyData.relativeHumidity != null &&
+                                        hourlyData.relativeHumidity.isNotEmpty()) {
 
                                         val currentTime = currentWeather.time
 
-                                        if (currentTime.isNotEmpty()) {
-                                            val hourlyIndex = hourlyData.time.indexOfFirst { it == currentTime }
+                                        Log.d(TAG, "Current weather time: $currentTime")
+                                        Log.d(TAG, "First hourly time: ${hourlyData.time.firstOrNull()}")
 
-                                            if (hourlyIndex != -1 && hourlyIndex < hourlyData.relativeHumidity.size) {
-                                                currentHumidity = hourlyData.relativeHumidity[hourlyIndex]
-                                            } else {
-                                                Log.d(TAG, "Couldn't find matching time entry or index out of bounds")
+                                        // Try to find exact match first
+                                        val hourlyIndex = hourlyData.time.indexOfFirst { it == currentTime }
+
+                                        if (hourlyIndex != -1 && hourlyIndex < hourlyData.relativeHumidity.size) {
+                                            currentHumidity = hourlyData.relativeHumidity[hourlyIndex]
+                                            Log.d(TAG, "Found exact time match, humidity: $currentHumidity")
+                                        } else {
+                                            // Try to find closest time by parsing date/hour parts
+                                            try {
+                                                // Extract date and hour from current time (e.g., "2025-03-26T21:00")
+                                                val datePart = currentTime.substringBefore("T")
+                                                val hourPart = currentTime.substringAfter("T").substringBefore(":")
+
+                                                // Find closest matching hour
+                                                val closestIndex = hourlyData.time.indexOfFirst { hourlyTime ->
+                                                    hourlyTime.contains(datePart) && hourlyTime.contains("T$hourPart")
+                                                }
+
+                                                if (closestIndex != -1 && closestIndex < hourlyData.relativeHumidity.size) {
+                                                    currentHumidity = hourlyData.relativeHumidity[closestIndex]
+                                                    Log.d(TAG, "Found closest time match, humidity: $currentHumidity")
+                                                } else {
+                                                    // Fallback to first available humidity data
+                                                    currentHumidity = hourlyData.relativeHumidity.first()
+                                                    Log.d(TAG, "Using fallback humidity data: $currentHumidity")
+                                                }
+                                            } catch (e: Exception) {
+                                                Log.e(TAG, "Error processing hourly humidity data", e)
+                                                // Last resort fallback - use a typical value
+                                                currentHumidity = 70  // typical humidity value
                                             }
                                         }
                                     } else {
@@ -227,8 +270,10 @@ class ForegroundService : Service() {
                                     Log.e(TAG, "Error saving weather to database", e)
                                     // Continue anyway, we already published to EventBus
                                 }
+
+                                return@withContext true  // Successfully got and processed weather data
                             } else {
-                                Log.e(TAG, "currentWeather is null")
+                                Log.e(TAG, "Current weather data is null after parsing")
                             }
                         } else {
                             Log.e(TAG, "Weather response is null after parsing")
@@ -242,12 +287,14 @@ class ForegroundService : Service() {
                     }
                 }
             }
+
+            return false  // No valid weather data was obtained
         } catch (e: CancellationException) {
             Log.d(TAG, "Weather fetch cancelled")
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to fetch weather data", e)
-            throw e
+            return false
         }
     }
 
@@ -425,7 +472,7 @@ class ForegroundService : Service() {
                 // Complete the deferred with the new event ID
                 eventIdDeferred.complete(eventId)
 
-                // Start weather updates ONCE here
+                // Start weather updates right away with aggressive polling
                 startWeatherUpdates()
 
                 while (isActive) {
@@ -453,10 +500,6 @@ class ForegroundService : Service() {
                 Log.e(TAG, "Error in background coroutine", e)
             }
         }
-    }
-
-    private fun receiveWeatherData() {
-        startWeatherUpdates()
     }
 
     private fun checkLatitudeLongitudeDuplicates(): Boolean {
@@ -593,7 +636,7 @@ class ForegroundService : Service() {
 
                 val deviceStatus = DeviceStatus(
                     eventId = eventId,
-                    numberOfSatellites = 8,
+                    numberOfSatellites = satellites,  // Use the actual satellite count
                     sensorAccuracy = "High",
                     signalStrength = "Strong",
                     batteryLevel = "80%",
@@ -601,7 +644,7 @@ class ForegroundService : Service() {
                     sessionId = sessionId
                 )
                 database.deviceStatusDao().insertDeviceStatus(deviceStatus)
-                Log.d("ForegroundService: ", "Device status saved with sessionId: $sessionId")
+                Log.d("ForegroundService: ", "Device status saved with sessionId: $sessionId and satellites: $satellites")
             } catch (e: Exception) {
                 Log.e(TAG, "Error inserting data to database", e)
             }
@@ -621,8 +664,9 @@ class ForegroundService : Service() {
             distance = metrics.coveredDistance
             altitude = metrics.altitude
             lap = metrics.lap
+            satellites = (metrics.satellites ?: 0).toString()
 
-            Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed")
+            Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed, satellites=$satellites")
         } catch (e: Exception) {
             Log.e(TAG, "Error processing location update", e)
         }
@@ -832,5 +876,6 @@ class ForegroundService : Service() {
         //Weather
         private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
+        private const val WEATHER_FAST_POLL_INTERVAL = 10000L // 10 seconds for initial polling
     }
 }

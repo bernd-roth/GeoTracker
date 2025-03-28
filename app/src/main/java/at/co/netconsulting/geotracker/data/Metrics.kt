@@ -32,5 +32,8 @@ data class Metrics(
     // Fields derived from existing properties (for WebSocket compatibility)
     val distance: Double = coveredDistance,
     val currentSpeed: Double = speed.toDouble(),
-    val movingAverageSpeed: Double
+    val movingAverageSpeed: Double,
+
+    // Weather
+    val satellites: Int? = null
 )

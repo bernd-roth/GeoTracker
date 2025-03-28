@@ -33,20 +33,22 @@ suspend fun export(eventId: Int, contextActivity: Context) {
             }
             // Create GPX content
             val gpxBuilder = StringBuilder()
-            gpxBuilder.append("""<?xml version="1.0" encoding="UTF-8"?>
-                |<gpx version="1.1" 
-                |    creator="GeoTracker"
-                |    xmlns="http://www.topografix.com/GPX/1/1"
-                |    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                |    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
-                |  <metadata>
-                |    <name>${event.eventName}</name>
-                |    <time>${event.eventDate}T00:00:00Z</time>
-                |  </metadata>
-                |  <trk>
-                |    <name>${event.eventName}</name>
-                |    <trkseg>
-            """.trimMargin())
+            if (event != null) {
+                gpxBuilder.append("""<?xml version="1.0" encoding="UTF-8"?>
+                        |<gpx version="1.1" 
+                        |    creator="GeoTracker"
+                        |    xmlns="http://www.topografix.com/GPX/1/1"
+                        |    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                        |    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+                        |  <metadata>
+                        |    <name>${event.eventName}</name>
+                        |    <time>${event.eventDate}T00:00:00Z</time>
+                        |  </metadata>
+                        |  <trk>
+                        |    <name>${event.eventName}</name>
+                        |    <trkseg>
+                    """.trimMargin())
+            }
 
             locations.forEachIndexed { index, location ->
                 val metric = metrics.getOrNull(index)
@@ -75,7 +77,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                 |</gpx>
             """.trimMargin())
 
-            val filename = "${event.eventName}_${event.eventDate}.gpx"
+            val filename = "${event?.eventName}_${event?.eventDate}.gpx"
                 .replace(" ", "_")
                 .replace(":", "-")
 

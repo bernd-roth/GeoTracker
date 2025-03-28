@@ -231,6 +231,12 @@ class CustomLocationListener: LocationListener {
         // Update satellite information with each location update
         updateSatelliteInfo(location)
 
+        val satelliteCount = if (location.extras != null) {
+            location.extras!!.getInt("satellites", 0)
+        } else {
+            0
+        }
+
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location.latitude} / Longitude: ${location.longitude}")
 
@@ -273,7 +279,8 @@ class CustomLocationListener: LocationListener {
                         sessionId = sessionId,
                         person = firstname,
                         numberOfSatellites = numberOfSatellites,
-                        usedNumberOfSatellites = usedNumberOfSatellites
+                        usedNumberOfSatellites = usedNumberOfSatellites,
+                        satellites = satelliteCount
                     )
 
                     // Send data to websocket server

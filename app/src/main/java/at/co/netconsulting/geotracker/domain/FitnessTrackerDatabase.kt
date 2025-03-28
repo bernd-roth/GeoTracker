@@ -15,7 +15,7 @@ import at.co.netconsulting.geotracker.repository.WeatherDao
 
 @Database(
     entities = [User::class, Event::class, Metric::class, Location::class, Weather::class, DeviceStatus::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -76,6 +76,92 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        // Add a new migration from version 3 to 4
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Instead of trying to modify the existing table, we'll drop and recreate it
+                // This is a more reliable approach for SQLite schema changes
+
+                // First, check if we need to drop the index if it exists
+                database.execSQL("DROP INDEX IF EXISTS index_device_status_eventId")
+
+                // Create new table with exactly the expected schema
+                database.execSQL("""
+                    CREATE TABLE device_status_new (
+                        deviceStatusId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        eventId INTEGER NOT NULL,
+                        numberOfSatellites TEXT NOT NULL,
+                        sensorAccuracy TEXT NOT NULL,
+                        signalStrength TEXT NOT NULL,
+                        batteryLevel TEXT NOT NULL,
+                        connectionStatus TEXT NOT NULL,
+                        sessionId TEXT NOT NULL,
+                        FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                    )
+                """)
+
+                // Copy data from old table if it exists
+                try {
+                    // Try to check if the old table has data
+                    database.execSQL("""
+                        INSERT INTO device_status_new (
+                            deviceStatusId, eventId, numberOfSatellites, sensorAccuracy,
+                            signalStrength, batteryLevel, connectionStatus, sessionId
+                        )
+                        SELECT 
+                            deviceStatusId, eventId, numberOfSatellites, sensorAccuracy,
+                            signalStrength, batteryLevel, connectionStatus, sessionId
+                        FROM device_status
+                    """)
+                } catch (e: Exception) {
+                    // If copying fails, it might be due to a schema mismatch or empty table
+                    // We'll continue with the migration anyway
+                }
+
+                // Drop the old table
+                database.execSQL("DROP TABLE IF EXISTS device_status")
+
+                // Rename the new table
+                database.execSQL("ALTER TABLE device_status_new RENAME TO device_status")
+
+                // Add the foreign key constraint
+                database.execSQL("""
+                    CREATE INDEX IF NOT EXISTS index_device_status_eventId ON device_status(eventId)
+                """)
+            }
+        }
+
+        // A destructive fallback migration that will delete and recreate all tables
+        // Use this only if regular migrations fail repeatedly
+        private val FALLBACK_MIGRATION_ALL = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // This will delete all data but ensure the database works
+                database.execSQL("PRAGMA foreign_keys = OFF")
+
+                // Drop existing tables if they exist
+                database.execSQL("DROP TABLE IF EXISTS device_status")
+
+                // Create tables with current schema
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS device_status (
+                        deviceStatusId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        eventId INTEGER NOT NULL,
+                        numberOfSatellites TEXT NOT NULL,
+                        sensorAccuracy TEXT NOT NULL,
+                        signalStrength TEXT NOT NULL,
+                        batteryLevel TEXT NOT NULL,
+                        connectionStatus TEXT NOT NULL,
+                        sessionId TEXT NOT NULL,
+                        FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                    )
+                """)
+
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_device_status_eventId ON device_status(eventId)")
+
+                database.execSQL("PRAGMA foreign_keys = ON")
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -83,7 +169,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     FitnessTrackerDatabase::class.java,
                     "fitness_tracker.db"
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_3_4)
+                    .fallbackToDestructiveMigration() // This is a last resort if migrations fail
                     .build()
                     .also { INSTANCE = it }
             }

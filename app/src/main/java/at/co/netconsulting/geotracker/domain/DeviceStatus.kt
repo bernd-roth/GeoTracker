@@ -16,9 +16,9 @@ import androidx.room.ForeignKey
     ]
 )
 data class DeviceStatus(
-    @PrimaryKey(autoGenerate = true) val statusId: Int = 0,
+    @PrimaryKey(autoGenerate = true) val deviceStatusId: Int = 0,
     val eventId: Int,
-    val numberOfSatellites: Int,
+    val numberOfSatellites: String,
     val sensorAccuracy: String,
     val signalStrength: String,
     val batteryLevel: String,

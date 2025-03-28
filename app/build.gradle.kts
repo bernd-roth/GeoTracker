@@ -81,6 +81,7 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     implementation(libs.play.services.maps)
     implementation(libs.firebase.database.ktx)
+    implementation(libs.androidx.navigation.compose)
     kapt("androidx.room:room-compiler:2.6.1")
 
     // Location services
