@@ -52,18 +52,21 @@
         #gpxUpload button:hover {
         background-color: #f4f4f4;
         }
+        /* Modified speedDisplay to have a fixed height and scrolling */
         #speedDisplay {
         position: absolute;
         top: 10px;
         right: 10px;
         z-index: 1000;
         background-color: white;
-        padding: 15px;
+        padding: 10px 0;
         border-radius: 5px;
         box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
         font-family: Arial, sans-serif;
-        width: 250px;
-        display: block; /* Ensure it's visible by default */
+        width: 280px;
+        max-height: 600px; /* Set a max height for 2 sessions */
+        overflow-y: auto; /* Enable scrolling */
+        display: block;
         }
         .stats-grid {
         display: grid;
@@ -127,6 +130,38 @@
         z-index: 1000;
         transform: none;
         display: inline-block;
+        }
+        /* Session container styles */
+        .session-container {
+        margin-bottom: 10px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 10px;
+        }
+        .session-container:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        }
+        .session-label {
+        font-size: 12px;
+        font-weight: bold;
+        padding: 0 10px;
+        margin-bottom: 5px;
+        color: #333;
+        }
+        /* Scrollbar styling */
+        #speedDisplay::-webkit-scrollbar {
+        width: 6px;
+        }
+        #speedDisplay::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 3px;
+        }
+        #speedDisplay::-webkit-scrollbar-thumb {
+        background: #888;
+        border-radius: 3px;
+        }
+        #speedDisplay::-webkit-scrollbar-thumb:hover {
+        background: #555;
         }
         /* Debug Popup Styles */
         #debugToggle {
@@ -799,137 +834,6 @@
         // Use helper function to create display ID
         const displayId = createDisplayId(sessionId, personName);
 
-        // If stats are hidden and we're updating, just keep track of the data without updating the DOM
-        if (!statsVisible && document.getElementById('speedDisplay').style.display === 'none') {
-            if (!speedHistory[sessionId]) {
-                speedHistory[sessionId] = {
-                    speeds: [],
-                    maxSpeed: 0,
-                    avgSpeed: 0,
-                    movingAvg: 0,
-                    elevationGain: 0,
-                    lastUpdate: new Date(),
-                    personName: personName // Store the person name
-                };
-            }
-
-            const history = speedHistory[sessionId];
-            history.speeds.push(speed);
-            history.lastUpdate = new Date();
-
-            // Update person name if it exists and wasn't set before
-            if (personName && !history.personName) {
-                history.personName = personName;
-            }
-
-            if (data.maxSpeed !== undefined) {
-                history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
-            }
-
-            if (data.cumulativeElevationGain !== undefined) {
-                history.elevationGain = data.cumulativeElevationGain;
-            }
-
-            // Clean up old sessions
-            cleanupOldSessions();
-            return;
-        }
-
-        // FIXED: Check if this is the first data point we're receiving
-        const isFirstDataPoint = Object.keys(speedHistory).length === 0;
-
-        // FIXED: If it's the first data point, clear the default display once
-        const speedDisplay = document.getElementById('speedDisplay');
-        const defaultDisplay = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
-
-        if (defaultDisplay && isFirstDataPoint) {
-            // Instead of removing the default display, clear its content and give it an ID
-            defaultDisplay.innerHTML = '';
-            defaultDisplay.id = `speed-grid-${sessionId}`;
-        }
-
-        // Update the main dashboard values (only if it's the first session and no custom displays exist)
-        if (Object.keys(speedHistory).length <= 1 && speedDisplay.children.length <= 1) {
-            if (data.maxSpeed !== undefined) {
-                const mainMaxSpeed = document.getElementById('maxSpeed');
-                if (mainMaxSpeed) {
-                    mainMaxSpeed.textContent = data.maxSpeed.toFixed(1);
-                    mainMaxSpeed.style.color = getSpeedColor(data.maxSpeed);
-                }
-            }
-
-            if (data.movingAverageSpeed !== undefined) {
-                const mainMovingAvg = document.getElementById('movingAvg');
-                if (mainMovingAvg) {
-                    mainMovingAvg.textContent = data.movingAverageSpeed.toFixed(1);
-                    mainMovingAvg.style.color = getSpeedColor(data.movingAverageSpeed);
-                }
-            }
-        }
-
-        // Check if a container for this session already exists
-        let speedContainer = document.getElementById(`speed-container-${sessionId}`);
-
-        if (!speedContainer) {
-            // Create a new container for this session
-            speedContainer = document.createElement('div');
-            speedContainer.id = `speed-container-${sessionId}`;
-            speedContainer.className = 'session-container';
-
-            // Create the grid for this session
-            const statsGrid = document.createElement('div');
-            statsGrid.id = `speed-grid-${sessionId}`;
-            statsGrid.className = 'stats-grid';
-
-            // Add the session label
-            const sessionLabel = document.createElement('div');
-            sessionLabel.className = 'text-sm font-bold mb-2 session-label';
-            sessionLabel.textContent = displayId;
-            sessionLabel.style.display = statsVisible ? 'block' : 'none';
-
-            // Add these elements to the container
-            speedContainer.appendChild(sessionLabel);
-            speedContainer.appendChild(statsGrid);
-
-            // Add the container to the speed display
-            speedDisplay.appendChild(speedContainer);
-
-            // Create all the stat boxes
-            statsGrid.innerHTML = `
-                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                    <div class="speed-label">Current Speed</div>
-                    <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                    <div class="speed-label">Maximum Speed</div>
-                    <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                    <div class="speed-label">Average Speed</div>
-                    <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                    <div class="speed-label">Moving Average</div>
-                    <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box" style="${!statsVisible ? 'display: none;' : ''}">
-                    <div class="elevation-label">Elevation Gain</div>
-                    <div class="elevation-value" id="elevationGain-${sessionId}">0.0</div>
-                    <div class="elevation-unit">m</div>
-                </div>
-            `;
-        } else {
-            // Update the session label if the person name has changed
-            const sessionLabel = speedContainer.querySelector('.session-label');
-            if (sessionLabel && personName) {
-                sessionLabel.textContent = displayId;
-            }
-        }
-
         // Initialize or update the speed history
         if (!speedHistory[sessionId]) {
             speedHistory[sessionId] = {
@@ -950,6 +854,99 @@
         history.speeds.push(speed);
         history.lastUpdate = new Date();
 
+        // If stats are hidden, just store the data without updating the DOM
+        if (!statsVisible && document.getElementById('speedDisplay').style.display === 'none') {
+            if (data.maxSpeed !== undefined) {
+                history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
+            }
+
+            if (data.cumulativeElevationGain !== undefined) {
+                history.elevationGain = data.cumulativeElevationGain;
+            }
+
+            // Clean up old sessions
+            cleanupOldSessions();
+            return;
+        }
+
+        // Get the speed display element
+        const speedDisplay = document.getElementById('speedDisplay');
+
+        // Check for default display and remove it when first session arrives
+        // This happens before we check if the container exists
+        const defaultDisplay = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
+        if (defaultDisplay) {
+            // Remove the default display immediately when we get any new session
+            defaultDisplay.remove();
+            console.log("Removed default display when handling session: " + sessionId);
+        }
+
+        // Check if a container for this session already exists
+        let speedContainer = document.getElementById(`speed-container-${sessionId}`);
+
+        if (!speedContainer) {
+            // Create a new container for this session
+            speedContainer = document.createElement('div');
+            speedContainer.id = `speed-container-${sessionId}`;
+            speedContainer.className = 'session-container';
+
+            // Create the grid for this session
+            const statsGrid = document.createElement('div');
+            statsGrid.id = `speed-grid-${sessionId}`;
+            statsGrid.className = 'stats-grid';
+
+            // Add the session label
+            const sessionLabel = document.createElement('div');
+            sessionLabel.className = 'session-label';
+            sessionLabel.textContent = displayId;
+
+            // Add these elements to the container
+            speedContainer.appendChild(sessionLabel);
+            speedContainer.appendChild(statsGrid);
+
+            // Add the container to the speed display
+            speedDisplay.appendChild(speedContainer);
+
+            // Create all the stat boxes
+            statsGrid.innerHTML = `
+                <div class="stat-box">
+                    <div class="speed-label">Current Speed</div>
+                    <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Maximum Speed</div>
+                    <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Average Speed</div>
+                    <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Moving Average</div>
+                    <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="elevation-label">Elevation Gain</div>
+                    <div class="elevation-value" id="elevationGain-${sessionId}">0.0</div>
+                    <div class="elevation-unit">m</div>
+                </div>
+            `;
+
+            // Auto-scroll to show the new session
+            speedDisplay.scrollTop = speedDisplay.scrollHeight;
+        } else {
+            // Update the session label if the person name has changed
+            const sessionLabel = speedContainer.querySelector('.session-label');
+            if (sessionLabel && personName) {
+                sessionLabel.textContent = displayId;
+            }
+        }
+
+        // Rest of the function remains the same...
         // Update current speed
         const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
         if (currentSpeedElement) {
@@ -1418,33 +1415,74 @@
     document.addEventListener('DOMContentLoaded', () => {
         try {
             console.log("DOM content loaded, initializing application...");
+
+            // Initialize the map only once
             initMap();
-            addDebugMessage('Running Tracker application initialized', 'system');
+
+            // Add custom styling for the stats container
+            const style = document.createElement('style');
+            style.textContent = `
+                #speedDisplay {
+                    position: absolute;
+                    top: 10px;
+                    right: 10px;
+                    z-index: 1000;
+                    background-color: white;
+                    padding: 10px 0;
+                    border-radius: 5px;
+                    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+                    font-family: Arial, sans-serif;
+                    width: 280px;
+                    max-height: 300px; /* Limit height to fit approximately 2 session boxes */
+                    overflow-y: auto; /* Enable scrolling when content exceeds max-height */
+                    display: block;
+                }
+
+                .session-container {
+                    margin-bottom: 10px;
+                    border-bottom: 1px solid #eee;
+                    padding-bottom: 10px;
+                }
+
+                .session-container:last-child {
+                    border-bottom: none;
+                    margin-bottom: 0;
+                }
+
+                .session-label {
+                    font-size: 12px;
+                    font-weight: bold;
+                    padding: 0 10px;
+                    margin-bottom: 5px;
+                    color: #333;
+                }
+
+                /* Custom scrollbar styling */
+                #speedDisplay::-webkit-scrollbar {
+                    width: 6px;
+                }
+
+                #speedDisplay::-webkit-scrollbar-track {
+                    background: #f1f1f1;
+                    border-radius: 3px;
+                }
+
+                #speedDisplay::-webkit-scrollbar-thumb {
+                    background: #888;
+                    border-radius: 3px;
+                }
+
+                #speedDisplay::-webkit-scrollbar-thumb:hover {
+                    background: #555;
+                }
+            `;
+            document.head.appendChild(style);
+
+            addDebugMessage('Running Tracker application initialized with scrollable stats', 'system');
         } catch (error) {
             console.error("Error during application initialization:", error);
             alert("There was an error initializing the application. Please check the console for details.");
         }
-    });
-
-    document.addEventListener('DOMContentLoaded', () => {
-        // Create a style element
-        const style = document.createElement('style');
-        style.textContent = `
-            #speedDisplay {
-                /* Ensure there's enough space for multiple session boxes */
-                max-height: 80vh;
-                overflow-y: auto;
-            }
-            .session-container {
-                margin-bottom: 15px;
-                border-bottom: 1px solid #eee;
-                padding-bottom: 15px;
-            }
-            .session-container:last-child {
-                border-bottom: none;
-            }
-        `;
-        document.head.appendChild(style);
     });
 </script>
 </body>
