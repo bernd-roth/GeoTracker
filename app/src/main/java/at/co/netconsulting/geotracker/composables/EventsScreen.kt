@@ -2,18 +2,49 @@ package at.co.netconsulting.geotracker.composables
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Divider
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -165,6 +196,16 @@ fun EventsScreen(
                         onDelete = {
                             eventToDelete = eventWithDetails
                             showDeleteDialog = true
+                        },
+                        onExport = {
+                            // Launch the export function in a coroutine
+                            coroutineScope.launch {
+                                // Call the export function properly with the correct parameters
+                                at.co.netconsulting.geotracker.gpx.export(
+                                    eventId = eventWithDetails.event.eventId,
+                                    contextActivity = context
+                                )
+                            }
                         }
                     )
                 }
@@ -218,7 +259,8 @@ fun EventCard(
     selected: Boolean,
     onClick: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onExport: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -246,6 +288,18 @@ fun EventCard(
 
                 // Action buttons
                 Row {
+                    // Export GPX button with a more appropriate icon that's already available
+                    IconButton(
+                        onClick = onExport,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Export GPX",
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+
                     IconButton(
                         onClick = onEdit,
                         modifier = Modifier.size(40.dp)
@@ -374,7 +428,7 @@ fun EventCard(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             InfoRow("Temperature:", "${event.weather.temperature}°C")
-                            InfoRow("Wind Speed:", "${event.weather.windSpeed} m/s")
+                            InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
                         }
 
                         Column(modifier = Modifier.weight(1f)) {

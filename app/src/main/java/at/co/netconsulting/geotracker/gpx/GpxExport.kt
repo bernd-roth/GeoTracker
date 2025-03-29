@@ -81,8 +81,17 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                 .replace(" ", "_")
                 .replace(":", "-")
 
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val file = File(downloadsDir, filename)
+            // Create the GeoTracker directory inside Downloads if it doesn't exist
+            val geoTrackerDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                "GeoTracker"
+            )
+            if (!geoTrackerDir.exists()) {
+                geoTrackerDir.mkdirs()
+            }
+
+            // Save the file to the GeoTracker directory
+            val file = File(geoTrackerDir, filename)
 
             FileOutputStream(file).use { output ->
                 output.write(gpxBuilder.toString().toByteArray())
@@ -91,7 +100,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
             withContext(Dispatchers.Main) {
                 Toast.makeText(
                     contextActivity,
-                    "GPX file exported to Downloads/$filename",
+                    "GPX file exported to Downloads/GeoTracker/$filename",
                     Toast.LENGTH_LONG
                 ).show()
             }
