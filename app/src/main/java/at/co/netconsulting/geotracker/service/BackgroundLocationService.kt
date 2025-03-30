@@ -124,7 +124,7 @@ class BackgroundLocationService : Service(), LocationListener {
             return
         }
 
-        Log.d(TAG, "Attempting to connect to WebSocket server: ws://$websocketserver:8011/runningtracker")
+        Log.d(TAG, "Attempting to connect to WebSocket server: ws://$websocketserver:8011/geotracker")
 
         val client = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -134,7 +134,7 @@ class BackgroundLocationService : Service(), LocationListener {
             .build()
 
         val request = Request.Builder()
-            .url("ws://$websocketserver:8011/runningtracker")
+            .url("ws://$websocketserver:8011/geotracker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {

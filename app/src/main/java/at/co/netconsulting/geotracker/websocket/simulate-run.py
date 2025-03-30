@@ -32,7 +32,7 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     return R * c
 
 def simulate_run():
-    ws = websocket.create_connection("ws://geotracker.duckdns.org:8011/runningtracker")
+    ws = websocket.create_connection("ws://geotracker.duckdns.org:8011/geotracker")
 
     # Starting point (Vienna, Austria)
     start_lat, start_lon = 48.1818798, 16.3607528

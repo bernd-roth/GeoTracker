@@ -348,7 +348,7 @@ private fun formatWeatherCode(code: Int?): String {
 private fun formatWind(speed: Double?, direction: Double?): String {
     if (speed == null || direction == null) return "N/A"
     val directionStr = getWindDirection(direction)
-    return String.format("%.1f m/s %s", speed, directionStr)
+    return String.format("%.1f Km/h %s", speed, directionStr)
 }
 
 private fun getWindDirection(degrees: Double): String {

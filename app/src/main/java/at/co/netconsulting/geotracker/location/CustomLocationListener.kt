@@ -159,7 +159,7 @@ class CustomLocationListener: LocationListener {
             }
         }
 
-        Log.d(TAG_WEBSOCKET, "Attempting to connect to WebSocket server: ws://$websocketserver:8011/runningtracker")
+        Log.d(TAG_WEBSOCKET, "Attempting to connect to WebSocket server: ws://$websocketserver:8011/geotracker")
 
         val client = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -169,7 +169,7 @@ class CustomLocationListener: LocationListener {
             .build()
 
         val request = Request.Builder()
-            .url("ws://" + websocketserver + ":8011/runningtracker")
+            .url("ws://" + websocketserver + ":8011/geotracker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
@@ -397,6 +397,7 @@ class CustomLocationListener: LocationListener {
     private fun checkSpeed(speed: Float): Boolean {
         Log.d("CustomLocationListener", "Speed: $speed m/s")
         val thresholdInMetersPerSecond = MIN_SPEED_THRESHOLD / 3.6
+
         return speed >= thresholdInMetersPerSecond
     }
 
@@ -410,7 +411,7 @@ class CustomLocationListener: LocationListener {
             return
         }
 
-        Log.d("WebSocketTest", "Attempting to connect to: ws://$websocketserver:8011/runningtracker")
+        Log.d("WebSocketTest", "Attempting to connect to: ws://$websocketserver:8011/geotracker")
 
         // Create test metrics data
         val testMetrics = Metrics(
@@ -441,7 +442,7 @@ class CustomLocationListener: LocationListener {
 
         // Create request
         val request = Request.Builder()
-            .url("ws://$websocketserver:8011/runningtracker")
+            .url("ws://$websocketserver:8011/geotracker")
             .build()
 
         // Connect to WebSocket and send data

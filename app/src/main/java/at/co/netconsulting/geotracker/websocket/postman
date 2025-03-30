@@ -1,4 +1,4 @@
-ws://geotracker.duckdns.org:8011/runningtracker
+ws://geotracker.duckdns.org:8011/geotracker
 {
     "latitude": 46.2082,
     "longitude": 18.3738,

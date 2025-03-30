@@ -560,7 +560,7 @@
 
     function connectToWebSocket() {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/runningtracker`;
+        const wsUrl = `${wsProtocol}//${window.location.host}/geotracker`;
 
         websocket = new WebSocket(wsUrl);
 

@@ -254,6 +254,33 @@ fun InfoRow(label: String, value: String) {
 }
 
 @Composable
+fun InfoRowWithColor(label: String, value: String, textColor: Color = Color.Unspecified) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.Gray
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Text(
+            text = value,
+            fontSize = 14.sp,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.Normal,
+            color = textColor
+        )
+    }
+}
+
+@Composable
 fun EventCard(
     event: EventWithDetails,
     selected: Boolean,
@@ -446,7 +473,7 @@ fun EventCard(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Lap information
+                // Lap information with highlighting
                 Text(
                     text = "Lap Information",
                     fontSize = 16.sp,
@@ -456,8 +483,41 @@ fun EventCard(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 if (event.laps.isNotEmpty()) {
+                    // Find the fastest and slowest complete laps
+                    // We'll consider the last lap as possibly incomplete
+                    val completeLaps = if (event.laps.size > 1) event.laps.dropLast(1) else event.laps
+                    val lastLap = if (event.laps.size > 1) event.laps.last() else null
+
+                    // Find fastest and slowest times from complete laps
+                    val fastestLapTime = completeLaps.minOrNull() ?: Long.MAX_VALUE
+                    val slowestLapTime = completeLaps.maxOrNull() ?: 0L
+
                     event.laps.forEachIndexed { index, lapTime ->
-                        InfoRow("Lap ${index + 1} (1km):", Tools().formatDuration(lapTime))
+                        val isLast = index == event.laps.size - 1
+                        val isLastAndIncomplete = isLast && lastLap != null && event.endTime > 0 &&
+                                (event.endTime - event.startTime) % lapTime != 0L
+
+                        val textColor = when {
+                            isLastAndIncomplete -> Color.Gray // Last incomplete lap in gray
+                            lapTime == fastestLapTime && !isLastAndIncomplete -> Color.Green // Fastest lap in green
+                            lapTime == slowestLapTime -> Color.Red // Slowest lap in red
+                            else -> Color.Unspecified // Normal laps in default color
+                        }
+
+                        val lapLabel = "Lap ${index + 1} (1km):"
+                        val lapValueText = Tools().formatDuration(lapTime)
+                        val lapStatus = when {
+                            isLastAndIncomplete -> " (incomplete)"
+                            lapTime == fastestLapTime && !isLastAndIncomplete -> " (fastest)"
+                            lapTime == slowestLapTime -> " (slowest)"
+                            else -> ""
+                        }
+
+                        InfoRowWithColor(
+                            label = lapLabel,
+                            value = lapValueText + lapStatus,
+                            textColor = textColor
+                        )
                     }
                 } else {
                     Text(
