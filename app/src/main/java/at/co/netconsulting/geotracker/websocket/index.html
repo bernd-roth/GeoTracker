@@ -279,6 +279,21 @@
         background-color: rgba(0, 0, 0, 0.5);
         z-index: 1999;
         }
+        /* Add button active state */
+        #resetMapBtn:active, #gpxUpload button:active {
+            background-color: #e6e6e6 !important;
+            border-color: #999 !important;
+            transform: translateY(1px);
+        }
+        /* Add effect to show reset happened */
+        .reset-flash {
+            animation: flash-background 0.5s;
+        }
+        @keyframes flash-background {
+            0% { background-color: white; }
+            50% { background-color: #f0f0f0; }
+            100% { background-color: white; }
+        }
     </style>
 </head>
 <body>
@@ -946,7 +961,6 @@
             }
         }
 
-        // Rest of the function remains the same...
         // Update current speed
         const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
         if (currentSpeedElement) {
@@ -1003,12 +1017,6 @@
         }
     }
 
-    function getSpeedColor(speed) {
-        if (speed < 5) return '#2196F3';
-        if (speed < 10) return '#4CAF50';
-        return '#F44336';
-    }
-
     function getColorForUser(sessionId) {
         if (!userColors[sessionId]) {
             // Generate random RGB values within specific ranges to ensure visibility
@@ -1040,6 +1048,17 @@
         return userColors[sessionId];
     }
 
+    function createDisplayId(sessionId, personName) {
+        if (!personName) return sessionId;
+
+        // Check if the sessionId already starts with the person name to avoid duplication
+        if (sessionId.startsWith(personName + '_')) {
+            return sessionId;  // Session ID already includes the name properly
+        } else {
+            return `${personName}_${sessionId}`;  // Combine name with session ID
+        }
+    }
+
     function parseSessionId(sessionId) {
         const [name, timestamp] = sessionId.split('_');
         if (!timestamp) return { name: sessionId, timestamp: null };
@@ -1057,157 +1076,147 @@
         };
     }
 
+    // Improved resetMap function
     function resetMap() {
-        // Clear all data structures
-        trackPoints = {};
-        speedHistory = {};
-        userColors = {};
+        addDebugMessage('Reset Map button clicked', 'system');
 
-        // Reset displays
-        document.getElementById('currentSpeed').textContent = '0.0';
-        document.getElementById('maxSpeed').textContent = '0.0';
-        document.getElementById('avgSpeed').textContent = '0.0';
-        document.getElementById('movingAvg').textContent = '0.0';
+        try {
+            // Flash the button for visual feedback
+            const resetBtn = document.getElementById('resetMapBtn');
+            if (resetBtn) {
+                resetBtn.classList.add('reset-flash');
+                setTimeout(() => {
+                    resetBtn.classList.remove('reset-flash');
+                }, 500);
+            }
 
-        // Clear map layers
-        Object.values(polylines).forEach(polyline => map.removeLayer(polyline));
-        Object.values(startMarkers).forEach(marker => map.removeLayer(marker));
-        Object.values(endMarkers).forEach(marker => map.removeLayer(marker));
+            // Clear all data structures
+            trackPoints = {};
+            speedHistory = {};
+            sessionPersonNames = {}; // Also clear session person names
+            userColors = {};
 
-        polylines = {};
-        startMarkers = {};
-        endMarkers = {};
+            // Remove all session containers from the speed display
+            const speedDisplay = document.getElementById('speedDisplay');
+            const sessionContainers = speedDisplay.querySelectorAll('.session-container');
+            sessionContainers.forEach(container => {
+                container.remove();
+            });
 
-        if (gpxPolyline) {
-            map.removeLayer(gpxPolyline);
-            gpxPolyline = null;
-        }
+            // Reset the default speed display stats
+            const defaultStatsElements = {
+                'currentSpeed': '0.0',
+                'maxSpeed': '0.0',
+                'avgSpeed': '0.0',
+                'movingAvg': '0.0',
+                'elevationGain': '0.0'
+            };
 
-        // Reset charts
-        altitudeChart.data.datasets = [];
-        speedChart.data.datasets = [];
-        altitudeChart.update();
-        speedChart.update();
+            // Reset all the default stats values
+            Object.entries(defaultStatsElements).forEach(([id, value]) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value;
+                    element.style.color = id === 'elevationGain' ? '#4CAF50' : '#2196F3'; // Reset colors
+                }
+            });
 
-        // Reset map view
-        map.setView([48.1818798, 16.3607528], 10);
+            // Show the default stats grid if it's not already visible
+            const defaultStatsGrid = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
+            if (!defaultStatsGrid) {
+                // Create default stats grid if it doesn't exist
+                const defaultGrid = document.createElement('div');
+                defaultGrid.className = 'stats-grid';
+                defaultGrid.innerHTML = `
+                    <div class="stat-box">
+                        <div class="speed-label">Current Speed</div>
+                        <div class="speed-value" id="currentSpeed">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="speed-label">Maximum Speed</div>
+                        <div class="speed-value" id="maxSpeed">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="speed-label">Average Speed</div>
+                        <div class="speed-value" id="avgSpeed">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="speed-label">Moving Average</div>
+                        <div class="speed-value" id="movingAvg">0.0</div>
+                        <div class="speed-unit">km/h</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="elevation-label">Elevation Gain</div>
+                        <div class="elevation-value" id="elevationGain">0.0</div>
+                        <div class="elevation-unit">m</div>
+                    </div>
+                `;
+                speedDisplay.appendChild(defaultGrid);
+            }
 
-        // Add debug message
-        addDebugMessage('Map reset', 'system');
-    }
-
-    // Debug Popup Functions
-    function toggleDebugPopup() {
-        const popup = document.getElementById('debugPopup');
-        const overlay = document.getElementById('debugOverlay');
-        const button = document.getElementById('debugToggle');
-
-        if (popup.style.display === 'flex') {
-            popup.style.display = 'none';
-            overlay.style.display = 'none';
-            button.textContent = 'Show Debug Data';
-        } else {
-            popup.style.display = 'flex';
-            overlay.style.display = 'block';
-            button.textContent = 'Hide Debug Data';
-
-            // Scroll to bottom when opening
-            const content = document.getElementById('debugContent');
-            content.scrollTop = content.scrollHeight;
-        }
-    }
-
-    function addDebugMessage(message, type) {
-        if (debugPaused) return;
-
-        const now = new Date();
-        const timestamp = now.toISOString().split('T')[1].split('.')[0];
-
-        debugMessages.push({
-            timestamp: timestamp,
-            message: message,
-            type: type
-        });
-
-        // Limit the number of messages to prevent browser slowdown
-        if (debugMessages.length > maxDebugMessages) {
-            debugMessages.shift();
-        }
-
-        updateDebugContent();
-    }
-
-    function updateDebugContent() {
-        const content = document.getElementById('debugContent');
-        if (!content) return;
-
-        const filterText = document.getElementById('debugFilter').value.toLowerCase();
-        const wasAtBottom = content.scrollHeight - content.clientHeight <= content.scrollTop + 5;
-
-        let html = '';
-        debugMessages.forEach(entry => {
-            if (filterText && !entry.message.toLowerCase().includes(filterText) &&
-                !entry.type.toLowerCase().includes(filterText)) {
+            // Check if map is initialized before trying to remove layers
+            if (!isMapLoaded()) {
+                console.warn("Map not fully initialized during reset attempt");
+                addDebugMessage("Map not fully initialized - skipping layer removal", "warning");
                 return;
             }
 
-            let messageClass = 'message';
-            if (entry.type === 'update') messageClass += ' update-message';
-            if (entry.type === 'history_batch') messageClass += ' batch-message';
-            if (entry.type === 'error') messageClass += ' error-message';
+            // Clear map layers safely
+            Object.keys(polylines).forEach(key => {
+                if (polylines[key] && map.hasLayer(polylines[key])) {
+                    map.removeLayer(polylines[key]);
+                }
+            });
 
-            html += `<div class="${messageClass}">
-                <span class="message-timestamp">[${entry.timestamp}]</span>
-                <span class="message-type">[${entry.type}]</span>
-                <pre>${entry.message}</pre>
-            </div>`;
-        });
+            Object.keys(startMarkers).forEach(key => {
+                if (startMarkers[key] && map.hasLayer(startMarkers[key])) {
+                    map.removeLayer(startMarkers[key]);
+                }
+            });
 
-        content.innerHTML = html;
+            Object.keys(endMarkers).forEach(key => {
+                if (endMarkers[key] && map.hasLayer(endMarkers[key])) {
+                    map.removeLayer(endMarkers[key]);
+                }
+            });
 
-        // If previously at bottom, scroll to bottom after update
-        if (wasAtBottom) {
-            content.scrollTop = content.scrollHeight;
+            polylines = {};
+            startMarkers = {};
+            endMarkers = {};
+
+            if (gpxPolyline && map.hasLayer(gpxPolyline)) {
+                map.removeLayer(gpxPolyline);
+                gpxPolyline = null;
+            }
+
+            // Reset charts
+            altitudeChart.data.datasets = [];
+            speedChart.data.datasets = [];
+            altitudeChart.update();
+            speedChart.update();
+
+            // Reset map view
+            map.setView([48.1818798, 16.3607528], 10);
+
+            // Clear file input
+            const fileInput = document.getElementById('gpxFile');
+            if (fileInput) {
+                fileInput.value = '';
+            }
+
+            addDebugMessage('Map reset completed successfully', 'system');
+        } catch (error) {
+            console.error('Error during map reset:', error);
+            addDebugMessage(`Error during map reset: ${error.message}`, 'error');
         }
     }
 
-    function filterDebugMessages() {
-        updateDebugContent();
-    }
-
-    function clearDebugLog() {
-        debugMessages = [];
-        updateDebugContent();
-        addDebugMessage('Debug log cleared', 'system');
-    }
-
-    function pauseDebugLog() {
-        debugPaused = !debugPaused;
-        const pauseButton = document.getElementById('pauseButton');
-        pauseButton.textContent = debugPaused ? 'Resume' : 'Pause';
-
-        if (!debugPaused) {
-            addDebugMessage('Debug logging resumed', 'system');
-        }
-    }
-
-    function exportDebugLog() {
-        const content = debugMessages.map(entry =>
-            `[${entry.timestamp}] [${entry.type}] ${entry.message}`
-        ).join('\n');
-
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `debug-log-${new Date().toISOString().split('.')[0].replace(/[:.]/g, '-')}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        addDebugMessage('Debug log exported', 'system');
+    // Function to check if the map has loaded properly
+    function isMapLoaded() {
+        return map && typeof map.getCenter === 'function';
     }
 
     // GPX file handling
@@ -1231,7 +1240,7 @@
             const gpxDoc = parser.parseFromString(gpxText, "text/xml");
 
             // Reset previous GPX data
-            if (gpxPolyline) {
+            if (gpxPolyline && map.hasLayer(gpxPolyline)) {
                 map.removeLayer(gpxPolyline);
             }
 
@@ -1401,15 +1410,118 @@
         addDebugMessage(`Speed chart updated with ${speeds.length} calculated speed points from GPX`, 'gpx');
     }
 
-    function createDisplayId(sessionId, personName) {
-        if (!personName) return sessionId;
+    // Debug popup functions
+    function toggleDebugPopup() {
+        const popup = document.getElementById('debugPopup');
+        const overlay = document.getElementById('debugOverlay');
+        const button = document.getElementById('debugToggle');
 
-        // Check if the sessionId already starts with the person name to avoid duplication
-        if (sessionId.startsWith(personName + '_')) {
-            return sessionId;  // Session ID already includes the name properly
+        if (popup.style.display === 'flex') {
+            popup.style.display = 'none';
+            overlay.style.display = 'none';
+            button.textContent = 'Show Debug Data';
         } else {
-            return `${personName}_${sessionId}`;  // Combine name with session ID
+            popup.style.display = 'flex';
+            overlay.style.display = 'block';
+            button.textContent = 'Hide Debug Data';
+
+            // Scroll to bottom when opening
+            const content = document.getElementById('debugContent');
+            content.scrollTop = content.scrollHeight;
         }
+    }
+
+    function addDebugMessage(message, type) {
+        if (debugPaused) return;
+
+        const now = new Date();
+        const timestamp = now.toISOString().split('T')[1].split('.')[0];
+
+        debugMessages.push({
+            timestamp: timestamp,
+            message: message,
+            type: type
+        });
+
+        // Limit the number of messages to prevent browser slowdown
+        if (debugMessages.length > maxDebugMessages) {
+            debugMessages.shift();
+        }
+
+        updateDebugContent();
+    }
+
+    function updateDebugContent() {
+        const content = document.getElementById('debugContent');
+        if (!content) return;
+
+        const filterText = document.getElementById('debugFilter').value.toLowerCase();
+        const wasAtBottom = content.scrollHeight - content.clientHeight <= content.scrollTop + 5;
+
+        let html = '';
+        debugMessages.forEach(entry => {
+            if (filterText && !entry.message.toLowerCase().includes(filterText) &&
+                !entry.type.toLowerCase().includes(filterText)) {
+                return;
+            }
+
+            let messageClass = 'message';
+            if (entry.type === 'update') messageClass += ' update-message';
+            if (entry.type === 'history_batch') messageClass += ' batch-message';
+            if (entry.type === 'error') messageClass += ' error-message';
+
+            html += `<div class="${messageClass}">
+                <span class="message-timestamp">[${entry.timestamp}]</span>
+                <span class="message-type">[${entry.type}]</span>
+                <pre>${entry.message}</pre>
+            </div>`;
+        });
+
+        content.innerHTML = html;
+
+        // If previously at bottom, scroll to bottom after update
+        if (wasAtBottom) {
+            content.scrollTop = content.scrollHeight;
+        }
+    }
+
+    function filterDebugMessages() {
+        updateDebugContent();
+    }
+
+    function clearDebugLog() {
+        debugMessages = [];
+        updateDebugContent();
+        addDebugMessage('Debug log cleared', 'system');
+    }
+
+    function pauseDebugLog() {
+        debugPaused = !debugPaused;
+        const pauseButton = document.getElementById('pauseButton');
+        pauseButton.textContent = debugPaused ? 'Resume' : 'Pause';
+
+        if (!debugPaused) {
+            addDebugMessage('Debug logging resumed', 'system');
+        }
+    }
+
+    function exportDebugLog() {
+        const content = debugMessages.map(entry =>
+            `[${entry.timestamp}] [${entry.type}] ${entry.message}`
+        ).join('\n');
+
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `debug-log-${new Date().toISOString().split('.')[0].replace(/[:.]/g, '-')}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        addDebugMessage('Debug log exported', 'system');
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -1418,6 +1530,18 @@
 
             // Initialize the map only once
             initMap();
+
+            // Add event listener to the reset button for visual feedback
+            const resetBtn = document.getElementById('resetMapBtn');
+            if (resetBtn) {
+                resetBtn.addEventListener('click', function() {
+                    // Add visual feedback
+                    this.style.backgroundColor = '#e6e6e6';
+                    setTimeout(() => {
+                        this.style.backgroundColor = 'white';
+                    }, 300);
+                });
+            }
 
             // Add custom styling for the stats container
             const style = document.createElement('style');
@@ -1474,6 +1598,18 @@
 
                 #speedDisplay::-webkit-scrollbar-thumb:hover {
                     background: #555;
+                }
+
+                /* Add hover effect for buttons */
+                #gpxUpload button:hover {
+                    background-color: #f0f0f0;
+                    border-color: #999;
+                }
+
+                /* Add active effect for Reset button */
+                #resetMapBtn:active {
+                    background-color: #e6e6e6 !important;
+                    transform: translateY(1px);
                 }
             `;
             document.head.appendChild(style);
