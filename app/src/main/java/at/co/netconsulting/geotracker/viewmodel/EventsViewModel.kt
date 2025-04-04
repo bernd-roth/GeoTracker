@@ -17,6 +17,8 @@ import org.osmdroid.util.GeoPoint
 class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel() {
     private val _eventsWithDetails = MutableStateFlow<List<EventWithDetails>>(emptyList())
     val eventsWithDetails: StateFlow<List<EventWithDetails>> = _eventsWithDetails.asStateFlow()
+    private val _isDateFiltered = MutableStateFlow(false)
+    private val _dateRangeFilter = MutableStateFlow<Pair<String, String>?>(null)
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -34,6 +36,55 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
 
     // Store the full list of loaded events for search operations
     private var allLoadedEvents = mutableListOf<EventWithDetails>()
+
+    fun filterByDateRange(startDate: String, endDate: String) {
+        // Clear any existing search query
+        setSearchQuery("")
+
+        // Set a flag to indicate filtering by date
+        _isDateFiltered.value = true
+
+        // Store the date range for filtering
+        _dateRangeFilter.value = Pair(startDate, endDate)
+
+        // Apply the filter to your events
+        applyFilters()
+    }
+
+    private fun EventsViewModel.applyFilters() {
+        viewModelScope.launch {
+            val query = _searchQuery.value
+            val events = _eventsWithDetails.value
+
+            val filtered = if (_isDateFiltered.value && _dateRangeFilter.value != null) {
+                val (startDate, endDate) = _dateRangeFilter.value!!
+                events.filter { event ->
+                    val eventDate = event.event.eventDate
+                    eventDate in startDate..endDate &&
+                            (query.isEmpty() || event.event.eventName.contains(query, ignoreCase = true) ||
+                                    event.event.artOfSport.contains(query, ignoreCase = true))
+                }
+            } else if (query.isNotEmpty()) {
+                events.filter { event ->
+                    event.event.eventName.contains(query, ignoreCase = true) ||
+                            event.event.artOfSport.contains(query, ignoreCase = true)
+                }
+            } else {
+                events
+            }
+
+            _filteredEventsWithDetails.value = filtered
+        }
+    }
+
+    /**
+     * Reset date filter when needed (e.g., when navigating to the screen)
+     */
+    fun EventsViewModel.resetDateFilter() {
+        _isDateFiltered.value = false
+        _dateRangeFilter.value = null
+        applyFilters()
+    }
 
     fun loadEvents() {
         if (_isLoading.value || !hasMoreEvents) return

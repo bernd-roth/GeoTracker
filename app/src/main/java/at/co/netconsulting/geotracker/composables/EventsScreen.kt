@@ -1,5 +1,10 @@
 package at.co.netconsulting.geotracker.composables
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,8 +28,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,6 +72,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,6 +91,7 @@ fun EventsScreen(
     var selectedEventId by remember { mutableStateOf<Int?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
+    var showYearlyStats by remember { mutableStateOf(true) } // State to toggle stats visibility
 
     // Load initial events
     LaunchedEffect(Unit) {
@@ -133,12 +143,34 @@ fun EventsScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = "Events",
-            fontSize = 24.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(16.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Events",
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            // Toggle button for stats
+            TextButton(
+                onClick = { showYearlyStats = !showYearlyStats },
+                colors = ButtonDefaults.textButtonColors(
+                    contentColor = MaterialTheme.colorScheme.primary
+                )
+            ) {
+                Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
+                Icon(
+                    imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = "Toggle stats",
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+            }
+        }
 
         // Search bar
         OutlinedTextField(
@@ -159,6 +191,47 @@ fun EventsScreen(
             singleLine = true,
             shape = RoundedCornerShape(8.dp)
         )
+
+        // Add the Yearly Stats Overview between search and event list with animation
+        AnimatedVisibility(
+            visible = showYearlyStats,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            YearlyStatsOverview(
+                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                eventsViewModel = eventsViewModel,
+                onWeekSelected = { year, week ->
+                    // Filter events for the selected week
+                    coroutineScope.launch {
+                        // Calculate date range for the selected week
+                        val calendar = Calendar.getInstance().apply {
+                            firstDayOfWeek = Calendar.MONDAY
+                            minimalDaysInFirstWeek = 4
+                            set(Calendar.YEAR, year)
+                            set(Calendar.WEEK_OF_YEAR, week)
+                            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                        }
+
+                        // Format start date (Monday)
+                        val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                        // Move to end of week (Sunday)
+                        calendar.add(Calendar.DAY_OF_MONTH, 6)
+
+                        // Format end date (Sunday)
+                        val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                        // Set filter in the ViewModel
+                        eventsViewModel.filterByDateRange(startDateStr, endDateStr)
+                    }
+                }
+            )
+        }
 
         if (events.isEmpty() && isLoading) {
             Box(
