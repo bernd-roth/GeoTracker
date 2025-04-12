@@ -1,11 +1,21 @@
 package at.co.netconsulting.geotracker.composables
 
+import android.content.Context
+import android.util.Log
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -56,6 +67,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
@@ -68,6 +80,7 @@ import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.osmdroid.views.MapView
@@ -85,6 +98,46 @@ fun EventsScreen(
     val allEvents by eventsViewModel.eventsWithDetails.collectAsState(initial = emptyList())
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
+
+    // Track both the active event ID and recording state
+    var activeEventId by remember { mutableStateOf(-1) }
+    var isRecording by remember { mutableStateOf(false) }
+
+    // Refresh the state on recomposition
+    LaunchedEffect(Unit) {
+        // Launch effect to fetch shared preferences values
+        activeEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+            .getInt("active_event_id", -1)
+
+        isRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+            .getBoolean("is_recording", false)
+
+        // Log initial state for debugging
+        Log.d("EventsScreen", "Initial state: activeEventId=$activeEventId, isRecording=$isRecording")
+    }
+
+    // Create a periodic check to catch changes in SharedPreferences
+    LaunchedEffect(Unit) {
+        // Check every 1 second for changes in SharedPreferences
+        while (true) {
+            val newActiveEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                .getInt("active_event_id", -1)
+
+            val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getBoolean("is_recording", false)
+
+            // Log any changes
+            if (newActiveEventId != activeEventId || newIsRecording != isRecording) {
+                Log.d("EventsScreen", "State changed: activeEventId=$newActiveEventId (was $activeEventId), isRecording=$newIsRecording (was $isRecording)")
+            }
+
+            // Update regardless of change to ensure UI is consistent
+            activeEventId = newActiveEventId
+            isRecording = newIsRecording
+
+            delay(1000) // 1-second interval
+        }
+    }
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -113,18 +166,31 @@ fun EventsScreen(
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Delete Event") },
-            text = { Text("Are you sure you want to delete '${eventToDelete?.event?.eventName}'?") },
+            text = {
+                if (eventToDelete?.event?.eventId == activeEventId && isRecording) {
+                    Text("Cannot delete an event that is currently being recorded.")
+                } else {
+                    Text("Are you sure you want to delete '${eventToDelete?.event?.eventName}'?")
+                }
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
                         eventToDelete?.let { event ->
-                            coroutineScope.launch {
-                                eventsViewModel.deleteEvent(event.event.eventId)
+                            // Only allow deletion if not currently recording
+                            if (event.event.eventId != activeEventId || !isRecording) {
+                                coroutineScope.launch {
+                                    eventsViewModel.deleteEvent(event.event.eventId)
+                                    showDeleteDialog = false
+                                    eventToDelete = null
+                                }
+                            } else {
                                 showDeleteDialog = false
                                 eventToDelete = null
                             }
                         }
-                    }
+                    },
+                    enabled = eventToDelete?.event?.eventId != activeEventId || !isRecording
                 ) {
                     Text("Delete")
                 }
@@ -259,16 +325,47 @@ fun EventsScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(events) { eventWithDetails ->
+                    // Double-check recording status from both values to be extra safe
+                    val isRecordingThisEvent = eventWithDetails.event.eventId == activeEventId &&
+                            (isRecording || context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                .getBoolean("is_recording", false))
+
+                    // Optional debugging log for this specific event
+                    if (eventWithDetails.event.eventId == activeEventId) {
+                        Log.d("EventsScreen", "Event ${eventWithDetails.event.eventName} (ID: ${eventWithDetails.event.eventId}): isRecordingThisEvent=$isRecordingThisEvent, activeEventId=$activeEventId, isRecording=$isRecording")
+                    }
+
                     EventCard(
                         event = eventWithDetails,
                         selected = selectedEventId == eventWithDetails.event.eventId,
                         onClick = {
                             selectedEventId = if (selectedEventId == eventWithDetails.event.eventId) null else eventWithDetails.event.eventId
                         },
-                        onEdit = { onEditEvent(eventWithDetails.event.eventId) },
+                        onEdit = {
+                            // Only allow edit if not currently recording
+                            if (!isRecordingThisEvent) {
+                                onEditEvent(eventWithDetails.event.eventId)
+                            } else {
+                                // Show a toast message
+                                Toast.makeText(
+                                    context,
+                                    "Cannot edit an event that is currently being recorded",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
                         onDelete = {
-                            eventToDelete = eventWithDetails
-                            showDeleteDialog = true
+                            // Similar logic for deletion
+                            if (!isRecordingThisEvent) {
+                                eventToDelete = eventWithDetails
+                                showDeleteDialog = true
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Cannot delete an event that is currently being recorded",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
                         },
                         onExport = {
                             // Launch the export function in a coroutine
@@ -279,7 +376,8 @@ fun EventsScreen(
                                     contextActivity = context
                                 )
                             }
-                        }
+                        },
+                        isCurrentlyRecording = isRecordingThisEvent
                     )
                 }
 
@@ -360,11 +458,19 @@ fun EventCard(
     onClick: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onExport: () -> Unit
+    onExport: () -> Unit,
+    isCurrentlyRecording: Boolean = false // Parameter to indicate if this event is being recorded
 ) {
     Card(
         modifier = Modifier
-            .fillMaxWidth(),
+            .fillMaxWidth()
+            .then(
+                if (isCurrentlyRecording) {
+                    Modifier.border(2.dp, Color.Red.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                } else {
+                    Modifier
+                }
+            ),
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Column(
@@ -400,27 +506,71 @@ fun EventCard(
                         )
                     }
 
+                    // Edit button - disabled if currently recording
                     IconButton(
                         onClick = onEdit,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(40.dp),
+                        enabled = !isCurrentlyRecording
                     ) {
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Edit Event",
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = if (isCurrentlyRecording) Color.Gray
+                            else MaterialTheme.colorScheme.primary
                         )
                     }
 
+                    // Delete button - also disabled if currently recording
                     IconButton(
                         onClick = onDelete,
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(40.dp),
+                        enabled = !isCurrentlyRecording
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
                             contentDescription = "Delete Event",
-                            tint = MaterialTheme.colorScheme.error
+                            tint = if (isCurrentlyRecording) Color.Gray
+                            else MaterialTheme.colorScheme.error
                         )
                     }
+                }
+            }
+
+            // If currently recording, show a recording indicator with more prominent styling
+            if (isCurrentlyRecording) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp, bottom = 4.dp)
+                        .background(Color(0xFFFFEBEE), RoundedCornerShape(4.dp))  // Light red background
+                        .padding(8.dp),                                          // Extra padding for emphasis
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Pulsating animation for the recording dot
+                    val infiniteTransition = rememberInfiniteTransition()
+                    val scale by infiniteTransition.animateFloat(
+                        initialValue = 0.8f,
+                        targetValue = 1.2f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(500, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        )
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .scale(scale)
+                            .background(Color.Red, CircleShape)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Currently recording",
+                        fontSize = 14.sp,
+                        color = Color.Red,
+                        fontWeight = FontWeight.Bold,  // Make text bold for emphasis
+                        fontStyle = FontStyle.Italic
+                    )
                 }
             }
 

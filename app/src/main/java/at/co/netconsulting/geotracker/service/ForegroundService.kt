@@ -131,7 +131,6 @@ class ForegroundService : Service() {
                     } else {
                         Log.d(TAG, "Skipping weather update - invalid coordinates")
                     }
-
                     delay(pollInterval)
                 } catch (e: CancellationException) {
                     Log.d(TAG, "Weather updates cancelled")
@@ -674,6 +673,12 @@ class ForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
+            // Check if we're stopping intentionally (flag set by stop button)
+            if (intent?.getBooleanExtra("stopping_intentionally", false) == true) {
+                isStoppingIntentionally = true
+                Log.d(TAG, "Service is being stopped intentionally")
+            }
+
             // Check if we're restarting after crash
             val prefs = getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
             val wasRunning = prefs.getBoolean("was_running", false)
@@ -744,13 +749,19 @@ class ForegroundService : Service() {
 
         if (isStoppingIntentionally) {
             try {
+                // Clear active_event_id when stopping intentionally
                 getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                     .edit()
                     .remove("active_event_id")
                     .apply()
+
+                Log.d(TAG, "Removed active_event_id from SharedPreferences")
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing event ID from preferences", e)
             }
+
+            // Reset the flag
+            isStoppingIntentionally = false
         }
 
         try {

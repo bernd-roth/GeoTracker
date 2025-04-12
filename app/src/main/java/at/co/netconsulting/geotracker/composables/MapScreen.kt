@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker.composables
 import android.content.Context
 import android.content.Intent
 import android.util.DisplayMetrics
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +34,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
+import kotlinx.coroutines.delay
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -56,12 +59,15 @@ fun MapScreen() {
         if (isRecording) {
             // Recording is active, ForegroundService should be running
             // No need to start it again here as it's started from the dialog
+            Log.d("MapScreen", "DisposableEffect: Recording is active")
         } else {
             // Start background service for normal tracking (if not already running)
             try {
+                Log.d("MapScreen", "DisposableEffect: Starting background service")
                 val intent = Intent(context, BackgroundLocationService::class.java)
                 context.startService(intent)
             } catch (e: Exception) {
+                Log.e("MapScreen", "Failed to start background service", e)
                 Toast.makeText(context, "Failed to start location service", Toast.LENGTH_SHORT).show()
             }
         }
@@ -71,11 +77,28 @@ fun MapScreen() {
             if (!isRecording) {
                 // Only stop background service if we're not recording
                 try {
+                    Log.d("MapScreen", "onDispose: Stopping background service")
                     context.stopService(Intent(context, BackgroundLocationService::class.java))
                 } catch (e: Exception) {
-                    // Log error but don't crash
+                    Log.e("MapScreen", "Error stopping background service", e)
                 }
             }
+        }
+    }
+
+    // Monitor recording state changes
+    LaunchedEffect(Unit) {
+        // Check recording state periodically
+        while (true) {
+            val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getBoolean("is_recording", false)
+
+            if (isRecording != newIsRecording) {
+                Log.d("MapScreen", "Recording state changed from $isRecording to $newIsRecording")
+                isRecording = newIsRecording
+            }
+
+            delay(1000)
         }
     }
 
@@ -159,25 +182,36 @@ fun MapScreen() {
                             val sharedPreferences = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                             val currentEventId = sharedPreferences.getInt("active_event_id", -1)
                             if (currentEventId != -1) {
+                                // Store as last event ID
                                 sharedPreferences.edit()
                                     .putInt("last_event_id", currentEventId)
+                                    // Remove active_event_id key completely
+                                    .remove("active_event_id")
                                     .apply()
+
+                                Log.d("MapScreen", "Saved last_event_id=$currentEventId and removed active_event_id")
                             }
 
+                            // Update recording state
                             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                                 .edit()
                                 .putBoolean("is_recording", false)
                                 .apply()
 
                             isRecording = false
+                            Log.d("MapScreen", "Set isRecording=false in SharedPreferences and local state")
 
                             // Stop the foreground service
                             val stopIntent = Intent(context, ForegroundService::class.java)
+                            // Set flag to mark the stop as intentional
+                            stopIntent.putExtra("stopping_intentionally", true)
                             context.stopService(stopIntent)
+                            Log.d("MapScreen", "Stopped ForegroundService with stopping_intentionally=true")
 
                             // Start the background service
                             val intent = Intent(context, BackgroundLocationService::class.java)
                             context.startService(intent)
+                            Log.d("MapScreen", "Started BackgroundLocationService")
 
                             Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT).show()
                         }
@@ -203,10 +237,12 @@ fun MapScreen() {
                     .apply()
 
                 isRecording = true
+                Log.d("MapScreen", "Recording started, set isRecording=true")
 
                 // Stop background service
                 val stopIntent = Intent(context, BackgroundLocationService::class.java)
                 context.stopService(stopIntent)
+                Log.d("MapScreen", "Stopped BackgroundLocationService")
 
                 // Start foreground service with event details
                 val intent = Intent(context, ForegroundService::class.java).apply {
@@ -215,8 +251,10 @@ fun MapScreen() {
                     putExtra("artOfSport", artOfSport)
                     putExtra("comment", comment)
                     putExtra("clothing", clothing)
+                    putExtra("start_recording", true)  // Explicit flag
                 }
                 ContextCompat.startForegroundService(context, intent)
+                Log.d("MapScreen", "Started ForegroundService with event details and start_recording=true")
 
                 showRecordingDialog = false
             },
