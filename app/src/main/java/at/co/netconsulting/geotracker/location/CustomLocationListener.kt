@@ -240,56 +240,67 @@ class CustomLocationListener: LocationListener {
         location?.let {
             Log.d("CustomLocationListener", "Latitude: ${location.latitude} / Longitude: ${location.longitude}")
 
-            // Only calculate new metrics if speed is above threshold
+            // Calculate distance only if speed is above threshold
+            var distanceIncrement = 0.0
             if (checkSpeed(it.speed)) {
-                if (oldLatitude != location.latitude || oldLongitude != location.longitude) {
+                if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
+                    (oldLatitude != location.latitude || oldLongitude != location.longitude)) {
                     Log.d("CustomLocationListener", "New coordinates detected...")
 
-                    val (newCoveredDistance, distanceIncrement) = calculateDistance(it)
-                    coveredDistance = newCoveredDistance
-                    averageSpeed = calculateAverageSpeed()
-                    lap = calculateLap(distanceIncrement)
-                    cumulativeElevationGain = calculateCumulativeElevationGain(it, startingAltitude!!)
-
-                    // Update max speed if current speed is higher
-                    val currentSpeedKmh = it.speed * 3.6
-                    if (currentSpeedKmh > maxSpeed) {
-                        maxSpeed = currentSpeedKmh
-                    }
-
-                    //calculate moving average speed
-                    movingAverageSpeed = calculateMovingAverageSpeed(currentSpeedKmh)
-
-                    // Create Metrics object with all required fields including satellite info
-                    val metrics = Metrics(
-                        latitude = location.latitude,
-                        longitude = location.longitude,
-                        speed = location.speed * 3.6f,
-                        speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
-                        altitude = location.altitude,
-                        horizontalAccuracy = location.accuracy,
-                        verticalAccuracyMeters = location.verticalAccuracyMeters,
-                        coveredDistance = coveredDistance,
-                        lap = lap,
-                        startDateTime = startDateTime,  // This should now be properly initialized
-                        averageSpeed = averageSpeed,
-                        maxSpeed = maxSpeed,
-                        movingAverageSpeed = movingAverageSpeed,
-                        cumulativeElevationGain = cumulativeElevationGain,
-                        sessionId = sessionId,
-                        person = firstname,
-                        numberOfSatellites = numberOfSatellites,
-                        usedNumberOfSatellites = usedNumberOfSatellites,
-                        satellites = satelliteCount
+                    // Calculate distance increment
+                    distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
+                        oldLatitude, oldLongitude, location.latitude, location.longitude
                     )
-
-                    // Send data to websocket server
-                    sendDataToWebsocketServer(metrics)
-
-                    // Also post through EventBus for UI updates
-                    EventBus.getDefault().post(metrics)
+                    coveredDistance += distanceIncrement
+                    lap = calculateLap(distanceIncrement)
                 }
             }
+
+            // Always update coordinates for next calculation
+            oldLatitude = location.latitude
+            oldLongitude = location.longitude
+
+            // Always calculate these metrics regardless of speed
+            averageSpeed = calculateAverageSpeed()
+            cumulativeElevationGain = calculateCumulativeElevationGain(it, startingAltitude!!)
+
+            // Update max speed if current speed is higher
+            val currentSpeedKmh = it.speed * 3.6
+            if (currentSpeedKmh > maxSpeed) {
+                maxSpeed = currentSpeedKmh
+            }
+
+            // Calculate moving average speed
+            movingAverageSpeed = calculateMovingAverageSpeed(currentSpeedKmh)
+
+            // Create Metrics object with all required fields including satellite info
+            val metrics = Metrics(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                speed = location.speed * 3.6f,
+                speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
+                altitude = location.altitude,
+                horizontalAccuracy = location.accuracy,
+                verticalAccuracyMeters = location.verticalAccuracyMeters,
+                coveredDistance = coveredDistance,
+                lap = lap,
+                startDateTime = startDateTime,
+                averageSpeed = averageSpeed,
+                maxSpeed = maxSpeed,
+                movingAverageSpeed = movingAverageSpeed,
+                cumulativeElevationGain = cumulativeElevationGain,
+                sessionId = sessionId,
+                person = firstname,
+                numberOfSatellites = numberOfSatellites,
+                usedNumberOfSatellites = usedNumberOfSatellites,
+                satellites = satelliteCount
+            )
+
+            // Send data to websocket server (always, regardless of speed)
+            sendDataToWebsocketServer(metrics)
+
+            // Also post through EventBus for UI updates (always, regardless of speed)
+            EventBus.getDefault().post(metrics)
         }
     }
 
@@ -391,6 +402,7 @@ class CustomLocationListener: LocationListener {
             newLongitude,
             result
         )
+        Log.d("CustomLocationListener", "Distance Increment: ${result[0]}")
         return result[0].toDouble()
     }
 

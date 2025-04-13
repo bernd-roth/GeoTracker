@@ -251,7 +251,7 @@ fun MapScreen() {
                     putExtra("artOfSport", artOfSport)
                     putExtra("comment", comment)
                     putExtra("clothing", clothing)
-                    putExtra("start_recording", true)  // Explicit flag
+                    putExtra("start_recording", true)
                 }
                 ContextCompat.startForegroundService(context, intent)
                 Log.d("MapScreen", "Started ForegroundService with event details and start_recording=true")

@@ -486,11 +486,11 @@ class ForegroundService : Service() {
                     }
 
                     showNotification()
+
+                    // save data to database as long as we have valid coordinates,
+                    // regardless of speed or duplicate coordinates
                     if(checkLatitudeLongitude()) {
-                        if(checkLatitudeLongitudeDuplicates()) {
-                            // Don't call receiveWeatherData() here - removed
-                            insertDatabase(database)
-                        }
+                        insertDatabase(database)
                     }
                     delay(1000)
                 }
@@ -606,12 +606,13 @@ class ForegroundService : Service() {
     private suspend fun insertDatabase(database: FitnessTrackerDatabase) {
         withContext(Dispatchers.IO) {
             try {
+                // Always save metrics data regardless of speed
                 val metric = Metric(
                     eventId = eventId,
                     heartRate = 0,
                     heartRateDevice = "Chest Strap",
                     speed = speed,
-                    distance = distance,
+                    distance = distance, // This is only updated when speed > threshold from CustomLocationListener
                     cadence = 0,
                     lap = lap,
                     timeInMilliseconds = currentTimeMillis(),
@@ -623,7 +624,7 @@ class ForegroundService : Service() {
                 database.metricDao().insertMetric(metric)
                 Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds}")
 
-                // Location data
+                // Always save location data regardless of speed
                 val location = Location(
                     eventId = eventId,
                     latitude = latitude,
@@ -633,9 +634,10 @@ class ForegroundService : Service() {
                 database.locationDao().insertLocation(location)
                 Log.d("ForegroundService: ", "Location saved: lat=$latitude, lon=$longitude")
 
+                // Always save device status regardless of speed
                 val deviceStatus = DeviceStatus(
                     eventId = eventId,
-                    numberOfSatellites = satellites,  // Use the actual satellite count
+                    numberOfSatellites = satellites,
                     sensorAccuracy = "High",
                     signalStrength = "Strong",
                     batteryLevel = "80%",
