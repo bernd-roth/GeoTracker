@@ -11,6 +11,8 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,9 +23,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -79,6 +86,19 @@ fun SettingsScreen() {
     var websocketserver by remember {
         mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "")
     }
+
+    // Added dropdown state for minimum distance
+    var minDistanceMeters by remember {
+        mutableStateOf(sharedPreferences.getInt("minDistanceMeters", 5))
+    }
+
+    var minDistanceExpanded by remember { mutableStateOf(false) }
+
+    // Added dropdown state for minimum time
+    var minTimeSeconds by remember {
+        mutableStateOf(sharedPreferences.getInt("minTimeSeconds", 5))
+    }
+    var minTimeExpanded by remember { mutableStateOf(false) }
 
     // Auto backup settings
     var autoBackupEnabled by remember {
@@ -177,6 +197,30 @@ fun SettingsScreen() {
             onValueChange = { websocketserver = it },
             label = { Text("Websocket ip address") },
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Minimum distance dropdown
+        DistanceDropdown(
+            value = minDistanceMeters,
+            onValueChange = { minDistanceMeters = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        TimeDropdown(
+            value = minTimeSeconds,
+            onValueChange = { minTimeSeconds = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        ManualInputOption(
+            distanceValue = minDistanceMeters,
+            timeValue = minTimeSeconds,
+            onDistanceChange = { minDistanceMeters = it },
+            onTimeChange = { minTimeSeconds = it },
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(16.dp))
@@ -324,7 +368,9 @@ fun SettingsScreen() {
                     websocketserver,
                     autoBackupEnabled,
                     backupHour,
-                    backupMinute
+                    backupMinute,
+                    minDistanceMeters,
+                    minTimeSeconds
                 )
 
                 // If auto backup is enabled, reschedule it with the new time
@@ -335,7 +381,6 @@ fun SettingsScreen() {
                     nextBackupTime.value = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE)
                         .getString("nextBackupTime", null)
                 }
-
                 Toast.makeText(context, "All settings saved", Toast.LENGTH_SHORT).show()
             },
             modifier = Modifier.fillMaxWidth()
@@ -377,7 +422,9 @@ fun saveAllSettings(
     websocketserver: String,
     autoBackupEnabled: Boolean,
     backupHour: Int,
-    backupMinute: Int
+    backupMinute: Int,
+    minDistanceMeters: Int,
+    minTimeSeconds: Int
 ) {
     sharedPreferences.edit().apply {
         putString("firstname", firstName)
@@ -389,6 +436,8 @@ fun saveAllSettings(
         putBoolean("autoBackupEnabled", autoBackupEnabled)
         putInt("backupHour", backupHour)
         putInt("backupMinute", backupMinute)
+        putInt("minDistanceMeters", minDistanceMeters)
+        putInt("minTimeSeconds", minTimeSeconds)
         apply()
     }
 }

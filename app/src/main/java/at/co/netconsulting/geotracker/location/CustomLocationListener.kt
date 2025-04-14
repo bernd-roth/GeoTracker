@@ -83,6 +83,10 @@ class CustomLocationListener: LocationListener {
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
+    // Location update parameters from settings
+    private var minTimeBetweenUpdates: Long = 1000 // Default 1 second
+    private var minDistanceBetweenUpdates: Float = 1f // Default 1 meter
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -108,13 +112,30 @@ class CustomLocationListener: LocationListener {
 
     fun startListener() {
         createLocationManager()
+        loadSharedPreferences() // Load preferences including update settings
         createLocationUpdates()
-        loadSharedPreferences()
         loadSessionId()  // Load sessionId from SharedPreferences
         registerNetworkCallback()
         connectWebSocket()
         //sending data as a test to my websocket server
         //sendTestDataToWebSocketServer(context)
+    }
+
+    fun reloadSettings() {
+        // Load updated settings
+        loadSharedPreferences()
+
+        // Stop current updates
+        try {
+            locationManager?.removeUpdates(this)
+        } catch (e: Exception) {
+            Log.e(TAG_WEBSOCKET, "Error removing location updates", e)
+        }
+
+        // Restart with new settings
+        createLocationUpdates()
+
+        Log.d(TAG_WEBSOCKET, "Location settings reloaded: minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m")
     }
 
     // Load sessionId from SharedPreferences
@@ -151,6 +172,16 @@ class CustomLocationListener: LocationListener {
         height = sharedPreferences.getFloat("height", 0f)
         weight = sharedPreferences.getFloat("weight", 0f)
         websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
+
+        // Load location update settings from preferences
+        val minTimeSeconds = sharedPreferences.getInt("minTimeSeconds", 1)
+        val minDistanceMeters = sharedPreferences.getInt("minDistanceMeters", 1)
+
+        // Convert to appropriate units
+        minTimeBetweenUpdates = minTimeSeconds * 1000L
+        minDistanceBetweenUpdates = minDistanceMeters.toFloat()
+
+        Log.d(TAG_WEBSOCKET, "Loaded location update settings: minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m")
     }
 
     private fun createLocationUpdates() {
@@ -168,7 +199,14 @@ class CustomLocationListener: LocationListener {
             return
         }
         Handler(Looper.getMainLooper()).post {
-            locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, MIN_TIME_BETWEEN_UPDATES, MIN_DISTANCE_BETWEEN_UPDATES, this)
+            // Use the values loaded from SharedPreferences
+            locationManager?.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                minTimeBetweenUpdates,
+                minDistanceBetweenUpdates,
+                this
+            )
+            Log.d(TAG_WEBSOCKET, "Started location updates with minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m")
         }
     }
 
@@ -702,8 +740,7 @@ class CustomLocationListener: LocationListener {
     }
 
     companion object {
-        private var MIN_TIME_BETWEEN_UPDATES: Long = 1000
-        private var MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
+        // These static variables are no longer used directly
         private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
         const val TAG_WEBSOCKET: String = "CustomLocationListener: WebSocketService"
 
