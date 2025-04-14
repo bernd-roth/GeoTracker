@@ -93,11 +93,12 @@ class ForegroundService : Service() {
     private var currentEventId: Int = -1
     private var satellites: String = "0"
     private var hasReceivedValidWeather = false
-
+    //reconnection logic
+    private var connectionMonitorJob: Job? = null
+    private var isWebSocketConnected = false
     //Weather
     private var weatherJob: Job? = null
     private val weatherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-
     //sessionId
     private var sessionId: String = ""
 
@@ -339,6 +340,8 @@ class ForegroundService : Service() {
 
         requestHighPriority()
         createSessionID()
+        // Start connection monitoring
+        startConnectionMonitoring()
     }
 
     private fun createSessionID() {
@@ -796,6 +799,9 @@ class ForegroundService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping foreground service", e)
         }
+
+        connectionMonitorJob?.cancel()
+        connectionMonitorJob = null
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -880,6 +886,37 @@ class ForegroundService : Service() {
         }
     }
 
+    private fun startConnectionMonitoring() {
+        connectionMonitorJob?.cancel()
+        connectionMonitorJob = serviceScope.launch {
+            while (isActive) {
+                try {
+                    delay(CONNECTION_CHECK_INTERVAL)
+
+                    // Check if location listener exists and has a valid session ID
+                    val isSessionValid = customLocationListener?.hasValidSession() ?: false
+                    val isLocationTracking = customLocationListener != null
+
+                    Log.d(TAG, "Connection status check: session valid=$isSessionValid, location tracking=$isLocationTracking")
+
+                    if (!isLocationTracking || !isSessionValid) {
+                        Log.w(TAG, "Reconnecting location tracking and WebSocket...")
+
+                        // Recreate the location listener if needed
+                        customLocationListener?.cleanup()
+                        customLocationListener = CustomLocationListener(applicationContext).also {
+                            it.startDateTime = LocalDateTime.now()
+                            delay(100) // Short delay to ensure sessionId is saved
+                            it.startListener()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in connection monitoring", e)
+                }
+            }
+        }
+    }
+
     companion object {
         private const val CHANNEL_ID = "ForegroundServiceChannel"
         private const val MIN_SPEED_THRESHOLD = 2.5f
@@ -890,5 +927,7 @@ class ForegroundService : Service() {
         private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
         private const val WEATHER_FAST_POLL_INTERVAL = 10000L // 10 seconds for initial polling
+        // reconnection logic
+        private const val CONNECTION_CHECK_INTERVAL = 60_000L // 1 minute
     }
 }

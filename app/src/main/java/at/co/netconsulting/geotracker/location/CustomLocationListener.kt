@@ -33,6 +33,14 @@ import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import java.util.LinkedList
 import java.util.concurrent.TimeUnit
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.content.IntentFilter
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.os.Build
 
 class CustomLocationListener: LocationListener {
     var startDateTime: LocalDateTime = LocalDateTime.now()
@@ -68,7 +76,12 @@ class CustomLocationListener: LocationListener {
     // Satellite information
     private var numberOfSatellites: Int = 0
     private var usedNumberOfSatellites: Int = 0
-
+    // reconnection logic, if Internet connection gets lost
+    private var lastMessageTime: Long = System.currentTimeMillis()
+    private var healthCheckJob: Job? = null
+    private var isWebSocketConnected = false
+    private var connectivityManager: ConnectivityManager? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     constructor(context: Context) {
         this.context = context
@@ -78,6 +91,18 @@ class CustomLocationListener: LocationListener {
 
     fun cleanup() {
         stopLocationUpdates()
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                networkCallback?.let {
+                    connectivityManager?.unregisterNetworkCallback(it)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG_WEBSOCKET, "Error unregistering network callback", e)
+        }
+
+        healthCheckJob?.cancel()
         job.cancel()
     }
 
@@ -86,6 +111,7 @@ class CustomLocationListener: LocationListener {
         createLocationUpdates()
         loadSharedPreferences()
         loadSessionId()  // Load sessionId from SharedPreferences
+        registerNetworkCallback()
         connectWebSocket()
         //sending data as a test to my websocket server
         //sendTestDataToWebSocketServer(context)
@@ -180,25 +206,17 @@ class CustomLocationListener: LocationListener {
 
             override fun onMessage(webSocket: WebSocket, text: String) {
                 super.onMessage(webSocket, text)
+                lastMessageTime = System.currentTimeMillis() // Update last message time
                 Timber.tag(TAG_WEBSOCKET).d("Raw JSON: $text")
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 super.onFailure(webSocket, t, response)
+                isWebSocketConnected = false
                 Timber.tag(TAG_WEBSOCKET).e(t, "WebSocket connection failed")
 
                 // Handle reconnection with exponential backoff
-                if (!isReconnecting && job.isActive) {
-                    isReconnecting = true
-                    val delayMs = BASE_RECONNECT_DELAY_MS * (1 shl reconnectAttempts.coerceAtMost(10))
-
-                    coroutineScope.launch {
-                        delay(delayMs)
-                        if (isActive) {
-                            connectWebSocket(false)
-                        }
-                    }
-                }
+                reconnectWebSocket()
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -209,15 +227,21 @@ class CustomLocationListener: LocationListener {
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 super.onClosed(webSocket, code, reason)
+                isWebSocketConnected = false
                 Timber.tag(TAG_WEBSOCKET).d("WebSocket connection closed: $reason")
             }
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 super.onOpen(webSocket, response)
+                isWebSocketConnected = true
+                lastMessageTime = System.currentTimeMillis()
                 Timber.tag(TAG_WEBSOCKET).d("WebSocket connection opened")
                 // Reset reconnection state
                 isReconnecting = false
                 reconnectAttempts = 0
+
+                // Start the health check when connection opens
+                startWebSocketHealthCheck()
             }
         })
     }
@@ -561,10 +585,129 @@ class CustomLocationListener: LocationListener {
         }
     }
 
+    private fun startWebSocketHealthCheck() {
+        healthCheckJob?.cancel()
+        healthCheckJob = coroutineScope.launch {
+            while (isActive) {
+                try {
+                    delay(WEBSOCKET_HEALTH_CHECK_INTERVAL)
+
+                    // Check if we haven't received a message for too long
+                    val currentTime = System.currentTimeMillis()
+                    if (currentTime - lastMessageTime > WEBSOCKET_HEALTH_CHECK_INTERVAL * 2) {
+                        Log.w(TAG_WEBSOCKET, "WebSocket may be disconnected - no messages received recently")
+                        if (isWebSocketConnected) {
+                            Log.d(TAG_WEBSOCKET, "Reconnecting due to inactivity...")
+                            isWebSocketConnected = false
+                            reconnectWebSocket()
+                        }
+                    }
+
+                    // Send a ping to keep the connection alive
+                    webSocket?.let { socket ->
+                        val sent = socket.send("ping")
+                        if (!sent) {
+                            Log.w(TAG_WEBSOCKET, "Failed to send ping, connection may be lost")
+                            isWebSocketConnected = false
+                            reconnectWebSocket()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG_WEBSOCKET, "Error in WebSocket health check", e)
+                }
+            }
+        }
+    }
+
+    private fun reconnectWebSocket() {
+        if (job.isActive) {
+            // If we've tried too many times in a row, reset the counter but keep trying
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS_BEFORE_RESET) {
+                Log.w(TAG_WEBSOCKET, "Reset reconnection counter after $reconnectAttempts attempts")
+                reconnectAttempts = 0
+            }
+
+            isReconnecting = true
+            val delayMs = BASE_RECONNECT_DELAY_MS * (1 shl reconnectAttempts.coerceAtMost(10))
+
+            Log.d(TAG_WEBSOCKET, "Will attempt to reconnect in ${delayMs}ms (attempt #${reconnectAttempts + 1})")
+
+            coroutineScope.launch {
+                delay(delayMs)
+                if (isActive && !isWebSocketConnected) {
+                    Log.d(TAG_WEBSOCKET, "Attempting reconnection #${reconnectAttempts + 1}")
+                    connectWebSocket(false)
+                }
+            }
+        }
+    }
+
+    fun hasValidSession(): Boolean {
+        // Check if sessionId is valid and connection is active
+        return sessionId.isNotEmpty() && isWebSocketConnected
+    }
+
+    private fun registerNetworkCallback() {
+        try {
+            connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                val networkRequest = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+
+                networkCallback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        super.onAvailable(network)
+                        Log.d(TAG_WEBSOCKET, "Network available, checking WebSocket connection")
+
+                        // Check if we need to reconnect
+                        if (!isWebSocketConnected) {
+                            Log.d(TAG_WEBSOCKET, "Network restored, reconnecting WebSocket")
+                            reconnectAttempts = 0  // Reset counter on new network
+                            isReconnecting = false
+                            connectWebSocket(true)
+                        }
+                    }
+
+                    override fun onLost(network: Network) {
+                        super.onLost(network)
+                        Log.d(TAG_WEBSOCKET, "Network lost")
+                        isWebSocketConnected = false
+                    }
+                }
+
+                connectivityManager?.registerNetworkCallback(networkRequest, networkCallback!!)
+                Log.d(TAG_WEBSOCKET, "Registered network callback")
+            } else {
+                // For older Android versions
+                val intentFilter = IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
+                context.registerReceiver(object : BroadcastReceiver() {
+                    override fun onReceive(context: Context?, intent: Intent?) {
+                        val isConnected = connectivityManager?.activeNetworkInfo?.isConnected == true
+                        Log.d(TAG_WEBSOCKET, "Network connectivity changed: connected=$isConnected")
+
+                        if (isConnected && !isWebSocketConnected) {
+                            Log.d(TAG_WEBSOCKET, "Network restored, reconnecting WebSocket")
+                            reconnectAttempts = 0
+                            isReconnecting = false
+                            connectWebSocket(true)
+                        }
+                    }
+                }, intentFilter)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG_WEBSOCKET, "Error registering network callback", e)
+        }
+    }
+
     companion object {
         private var MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private var MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
         private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
         const val TAG_WEBSOCKET: String = "CustomLocationListener: WebSocketService"
+
+        private const val MAX_RECONNECT_ATTEMPTS_BEFORE_RESET = 10
+        private const val WEBSOCKET_HEALTH_CHECK_INTERVAL = 30_000L // 30 seconds
     }
 }

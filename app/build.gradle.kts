@@ -1,7 +1,12 @@
+import org.gradle.api.JavaVersion.VERSION_11
+import org.gradle.api.JavaVersion.VERSION_1_8
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
-    id("kotlin-kapt") // Required for Room annotation processing
+    // Replace KAPT with KSP
+    // id("kotlin-kapt") // Remove this line
+    id("com.google.devtools.ksp") version "1.9.0-1.0.13" // Add this line
 }
 
 android {
@@ -42,12 +47,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = VERSION_11
+        targetCompatibility = VERSION_11
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "11"
     }
 
     buildFeatures {
@@ -82,7 +87,8 @@ dependencies {
     implementation(libs.play.services.maps)
     implementation(libs.firebase.database.ktx)
     implementation(libs.androidx.navigation.compose)
-    kapt("androidx.room:room-compiler:2.6.1")
+//    kapt("androidx.room:room-compiler:2.6.1")
+    ksp("androidx.room:room-compiler:2.6.1")
 
     // Location services
     implementation(libs.play.services.location)
@@ -114,4 +120,9 @@ dependencies {
     implementation("com.google.code.gson:gson:2.8.9")
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.incremental", "true")
 }

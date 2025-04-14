@@ -459,7 +459,7 @@ fun EventCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onExport: () -> Unit,
-    isCurrentlyRecording: Boolean = false // Parameter to indicate if this event is being recorded
+    isCurrentlyRecording: Boolean = false
 ) {
     Card(
         modifier = Modifier
@@ -542,8 +542,8 @@ fun EventCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp, bottom = 4.dp)
-                        .background(Color(0xFFFFEBEE), RoundedCornerShape(4.dp))  // Light red background
-                        .padding(8.dp),                                          // Extra padding for emphasis
+                        .background(Color(0xFFFFEBEE), RoundedCornerShape(4.dp))
+                        .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Pulsating animation for the recording dot
@@ -568,7 +568,7 @@ fun EventCard(
                         text = "Currently recording",
                         fontSize = 14.sp,
                         color = Color.Red,
-                        fontWeight = FontWeight.Bold,  // Make text bold for emphasis
+                        fontWeight = FontWeight.Bold,
                         fontStyle = FontStyle.Italic
                     )
                 }
@@ -602,8 +602,13 @@ fun EventCard(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column {
+                                // Keep existing stats
                                 InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
                                 InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed * 3.6))
+                                // Elevation info
+                                InfoRow("Elevation Gain:", String.format("%.0f m", event.maxElevationGain))
+                                InfoRow("Max. Elevation:", String.format("%.0f m", event.maxElevation))
+                                InfoRow("Min. Elevation:", String.format("%.0f m", event.minElevation))
                             }
                         }
                     } else {
@@ -761,7 +766,9 @@ fun EventCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+// Map preview section with fixed update function
                 if (event.locationPoints.isNotEmpty()) {
+                    // The height needs to be explicitly defined to make the map visible
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -790,6 +797,7 @@ fun EventCard(
                                 }
                             },
                             update = { mapView ->
+                                // Simply invalidate the map to force a redraw
                                 mapView.invalidate()
                             },
                             modifier = Modifier.fillMaxSize()

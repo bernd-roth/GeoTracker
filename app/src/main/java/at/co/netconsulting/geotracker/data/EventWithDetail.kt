@@ -16,5 +16,8 @@ data class EventWithDetails(
     val averageSpeed: Double,
     val startTime: Long,
     val endTime: Long,
-    val satellites: Int
+    val satellites: Int,
+    val maxElevationGain: Double = 0.0, // Elevation gain property
+    val maxElevation: Double = 0.0,     // Highest elevation point
+    val minElevation: Double = 0.0      // Lowest elevation point
 )

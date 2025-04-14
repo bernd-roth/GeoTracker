@@ -170,6 +170,16 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
             0.0
         }
 
+        // Get all altitude readings (filter out null or zero values)
+        val altitudes = locations.mapNotNull { location ->
+            if (location.altitude > 0) location.altitude else null
+        }
+
+        // Calculate elevation metrics
+        val maxElevation = altitudes.maxOrNull() ?: 0.0
+        val minElevation = altitudes.minOrNull() ?: 0.0
+        val maxElevationGain = maxElevation - minElevation
+
         // Calculate start and end times
         val startTime = if (metrics.isNotEmpty()) metrics.first().timeInMilliseconds else 0L
         val endTime = if (metrics.isNotEmpty()) metrics.last().timeInMilliseconds else 0L
@@ -201,7 +211,10 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
             averageSpeed = averageSpeed,
             startTime = startTime,
             endTime = endTime,
-            satellites = maxSatellites  // Use maximum satellite count
+            satellites = maxSatellites,
+            maxElevationGain = maxElevationGain,
+            maxElevation = maxElevation,
+            minElevation = minElevation
         )
     }
 
