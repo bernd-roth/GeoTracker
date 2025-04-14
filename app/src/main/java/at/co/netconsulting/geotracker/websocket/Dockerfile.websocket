@@ -1,0 +1,10 @@
+FROM arm64v8/python:3.9-slim
+
+WORKDIR /app
+
+RUN pip install websockets
+
+COPY websocket_server.py .
+RUN mkdir -p /app/logs
+
+CMD ["python", "websocket_server.py"]
