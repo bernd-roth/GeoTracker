@@ -11,8 +11,6 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,14 +21,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -99,6 +92,11 @@ fun SettingsScreen() {
         mutableStateOf(sharedPreferences.getInt("minTimeSeconds", 5))
     }
     var minTimeExpanded by remember { mutableStateOf(false) }
+
+    // Voice announcement interval
+    var voiceAnnouncementInterval by remember {
+        mutableIntStateOf(sharedPreferences.getInt("voiceAnnouncementInterval", 1))
+    }
 
     // Auto backup settings
     var autoBackupEnabled by remember {
@@ -214,6 +212,16 @@ fun SettingsScreen() {
             onValueChange = { minTimeSeconds = it },
             modifier = Modifier.fillMaxWidth()
         )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Voice announcement interval
+        VoiceAnnouncementDropdown(
+            value = voiceAnnouncementInterval,
+            onValueChange = { voiceAnnouncementInterval = it },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+
         Spacer(modifier = Modifier.height(16.dp))
 
         ManualInputOption(
@@ -370,7 +378,8 @@ fun SettingsScreen() {
                     backupHour,
                     backupMinute,
                     minDistanceMeters,
-                    minTimeSeconds
+                    minTimeSeconds,
+                    voiceAnnouncementInterval
                 )
 
                 // If auto backup is enabled, reschedule it with the new time
@@ -424,7 +433,8 @@ fun saveAllSettings(
     backupHour: Int,
     backupMinute: Int,
     minDistanceMeters: Int,
-    minTimeSeconds: Int
+    minTimeSeconds: Int,
+    voiceAnnouncementInterval: Int
 ) {
     sharedPreferences.edit().apply {
         putString("firstname", firstName)
@@ -438,6 +448,7 @@ fun saveAllSettings(
         putInt("backupMinute", backupMinute)
         putInt("minDistanceMeters", minDistanceMeters)
         putInt("minTimeSeconds", minTimeSeconds)
+        putInt("voiceAnnouncementInterval", voiceAnnouncementInterval)
         apply()
     }
 }

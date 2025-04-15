@@ -8,12 +8,12 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
+import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.tools.LocalDateTimeAdapter
-import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +32,7 @@ import timber.log.Timber
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import java.util.LinkedList
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import android.content.BroadcastReceiver
 import android.content.Intent
@@ -69,13 +70,16 @@ class CustomLocationListener: LocationListener {
     private var reconnectAttempts = 0
     private val MAX_RECONNECT_ATTEMPTS = 5
     private val BASE_RECONNECT_DELAY_MS = 1000L
+
     //moving average speed
     private val speedBuffer = LinkedList<Double>()
     private val SPEED_BUFFER_SIZE = 5
     private var movingAverageSpeed: Double = 0.0
+
     // Satellite information
     private var numberOfSatellites: Int = 0
     private var usedNumberOfSatellites: Int = 0
+
     // reconnection logic, if Internet connection gets lost
     private var lastMessageTime: Long = System.currentTimeMillis()
     private var healthCheckJob: Job? = null
@@ -87,10 +91,35 @@ class CustomLocationListener: LocationListener {
     private var minTimeBetweenUpdates: Long = 1000 // Default 1 second
     private var minDistanceBetweenUpdates: Float = 1f // Default 1 meter
 
+    // Voice announcement parameters
+    private var voiceAnnouncementInterval: Int = 1
+    private var lastAnnouncedKilometer: Int = 0
+    private var textToSpeech: TextToSpeech? = null
+    private var isTtsInitialized = false
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
         Log.d(TAG_WEBSOCKET, "CustomLocationListener created with startDateTime: $startDateTime")
+
+        // Initialize Text-to-Speech
+        initTextToSpeech()
+    }
+
+    private fun initTextToSpeech() {
+        textToSpeech = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                val result = textToSpeech?.setLanguage(Locale.getDefault())
+                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    Log.e(TAG_VOICE_ANNOUNCEMENT, "Language not supported for TTS")
+                } else {
+                    isTtsInitialized = true
+                    Log.d(TAG_VOICE_ANNOUNCEMENT, "TTS initialized successfully")
+                }
+            } else {
+                Log.e(TAG_VOICE_ANNOUNCEMENT, "TTS initialization failed with status: $status")
+            }
+        }
     }
 
     fun cleanup() {
@@ -105,6 +134,10 @@ class CustomLocationListener: LocationListener {
         } catch (e: Exception) {
             Log.e(TAG_WEBSOCKET, "Error unregistering network callback", e)
         }
+
+        // Shutdown TTS
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
 
         healthCheckJob?.cancel()
         job.cancel()
@@ -135,7 +168,10 @@ class CustomLocationListener: LocationListener {
         // Restart with new settings
         createLocationUpdates()
 
-        Log.d(TAG_WEBSOCKET, "Location settings reloaded: minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m")
+        Log.d(
+            TAG_WEBSOCKET,
+            "Location settings reloaded: minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m"
+        )
     }
 
     // Load sessionId from SharedPreferences
@@ -165,7 +201,8 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun loadSharedPreferences() {
-        val sharedPreferences = this.context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        val sharedPreferences =
+            this.context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
         firstname = sharedPreferences.getString("firstname", "") ?: ""
         lastname = sharedPreferences.getString("lastname", "") ?: ""
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
@@ -177,11 +214,24 @@ class CustomLocationListener: LocationListener {
         val minTimeSeconds = sharedPreferences.getInt("minTimeSeconds", 1)
         val minDistanceMeters = sharedPreferences.getInt("minDistanceMeters", 1)
 
+        // Load voice announcement interval
+        voiceAnnouncementInterval = sharedPreferences.getInt("voiceAnnouncementInterval", 1)
+
+        // Reset the last announced kilometer when loading settings
+        lastAnnouncedKilometer = 0
+
         // Convert to appropriate units
         minTimeBetweenUpdates = minTimeSeconds * 1000L
         minDistanceBetweenUpdates = minDistanceMeters.toFloat()
 
-        Log.d(TAG_WEBSOCKET, "Loaded location update settings: minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m")
+        Log.d(
+            TAG_WEBSOCKET,
+            "Loaded location update settings: minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m"
+        )
+        Log.d(
+            TAG_VOICE_ANNOUNCEMENT,
+            "Loaded voice announcement interval: $voiceAnnouncementInterval km"
+        )
     }
 
     private fun createLocationUpdates() {
@@ -206,7 +256,10 @@ class CustomLocationListener: LocationListener {
                 minDistanceBetweenUpdates,
                 this
             )
-            Log.d(TAG_WEBSOCKET, "Started location updates with minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m")
+            Log.d(
+                TAG_WEBSOCKET,
+                "Started location updates with minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m"
+            )
         }
     }
 
@@ -223,7 +276,10 @@ class CustomLocationListener: LocationListener {
             }
         }
 
-        Log.d(TAG_WEBSOCKET, "Attempting to connect to WebSocket server: ws://$websocketserver:8011/geotracker")
+        Log.d(
+            TAG_WEBSOCKET,
+            "Attempting to connect to WebSocket server: ws://$websocketserver:8011/geotracker"
+        )
 
         val client = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
@@ -300,13 +356,17 @@ class CustomLocationListener: LocationListener {
         }
 
         location?.let {
-            Log.d("CustomLocationListener", "Latitude: ${location.latitude} / Longitude: ${location.longitude}")
+            Log.d(
+                "CustomLocationListener",
+                "Latitude: ${location.latitude} / Longitude: ${location.longitude}"
+            )
 
             // Calculate distance only if speed is above threshold
             var distanceIncrement = 0.0
             if (checkSpeed(it.speed)) {
                 if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
-                    (oldLatitude != location.latitude || oldLongitude != location.longitude)) {
+                    (oldLatitude != location.latitude || oldLongitude != location.longitude)
+                ) {
                     Log.d("CustomLocationListener", "New coordinates detected...")
 
                     // Calculate distance increment
@@ -315,6 +375,9 @@ class CustomLocationListener: LocationListener {
                     )
                     coveredDistance += distanceIncrement
                     lap = calculateLap(distanceIncrement)
+
+                    // Check for distance milestone announcement
+                    checkDistanceMilestone()
                 }
             }
 
@@ -366,7 +429,50 @@ class CustomLocationListener: LocationListener {
         }
     }
 
-    private fun calculateCumulativeElevationGain(location: Location, startingAltitude: Double): Double {
+    /**
+     * Checks if the current distance has reached a milestone based on the voice announcement interval
+     * and makes a voice announcement if needed
+     */
+    private fun checkDistanceMilestone() {
+        if (voiceAnnouncementInterval <= 0 || !isTtsInitialized) return
+
+        // Convert total distance to kilometers
+        val totalDistanceKm = coveredDistance / 1000.0
+
+        // Calculate current milestone (how many intervals have passed)
+        val currentMilestone = (totalDistanceKm / voiceAnnouncementInterval).toInt()
+
+        // If we've reached a new milestone
+        if (currentMilestone > lastAnnouncedKilometer) {
+            lastAnnouncedKilometer = currentMilestone
+            val reachedDistance = currentMilestone * voiceAnnouncementInterval
+
+            // Announce the milestone
+            announceMessage("You've reached $reachedDistance kilometers")
+
+            Log.d(TAG_VOICE_ANNOUNCEMENT, "Distance milestone announced: $reachedDistance km")
+        }
+    }
+
+    /**
+     * Uses TextToSpeech to speak the given message
+     */
+    private fun announceMessage(message: String) {
+        if (!isTtsInitialized) return
+
+        val queueMode = TextToSpeech.QUEUE_FLUSH  // Interrupt any current TTS
+        textToSpeech?.speak(message, queueMode, null, "milestone_${System.currentTimeMillis()}")
+
+        // Also show a Toast message for visual feedback
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun calculateCumulativeElevationGain(
+        location: Location,
+        startingAltitude: Double
+    ): Double {
         val altitudeDifference = location.altitude - startingAltitude
         return altitudeDifference
     }
@@ -431,7 +537,12 @@ class CustomLocationListener: LocationListener {
     private fun calculateDistance(location: Location): Pair<Double, Double> {
         val distanceIncrement: Double
         if (oldLatitude != -999.0 && oldLongitude != -999.0) {
-            distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(oldLatitude, oldLongitude, location.latitude, location.longitude)
+            distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
+                oldLatitude,
+                oldLongitude,
+                location.latitude,
+                location.longitude
+            )
             coveredDistance += distanceIncrement
         } else {
             distanceIncrement = 0.0
@@ -525,7 +636,9 @@ class CustomLocationListener: LocationListener {
                 Log.d("WebSocketTest", "WebSocket connection opened")
 
                 // Send the test data as JSON
-                val gson = Gson()
+                val gson = GsonBuilder()
+                    .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
+                    .create()
                 val jsonData = gson.toJson(testMetrics)
 
                 val sent = webSocket.send(jsonData)
@@ -534,14 +647,16 @@ class CustomLocationListener: LocationListener {
 
                     // Show success toast on main thread
                     Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(context, "Test data sent to server", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Test data sent to server", Toast.LENGTH_SHORT)
+                            .show()
                     }
                 } else {
                     Log.e("WebSocketTest", "Failed to send test data")
 
                     // Show error toast on main thread
                     Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(context, "Failed to send test data", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Failed to send test data", Toast.LENGTH_SHORT)
+                            .show()
                     }
                 }
 
@@ -554,7 +669,11 @@ class CustomLocationListener: LocationListener {
 
                 // Show error toast on main thread
                 Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(context, "WebSocket connection error: ${t.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        context,
+                        "WebSocket connection error: ${t.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
         })
@@ -587,14 +706,17 @@ class CustomLocationListener: LocationListener {
                     numberOfSatellites = 12
                     usedNumberOfSatellites = 8
                 }
+
                 accuracy < 10 -> {
                     numberOfSatellites = 8
                     usedNumberOfSatellites = 5
                 }
+
                 accuracy < 20 -> {
                     numberOfSatellites = 6
                     usedNumberOfSatellites = 3
                 }
+
                 else -> {
                     numberOfSatellites = 4
                     usedNumberOfSatellites = 0
@@ -613,7 +735,10 @@ class CustomLocationListener: LocationListener {
                 }
             }
 
-            Log.d(TAG_WEBSOCKET, "Updated satellite info: $numberOfSatellites visible, $usedNumberOfSatellites used")
+            Log.d(
+                TAG_WEBSOCKET,
+                "Updated satellite info: $numberOfSatellites visible, $usedNumberOfSatellites used"
+            )
 
         } catch (e: Exception) {
             Log.e(TAG_WEBSOCKET, "Error estimating satellite info", e)
@@ -633,7 +758,10 @@ class CustomLocationListener: LocationListener {
                     // Check if we haven't received a message for too long
                     val currentTime = System.currentTimeMillis()
                     if (currentTime - lastMessageTime > WEBSOCKET_HEALTH_CHECK_INTERVAL * 2) {
-                        Log.w(TAG_WEBSOCKET, "WebSocket may be disconnected - no messages received recently")
+                        Log.w(
+                            TAG_WEBSOCKET,
+                            "WebSocket may be disconnected - no messages received recently"
+                        )
                         if (isWebSocketConnected) {
                             Log.d(TAG_WEBSOCKET, "Reconnecting due to inactivity...")
                             isWebSocketConnected = false
@@ -668,7 +796,10 @@ class CustomLocationListener: LocationListener {
             isReconnecting = true
             val delayMs = BASE_RECONNECT_DELAY_MS * (1 shl reconnectAttempts.coerceAtMost(10))
 
-            Log.d(TAG_WEBSOCKET, "Will attempt to reconnect in ${delayMs}ms (attempt #${reconnectAttempts + 1})")
+            Log.d(
+                TAG_WEBSOCKET,
+                "Will attempt to reconnect in ${delayMs}ms (attempt #${reconnectAttempts + 1})"
+            )
 
             coroutineScope.launch {
                 delay(delayMs)
@@ -680,14 +811,10 @@ class CustomLocationListener: LocationListener {
         }
     }
 
-    fun hasValidSession(): Boolean {
-        // Check if sessionId is valid and connection is active
-        return sessionId.isNotEmpty() && isWebSocketConnected
-    }
-
     private fun registerNetworkCallback() {
         try {
-            connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            connectivityManager =
+                context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val networkRequest = NetworkRequest.Builder()
@@ -722,7 +849,8 @@ class CustomLocationListener: LocationListener {
                 val intentFilter = IntentFilter(ConnectivityManager.CONNECTIVITY_ACTION)
                 context.registerReceiver(object : BroadcastReceiver() {
                     override fun onReceive(context: Context?, intent: Intent?) {
-                        val isConnected = connectivityManager?.activeNetworkInfo?.isConnected == true
+                        val isConnected =
+                            connectivityManager?.activeNetworkInfo?.isConnected == true
                         Log.d(TAG_WEBSOCKET, "Network connectivity changed: connected=$isConnected")
 
                         if (isConnected && !isWebSocketConnected) {
@@ -739,6 +867,38 @@ class CustomLocationListener: LocationListener {
         }
     }
 
+    fun hasValidSession(): Boolean {
+        // Check if sessionId is valid and connection is active
+        return sessionId.isNotEmpty() && isWebSocketConnected
+    }
+
+    /**
+     * Test the voice announcement system
+     * This can be called from outside to verify that TTS is working
+     */
+    fun testVoiceAnnouncement() {
+        if (!isTtsInitialized) {
+            // Try to initialize if not already done
+            initTextToSpeech()
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, "Initializing Text-to-Speech...", Toast.LENGTH_SHORT).show()
+            }
+
+            // Wait a moment for initialization
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isTtsInitialized) {
+                    announceMessage("Voice announcement system is working. You'll receive updates every $voiceAnnouncementInterval kilometers.")
+                } else {
+                    Handler(Looper.getMainLooper()).post {
+                        Toast.makeText(context, "Text-to-Speech initialization failed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }, 1000)
+        } else {
+            announceMessage("Voice announcement system is working. You'll receive updates every $voiceAnnouncementInterval kilometers.")
+        }
+    }
+
     companion object {
         // These static variables are no longer used directly
         private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
@@ -746,5 +906,6 @@ class CustomLocationListener: LocationListener {
 
         private const val MAX_RECONNECT_ATTEMPTS_BEFORE_RESET = 10
         private const val WEBSOCKET_HEALTH_CHECK_INTERVAL = 30_000L // 30 seconds
+        private const val TAG_VOICE_ANNOUNCEMENT = "Voice message" // 30 seconds
     }
 }

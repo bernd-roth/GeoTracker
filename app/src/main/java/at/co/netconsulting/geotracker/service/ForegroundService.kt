@@ -483,6 +483,7 @@ class ForegroundService : Service() {
                         resetValues()
                     }
                     if (speed >= MIN_SPEED_THRESHOLD) {
+                        //CustomLocationListener(applicationContext).testVoiceAnnouncement()
                         showStopWatch()
                     } else {
                         showLazyStopWatch()
