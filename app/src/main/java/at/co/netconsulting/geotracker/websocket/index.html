@@ -337,6 +337,207 @@
         </div>
     </div>
 </div>
+
+<div id="sessionManagerPanel" class="control-panel">
+    <div class="panel-header">
+        <h3>Session Manager</h3>
+        <button id="toggleSessionPanel" class="panel-toggle" onclick="toggleSessionPanel()">-</button>
+    </div>
+    <div class="panel-content">
+        <div class="session-list-header">
+            <h4>Available Sessions</h4>
+            <div class="session-controls">
+                <button id="refreshSessionsBtn" onclick="requestSessionList()" title="Refresh Sessions">↻</button>
+            </div>
+        </div>
+        <div id="sessionsList" class="sessions-container">
+            <p class="no-sessions">No active sessions found.</p>
+        </div>
+    </div>
+</div>
+
+<style>
+    .control-panel {
+        position: absolute;
+        top: 110px;
+        left: 10px;
+        z-index: 1000;
+        background-color: white;
+        border-radius: 5px;
+        box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+        width: 280px;
+        font-family: Arial, sans-serif;
+        overflow: hidden;
+    }
+
+    .panel-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 12px;
+        background-color: #f3f3f3;
+        border-bottom: 1px solid #ddd;
+    }
+
+    .panel-header h3 {
+        margin: 0;
+        font-size: 14px;
+        color: #333;
+    }
+
+    .panel-toggle {
+        background: none;
+        border: none;
+        font-size: 16px;
+        cursor: pointer;
+        color: #666;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .panel-content {
+        max-height: 400px;
+        overflow-y: auto;
+        padding: 10px;
+    }
+
+    .sessions-container {
+        max-height: 300px;
+        overflow-y: auto;
+    }
+
+    .session-item {
+        padding: 8px 10px;
+        border-radius: 4px;
+        margin-bottom: 5px;
+        background-color: #f5f5f5;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        cursor: pointer;
+        transition: background-color 0.2s;
+    }
+
+    .session-item:hover {
+        background-color: #e9e9e9;
+    }
+
+    .session-item.active {
+        background-color: #e3f2fd;
+        border-left: 3px solid #2196F3;
+    }
+
+    .session-item-info {
+        flex: 1;
+    }
+
+    .session-item-name {
+        font-weight: bold;
+        font-size: 12px;
+        color: #333;
+    }
+
+    .session-item-time {
+        font-size: 10px;
+        color: #666;
+    }
+
+    .session-actions {
+        display: flex;
+        gap: 5px;
+    }
+
+    .session-action-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 14px;
+        color: #666;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 3px;
+    }
+
+    .session-action-btn:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .session-action-btn.delete {
+        color: #F44336;
+    }
+
+    .session-list-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+    }
+
+    .session-list-header h4 {
+        margin: 0;
+        font-size: 13px;
+        color: #666;
+    }
+
+    .no-sessions {
+        font-size: 12px;
+        color: #999;
+        text-align: center;
+        padding: 20px 0;
+    }
+
+    .confirm-delete {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background-color: white;
+        padding: 20px;
+        border-radius: 5px;
+        box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+        z-index: 2001;
+        text-align: center;
+        width: 300px;
+    }
+
+    .confirm-delete h3 {
+        margin-top: 0;
+    }
+
+    .confirm-delete p {
+        margin-bottom: 20px;
+    }
+
+    .confirm-buttons {
+        display: flex;
+        justify-content: center;
+        gap: 10px;
+    }
+
+    .confirm-btn {
+        padding: 8px 16px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+    }
+
+    .confirm-btn.cancel {
+        background-color: #f5f5f5;
+        color: #333;
+    }
+
+    .confirm-btn.delete {
+        background-color: #F44336;
+        color: white;
+    }
+</style>
+
 <div id="map"></div>
 <div class="charts-container">
     <div id="altitudeChartContainer">
@@ -383,6 +584,8 @@
     let isProcessingBatch = false;
     let statsVisible = true; // Track the visibility state of stat boxes
     let sessionPersonNames = {};
+    let availableSessions = [];
+    let sessionPanelVisible = true;
 
     // Debug variables
     let debugMessages = [];
@@ -519,101 +722,139 @@
 
     function handleLegendClick(e, legendItem, legend) {
         const index = legendItem.datasetIndex;
-        const sessionId = legend.chart.data.datasets[index].label;
+        const displayId = legend.chart.data.datasets[index].label;
         const isVisible = legend.chart.isDatasetVisible(index);
+
+        // Get the actual sessionId from the displayId (which might include the person name)
+        const sessionId = extractSessionIdFromDisplayId(displayId);
+
+        addDebugMessage(`Toggle visibility from legend click: ${displayId} (Session ID: ${sessionId})`, 'ui');
 
         // Toggle visibility in both charts
         [altitudeChart, speedChart].forEach(chart => {
-            const datasetIndex = chart.data.datasets.findIndex(ds => ds.label === sessionId);
-            if (datasetIndex !== -1) {
-                chart.setDatasetVisibility(datasetIndex, !isVisible);
-                chart.update();
-            }
+            chart.data.datasets.forEach((dataset, i) => {
+                if (dataset.label === displayId) {
+                    chart.setDatasetVisibility(i, !isVisible);
+                }
+            });
+            chart.update();
         });
 
         // Toggle map elements visibility
         toggleMapElementsVisibility(sessionId, !isVisible);
     }
 
+    // Helper function to extract actual session ID from display ID
+    function extractSessionIdFromDisplayId(displayId) {
+        // If the displayId contains an underscore, it's likely in the format "PersonName_sessionId"
+        if (displayId.includes('_')) {
+            // Get the part after the first underscore
+            return displayId.split('_').slice(1).join('_');
+        }
+        // Otherwise, it's just the session ID
+        return displayId;
+    }
+
     function toggleMapElementsVisibility(sessionId, visible) {
-        // Extract the actual sessionId from the displayId if necessary
-        const actualSessionId = sessionId.includes('_') ? sessionId.split('_').pop() : sessionId;
+        addDebugMessage(`Toggling map visibility for session ${sessionId} to ${visible ? 'visible' : 'hidden'}`, 'map');
 
         // Toggle polyline
-        if (polylines[actualSessionId]) {
+        if (polylines[sessionId]) {
             if (visible) {
-                if (!map.hasLayer(polylines[actualSessionId])) {
-                    map.addLayer(polylines[actualSessionId]);
+                if (!map.hasLayer(polylines[sessionId])) {
+                    map.addLayer(polylines[sessionId]);
                 }
             } else {
-                if (map.hasLayer(polylines[actualSessionId])) {
-                    map.removeLayer(polylines[actualSessionId]);
+                if (map.hasLayer(polylines[sessionId])) {
+                    map.removeLayer(polylines[sessionId]);
                 }
             }
+        } else {
+            addDebugMessage(`No polyline found for session ${sessionId}`, 'warning');
         }
 
+        // Toggle markers
         [startMarkers, endMarkers].forEach(markers => {
-            if (markers[actualSessionId]) {
+            if (markers[sessionId]) {
                 if (visible) {
-                    if (!map.hasLayer(markers[actualSessionId])) {
-                        map.addLayer(markers[actualSessionId]);
+                    if (!map.hasLayer(markers[sessionId])) {
+                        map.addLayer(markers[sessionId]);
                     }
                 } else {
-                    if (map.hasLayer(markers[actualSessionId])) {
-                        map.removeLayer(markers[actualSessionId]);
+                    if (map.hasLayer(markers[sessionId])) {
+                        map.removeLayer(markers[sessionId]);
                     }
                 }
             }
         });
 
-        // Use the container ID
-        const speedContainer = document.getElementById(`speed-container-${actualSessionId}`);
+        // Toggle speed display container
+        const speedContainer = document.getElementById(`speed-container-${sessionId}`);
         if (speedContainer) {
             speedContainer.style.display = visible ? 'block' : 'none';
         }
     }
 
-    function connectToWebSocket() {
-        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${window.location.host}/geotracker`;
+function connectToWebSocket() {
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/geotracker`;
 
-        websocket = new WebSocket(wsUrl);
+    websocket = new WebSocket(wsUrl);
 
-        websocket.onopen = () => {
-            console.log('Connected to WebSocket server');
-            addDebugMessage('WebSocket connection established', 'connection');
-        };
+    websocket.onopen = () => {
+        console.log('Connected to WebSocket server');
+        addDebugMessage('WebSocket connection established', 'connection');
 
-        websocket.onmessage = (event) => {
-            const message = JSON.parse(event.data);
+        // Request session list on connect
+        requestSessionList();
+    };
 
-            // Add to debug log first
-            addDebugMessage(JSON.stringify(message, null, 2), message.type);
+    websocket.onmessage = (event) => {
+        const message = JSON.parse(event.data);
 
-            switch (message.type) {
-                case 'history_batch':
-                    handleHistoryBatch(message.points);
-                    break;
-                case 'history_complete':
-                    finalizeBatchProcessing();
-                    break;
-                case 'update':
-                    handlePoint(message.point);
-                    break;
-            }
-        };
+        // Add to debug log first
+        addDebugMessage(JSON.stringify(message, null, 2), message.type);
 
-        websocket.onclose = () => {
-            console.log('WebSocket connection closed');
-            addDebugMessage('WebSocket connection closed', 'connection');
-            setTimeout(connectToWebSocket, 5000); // Reconnect after 5 seconds
-        };
+        switch (message.type) {
+            case 'history_batch':
+                handleHistoryBatch(message.points);
+                break;
+            case 'history_complete':
+                finalizeBatchProcessing();
+                break;
+            case 'update':
+                handlePoint(message.point);
+                break;
+            case 'session_list':
+                handleSessionList(message.sessions);
+                break;
+            case 'session_deleted':
+                handleSessionDeleted(message.sessionId);
+                break;
+            case 'delete_response':
+                if (message.success) {
+                    addDebugMessage(`Server confirmed deletion of session ${message.sessionId}`, 'system');
+                    showNotification(`Session ${message.sessionId} deleted successfully`, 'info');
+                } else {
+                    const reason = message.reason || 'Unknown error';
+                    addDebugMessage(`Server failed to delete session ${message.sessionId}: ${reason}`, 'error');
+                    showNotification(`Cannot delete session: ${reason}`, 'warning');
+                }
+                break;
+	}
+    };
 
-        websocket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            addDebugMessage('WebSocket error: ' + error, 'error');
-        };
-    }
+    websocket.onclose = () => {
+        console.log('WebSocket connection closed');
+        addDebugMessage('WebSocket connection closed', 'connection');
+        setTimeout(connectToWebSocket, 5000); // Reconnect after 5 seconds
+    };
+
+    websocket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        addDebugMessage('WebSocket error: ' + error, 'error');
+    };
+}
 
     function handleHistoryBatch(points) {
         if (!points || points.length === 0) return;
@@ -1504,6 +1745,347 @@
             addDebugMessage('Debug logging resumed', 'system');
         }
     }
+
+    function toggleSessionPanel() {
+        const panel = document.getElementById('sessionManagerPanel');
+        const content = panel.querySelector('.panel-content');
+        const toggleBtn = document.getElementById('toggleSessionPanel');
+
+        if (sessionPanelVisible) {
+            content.style.display = 'none';
+            toggleBtn.textContent = '+';
+        } else {
+            content.style.display = 'block';
+            toggleBtn.textContent = '-';
+        }
+
+        sessionPanelVisible = !sessionPanelVisible;
+    }
+
+    // Request session list from server
+    function requestSessionList() {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(JSON.stringify({
+                type: 'request_sessions'
+            }));
+
+            addDebugMessage('Requested session list from server', 'system');
+        } else {
+            addDebugMessage('WebSocket not connected, cannot request sessions', 'error');
+        }
+    }
+
+function handleSessionList(sessions) {
+    console.log("Raw sessions data:", sessions);
+    addDebugMessage(`Raw sessions data: ${JSON.stringify(sessions)}`, 'debug');
+
+    if (!Array.isArray(sessions)) {
+        addDebugMessage('Sessions data not in expected format', 'error');
+        return;
+    }
+
+    availableSessions = sessions;
+    updateSessionList();
+
+    addDebugMessage(`Processed ${sessions.length} sessions`, 'system');
+}
+
+    // Update the session list UI
+    function updateSessionList() {
+        const sessionsList = document.getElementById('sessionsList');
+
+        if (!availableSessions || availableSessions.length === 0) {
+            sessionsList.innerHTML = '<p class="no-sessions">No sessions found.</p>';
+            return;
+        }
+
+        let html = '';
+
+        availableSessions.forEach(session => {
+            const sessionId = session.sessionId;
+            const isActive = session.isActive;
+
+            const parsedSession = parseSessionId(sessionId);
+            const name = parsedSession.name;
+            const time = parsedSession.formattedTime || 'Unknown time';
+            const color = getColorForUser(sessionId);
+
+            html += `
+                <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${sessionId}">
+                    <div class="session-item-info">
+                        <div class="session-item-name">
+                            ${name}
+                            ${isActive ? '<span class="active-badge" title="Active Session">⚡</span>' : ''}
+                        </div>
+                        <div class="session-item-time">${time}</div>
+                    </div>
+                    <div class="session-actions">
+                        <button class="session-action-btn toggle-visibility"
+                                onclick="toggleSessionVisibility('${sessionId}')"
+                                title="Toggle Visibility">
+                            👁
+                        </button>
+                        <button class="session-action-btn delete"
+                                onclick="confirmDeleteSession('${sessionId}')"
+                                title="Delete Session"
+                                ${isActive ? 'disabled' : ''}>
+                            🗑
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        sessionsList.innerHTML = html;
+    }
+
+    // Toggle session visibility on map and charts
+    function toggleSessionVisibility(sessionId) {
+        addDebugMessage(`Toggle visibility requested for session ${sessionId}`, 'system');
+
+        // First, find if there's a person name associated with this session
+        const personName = sessionPersonNames[sessionId] || "";
+        const displayId = createDisplayId(sessionId, personName);
+
+        // Find all datasets in charts that match this session or display ID
+        let currentVisibility = null;
+
+        // Check altitude chart first
+        const altDatasets = altitudeChart.data.datasets;
+        for (let i = 0; i < altDatasets.length; i++) {
+            if (altDatasets[i].label === displayId ||
+                altDatasets[i].label.includes(sessionId)) {
+                // Set initial visibility based on first found dataset
+                if (currentVisibility === null) {
+                    currentVisibility = altitudeChart.isDatasetVisible(i);
+                }
+                // Toggle visibility
+                altitudeChart.setDatasetVisibility(i, !currentVisibility);
+            }
+        }
+
+        // Then check speed chart
+        const speedDatasets = speedChart.data.datasets;
+        for (let i = 0; i < speedDatasets.length; i++) {
+            if (speedDatasets[i].label === displayId ||
+                speedDatasets[i].label.includes(sessionId)) {
+                // Toggle visibility (using the same as altitude chart)
+                speedChart.setDatasetVisibility(i, !currentVisibility);
+            }
+        }
+
+        // Update charts
+        altitudeChart.update();
+        speedChart.update();
+
+        // Toggle map elements visibility
+        toggleMapElementsVisibility(sessionId, !currentVisibility);
+
+        // If we didn't find any datasets, default to showing
+        if (currentVisibility === null) {
+            toggleMapElementsVisibility(sessionId, true);
+            addDebugMessage(`No datasets found for session ${sessionId}, defaulting to visible`, 'warning');
+        } else {
+            addDebugMessage(`Toggled visibility of session ${sessionId} to ${!currentVisibility ? 'visible' : 'hidden'}`, 'system');
+        }
+
+        // Update the eye button in the session list
+        updateVisibilityButtonAppearance(sessionId, !currentVisibility);
+    }
+
+    // Optional function to update the appearance of the visibility toggle button
+    function updateVisibilityButtonAppearance(sessionId, isVisible) {
+        // Find the button in the session list
+        const sessionItem = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
+        if (!sessionItem) return;
+
+        const visibilityBtn = sessionItem.querySelector('.toggle-visibility');
+        if (visibilityBtn) {
+            // Update the eye icon or style to indicate visibility state
+            visibilityBtn.innerHTML = isVisible ? '👁' : '👁‍🗨';
+            visibilityBtn.title = isVisible ? 'Hide' : 'Show';
+        }
+    }
+
+    // Show confirmation dialog before deleting a session
+    function confirmDeleteSession(sessionId) {
+        // Check if session is active
+        const session = availableSessions.find(s => s.sessionId === sessionId);
+        if (session && session.isActive) {
+            showNotification('Cannot delete an active session. Wait for the session to complete first.', 'warning');
+            addDebugMessage(`Attempted to delete active session: ${sessionId}`, 'warning');
+            return;
+        }
+
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.id = 'confirmOverlay';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        overlay.style.zIndex = '2000';
+
+        // Create confirmation dialog
+        const dialog = document.createElement('div');
+        dialog.className = 'confirm-delete';
+
+        const parsedSession = parseSessionId(sessionId);
+
+        dialog.innerHTML = `
+            <h3>Delete Session</h3>
+            <p>Are you sure you want to delete "${parsedSession.name}" session?</p>
+            <p><strong>This action cannot be undone.</strong></p>
+            <div class="confirm-buttons">
+                <button class="confirm-btn cancel" onclick="closeConfirmDialog()">Cancel</button>
+                <button class="confirm-btn delete" onclick="deleteSession('${sessionId}')">Delete</button>
+            </div>
+        `;
+
+        // Add to document
+        document.body.appendChild(overlay);
+        document.body.appendChild(dialog);
+
+        addDebugMessage(`Showing delete confirmation for session ${sessionId}`, 'system');
+    }
+
+    // Show notification message
+    function showNotification(message, type = 'info') {
+        const notification = document.createElement('div');
+        notification.className = `notification ${type}`;
+        notification.innerHTML = message;
+
+        // Style the notification
+        Object.assign(notification.style, {
+            position: 'fixed',
+            top: '20px',
+            right: '20px',
+            padding: '12px 20px',
+            backgroundColor: type === 'warning' ? '#ff9800' : '#4CAF50',
+            color: 'white',
+            borderRadius: '4px',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+            zIndex: '3000',
+            fontFamily: 'Arial, sans-serif',
+            fontSize: '14px',
+            maxWidth: '300px'
+        });
+
+        document.body.appendChild(notification);
+
+        // Remove after 3 seconds
+        setTimeout(() => {
+            notification.style.opacity = '0';
+            notification.style.transition = 'opacity 0.5s';
+            setTimeout(() => {
+                document.body.removeChild(notification);
+            }, 500);
+        }, 3000);
+    }
+
+    // Close the confirmation dialog
+    function closeConfirmDialog() {
+        const overlay = document.getElementById('confirmOverlay');
+        const dialog = document.querySelector('.confirm-delete');
+
+        if (overlay) overlay.remove();
+        if (dialog) dialog.remove();
+    }
+
+    // Send delete request to server
+	function deleteSession(sessionId) {
+		if (websocket && websocket.readyState === WebSocket.OPEN) {
+			const deleteRequest = {
+				type: 'delete_session',
+				sessionId: sessionId
+			};
+
+			console.log("Sending delete request:", deleteRequest);
+			addDebugMessage(`Sending delete request: ${JSON.stringify(deleteRequest)}`, 'system');
+
+			websocket.send(JSON.stringify(deleteRequest));
+		} else {
+			console.error("WebSocket not connected");
+			addDebugMessage('WebSocket not connected, cannot delete session', 'error');
+			showNotification('Cannot delete: Connection lost', 'warning');
+		}
+
+		closeConfirmDialog();
+	}
+
+    // Handle session deletion response from server
+	function handleSessionDeleted(sessionId) {
+		// Add debug logging
+		addDebugMessage(`Handling deletion of session ${sessionId}`, 'system');
+
+		// Remove from available sessions list - fix the filter
+		availableSessions = availableSessions.filter(session => session.sessionId !== sessionId);
+
+		// Remove from trackPoints
+		if (trackPoints[sessionId]) {
+			delete trackPoints[sessionId];
+		}
+
+		// Remove from speedHistory
+		if (speedHistory[sessionId]) {
+			delete speedHistory[sessionId];
+		}
+
+		// Remove from charts - the key fix is here!
+		// Use includes() instead of exact match to handle cases where the label includes the person name
+		const altDatasets = altitudeChart.data.datasets;
+		for (let i = altDatasets.length - 1; i >= 0; i--) {
+			if (altDatasets[i].label.includes(sessionId)) {
+				addDebugMessage(`Removing altitude dataset: ${altDatasets[i].label}`, 'system');
+				altDatasets.splice(i, 1);
+			}
+		}
+		altitudeChart.update();
+
+		const speedDatasets = speedChart.data.datasets;
+		for (let i = speedDatasets.length - 1; i >= 0; i--) {
+			if (speedDatasets[i].label.includes(sessionId)) {
+				addDebugMessage(`Removing speed dataset: ${speedDatasets[i].label}`, 'system');
+				speedDatasets.splice(i, 1);
+			}
+		}
+		speedChart.update();
+
+		// Remove from map
+		if (polylines[sessionId]) {
+			map.removeLayer(polylines[sessionId]);
+			delete polylines[sessionId];
+		}
+
+		if (startMarkers[sessionId]) {
+			map.removeLayer(startMarkers[sessionId]);
+			delete startMarkers[sessionId];
+		}
+
+		if (endMarkers[sessionId]) {
+			map.removeLayer(endMarkers[sessionId]);
+			delete endMarkers[sessionId];
+		}
+
+		// Remove from speed display - fix the container ID
+		const speedContainer = document.getElementById(`speed-container-${sessionId}`);
+		if (speedContainer) {
+			speedContainer.remove();
+		}
+
+		// Clean up session name mapping
+		if (sessionPersonNames[sessionId]) {
+			delete sessionPersonNames[sessionId];
+		}
+
+		// Update session list UI
+		updateSessionList();
+
+		addDebugMessage(`Session ${sessionId} deleted and removed from all displays`, 'system');
+		showNotification(`Session ${sessionId} deleted successfully`, 'info');
+	}
 
     function exportDebugLog() {
         const content = debugMessages.map(entry =>
