@@ -901,7 +901,7 @@ class CustomLocationListener: LocationListener {
 
     companion object {
         // These static variables are no longer used directly
-        private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
+        private const val MIN_SPEED_THRESHOLD: Double = 2.0 // km/h
         const val TAG_WEBSOCKET: String = "CustomLocationListener: WebSocketService"
 
         private const val MAX_RECONNECT_ATTEMPTS_BEFORE_RESET = 10

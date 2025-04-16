@@ -1,13 +1,16 @@
 package at.co.netconsulting.geotracker.composables
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -20,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import at.co.netconsulting.geotracker.tools.Tools
@@ -32,7 +36,8 @@ fun RecordingDialog(
         eventDate: String,
         artOfSport: String,
         comment: String,
-        clothing: String
+        clothing: String,
+        showPath: Boolean
     ) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -41,6 +46,7 @@ fun RecordingDialog(
     var artOfSport by remember { mutableStateOf("Running") }
     var comment by remember { mutableStateOf("") }
     var clothing by remember { mutableStateOf("") }
+    var showPath by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -119,11 +125,28 @@ fun RecordingDialog(
                     label = { Text("Clothing/Equipment") },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Show Path Checkbox
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Checkbox(
+                        checked = showPath,
+                        onCheckedChange = { showPath = it }
+                    )
+                    Text(
+                        text = "Display covered path on map",
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
             }
         },
         confirmButton = {
             Button(onClick = {
-                onSave(eventName, eventDate, artOfSport, comment, clothing)
+                onSave(eventName, eventDate, artOfSport, comment, clothing, showPath)
             }) {
                 Text("Start Recording")
             }
