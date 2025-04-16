@@ -103,6 +103,9 @@ fun EventsScreen(
     var activeEventId by remember { mutableStateOf(-1) }
     var isRecording by remember { mutableStateOf(false) }
 
+    // Add a state to trigger stats refresh
+    var statsRefreshTrigger by remember { mutableStateOf(0) }
+
     // Refresh the state on recomposition
     LaunchedEffect(Unit) {
         // Launch effect to fetch shared preferences values
@@ -181,6 +184,17 @@ fun EventsScreen(
                             if (event.event.eventId != activeEventId || !isRecording) {
                                 coroutineScope.launch {
                                     eventsViewModel.deleteEvent(event.event.eventId)
+
+                                    // Increment the refresh trigger to force stats update
+                                    statsRefreshTrigger++
+
+                                    // Show feedback to the user
+                                    Toast.makeText(
+                                        context,
+                                        "Event deleted successfully",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+
                                     showDeleteDialog = false
                                     eventToDelete = null
                                 }
@@ -259,6 +273,7 @@ fun EventsScreen(
         )
 
         // Add the Yearly Stats Overview between search and event list with animation
+        // Pass the refresh trigger to force recomposition when an event is deleted
         AnimatedVisibility(
             visible = showYearlyStats,
             enter = fadeIn() + expandVertically(),
@@ -267,6 +282,7 @@ fun EventsScreen(
             YearlyStatsOverview(
                 modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
                 eventsViewModel = eventsViewModel,
+                refreshTrigger = statsRefreshTrigger, // Pass the refresh trigger
                 onWeekSelected = { year, week ->
                     // Filter events for the selected week
                     coroutineScope.launch {
@@ -293,7 +309,7 @@ fun EventsScreen(
                                 String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
 
                         // Set filter in the ViewModel
-                        eventsViewModel.filterByDateRange(startDateStr, endDateStr)
+                        eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
                     }
                 }
             )

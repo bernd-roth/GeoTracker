@@ -51,6 +51,7 @@ import java.util.Calendar
 fun YearlyStatsOverview(
     modifier: Modifier = Modifier,
     eventsViewModel: EventsViewModel,
+    refreshTrigger: Int = 0, // Add refresh trigger parameter with default value
     onWeekSelected: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
@@ -64,8 +65,9 @@ fun YearlyStatsOverview(
     // Current year for highlighting
     val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
 
-    // Load yearly statistics
-    LaunchedEffect(Unit) {
+    // Load yearly statistics - now also depends on refreshTrigger
+    LaunchedEffect(refreshTrigger) {
+        isLoading = true
         coroutineScope.launch {
             try {
                 // Get all events and their metrics
