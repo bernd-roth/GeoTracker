@@ -104,6 +104,11 @@ class ForegroundService : Service() {
 
     private var isServiceStarted = false
 
+    //restoring destroyed session
+    private var isRestoredSession = false
+    private var lastKnownPosition: Pair<Double, Double>? = null
+    private var startDateTime: LocalDateTime = LocalDateTime.now()
+
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
 
@@ -460,19 +465,37 @@ class ForegroundService : Service() {
             try {
                 isServiceStarted = true
 
-                // Create the location listener
+                // Create the location listener with restored session context
                 customLocationListener = CustomLocationListener(applicationContext).also {
-                    it.startDateTime = LocalDateTime.now()
+                    // Use the restored start time if this is a restored session
+                    if (isRestoredSession) {
+                        it.startDateTime = startDateTime
+                        Log.d(TAG, "Restored session startDateTime: $startDateTime")
+                    } else {
+                        startDateTime = LocalDateTime.now()
+                        it.startDateTime = startDateTime
+                    }
+
                     // Make sure we wait until sessionId is created and saved
                     delay(100) // Short delay to ensure sessionId is saved to SharedPreferences
                     it.startListener()
+
+                    // If we have restored position and distance, initialize the location listener with them
+                    if (isRestoredSession && distance > 0) {
+                        it.resumeFromSavedState(distance, lastKnownPosition)
+                        Log.d(TAG, "Resumed from saved state: distance=$distance, position=$lastKnownPosition")
+                    }
                 }
 
                 val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
-                eventId = createNewEvent(database, userId)
 
-                // Complete the deferred with the new event ID
-                eventIdDeferred.complete(eventId)
+                // Only create a new event if this is not a restored session with valid eventId
+                if (isRestoredSession && eventId > 0) {
+                    eventIdDeferred.complete(eventId)
+                } else {
+                    eventId = createNewEvent(database, userId)
+                    eventIdDeferred.complete(eventId)
+                }
 
                 // Start weather updates right away with aggressive polling
                 startWeatherUpdates()
@@ -483,7 +506,6 @@ class ForegroundService : Service() {
                         resetValues()
                     }
                     if (speed >= MIN_SPEED_THRESHOLD) {
-                        //CustomLocationListener(applicationContext).testVoiceAnnouncement()
                         showStopWatch()
                     } else {
                         showLazyStopWatch()
@@ -685,15 +707,38 @@ class ForegroundService : Service() {
                 Log.d(TAG, "Service is being stopped intentionally")
             }
 
+            // Check if this is a restored session
+            isRestoredSession = intent?.getBooleanExtra("is_restored_session", false) ?: false
+
             // Check if we're restarting after crash
             val prefs = getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
             val wasRunning = prefs.getBoolean("was_running", false)
 
-            if (wasRunning) {
+            if (wasRunning || isRestoredSession) {
                 // Restore state
                 eventId = prefs.getInt("event_id", -1)
                 sessionId = prefs.getString("session_id", "") ?: ""
-                Log.d(TAG, "Restoring service state: eventId=$eventId, sessionId=$sessionId")
+
+                // Restore position and distance data
+                val lastLat = prefs.getFloat("last_latitude", -999f).toDouble()
+                val lastLng = prefs.getFloat("last_longitude", -999f).toDouble()
+                if (lastLat != -999.0 && lastLng != -999.0) {
+                    lastKnownPosition = Pair(lastLat, lastLng)
+                }
+                // Fix: Use the class property 'distance' instead of 'coveredDistance'
+                distance = prefs.getFloat("covered_distance", 0f).toDouble()
+                lastUpdateTimestamp = prefs.getLong("last_timestamp", currentTimeMillis())
+
+                // Restore start time if available
+                val storedStartTime = prefs.getLong("service_start_time", 0)
+                if (storedStartTime > 0) {
+                    startDateTime = LocalDateTime.ofEpochSecond(
+                        storedStartTime, 0, java.time.ZoneOffset.UTC
+                    )
+                }
+
+                Log.d(TAG, "Restoring service state: eventId=$eventId, sessionId=$sessionId, " +
+                        "distance=$distance, startTime=$startDateTime")
 
                 // Clear restart flag
                 prefs.edit().putBoolean("was_running", false).apply()
@@ -709,7 +754,16 @@ class ForegroundService : Service() {
             Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport")
 
             val eventIdDeferred = CompletableDeferred<Int>()
-            createBackgroundCoroutine(eventIdDeferred)
+
+            // Only create a new event if this is not a restored session with a valid eventId
+            if (isRestoredSession && eventId > 0) {
+                // Use existing event ID
+                eventIdDeferred.complete(eventId)
+                Log.d(TAG, "Using existing event ID for restored session: $eventId")
+            } else {
+                // Create new event
+                createBackgroundCoroutine(eventIdDeferred)
+            }
 
             serviceScope.launch {
                 try {
@@ -722,18 +776,22 @@ class ForegroundService : Service() {
                         .putInt("active_event_id", currentEventId)
                         .apply()
 
-                    Log.d(TAG, "Event ID created and saved: $currentEventId")
+                    // Also ensure we set the recording state to true
+                    getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("is_recording", true)
+                        .apply()
+
+                    Log.d(TAG, "Event ID saved: $currentEventId, recording state set to true")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to create event ID", e)
                 }
             }
-
             acquireWakeLock()
             startForeground(1, notificationBuilder.build())
         } catch (e: Exception) {
             Log.e(TAG, "Error in onStartCommand", e)
         }
-
         return START_STICKY
     }
 
@@ -812,12 +870,17 @@ class ForegroundService : Service() {
         Log.d(TAG, "onTaskRemoved called, attempting to schedule restart")
 
         try {
-            // Save current state to survive restart
+            // Save current state to survive restart - more comprehensive
             val prefs = getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("was_running", isServiceStarted)
                 .putInt("event_id", eventId)
                 .putString("session_id", sessionId)
+                .putFloat("last_latitude", latitude.toFloat())
+                .putFloat("last_longitude", longitude.toFloat())
+                .putFloat("covered_distance", distance.toFloat()) // Make sure to use distance here
+                .putLong("last_timestamp", lastUpdateTimestamp)
+                .putLong("service_start_time", startDateTime.toEpochSecond(java.time.ZoneOffset.UTC))
                 .apply()
 
             // Create intent with all necessary extras from the original intent
@@ -827,6 +890,7 @@ class ForegroundService : Service() {
                 putExtra("artOfSport", artofsport)
                 putExtra("comment", comment)
                 putExtra("clothing", clothing)
+                putExtra("is_restored_session", true)
             }
 
             // Create pending intent with FLAG_IMMUTABLE for security
@@ -855,8 +919,7 @@ class ForegroundService : Service() {
                     pendingIntent
                 )
             }
-
-            Log.d(TAG, "Service restart scheduled")
+            Log.d(TAG, "Service restart scheduled with full state preservation")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to schedule service restart", e)
         }

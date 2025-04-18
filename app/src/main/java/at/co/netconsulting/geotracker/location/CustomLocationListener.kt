@@ -952,6 +952,54 @@ class CustomLocationListener: LocationListener {
         }
     }
 
+    /**
+     * Resume tracking from a saved state (after service restart)
+     * @param savedDistance The previously covered distance
+     * @param lastPosition The last known position (latitude, longitude)
+     */
+    fun resumeFromSavedState(savedDistance: Double, lastPosition: Pair<Double, Double>?) {
+        // Restore covered distance
+        coveredDistance = savedDistance
+        Log.d(TAG_WEBSOCKET, "Resumed with saved distance: $coveredDistance meters")
+
+        // Restore position if available
+        lastPosition?.let { (lat, lng) ->
+            if (lat != -999.0 && lng != -999.0) {
+                oldLatitude = lat
+                oldLongitude = lng
+                Log.d(TAG_WEBSOCKET, "Resumed with saved position: lat=$lat, lon=$lng")
+            }
+        }
+
+        // Reset lap counter based on covered distance
+        lap = (coveredDistance / 1000).toInt()
+        lapCounter = coveredDistance % 1000
+
+        // Create a metrics object to broadcast the resumed state
+        val metrics = Metrics(
+            latitude = oldLatitude,
+            longitude = oldLongitude,
+            speed = 0f,  // Start with 0 speed
+            speedAccuracyMetersPerSecond = 0f,
+            altitude = 0.0,  // Will be updated with next location update
+            horizontalAccuracy = 0f,
+            verticalAccuracyMeters = 0f,
+            coveredDistance = coveredDistance,
+            lap = lap,
+            startDateTime = startDateTime,
+            averageSpeed = 0.0,  // Will be recalculated with next update
+            maxSpeed = 0.0,
+            movingAverageSpeed = 0.0,
+            sessionId = sessionId,
+            person = firstname,
+            numberOfSatellites = 0,
+            usedNumberOfSatellites = 0,
+            satellites = 0
+        )
+        // Broadcast the current state
+        EventBus.getDefault().post(metrics)
+    }
+
     companion object {
         // These static variables are no longer used directly
         private const val MIN_SPEED_THRESHOLD: Double = 2.0 // km/h

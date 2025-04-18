@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker
 import android.Manifest
 import android.app.ActivityManager
 import android.app.AlertDialog
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -108,6 +109,25 @@ class MainActivity : ComponentActivity() {
         // Set content to our Compose UI
         setContent {
             MainScreen()
+        }
+
+        checkServiceStateAndUpdateUI()
+    }
+
+    private fun checkServiceStateAndUpdateUI() {
+        // Check if service is running
+        val isServiceRunning = isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+
+        // Update shared preferences to match actual service state
+        getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("is_recording", isServiceRunning)
+            .apply()
+
+        if (isServiceRunning) {
+            Log.d("MainActivity", "ForegroundService is running, updated recording state to true")
+        } else {
+            Log.d("MainActivity", "ForegroundService is not running, updated recording state to false")
         }
     }
 

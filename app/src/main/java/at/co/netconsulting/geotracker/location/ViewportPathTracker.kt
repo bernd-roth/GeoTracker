@@ -69,6 +69,9 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
     private val pathColor = Color.RED
     private val pathWidth = 7.0f
 
+    // Flag to control if zooming to path bounds is enabled
+    private var zoomToPathEnabled = false
+
     /**
      * Initialize the path tracker with a MapView
      */
@@ -97,8 +100,8 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
                 updatePathForViewport(it, forceUpdate = true)
             }
 
-            // If this is a valid event, try to zoom to the path bounds
-            if (eventId > 0 && mapView != null) {
+            // If this is a valid event, and zooming is enabled, try to zoom to the path bounds
+            if (eventId > 0 && mapView != null && zoomToPathEnabled) {
                 zoomToPathBounds(eventId, mapView)
             }
         }
@@ -109,6 +112,9 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
      */
     fun setRecording(recording: Boolean) {
         isRecording.value = recording
+        // When recording, we don't want to automatically zoom to path bounds
+        // This prevents the zoom change when a session is started
+        zoomToPathEnabled = !recording
     }
 
     /**
@@ -141,7 +147,13 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
                             expandedBounds.minLon
                         )
 
-                        mapView.zoomToBoundingBox(boundingBox, true, 100)
+                        // Only zoom if we're allowed to
+                        if (zoomToPathEnabled) {
+                            mapView.zoomToBoundingBox(boundingBox, true, 100)
+                            Log.d(TAG, "Zoomed to path bounds: $boundingBox")
+                        } else {
+                            Log.d(TAG, "Skipping auto-zoom as it is disabled during recording")
+                        }
                     }
                 }
             } catch (e: Exception) {

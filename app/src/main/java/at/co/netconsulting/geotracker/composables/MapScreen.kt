@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.composables
 
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -20,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -155,6 +155,26 @@ fun MapScreen() {
                         pathTracker.updatePathForViewport(mapView, forceUpdate = true)
                     }
                 }
+
+                // Check if service is actually running (in case of app restart)
+                val isServiceRunning = isServiceRunningFunc(
+                    context,
+                    "at.co.netconsulting.geotracker.service.ForegroundService"
+                )
+
+                // If there's a mismatch between SharedPreferences and actual service state
+                if (isServiceRunning != isRecording) {
+                    Log.d("MapScreen", "Service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
+
+                    // Update UI to match actual service state
+                    isRecording = isServiceRunning
+
+                    // Update SharedPreferences
+                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("is_recording", isServiceRunning)
+                        .apply()
+                }
             }
         }
     }
@@ -211,6 +231,44 @@ fun MapScreen() {
             }
 
             delay(1000)
+        }
+    }
+
+    // Check if service is actually running on initial launch
+    LaunchedEffect(Unit) {
+        val isServiceRunning = isServiceRunningFunc(
+            context,
+            "at.co.netconsulting.geotracker.service.ForegroundService"
+        )
+
+        // If there's a mismatch between SharedPreferences and actual service state
+        if (isServiceRunning != isRecording) {
+            Log.d("MapScreen", "Initial service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
+
+            // Update UI to match actual service state
+            isRecording = isServiceRunning
+
+            // Update SharedPreferences
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("is_recording", isServiceRunning)
+                .apply()
+
+            // If service is running but we don't have an active event ID, check ServiceState
+            if (isServiceRunning && currentEventId.value == -1) {
+                val serviceState = context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+                val storedEventId = serviceState.getInt("event_id", -1)
+
+                if (storedEventId != -1) {
+                    Log.d("MapScreen", "Restoring active event ID from ServiceState: $storedEventId")
+                    // Update current event ID in both state and SharedPreferences
+                    currentEventId.value = storedEventId
+                    context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                        .edit()
+                        .putInt("active_event_id", storedEventId)
+                        .apply()
+                }
+            }
         }
     }
 
@@ -377,38 +435,6 @@ fun MapScreen() {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            /*
-            if (showPath) {
-                Surface(
-                    modifier = Modifier
-                        .padding(end = 8.dp)
-                        .size(48.dp),
-                    shape = CircleShape,
-                    color = Color.Gray,
-                    shadowElevation = 4.dp,
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable {
-                                // Clear the path
-                                mapViewRef.value?.let { mapView ->
-                                    pathTracker.clearPath(mapView)
-                                    Toast.makeText(context, "Path cleared", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Clear Path",
-                            tint = Color.White
-                        )
-                    }
-                }
-            }
-            */
-
             // Toggle recording button
             if (!isRecording) {
                 // Start recording button
@@ -557,4 +583,13 @@ fun MapScreen() {
             }
         )
     }
+}
+
+// Helper function to check if a service is running
+private fun isServiceRunningFunc(context: Context, serviceName: String): Boolean {
+    val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    return manager.getRunningServices(Integer.MAX_VALUE)
+        .any { service ->
+            serviceName == service.service.className && service.foreground
+        }
 }
