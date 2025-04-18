@@ -97,6 +97,11 @@ class CustomLocationListener: LocationListener {
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
 
+    // 3 seconds grace period if speed drops below threshold
+    private var belowThresholdStartTime: Long = 0
+    private var isCurrentlyTracking = false
+    private val THRESHOLD_TIMEOUT_MS = 3000 // 3 seconds
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -361,20 +366,69 @@ class CustomLocationListener: LocationListener {
                 "Latitude: ${location.latitude} / Longitude: ${location.longitude}"
             )
 
-            // Calculate distance only if speed is above threshold
+            // Get current speed in km/h
+            val currentSpeedKmh = it.speed * 3.6
+            val isBelowThreshold = currentSpeedKmh < MIN_SPEED_THRESHOLD
+
+            // Distance calculation with time-based approach
             var distanceIncrement = 0.0
-            if (checkSpeed(it.speed)) {
+
+            if (isBelowThreshold) {
+                if (isCurrentlyTracking) {
+                    // We were tracking but speed dropped below threshold
+                    if (belowThresholdStartTime == 0L) {
+                        // Start the timer
+                        belowThresholdStartTime = System.currentTimeMillis()
+                        Log.d("CustomLocationListener", "Speed dropped below threshold, starting grace period")
+                    } else if (System.currentTimeMillis() - belowThresholdStartTime > THRESHOLD_TIMEOUT_MS) {
+                        // We've been below threshold for too long, stop tracking
+                        isCurrentlyTracking = false
+                        belowThresholdStartTime = 0
+                        Log.d("CustomLocationListener", "Grace period ended, stopped tracking movement")
+                    } else {
+                        // Still in grace period - continue to calculate distance
+                        Log.d("CustomLocationListener", "In grace period, continuing to track movement")
+
+                        if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
+                            (oldLatitude != location.latitude || oldLongitude != location.longitude)
+                        ) {
+                            // Calculate distance increment
+                            distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
+                                oldLatitude, oldLongitude, location.latitude, location.longitude
+                            )
+                            coveredDistance += distanceIncrement
+                            lap = calculateLap(distanceIncrement)
+
+                            Log.d("CustomLocationListener", "Grace period distance added: $distanceIncrement")
+
+                            // Check for distance milestone announcement
+                            checkDistanceMilestone()
+                        }
+                    }
+                }
+            } else {
+                // Above threshold - actively moving
+                // Reset the grace period timer since we're above threshold now
+                belowThresholdStartTime = 0
+
+                if (!isCurrentlyTracking) {
+                    // Start tracking if we weren't already
+                    isCurrentlyTracking = true
+                    Log.d("CustomLocationListener", "Started tracking movement at speed: $currentSpeedKmh km/h")
+                }
+
+                // Calculate distance when above threshold
                 if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
                     (oldLatitude != location.latitude || oldLongitude != location.longitude)
                 ) {
-                    Log.d("CustomLocationListener", "New coordinates detected...")
-
                     // Calculate distance increment
                     distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
                         oldLatitude, oldLongitude, location.latitude, location.longitude
                     )
                     coveredDistance += distanceIncrement
                     lap = calculateLap(distanceIncrement)
+
+                    Log.d("CustomLocationListener", "Distance added while moving: $distanceIncrement")
 
                     // Check for distance milestone announcement
                     checkDistanceMilestone()
@@ -390,7 +444,6 @@ class CustomLocationListener: LocationListener {
             cumulativeElevationGain = calculateCumulativeElevationGain(it, startingAltitude!!)
 
             // Update max speed if current speed is higher
-            val currentSpeedKmh = it.speed * 3.6
             if (currentSpeedKmh > maxSpeed) {
                 maxSpeed = currentSpeedKmh
             }
@@ -402,7 +455,7 @@ class CustomLocationListener: LocationListener {
             val metrics = Metrics(
                 latitude = location.latitude,
                 longitude = location.longitude,
-                speed = location.speed * 3.6f,
+                speed = currentSpeedKmh.toFloat(),
                 speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
                 altitude = location.altitude,
                 horizontalAccuracy = location.accuracy,
