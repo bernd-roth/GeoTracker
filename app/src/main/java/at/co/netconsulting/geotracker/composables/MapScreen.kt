@@ -416,6 +416,13 @@ fun MapScreen() {
             modifier = Modifier.fillMaxSize()
         )
 
+        // Heart Rate Panel - Add this to the Box
+        HeartRatePanel(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(top = 64.dp, start = 16.dp)
+        )
+
         // Path loading indicator (only shown when loading)
         if (isPathLoading && showPath) {
             CircularProgressIndicator(
@@ -526,7 +533,7 @@ fun MapScreen() {
     // Recording dialog
     if (showRecordingDialog) {
         RecordingDialog(
-            onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption ->
+            onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor ->
                 // Save path visibility preference
                 context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
                     .edit()
@@ -558,6 +565,13 @@ fun MapScreen() {
                     putExtra("comment", comment)
                     putExtra("clothing", clothing)
                     putExtra("start_recording", true)
+
+                    // Add heart rate sensor information if selected
+                    heartRateSensor?.let {
+                        putExtra("heartRateDeviceAddress", it.address)
+                        putExtra("heartRateDeviceName", it.name)
+                        Log.d("MapScreen", "Adding heart rate sensor: ${it.name} (${it.address})")
+                    }
                 }
                 ContextCompat.startForegroundService(context, intent)
                 Log.d("MapScreen", "Started ForegroundService with event details and start_recording=true")

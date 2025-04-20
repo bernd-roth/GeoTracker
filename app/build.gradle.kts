@@ -120,6 +120,10 @@ dependencies {
     implementation("com.google.code.gson:gson:2.8.9")
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
+    // RxAndroidBLE for Bluetooth LE communication
+    implementation("com.polidea.rxandroidble3:rxandroidble:1.17.2")
+    implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
+    implementation("io.reactivex.rxjava3:rxjava:3.1.5")
 }
 
 ksp {

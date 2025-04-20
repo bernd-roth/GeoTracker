@@ -21,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.WeatherResponse
+import at.co.netconsulting.geotracker.data.HeartRateData
 import at.co.netconsulting.geotracker.domain.CurrentRecording
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.Event
@@ -96,6 +97,14 @@ class ForegroundService : Service() {
     private var currentEventId: Int = -1
     private var satellites: String = "0"
     private var hasReceivedValidWeather = false
+
+    // Heart rate monitoring
+    private var heartRateSensorService: HeartRateSensorService? = null
+    private var heartRateDeviceAddress: String? = null
+    private var heartRateDeviceName: String? = null
+    private var currentHeartRate: Int = 0
+    private var isHrRegistered = false
+
     //reconnection logic
     private var connectionMonitorJob: Job? = null
     private var isWebSocketConnected = false
@@ -353,6 +362,10 @@ class ForegroundService : Service() {
 
         requestHighPriority()
         createSessionID()
+
+        // Initialize heart rate sensor service
+        heartRateSensorService = HeartRateSensorService.getInstance(this)
+
         // Start connection monitoring
         startConnectionMonitoring()
     }
@@ -775,13 +788,20 @@ class ForegroundService : Service() {
     }
 
     private fun showNotification() {
+        val heartRateText = if (currentHeartRate > 0) {
+            "\nHeart Rate: $currentHeartRate bpm"
+        } else {
+            ""
+        }
+
         updateNotification(
             "Activity: " + movementFormattedTime +
                     "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
                     "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
                     "\nLap: " + String.format("%2d", lap) +
-                    "\nInactivity: " + lazyFormattedTime
+                    "\nInactivity: " + lazyFormattedTime +
+                    heartRateText
         )
     }
 
@@ -817,8 +837,8 @@ class ForegroundService : Service() {
                 // Always save metrics data regardless of speed
                 val metric = Metric(
                     eventId = eventId,
-                    heartRate = 0,
-                    heartRateDevice = "Chest Strap",
+                    heartRate = currentHeartRate,
+                    heartRateDevice = heartRateDeviceName ?: "None",
                     speed = speed,
                     distance = distance,
                     cadence = 0,
@@ -830,7 +850,7 @@ class ForegroundService : Service() {
                     elevationLoss = 0f
                 )
                 database.metricDao().insertMetric(metric)
-                Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds}")
+                Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds} with heart rate $currentHeartRate")
 
                 // Always save location data regardless of speed
                 val location = Location(
@@ -891,6 +911,18 @@ class ForegroundService : Service() {
         }
     }
 
+    // Add handler for heart rate data events
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onHeartRateData(data: HeartRateData) {
+        if (data.isConnected && data.heartRate > 0) {
+            currentHeartRate = data.heartRate
+            Log.d(TAG, "Heart rate updated: ${data.heartRate} bpm")
+
+            // Update notification with heart rate
+            showNotification()
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
             // Check if we're stopping intentionally (flag set by stop button)
@@ -946,6 +978,27 @@ class ForegroundService : Service() {
             artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
             comment = intent?.getStringExtra("comment") ?: "No Comment"
             clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
+
+            // Extract heart rate sensor info from intent
+            heartRateDeviceAddress = intent?.getStringExtra("heartRateDeviceAddress")
+            heartRateDeviceName = intent?.getStringExtra("heartRateDeviceName")
+
+            // Connect to heart rate sensor if address is available
+            if (!heartRateDeviceAddress.isNullOrEmpty()) {
+                Log.d(TAG, "Connecting to heart rate sensor: $heartRateDeviceName ($heartRateDeviceAddress)")
+
+                // Register for HeartRateData events if not already registered
+                if (!isHrRegistered && !EventBus.getDefault().isRegistered(this)) {
+                    EventBus.getDefault().register(this)
+                    isHrRegistered = true
+                }
+
+                // Connect to the device
+                serviceScope.launch {
+                    delay(1000) // Short delay to ensure service is fully started
+                    heartRateSensorService?.connectToDevice(heartRateDeviceAddress!!)
+                }
+            }
 
             Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport")
 
@@ -1008,6 +1061,13 @@ class ForegroundService : Service() {
             weatherScope.cancel()
         } catch (e: Exception) {
             Log.e(TAG, "Error cancelling weather scope", e)
+        }
+
+        // Disconnect from heart rate sensor
+        try {
+            heartRateSensorService?.disconnect()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error disconnecting from heart rate sensor", e)
         }
 
         if (isStoppingIntentionally) {
@@ -1126,6 +1186,9 @@ class ForegroundService : Service() {
                 .putLong("service_start_time", startDateTime.toEpochSecond(java.time.ZoneOffset.UTC))
                 .putLong("last_lap_completion_time", lastLapCompletionTime)
                 .putLong("lap_start_time", lapStartTime)
+                // Also save heart rate sensor information for restarts
+                .putString("heart_rate_device_address", heartRateDeviceAddress)
+                .putString("heart_rate_device_name", heartRateDeviceName)
                 .apply()
 
             // Create intent with all necessary extras from the original intent
@@ -1136,6 +1199,10 @@ class ForegroundService : Service() {
                 putExtra("comment", comment)
                 putExtra("clothing", clothing)
                 putExtra("is_restored_session", true)
+
+                // Restore heart rate sensor information
+                heartRateDeviceAddress?.let { putExtra("heartRateDeviceAddress", it) }
+                heartRateDeviceName?.let { putExtra("heartRateDeviceName", it) }
             }
 
             // Create pending intent with FLAG_IMMUTABLE for security
@@ -1223,6 +1290,12 @@ class ForegroundService : Service() {
                                 it.resumeFromSavedState(distance, lastKnownPosition, lap, lapCounter)
                             }
                         }
+                    }
+
+                    // Also check heart rate sensor connection if needed
+                    if (!heartRateDeviceAddress.isNullOrEmpty() && heartRateSensorService?.isConnected() != true) {
+                        Log.d(TAG, "Reconnecting to heart rate sensor: $heartRateDeviceName")
+                        heartRateSensorService?.connectToDevice(heartRateDeviceAddress!!)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in connection monitoring", e)
