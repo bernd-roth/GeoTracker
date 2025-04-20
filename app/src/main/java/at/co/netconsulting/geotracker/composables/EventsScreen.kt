@@ -1,8 +1,12 @@
 package at.co.netconsulting.geotracker.composables
 
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -35,7 +39,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -49,10 +53,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -78,6 +84,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
 import kotlinx.coroutines.delay
@@ -90,7 +97,8 @@ import java.util.Calendar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EventsScreen(
-    onEditEvent: (Int) -> Unit = {} // Navigation callback for edit screen
+    onEditEvent: (Int) -> Unit = {},
+    onNavigateToImportGpx: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -98,13 +106,68 @@ fun EventsScreen(
     val allEvents by eventsViewModel.eventsWithDetails.collectAsState(initial = emptyList())
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
 
     // Track both the active event ID and recording state
     var activeEventId by remember { mutableStateOf(-1) }
     var isRecording by remember { mutableStateOf(false) }
 
+    // State for importing GPX
+    var isImporting by remember { mutableStateOf(false) }
+    var showImportingDialog by remember { mutableStateOf(false) }
+
     // Add a state to trigger stats refresh
     var statsRefreshTrigger by remember { mutableStateOf(0) }
+
+    // Result launcher for file picking
+    val gpxFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (uri != null) {
+                // Show importing dialog
+                showImportingDialog = true
+                isImporting = true
+
+                // Import the GPX file
+                coroutineScope.launch {
+                    try {
+                        val gpxImporter = GpxImporter(context)
+                        val newEventId = gpxImporter.importGpx(uri)
+
+                        if (newEventId > 0) {
+                            // Import successful
+                            eventsViewModel.loadEvents() // Refresh the event list
+
+                            // Increment the refresh trigger to force stats update
+                            statsRefreshTrigger++
+
+                            Toast.makeText(context, "GPX file imported successfully!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            // Import failed
+                            Toast.makeText(context, "Failed to import GPX file", Toast.LENGTH_SHORT).show()
+                        }
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Error importing GPX: ${e.message}", Toast.LENGTH_SHORT).show()
+                    } finally {
+                        isImporting = false
+                        showImportingDialog = false
+                    }
+                }
+            }
+        }
+    }
+
+    // Function to launch file picker
+    val launchGpxFilePicker = {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/gpx+xml", "text/xml", "*/*"))
+        }
+        gpxFileLauncher.launch(intent)
+    }
 
     // Refresh the state on recomposition
     LaunchedEffect(Unit) {
@@ -143,11 +206,31 @@ fun EventsScreen(
     }
 
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
     var selectedEventId by remember { mutableStateOf<Int?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(true) } // State to toggle stats visibility
+
+    // Import progress dialog
+    if (showImportingDialog) {
+        AlertDialog(
+            onDismissRequest = { /* Dialog cannot be dismissed while importing */ },
+            title = { Text("Importing GPX") },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.padding(16.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text("Importing GPX file, please wait...")
+                }
+            },
+            confirmButton = { /* No buttons while importing */ }
+        )
+    }
 
     // Load initial events
     LaunchedEffect(Unit) {
@@ -222,190 +305,213 @@ fun EventsScreen(
         )
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Events",
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold
-            )
-
-            // Toggle button for stats
-            TextButton(
-                onClick = { showYearlyStats = !showYearlyStats },
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.primary
-                )
+    Scaffold(
+        floatingActionButton = {
+            FloatingActionButton(
+                onClick = launchGpxFilePicker,
+                containerColor = MaterialTheme.colorScheme.primary
             ) {
-                Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
                 Icon(
-                    imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    contentDescription = "Toggle stats",
-                    modifier = Modifier.padding(start = 4.dp)
+                    imageVector = Icons.Default.AddCircle,
+                    contentDescription = "Import GPX",
+                    tint = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
-
-        // Search bar
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { eventsViewModel.setSearchQuery(it) },
+    ) { paddingValues ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text("Search events...") },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-            trailingIcon = {
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(onClick = { eventsViewModel.setSearchQuery("") }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear search")
-                    }
-                }
-            },
-            singleLine = true,
-            shape = RoundedCornerShape(8.dp)
-        )
-
-        // Add the Yearly Stats Overview between search and event list with animation
-        // Pass the refresh trigger to force recomposition when an event is deleted
-        AnimatedVisibility(
-            visible = showYearlyStats,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
+                .fillMaxSize()
+                .padding(paddingValues)
         ) {
-            YearlyStatsOverview(
-                modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-                eventsViewModel = eventsViewModel,
-                refreshTrigger = statsRefreshTrigger, // Pass the refresh trigger
-                onWeekSelected = { year, week ->
-                    // Filter events for the selected week
-                    coroutineScope.launch {
-                        // Calculate date range for the selected week
-                        val calendar = Calendar.getInstance().apply {
-                            firstDayOfWeek = Calendar.MONDAY
-                            minimalDaysInFirstWeek = 4
-                            set(Calendar.YEAR, year)
-                            set(Calendar.WEEK_OF_YEAR, week)
-                            set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-                        }
-
-                        // Format start date (Monday)
-                        val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                        // Move to end of week (Sunday)
-                        calendar.add(Calendar.DAY_OF_MONTH, 6)
-
-                        // Format end date (Sunday)
-                        val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                        // Set filter in the ViewModel
-                        eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
-                    }
-                }
-            )
-        }
-
-        if (events.isEmpty() && isLoading) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        } else if (events.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (searchQuery.isEmpty()) "No events found" else "No events match your search",
-                    fontSize = 18.sp,
-                    color = Color.Gray
+                    text = "Events",
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold
                 )
-            }
-        } else {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(events) { eventWithDetails ->
-                    // Double-check recording status from both values to be extra safe
-                    val isRecordingThisEvent = eventWithDetails.event.eventId == activeEventId &&
-                            (isRecording || context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                                .getBoolean("is_recording", false))
 
-                    // Optional debugging log for this specific event
-                    if (eventWithDetails.event.eventId == activeEventId) {
-                        Log.d("EventsScreen", "Event ${eventWithDetails.event.eventName} (ID: ${eventWithDetails.event.eventId}): isRecordingThisEvent=$isRecordingThisEvent, activeEventId=$activeEventId, isRecording=$isRecording")
-                    }
-
-                    EventCard(
-                        event = eventWithDetails,
-                        selected = selectedEventId == eventWithDetails.event.eventId,
-                        onClick = {
-                            selectedEventId = if (selectedEventId == eventWithDetails.event.eventId) null else eventWithDetails.event.eventId
-                        },
-                        onEdit = {
-                            // Only allow edit if not currently recording
-                            if (!isRecordingThisEvent) {
-                                onEditEvent(eventWithDetails.event.eventId)
-                            } else {
-                                // Show a toast message
-                                Toast.makeText(
-                                    context,
-                                    "Cannot edit an event that is currently being recorded",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        },
-                        onDelete = {
-                            // Similar logic for deletion
-                            if (!isRecordingThisEvent) {
-                                eventToDelete = eventWithDetails
-                                showDeleteDialog = true
-                            } else {
-                                Toast.makeText(
-                                    context,
-                                    "Cannot delete an event that is currently being recorded",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        },
-                        onExport = {
-                            // Launch the export function in a coroutine
-                            coroutineScope.launch {
-                                // Call the export function properly with the correct parameters
-                                at.co.netconsulting.geotracker.gpx.export(
-                                    eventId = eventWithDetails.event.eventId,
-                                    contextActivity = context
-                                )
-                            }
-                        },
-                        isCurrentlyRecording = isRecordingThisEvent
+                // Toggle button for stats
+                TextButton(
+                    onClick = { showYearlyStats = !showYearlyStats },
+                    colors = ButtonDefaults.textButtonColors(
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
+                    Icon(
+                        imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Toggle stats",
+                        modifier = Modifier.padding(start = 4.dp)
                     )
                 }
+            }
 
-                item {
-                    if (isLoading) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator()
+            // Search bar
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { eventsViewModel.setSearchQuery(it) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                placeholder = { Text("Search events...") },
+                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { eventsViewModel.setSearchQuery("") }) {
+                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                        }
+                    }
+                },
+                singleLine = true,
+                shape = RoundedCornerShape(8.dp)
+            )
+
+            // Add the Yearly Stats Overview between search and event list with animation
+            // Pass the refresh trigger to force recomposition when an event is deleted
+            AnimatedVisibility(
+                visible = showYearlyStats,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                YearlyStatsOverview(
+                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                    eventsViewModel = eventsViewModel,
+                    refreshTrigger = statsRefreshTrigger, // Pass the refresh trigger
+                    onWeekSelected = { year, week ->
+                        // Filter events for the selected week
+                        coroutineScope.launch {
+                            // Calculate date range for the selected week
+                            val calendar = Calendar.getInstance().apply {
+                                firstDayOfWeek = Calendar.MONDAY
+                                minimalDaysInFirstWeek = 4
+                                set(Calendar.YEAR, year)
+                                set(Calendar.WEEK_OF_YEAR, week)
+                                set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                            }
+
+                            // Format start date (Monday)
+                            val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                    String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                    String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                            // Move to end of week (Sunday)
+                            calendar.add(Calendar.DAY_OF_MONTH, 6)
+
+                            // Format end date (Sunday)
+                            val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                    String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                    String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                            // Set filter in the ViewModel
+                            eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
+                        }
+                    }
+                )
+            }
+
+            if (events.isEmpty() && isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else if (events.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (searchQuery.isEmpty()) "No events found" else "No events match your search",
+                        fontSize = 18.sp,
+                        color = Color.Gray
+                    )
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(events) { eventWithDetails ->
+                        // Double-check recording status from both values to be extra safe
+                        val isRecordingThisEvent = eventWithDetails.event.eventId == activeEventId &&
+                                (isRecording || context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .getBoolean("is_recording", false))
+
+                        // Optional debugging log for this specific event
+                        if (eventWithDetails.event.eventId == activeEventId) {
+                            Log.d("EventsScreen", "Event ${eventWithDetails.event.eventName} (ID: ${eventWithDetails.event.eventId}): isRecordingThisEvent=$isRecordingThisEvent, activeEventId=$activeEventId, isRecording=$isRecording")
+                        }
+
+                        EventCard(
+                            event = eventWithDetails,
+                            selected = selectedEventId == eventWithDetails.event.eventId,
+                            onClick = {
+                                selectedEventId = if (selectedEventId == eventWithDetails.event.eventId) null else eventWithDetails.event.eventId
+                            },
+                            onEdit = {
+                                // Only allow edit if not currently recording
+                                if (!isRecordingThisEvent) {
+                                    onEditEvent(eventWithDetails.event.eventId)
+                                } else {
+                                    // Show a toast message
+                                    Toast.makeText(
+                                        context,
+                                        "Cannot edit an event that is currently being recorded",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            onDelete = {
+                                // Similar logic for deletion
+                                if (!isRecordingThisEvent) {
+                                    eventToDelete = eventWithDetails
+                                    showDeleteDialog = true
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Cannot delete an event that is currently being recorded",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            onExport = {
+                                // Launch the export function in a coroutine
+                                coroutineScope.launch {
+                                    // Call the export function properly with the correct parameters
+                                    at.co.netconsulting.geotracker.gpx.export(
+                                        eventId = eventWithDetails.event.eventId,
+                                        contextActivity = context
+                                    )
+                                }
+                            },
+                            onImport = {
+                                // Launch the GPX file picker
+                                launchGpxFilePicker()
+                            },
+                            isCurrentlyRecording = isRecordingThisEvent
+                        )
+                    }
+
+                    item {
+                        if (isLoading) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
                         }
                     }
                 }
@@ -475,6 +581,7 @@ fun EventCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onExport: () -> Unit,
+    onImport: () -> Unit,
     isCurrentlyRecording: Boolean = false
 ) {
     Card(
@@ -510,13 +617,13 @@ fun EventCard(
 
                 // Action buttons
                 Row {
-                    // Export GPX button with a more appropriate icon that's already available
+                    // Export GPX button
                     IconButton(
                         onClick = onExport,
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = Icons.Default.KeyboardArrowDown,
                             contentDescription = "Export GPX",
                             tint = MaterialTheme.colorScheme.secondary
                         )
@@ -607,6 +714,11 @@ fun EventCard(
                         Column {
                             InfoRow("Date:", event.event.eventDate)
                             InfoRow("Sport:", event.event.artOfSport)
+
+                            // Add start time if available
+                            if (event.startTime > 0) {
+                                InfoRow("Start Time:", Tools().formatTimestamp(event.startTime))
+                            }
                         }
                     }
 
@@ -782,7 +894,6 @@ fun EventCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-// Map preview section with fixed update function
                 if (event.locationPoints.isNotEmpty()) {
                     // The height needs to be explicitly defined to make the map visible
                     Box(

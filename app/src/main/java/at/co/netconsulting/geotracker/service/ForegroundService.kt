@@ -21,9 +21,11 @@ import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.WeatherResponse
+import at.co.netconsulting.geotracker.domain.CurrentRecording
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.User
@@ -80,6 +82,7 @@ class ForegroundService : Service() {
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
     private var lap: Int = 0
+    private var lapCounter: Double = 0.0 // Added to track partial lap progress
     private var lazyFormattedTime: String = "00:00:00"
     private var movementFormattedTime: String = "00:00:00"
     private val serviceJob = SupervisorJob() // Changed to SupervisorJob for better error handling
@@ -108,6 +111,11 @@ class ForegroundService : Service() {
     private var isRestoredSession = false
     private var lastKnownPosition: Pair<Double, Double>? = null
     private var startDateTime: LocalDateTime = LocalDateTime.now()
+
+    // State saving variables
+    private var currentStateJob: Job? = null
+    private var lastLapCompletionTime: Long = 0
+    private var lapStartTime: Long = System.currentTimeMillis()
 
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
@@ -458,12 +466,39 @@ class ForegroundService : Service() {
         }
 
         fun getCurrentSegment(): TimeSegment? = currentSegment
+
+        // Added to save current state
+        fun getSerializableState(): String {
+            val gson = Gson()
+            return gson.toJson(segments)
+        }
+
+        // Added to restore from state
+        fun restoreFromState(serializedState: String) {
+            try {
+                val gson = Gson()
+                val type = com.google.gson.reflect.TypeToken.getParameterized(
+                    List::class.java,
+                    TimeSegment::class.java
+                ).type
+                val restoredSegments: List<TimeSegment> = gson.fromJson(serializedState, type)
+                segments.clear()
+                segments.addAll(restoredSegments)
+            } catch (e: Exception) {
+                Log.e("StopwatchState", "Error restoring state: ${e.message}")
+            }
+        }
     }
 
     private fun createBackgroundCoroutine(eventIdDeferred: CompletableDeferred<Int>) {
         serviceScope.launch {
             try {
                 isServiceStarted = true
+
+                // If we're restoring, first try to get the latest state from the database
+                if (isRestoredSession) {
+                    restoreFromDatabase()
+                }
 
                 // Create the location listener with restored session context
                 customLocationListener = CustomLocationListener(applicationContext).also {
@@ -482,8 +517,8 @@ class ForegroundService : Service() {
 
                     // If we have restored position and distance, initialize the location listener with them
                     if (isRestoredSession && distance > 0) {
-                        it.resumeFromSavedState(distance, lastKnownPosition)
-                        Log.d(TAG, "Resumed from saved state: distance=$distance, position=$lastKnownPosition")
+                        it.resumeFromSavedState(distance, lastKnownPosition, lap, lapCounter)
+                        Log.d(TAG, "Resumed from saved state: distance=$distance, position=$lastKnownPosition, lap=$lap, lapCounter=$lapCounter")
                     }
                 }
 
@@ -499,6 +534,9 @@ class ForegroundService : Service() {
 
                 // Start weather updates right away with aggressive polling
                 startWeatherUpdates()
+
+                // Start periodic state saving
+                startPeriodicStateSaving()
 
                 while (isActive) {
                     val currentTime = currentTimeMillis()
@@ -523,6 +561,150 @@ class ForegroundService : Service() {
             } catch (e: Exception) {
                 eventIdDeferred.completeExceptionally(e)
                 Log.e(TAG, "Error in background coroutine", e)
+            }
+        }
+    }
+
+    private fun startPeriodicStateSaving() {
+        currentStateJob?.cancel()
+        currentStateJob = serviceScope.launch {
+            while (isActive) {
+                try {
+                    // Save current state every 5 seconds
+                    saveCurrentState()
+                    delay(STATE_SAVE_INTERVAL)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in state saving job", e)
+                }
+            }
+        }
+    }
+
+    private suspend fun saveCurrentState() {
+        withContext(Dispatchers.IO) {
+            try {
+                // Only save if we have valid data and active tracking
+                if (eventId > 0 && sessionId.isNotEmpty() && checkLatitudeLongitude()) {
+                    val currentRecord = CurrentRecording(
+                        sessionId = sessionId,
+                        eventId = eventId,
+                        timestamp = System.currentTimeMillis(),
+                        latitude = latitude,
+                        longitude = longitude,
+                        altitude = altitude,
+                        speed = speed,
+                        distance = distance,
+                        lap = lap,
+                        currentLapDistance = lapCounter,
+                        movementDuration = movementFormattedTime,
+                        inactivityDuration = lazyFormattedTime,
+                        movementStateJson = movementState.getSerializableState(),
+                        lazyStateJson = lazyState.getSerializableState(),
+                        startDateTimeEpoch = startDateTime.toEpochSecond(java.time.ZoneOffset.UTC)
+                    )
+                    database.currentRecordingDao().insertCurrentRecord(currentRecord)
+                    Log.d(TAG, "Saved current state to database")
+                } else {
+                    // Add this else branch to fix the syntax error
+                    Log.d(TAG, "Skipping state save - invalid data or coordinates")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving current state to database", e)
+            }
+        }
+    }
+
+    private suspend fun restoreFromDatabase() {
+        withContext(Dispatchers.IO) {
+            try {
+                // Get latest record for this session
+                val lastRecord = database.currentRecordingDao().getLatestRecordForSession(sessionId)
+
+                lastRecord?.let {
+                    // Restore basic tracking data
+                    distance = it.distance
+                    lap = it.lap
+                    lapCounter = it.currentLapDistance
+                    movementFormattedTime = it.movementDuration
+                    lazyFormattedTime = it.inactivityDuration
+
+                    // Restore start time
+                    startDateTime = LocalDateTime.ofEpochSecond(
+                        it.startDateTimeEpoch, 0, java.time.ZoneOffset.UTC
+                    )
+
+                    // Restore stopwatch states if available
+                    if (it.movementStateJson.isNotEmpty()) {
+                        movementState.restoreFromState(it.movementStateJson)
+                    }
+
+                    if (it.lazyStateJson.isNotEmpty()) {
+                        lazyState.restoreFromState(it.lazyStateJson)
+                    }
+
+                    // Also restore lap times
+                    val lapTimes = database.lapTimeDao().getLapTimesForSession(sessionId)
+                    if (lapTimes.isNotEmpty()) {
+                        // Update last lap completion time
+                        val lastLapTime = lapTimes.maxByOrNull { it.endTime }
+                        if (lastLapTime != null) {
+                            lastLapCompletionTime = lastLapTime.endTime
+                            // If we've completed laps, the next lap start time is the last lap end time
+                            lapStartTime = lastLapTime.endTime
+                        }
+                    }
+
+                    Log.d(TAG, "Restored state from database: distance=$distance, lap=$lap, lapCounter=$lapCounter")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error restoring state from database", e)
+            }
+        }
+    }
+
+    // This function now tracks lap progress and saves lap times to the database
+    private fun checkLapCompletionAndSave(newDistance: Double) {
+        val prevLap = lap
+        val prevLapCounter = lapCounter
+
+        // Update lap counter with new distance
+        lapCounter += newDistance
+
+        // Check if we've completed a new lap (1000 meters)
+        if (lapCounter >= 1000) {
+            val completedLaps = (lapCounter / 1000).toInt()
+            lap += completedLaps
+            lapCounter -= completedLaps * 1000
+
+            // If we've completed a new lap, save the lap time
+            if (lap > prevLap) {
+                val currentTime = System.currentTimeMillis()
+
+                // Save lap time to database
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        for (i in 1..completedLaps) {
+                            val newLapNumber = prevLap + i
+                            val lapTime = LapTime(
+                                sessionId = sessionId,
+                                eventId = eventId,
+                                lapNumber = newLapNumber,
+                                startTime = lapStartTime,
+                                endTime = currentTime,
+                                distance = 1000.0 // Each lap is 1000 meters
+                            )
+
+                            database.lapTimeDao().insertLapTime(lapTime)
+                            Log.d(TAG, "Saved lap time for lap $newLapNumber: ${currentTime - lapStartTime}ms")
+                        }
+
+                        // Update for next lap
+                        lastLapCompletionTime = currentTime
+                        lapStartTime = currentTime
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error saving lap time: ${e.message}")
+                    }
+                }
             }
         }
     }
@@ -638,7 +820,7 @@ class ForegroundService : Service() {
                     heartRate = 0,
                     heartRateDevice = "Chest Strap",
                     speed = speed,
-                    distance = distance, // This is only updated when speed > threshold from CustomLocationListener
+                    distance = distance,
                     cadence = 0,
                     lap = lap,
                     timeInMilliseconds = currentTimeMillis(),
@@ -684,6 +866,9 @@ class ForegroundService : Service() {
             // Update timestamp to prevent timeout
             lastUpdateTimestamp = currentTimeMillis()
 
+            // Get previous distance value to calculate increment
+            val previousDistance = distance
+
             // Update values from location update
             latitude = metrics.latitude
             longitude = metrics.longitude
@@ -692,6 +877,13 @@ class ForegroundService : Service() {
             altitude = metrics.altitude
             lap = metrics.lap
             satellites = (metrics.satellites ?: 0).toString()
+
+            // Calculate distance increment for lap tracking
+            val distanceIncrement = distance - previousDistance
+            if (distanceIncrement > 0) {
+                // Update lap tracking with the new distance increment
+                checkLapCompletionAndSave(distanceIncrement)
+            }
 
             Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed, satellites=$satellites")
         } catch (e: Exception) {
@@ -729,6 +921,10 @@ class ForegroundService : Service() {
                 distance = prefs.getFloat("covered_distance", 0f).toDouble()
                 lastUpdateTimestamp = prefs.getLong("last_timestamp", currentTimeMillis())
 
+                // Restore lap data
+                lap = prefs.getInt("lap", 0)
+                lapCounter = prefs.getFloat("lap_counter", 0f).toDouble()
+
                 // Restore start time if available
                 val storedStartTime = prefs.getLong("service_start_time", 0)
                 if (storedStartTime > 0) {
@@ -738,7 +934,7 @@ class ForegroundService : Service() {
                 }
 
                 Log.d(TAG, "Restoring service state: eventId=$eventId, sessionId=$sessionId, " +
-                        "distance=$distance, startTime=$startDateTime")
+                        "distance=$distance, lap=$lap, startTime=$startDateTime")
 
                 // Clear restart flag
                 prefs.edit().putBoolean("was_running", false).apply()
@@ -760,6 +956,9 @@ class ForegroundService : Service() {
                 // Use existing event ID
                 eventIdDeferred.complete(eventId)
                 Log.d(TAG, "Using existing event ID for restored session: $eventId")
+
+                // Start background coroutine specifically for restoration
+                createBackgroundCoroutine(eventIdDeferred)
             } else {
                 // Create new event
                 createBackgroundCoroutine(eventIdDeferred)
@@ -813,19 +1012,29 @@ class ForegroundService : Service() {
 
         if (isStoppingIntentionally) {
             try {
-                // Clear active_event_id when stopping intentionally
-                getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                    .edit()
-                    .remove("active_event_id")
-                    .apply()
+                // When stopping intentionally, finalize the recording by transferring data
+                // from the current_recording table to permanent tables
+                serviceScope.launch {
+                    try {
+                        finalizeRecording()
 
-                Log.d(TAG, "Removed active_event_id from SharedPreferences")
+                        // Clear active_event_id when stopping intentionally
+                        getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                            .edit()
+                            .remove("active_event_id")
+                            .apply()
+
+                        Log.d(TAG, "Removed active_event_id from SharedPreferences")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error finalizing recording", e)
+                    }
+                }
+
+                // Reset the flag
+                isStoppingIntentionally = false
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing event ID from preferences", e)
             }
-
-            // Reset the flag
-            isStoppingIntentionally = false
         }
 
         try {
@@ -834,6 +1043,10 @@ class ForegroundService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error cleaning up location listener", e)
         }
+
+        // Cancel state saving job
+        currentStateJob?.cancel()
+        currentStateJob = null
 
         releaseWakeLock()
 
@@ -863,6 +1076,34 @@ class ForegroundService : Service() {
         connectionMonitorJob = null
     }
 
+    private suspend fun finalizeRecording() {
+        withContext(Dispatchers.IO) {
+            try {
+                // 1. Get all records from current_recording for this session
+                val records = database.currentRecordingDao().getAllRecordsForSession(sessionId)
+                Log.d(TAG, "Finalizing recording, found ${records.size} records")
+
+                // 2. Get all lap times for this session
+                val lapTimes = database.lapTimeDao().getLapTimesForSession(sessionId)
+                Log.d(TAG, "Found ${lapTimes.size} lap records")
+
+                // 3. We don't need to duplicate data that's already in the permanent tables
+                // because we've been saving to both throughout the session.
+                // We just need to ensure the lap times are properly stored
+
+                // 4. Clear temporary tables
+                if (records.isNotEmpty()) {
+                    database.currentRecordingDao().clearSessionRecords(sessionId)
+                    Log.d(TAG, "Cleared temporary recording records")
+                }
+
+                Log.d(TAG, "Recording finalized successfully")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error finalizing recording", e)
+            }
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -878,9 +1119,13 @@ class ForegroundService : Service() {
                 .putString("session_id", sessionId)
                 .putFloat("last_latitude", latitude.toFloat())
                 .putFloat("last_longitude", longitude.toFloat())
-                .putFloat("covered_distance", distance.toFloat()) // Make sure to use distance here
+                .putFloat("covered_distance", distance.toFloat())
                 .putLong("last_timestamp", lastUpdateTimestamp)
+                .putInt("lap", lap)
+                .putFloat("lap_counter", lapCounter.toFloat())
                 .putLong("service_start_time", startDateTime.toEpochSecond(java.time.ZoneOffset.UTC))
+                .putLong("last_lap_completion_time", lastLapCompletionTime)
+                .putLong("lap_start_time", lapStartTime)
                 .apply()
 
             // Create intent with all necessary extras from the original intent
@@ -969,9 +1214,14 @@ class ForegroundService : Service() {
                         // Recreate the location listener if needed
                         customLocationListener?.cleanup()
                         customLocationListener = CustomLocationListener(applicationContext).also {
-                            it.startDateTime = LocalDateTime.now()
+                            it.startDateTime = startDateTime
                             delay(100) // Short delay to ensure sessionId is saved
                             it.startListener()
+
+                            // Restore tracked values if we have them
+                            if (distance > 0) {
+                                it.resumeFromSavedState(distance, lastKnownPosition, lap, lapCounter)
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -987,10 +1237,15 @@ class ForegroundService : Service() {
         private const val EVENT_TIMEOUT_MS = 2000
         private var isStoppingIntentionally = false
         private const val TAG = "ForegroundService"
+
+        // State saving constants
+        private const val STATE_SAVE_INTERVAL = 5000L // 5 seconds
+
         //Weather
         private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
         private const val WEATHER_FAST_POLL_INTERVAL = 10000L // 10 seconds for initial polling
+
         // reconnection logic
         private const val CONNECTION_CHECK_INTERVAL = 60_000L // 1 minute
     }

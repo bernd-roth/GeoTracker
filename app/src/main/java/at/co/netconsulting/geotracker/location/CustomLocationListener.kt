@@ -957,7 +957,12 @@ class CustomLocationListener: LocationListener {
      * @param savedDistance The previously covered distance
      * @param lastPosition The last known position (latitude, longitude)
      */
-    fun resumeFromSavedState(savedDistance: Double, lastPosition: Pair<Double, Double>?) {
+    fun resumeFromSavedState(
+        savedDistance: Double,
+        lastPosition: Pair<Double, Double>?,
+        savedLap: Int = 0,
+        savedLapCounter: Double = 0.0
+    ) {
         // Restore covered distance
         coveredDistance = savedDistance
         Log.d(TAG_WEBSOCKET, "Resumed with saved distance: $coveredDistance meters")
@@ -971,9 +976,11 @@ class CustomLocationListener: LocationListener {
             }
         }
 
-        // Reset lap counter based on covered distance
-        lap = (coveredDistance / 1000).toInt()
-        lapCounter = coveredDistance % 1000
+        // Restore lap counter based on provided values
+        lap = savedLap
+        lapCounter = savedLapCounter
+
+        Log.d(TAG_WEBSOCKET, "Resumed with lap data: lap=$lap, lapCounter=$lapCounter")
 
         // Create a metrics object to broadcast the resumed state
         val metrics = Metrics(
