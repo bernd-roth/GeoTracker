@@ -725,18 +725,52 @@ fun EventCard(
                     // Stats section - only show if there's actual data
                     if (event.totalDistance > 10 || event.averageSpeed > 0.1) { // Only show if meaningful data exists
                         Spacer(modifier = Modifier.height(8.dp))
+
+                        // First row: Distance and Heart Rate info
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column {
-                                // Keep existing stats
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Left column with distance and speed
                                 InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
                                 InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed * 3.6))
-                                // Elevation info
-                                InfoRow("Elevation Gain:", String.format("%.0f m", event.maxElevationGain))
-                                InfoRow("Max. Elevation:", String.format("%.0f m", event.maxElevation))
-                                InfoRow("Min. Elevation:", String.format("%.0f m", event.minElevation))
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Right column with heart rate info
+                                InfoRowWithColor(
+                                    label = "Min HR:",
+                                    value = if (event.minHeartRate > 0) "${event.minHeartRate} bpm" else "N/A",
+                                    textColor = if (event.minHeartRate > 0) Color.Blue else Color.Gray
+                                )
+                                InfoRowWithColor(
+                                    label = "Max HR:",
+                                    value = if (event.maxHeartRate > 0) "${event.maxHeartRate} bpm" else "N/A",
+                                    textColor = if (event.maxHeartRate > 0) Color.Red else Color.Gray
+                                )
+                            }
+                        }
+
+                        // Second row: Elevation and Avg Heart Rate
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Only show elevation gain if it's greater than 0
+                                val elevationGain = event.maxElevationGain.toInt()
+                                if (elevationGain > 0) {
+                                    InfoRow("Elevation Gain:", "$elevationGain m")
+                                }
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRowWithColor(
+                                    label = "Avg HR:",
+                                    value = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else "N/A",
+                                    textColor = if (event.avgHeartRate > 0) MaterialTheme.colorScheme.primary else Color.Gray
+                                )
                             }
                         }
                     } else {
@@ -755,11 +789,13 @@ fun EventCard(
 
             // If event is selected, show additional details
             if (selected) {
-                Spacer(modifier = Modifier.height(16.dp))
+                // Minimized space here - changed to 4.dp
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Divider()
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // Minimized space here - changed to 4.dp
+                Spacer(modifier = Modifier.height(4.dp))
 
                 // Event Times
                 Text(
@@ -768,7 +804,7 @@ fun EventCard(
                     fontWeight = FontWeight.Bold
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (event.startTime > 0 && event.endTime > 0) {
                     Row(
@@ -793,16 +829,66 @@ fun EventCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                // Heart Rate Details Section
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Heart Rate Details",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                if (event.minHeartRate > 0 || event.maxHeartRate > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRowWithColor(
+                                label = "Min Heart Rate:",
+                                value = if (event.minHeartRate > 0) "${event.minHeartRate} bpm" else "N/A",
+                                textColor = if (event.minHeartRate > 0) Color.Blue else Color.Gray
+                            )
+                            InfoRowWithColor(
+                                label = "Avg Heart Rate:",
+                                value = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else "N/A",
+                                textColor = if (event.avgHeartRate > 0) MaterialTheme.colorScheme.primary else Color.Gray
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRowWithColor(
+                                label = "Max Heart Rate:",
+                                value = if (event.maxHeartRate > 0) "${event.maxHeartRate} bpm" else "N/A",
+                                textColor = if (event.maxHeartRate > 0) Color.Red else Color.Gray
+                            )
+
+                            // Show heart rate device if available
+                            if (event.heartRateDevice.isNotEmpty() && event.heartRateDevice != "None") {
+                                InfoRow("Device:", event.heartRateDevice)
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "No heart rate data available",
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                }
 
                 // Weather information
+                Spacer(modifier = Modifier.height(4.dp))
+
                 Text(
                     text = "Weather Conditions",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (event.weather != null && event.weather.temperature > 0f) {
                     Row(
@@ -827,16 +913,16 @@ fun EventCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // Lap information with highlighting
+                Spacer(modifier = Modifier.height(4.dp))
+
                 Text(
                     text = "Lap Information",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (event.laps.isNotEmpty()) {
                     // Find the fastest and slowest complete laps
@@ -883,23 +969,23 @@ fun EventCard(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
-
                 // Map preview
+                Spacer(modifier = Modifier.height(4.dp))
+
                 Text(
                     text = "Route Preview",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(4.dp))
 
                 if (event.locationPoints.isNotEmpty()) {
                     // The height needs to be explicitly defined to make the map visible
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(200.dp)
+                            .height(180.dp) // slightly reduced height
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.LightGray)
                     ) {
@@ -939,7 +1025,7 @@ fun EventCard(
                 }
 
                 if (event.event.comment.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
                         text = "Comments",
@@ -947,7 +1033,7 @@ fun EventCard(
                         fontWeight = FontWeight.Bold
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
                         text = event.event.comment,
