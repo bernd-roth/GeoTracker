@@ -24,6 +24,7 @@ Record and analyze the following metrics:
 - **Time**: Log total duration.
 - **Elevation Gain/Loss**: Calculate how much you’ve climbed or descended.
 - **Weather Data**: Get real-time environmental information.
+- **Heartrate Data**: Get real-time heartrate information from your HR monitor.
 
 ### 🗺️ OpenStreetMap Integration
 Visualize your route on an interactive map:
@@ -59,6 +60,11 @@ Visualize your route on an interactive map:
 ---
 
 ## 📸 Screenshots
+![Screenshot_20250421-210036.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210036.png)
+![Screenshot_20250421-210111.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210111.png)
+![Screenshot_20250421-210045.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210045.png)
+![Screenshot_20250421-210054.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210054.png)
+![Screenshot_20250421-210122.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210122.png)
 
 ### Activity Dashboard
 ![Activity Dashboard](path-to-screenshot.png)

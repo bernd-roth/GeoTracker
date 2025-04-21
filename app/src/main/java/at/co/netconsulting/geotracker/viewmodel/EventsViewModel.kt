@@ -1,305 +1,247 @@
 package at.co.netconsulting.geotracker.viewmodel
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
-import at.co.netconsulting.geotracker.domain.Weather
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel() {
+
     private val _eventsWithDetails = MutableStateFlow<List<EventWithDetails>>(emptyList())
     val eventsWithDetails: StateFlow<List<EventWithDetails>> = _eventsWithDetails.asStateFlow()
-    private val _isDateFiltered = MutableStateFlow(false)
-    private val _dateRangeFilter = MutableStateFlow<Pair<String, String>?>(null)
+
+    private val _filteredEventsWithDetails = MutableStateFlow<List<EventWithDetails>>(emptyList())
+    val filteredEventsWithDetails: StateFlow<List<EventWithDetails>> = _filteredEventsWithDetails.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    // For managing event filtering
-    private val _filteredEventsWithDetails = MutableStateFlow<List<EventWithDetails>>(emptyList())
-    val filteredEventsWithDetails: StateFlow<List<EventWithDetails>> = _filteredEventsWithDetails.asStateFlow()
-
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private var hasMoreEvents = true
     private var currentPage = 0
-    private val pageSize = 10
+    private val pageSize = 20
+    private var hasMoreEvents = true
 
-    // Store the full list of loaded events for search operations
-    private var allLoadedEvents = mutableListOf<EventWithDetails>()
+    // Date range filter
+    private var startDateFilter: String? = null
+    private var endDateFilter: String? = null
 
-    fun filterByDateRange(startDate: String, endDate: String) {
-        // Clear any existing search query
-        setSearchQuery("")
-
-        // Set a flag to indicate filtering by date
-        _isDateFiltered.value = true
-
-        // Store the date range for filtering
-        _dateRangeFilter.value = Pair(startDate, endDate)
-
-        // Apply the filter to your events
-        applyFilters()
-    }
-
-    private fun EventsViewModel.applyFilters() {
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+        currentPage = 0
         viewModelScope.launch {
-            val query = _searchQuery.value
-            val events = _eventsWithDetails.value
-
-            val filtered = if (_isDateFiltered.value && _dateRangeFilter.value != null) {
-                val (startDate, endDate) = _dateRangeFilter.value!!
-                events.filter { event ->
-                    val eventDate = event.event.eventDate
-                    eventDate in startDate..endDate &&
-                            (query.isEmpty() || event.event.eventName.contains(query, ignoreCase = true) ||
-                                    event.event.artOfSport.contains(query, ignoreCase = true))
-                }
-            } else if (query.isNotEmpty()) {
-                events.filter { event ->
-                    event.event.eventName.contains(query, ignoreCase = true) ||
-                            event.event.artOfSport.contains(query, ignoreCase = true)
-                }
-            } else {
-                events
-            }
-
-            _filteredEventsWithDetails.value = filtered
+            updateFilteredEvents()
         }
     }
 
-    /**
-     * Reset date filter when needed (e.g., when navigating to the screen)
-     */
-    fun EventsViewModel.resetDateFilter() {
-        _isDateFiltered.value = false
-        _dateRangeFilter.value = null
-        applyFilters()
+    fun filterByDateRange(startDate: String? = null, endDate: String? = null) {
+        startDateFilter = startDate
+        endDateFilter = endDate
+        currentPage = 0
+        viewModelScope.launch {
+            updateFilteredEvents()
+        }
+    }
+
+    private suspend fun updateFilteredEvents() {
+        val query = _searchQuery.value.lowercase()
+        val events = _eventsWithDetails.value
+
+        val filtered = events.filter { event ->
+            val matchesSearch = query.isEmpty() ||
+                    event.event.eventName.lowercase().contains(query) ||
+                    event.event.artOfSport.lowercase().contains(query) ||
+                    event.event.comment.lowercase().contains(query)
+
+            val matchesDateRange = if (startDateFilter != null && endDateFilter != null) {
+                isDateInRange(event.event.eventDate, startDateFilter!!, endDateFilter!!)
+            } else {
+                true
+            }
+
+            matchesSearch && matchesDateRange
+        }
+
+        _filteredEventsWithDetails.value = filtered
+    }
+
+    private fun isDateInRange(dateStr: String, startDateStr: String, endDateStr: String): Boolean {
+        try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+            val date = sdf.parse(dateStr)
+            val startDate = sdf.parse(startDateStr)
+            val endDate = sdf.parse(endDateStr)
+
+            if (date != null && startDate != null && endDate != null) {
+                return !date.before(startDate) && !date.after(endDate)
+            }
+        } catch (e: Exception) {
+            Log.e("EventsViewModel", "Error parsing dates: ${e.message}")
+        }
+        return false
     }
 
     fun loadEvents() {
-        if (_isLoading.value || !hasMoreEvents) return
+        if (_isLoading.value) return
 
-        viewModelScope.launch(Dispatchers.IO) {
-            _isLoading.value = true
+        currentPage = 0
+        hasMoreEvents = true
+        _isLoading.value = true
+
+        viewModelScope.launch {
             try {
-                // Collect events from the Flow
-                val allEvents = database.eventDao().getAllEvents().first()
-
-                if (allEvents.isEmpty()) {
-                    hasMoreEvents = false
-                    _isLoading.value = false
-                    return@launch
-                }
-
-                // Implement pagination from the collected list
-                val startIndex = currentPage * pageSize
-                if (startIndex >= allEvents.size) {
-                    hasMoreEvents = false
-                    _isLoading.value = false
-                    return@launch
-                }
-
-                val endIndex = minOf(startIndex + pageSize, allEvents.size)
-                val eventsForPage = allEvents.subList(startIndex, endIndex)
-
-                // Process this page of events
-                val eventDetailsList = eventsForPage.map { event ->
-                    processEventDetails(event)
-                }
-
-                // Store all loaded events for filtering
-                allLoadedEvents.addAll(eventDetailsList)
-
-                // Update the state with new events
-                _eventsWithDetails.value = allLoadedEvents.toList()
-
-                // Apply current search filter if any
-                applySearchFilter(_searchQuery.value)
-
-                // Increment the page for next time
-                currentPage++
-
-                // Check if we have more events
-                hasMoreEvents = endIndex < allEvents.size
-
+                val events = loadEventsWithDetails(0, pageSize)
+                _eventsWithDetails.value = events
+                updateFilteredEvents()
             } catch (e: Exception) {
-                // Handle any errors
-                e.printStackTrace()
+                Log.e("EventsViewModel", "Error loading events: ${e.message}")
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    private suspend fun processEventDetails(event: Event): EventWithDetails {
-        val eventId = event.eventId
-
-        // Get location points
-        val locations = database.locationDao().getLocationsByEventId(eventId)
-        val locationPoints = locations.map { location ->
-            GeoPoint(location.latitude, location.longitude)
-        }
-
-        // Get metrics for calculating lap times and averages
-        val metrics = database.metricDao().getMetricsByEventId(eventId)
-
-        // Calculate lap times (assuming 1km per lap)
-        val lapTimes = calculateLapTimes(metrics.map { it.distance to it.timeInMilliseconds })
-
-        // Calculate average speed
-        val totalDistance = if (metrics.isNotEmpty()) metrics.last().distance else 0.0
-        val averageSpeed = if (metrics.isNotEmpty() && totalDistance > 0) {
-            val elapsedTimeSeconds = (metrics.last().timeInMilliseconds - metrics.first().timeInMilliseconds) / 1000.0
-            if (elapsedTimeSeconds > 0) {
-                // Calculate average speed in m/s (distance in meters / time in seconds)
-                totalDistance / elapsedTimeSeconds
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        }
-
-        // Get all altitude readings (filter out null or zero values)
-        val altitudes = locations.mapNotNull { location ->
-            if (location.altitude > 0) location.altitude else null
-        }
-
-        // Calculate elevation metrics
-        val maxElevation = altitudes.maxOrNull() ?: 0.0
-        val minElevation = altitudes.minOrNull() ?: 0.0
-        val maxElevationGain = maxElevation - minElevation
-
-        // Calculate start and end times
-        val startTime = if (metrics.isNotEmpty()) metrics.first().timeInMilliseconds else 0L
-        val endTime = if (metrics.isNotEmpty()) metrics.last().timeInMilliseconds else 0L
-
-        // Get device status (for satellite info)
-        val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(eventId)
-
-        // Get maximum satellite count for this event
-        val maxSatellites = database.deviceStatusDao().getMaxSatellitesForEvent(eventId) ?: 0
-
-        // Get the latest weather data for this event instead of using dummy data
-        val weather = database.weatherDao().getWeatherForEvent(eventId).lastOrNull()
-            ?: Weather(
-                weatherId = 0,
-                eventId = eventId,
-                weatherRestApi = "",
-                temperature = 0f,
-                windSpeed = 0f,
-                windDirection = "N/A",
-                relativeHumidity = 0
-            )
-
-        return EventWithDetails(
-            event = event,
-            weather = weather,
-            locationPoints = locationPoints,
-            laps = lapTimes,
-            totalDistance = totalDistance,
-            averageSpeed = averageSpeed,
-            startTime = startTime,
-            endTime = endTime,
-            satellites = maxSatellites,
-            maxElevationGain = maxElevationGain,
-            maxElevation = maxElevation,
-            minElevation = minElevation
-        )
-    }
-
     fun loadMoreEvents() {
-        loadEvents()
-    }
+        if (_isLoading.value || !hasMoreEvents) return
 
-    // Set search query and filter events
-    fun setSearchQuery(query: String) {
-        _searchQuery.value = query
-        applySearchFilter(query)
-    }
+        _isLoading.value = true
+        currentPage++
 
-    // Filter events based on search query
-    private fun applySearchFilter(query: String) {
-        if (query.isEmpty()) {
-            _filteredEventsWithDetails.value = allLoadedEvents.toList()
-        } else {
-            _filteredEventsWithDetails.value = allLoadedEvents.filter { event ->
-                event.event.eventName.contains(query, ignoreCase = true) ||
-                        event.event.artOfSport.contains(query, ignoreCase = true) ||
-                        event.event.eventDate.contains(query, ignoreCase = true) ||
-                        event.event.comment.contains(query, ignoreCase = true)
-            }
-        }
-    }
-
-    // Delete an event
-    fun deleteEvent(eventId: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch {
             try {
-                // First get the event object
-                val eventToDelete = database.eventDao().getEventById(eventId)
-
-                // Delete the event if found
-                if (eventToDelete != null) {
-                    database.eventDao().deleteEvent(eventToDelete)
-
-                    // Remove the event from our local lists
-                    allLoadedEvents.removeAll { it.event.eventId == eventId }
-                    _eventsWithDetails.value = allLoadedEvents.toList()
-
-                    // Apply current search filter to update filtered list
-                    applySearchFilter(_searchQuery.value)
+                val newEvents = loadEventsWithDetails(currentPage * pageSize, pageSize)
+                if (newEvents.isEmpty()) {
+                    hasMoreEvents = false
+                } else {
+                    _eventsWithDetails.value = _eventsWithDetails.value + newEvents
+                    updateFilteredEvents()
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                Log.e("EventsViewModel", "Error loading more events: ${e.message}")
+                currentPage-- // Revert page increment on failure
+            } finally {
+                _isLoading.value = false
             }
         }
     }
 
-    // Helper function to calculate lap times
-    private fun calculateLapTimes(distanceTimePairs: List<Pair<Double, Long>>): List<Long> {
-        val lapTimes = mutableListOf<Long>()
-        var lastLapDistance = 0.0
-        var lastLapTime = 0L
+    private suspend fun loadEventsWithDetails(offset: Int, limit: Int): List<EventWithDetails> {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Fixed: use the correct method name getEventsPaged instead of getEventsWithLimit
+                val events = database.eventDao().getEventsPaged(limit, offset)
 
-        if (distanceTimePairs.size < 2) {
-            return lapTimes
-        }
-
-        // Initialize lastLapTime with the first timestamp
-        lastLapTime = distanceTimePairs.first().second
-
-        for (i in distanceTimePairs.indices) {
-            val (distance, time) = distanceTimePairs[i]
-            val lapDistance = 1000.0 // 1 km in meters
-
-            // If we've reached or passed a new kilometer mark
-            while (distance >= lastLapDistance + lapDistance) {
-                lastLapDistance += lapDistance
-
-                // Find the exact time for this lap using linear interpolation
-                if (i > 0) {
-                    val (prevDistance, prevTime) = distanceTimePairs[i-1]
-                    val ratio = (lastLapDistance - prevDistance) / (distance - prevDistance)
-                    val lapTime = prevTime + ((time - prevTime) * ratio).toLong()
-
-                    // Add the time taken for this lap
-                    val timeTaken = lapTime - lastLapTime
-                    lapTimes.add(timeTaken)
-                    lastLapTime = lapTime
-                }
+                processEvents(events)
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error in loadEventsWithDetails: ${e.message}")
+                emptyList()
             }
         }
-        return lapTimes
+    }
+
+    private suspend fun processEvents(events: List<Event>): List<EventWithDetails> {
+        return events.map { event ->
+            val eventId = event.eventId
+
+            // Calculate heart rate statistics
+            val metrics = database.metricDao().getMetricsForEvent(eventId)
+            val heartRates = metrics.filter { it.heartRate > 0 }.map { it.heartRate }
+            val minHeartRate = heartRates.minOrNull() ?: 0
+            val maxHeartRate = heartRates.maxOrNull() ?: 0
+            val avgHeartRate = if (heartRates.isNotEmpty())
+                heartRates.sum() / heartRates.size
+            else 0
+
+            // Get heart rate device name
+            val heartRateDevice = metrics.firstOrNull {
+                it.heartRate > 0 && it.heartRateDevice.isNotEmpty() && it.heartRateDevice != "None"
+            }?.heartRateDevice ?: ""
+
+            // Calculate basic metrics
+            val totalDistance = metrics.maxByOrNull { it.distance }?.distance ?: 0.0
+            val avgSpeed = if (metrics.isNotEmpty()) metrics.sumOf { it.speed.toDouble() } / metrics.size else 0.0
+
+            // Get elevation data
+            val elevations = metrics.map { it.elevation.toDouble() }
+            val maxElevation = elevations.maxOrNull() ?: 0.0
+            val minElevation = if (elevations.isNotEmpty()) elevations.minOrNull() ?: 0.0 else 0.0
+            val maxElevationGain = metrics.maxByOrNull { it.elevationGain }?.elevationGain?.toDouble() ?: 0.0
+
+            // Get time range
+            val timeRange = database.metricDao().getEventTimeRange(eventId)
+            val startTime = timeRange?.minTime ?: 0
+            val endTime = timeRange?.maxTime ?: 0
+
+            // Fixed: use getLatestWeatherForEvent from your DAO
+            val weather = database.eventDao().getLatestWeatherForEvent(eventId)
+
+            // Get location data for map
+            val locations = database.locationDao().getLocationsForEvent(eventId)
+            val geoPoints = locations.map { GeoPoint(it.latitude, it.longitude) }
+
+            // Get lap times (if available)
+            val lapTimes = try {
+                database.lapTimeDao().getLapTimesForEvent(eventId).map { it.endTime - it.startTime }
+            } catch (e: Exception) {
+                emptyList<Long>()
+            }
+
+            // Fixed: use getLastDeviceStatusByEvent
+            val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(eventId)
+            val satellites = deviceStatus?.numberOfSatellites?.toIntOrNull() ?: 0
+
+            EventWithDetails(
+                event = event,
+                totalDistance = totalDistance,
+                averageSpeed = avgSpeed,
+                maxElevation = maxElevation,
+                minElevation = minElevation,
+                maxElevationGain = maxElevationGain,
+                startTime = startTime,
+                endTime = endTime,
+                weather = weather,
+                laps = lapTimes,
+                locationPoints = geoPoints,
+                satellites = satellites,
+                minHeartRate = minHeartRate,
+                maxHeartRate = maxHeartRate,
+                avgHeartRate = avgHeartRate,
+                heartRateDevice = heartRateDevice
+            )
+        }
+    }
+
+    suspend fun deleteEvent(eventId: Int) {
+        withContext(Dispatchers.IO) {
+            try {
+                // Get the event first, then delete it
+                val event = database.eventDao().getEventById(eventId)
+                if (event != null) {
+                    database.eventDao().deleteEvent(event)
+
+                    // Refresh events after deletion
+                    val events = loadEventsWithDetails(0, (currentPage + 1) * pageSize)
+                    _eventsWithDetails.value = events
+                    updateFilteredEvents()
+                } else {
+
+                }
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error deleting event: ${e.message}")
+            }
+        }
     }
 }
