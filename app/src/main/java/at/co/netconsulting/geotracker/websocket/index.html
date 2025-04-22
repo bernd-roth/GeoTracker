@@ -80,7 +80,7 @@
         border-radius: 4px;
         text-align: center;
         }
-        .speed-value {
+        .speed-value, .heart-rate-value {
         font-size: 24px;
         font-weight: bold;
         color: #2196F3;
@@ -90,11 +90,11 @@
         font-weight: bold;
         color: #4CAF50;
         }
-        .speed-unit, .elevation-unit {
+        .speed-unit, .elevation-unit, .heart-rate-unit {
         font-size: 14px;
         color: #666;
         }
-        .speed-label, .elevation-label {
+        .speed-label, .elevation-label, .heart-rate-label {
         font-size: 12px;
         color: #999;
         margin-bottom: 5px;
@@ -334,6 +334,11 @@
             <div class="elevation-label">Elevation Gain</div>
             <div class="elevation-value" id="elevationGain">0.0</div>
             <div class="elevation-unit">m</div>
+        </div>
+        <div class="stat-box">
+            <div class="speed-label">Heart Rate</div>
+            <div class="speed-value" id="heartRate">0</div>
+            <div class="speed-unit">bpm</div>
         </div>
     </div>
 </div>
@@ -883,6 +888,7 @@ function connectToWebSocket() {
                 speed: parseFloat(point.currentSpeed || 0),
                 averageSpeed: parseFloat(point.averageSpeed || 0),
                 cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
+                heartRate: parseInt(point.heartRate || 0), // Add heart rate extraction
                 timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
                 personName: personName
             };
@@ -911,6 +917,7 @@ function connectToWebSocket() {
                     updateSpeedDisplay(sessionId, latestPoint.speed, {
                         averageSpeed: latestPoint.averageSpeed,
                         cumulativeElevationGain: latestPoint.cumulativeElevationGain,
+                        heartRate: latestPoint.heartRate,
                         personName: latestPoint.personName ||
                             (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || ""
                     });
@@ -944,6 +951,7 @@ function connectToWebSocket() {
             maxSpeed: parseFloat(data.maxSpeed || 0),
             movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
             cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
+            heartRate: parseInt(data.heartRate || 0), // Add heart rate extraction
             timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
             // Store the person's name for use in display
             personName: personName
@@ -964,6 +972,7 @@ function connectToWebSocket() {
                 maxSpeed: processedPoint.maxSpeed,
                 movingAverageSpeed: processedPoint.movingAverageSpeed,
                 cumulativeElevationGain: processedPoint.cumulativeElevationGain,
+                heartRate: processedPoint.heartRate,
                 // Pass the person name to the display function
                 personName: processedPoint.personName
             });
@@ -1083,6 +1092,15 @@ function connectToWebSocket() {
         return '#F44336';                      // High elevation gain
     }
 
+    // Add new function to determine heart rate color based on value
+    function getHeartRateColor(heartRate) {
+        if (heartRate === 0) return '#999'; // Gray for no data
+        if (heartRate < 60) return '#2196F3'; // Blue for low
+        if (heartRate < 100) return '#4CAF50'; // Green for normal
+        if (heartRate < 140) return '#FF9800'; // Orange for elevated
+        return '#F44336'; // Red for high
+    }
+
     function updateSpeedDisplay(sessionId, speed, data) {
         // Get the person name from the data or from our saved mapping
         const personName = data.personName || sessionPersonNames[sessionId] || "";
@@ -1098,6 +1116,7 @@ function connectToWebSocket() {
                 avgSpeed: 0,
                 movingAvg: 0,
                 elevationGain: 0,
+                heartRate: 0,
                 lastUpdate: new Date(),
                 personName: personName
             };
@@ -1118,6 +1137,10 @@ function connectToWebSocket() {
 
             if (data.cumulativeElevationGain !== undefined) {
                 history.elevationGain = data.cumulativeElevationGain;
+            }
+
+            if (data.heartRate !== undefined) {
+                history.heartRate = data.heartRate;
             }
 
             // Clean up old sessions
@@ -1190,6 +1213,11 @@ function connectToWebSocket() {
                     <div class="elevation-value" id="elevationGain-${sessionId}">0.0</div>
                     <div class="elevation-unit">m</div>
                 </div>
+                <div class="stat-box">
+                    <div class="speed-label">Heart Rate</div>
+                    <div class="speed-value" id="heartRate-${sessionId}">0</div>
+                    <div class="speed-unit">bpm</div>
+                </div>
             `;
 
             // Auto-scroll to show the new session
@@ -1237,6 +1265,14 @@ function connectToWebSocket() {
             history.elevationGain = data.cumulativeElevationGain;
             elevationGainElement.textContent = history.elevationGain.toFixed(1);
             elevationGainElement.style.color = getElevationColor(history.elevationGain);
+        }
+
+        // Update heart rate
+        const heartRateElement = document.getElementById(`heartRate-${sessionId}`);
+        if (heartRateElement && data.heartRate !== undefined) {
+            history.heartRate = data.heartRate;
+            heartRateElement.textContent = history.heartRate;
+            heartRateElement.style.color = getHeartRateColor(history.heartRate);
         }
 
         // Clean up old sessions
@@ -1350,7 +1386,8 @@ function connectToWebSocket() {
                 'maxSpeed': '0.0',
                 'avgSpeed': '0.0',
                 'movingAvg': '0.0',
-                'elevationGain': '0.0'
+                'elevationGain': '0.0',
+                'heartRate': '0'
             };
 
             // Reset all the default stats values
@@ -1358,7 +1395,13 @@ function connectToWebSocket() {
                 const element = document.getElementById(id);
                 if (element) {
                     element.textContent = value;
-                    element.style.color = id === 'elevationGain' ? '#4CAF50' : '#2196F3'; // Reset colors
+                    if (id === 'elevationGain') {
+                        element.style.color = '#4CAF50'; // Reset elevation color
+                    } else if (id === 'heartRate') {
+                        element.style.color = '#999'; // Reset heart rate color to gray
+                    } else {
+                        element.style.color = '#2196F3'; // Reset speed colors
+                    }
                 }
             });
 
@@ -1393,6 +1436,11 @@ function connectToWebSocket() {
                         <div class="elevation-label">Elevation Gain</div>
                         <div class="elevation-value" id="elevationGain">0.0</div>
                         <div class="elevation-unit">m</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="speed-label">Heart Rate</div>
+                        <div class="speed-value" id="heartRate">0</div>
+                        <div class="speed-unit">bpm</div>
                     </div>
                 `;
                 speedDisplay.appendChild(defaultGrid);
@@ -1746,36 +1794,26 @@ function connectToWebSocket() {
         }
     }
 
-    function toggleSessionPanel() {
-        const panel = document.getElementById('sessionManagerPanel');
-        const content = panel.querySelector('.panel-content');
-        const toggleBtn = document.getElementById('toggleSessionPanel');
+    function exportDebugLog() {
+        const content = debugMessages.map(entry =>
+            `[${entry.timestamp}] [${entry.type}] ${entry.message}`
+        ).join('\n');
 
-        if (sessionPanelVisible) {
-            content.style.display = 'none';
-            toggleBtn.textContent = '+';
-        } else {
-            content.style.display = 'block';
-            toggleBtn.textContent = '-';
-        }
+        const blob = new Blob([content], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
 
-        sessionPanelVisible = !sessionPanelVisible;
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `debug-log-${new Date().toISOString().split('.')[0].replace(/[:.]/g, '-')}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        addDebugMessage('Debug log exported', 'system');
     }
 
-    // Request session list from server
-    function requestSessionList() {
-        if (websocket && websocket.readyState === WebSocket.OPEN) {
-            websocket.send(JSON.stringify({
-                type: 'request_sessions'
-            }));
-
-            addDebugMessage('Requested session list from server', 'system');
-        } else {
-            addDebugMessage('WebSocket not connected, cannot request sessions', 'error');
-        }
-    }
-
-function handleSessionList(sessions) {
+    function handleSessionList(sessions) {
     console.log("Raw sessions data:", sessions);
     addDebugMessage(`Raw sessions data: ${JSON.stringify(sessions)}`, 'debug');
 
@@ -1789,55 +1827,6 @@ function handleSessionList(sessions) {
 
     addDebugMessage(`Processed ${sessions.length} sessions`, 'system');
 }
-
-    // Update the session list UI
-    function updateSessionList() {
-        const sessionsList = document.getElementById('sessionsList');
-
-        if (!availableSessions || availableSessions.length === 0) {
-            sessionsList.innerHTML = '<p class="no-sessions">No sessions found.</p>';
-            return;
-        }
-
-        let html = '';
-
-        availableSessions.forEach(session => {
-            const sessionId = session.sessionId;
-            const isActive = session.isActive;
-
-            const parsedSession = parseSessionId(sessionId);
-            const name = parsedSession.name;
-            const time = parsedSession.formattedTime || 'Unknown time';
-            const color = getColorForUser(sessionId);
-
-            html += `
-                <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${sessionId}">
-                    <div class="session-item-info">
-                        <div class="session-item-name">
-                            ${name}
-                            ${isActive ? '<span class="active-badge" title="Active Session">⚡</span>' : ''}
-                        </div>
-                        <div class="session-item-time">${time}</div>
-                    </div>
-                    <div class="session-actions">
-                        <button class="session-action-btn toggle-visibility"
-                                onclick="toggleSessionVisibility('${sessionId}')"
-                                title="Toggle Visibility">
-                            👁
-                        </button>
-                        <button class="session-action-btn delete"
-                                onclick="confirmDeleteSession('${sessionId}')"
-                                title="Delete Session"
-                                ${isActive ? 'disabled' : ''}>
-                            🗑
-                        </button>
-                    </div>
-                </div>
-            `;
-        });
-
-        sessionsList.innerHTML = html;
-    }
 
     // Toggle session visibility on map and charts
     function toggleSessionVisibility(sessionId) {
@@ -1893,18 +1882,53 @@ function handleSessionList(sessions) {
         updateVisibilityButtonAppearance(sessionId, !currentVisibility);
     }
 
-    // Optional function to update the appearance of the visibility toggle button
-    function updateVisibilityButtonAppearance(sessionId, isVisible) {
-        // Find the button in the session list
-        const sessionItem = document.querySelector(`.session-item[data-session-id="${sessionId}"]`);
-        if (!sessionItem) return;
+    // Update the session list UI
+    function updateSessionList() {
+        const sessionsList = document.getElementById('sessionsList');
 
-        const visibilityBtn = sessionItem.querySelector('.toggle-visibility');
-        if (visibilityBtn) {
-            // Update the eye icon or style to indicate visibility state
-            visibilityBtn.innerHTML = isVisible ? '👁' : '👁‍🗨';
-            visibilityBtn.title = isVisible ? 'Hide' : 'Show';
+        if (!availableSessions || availableSessions.length === 0) {
+            sessionsList.innerHTML = '<p class="no-sessions">No sessions found.</p>';
+            return;
         }
+
+        let html = '';
+
+        availableSessions.forEach(session => {
+            const sessionId = session.sessionId;
+            const isActive = session.isActive;
+
+            const parsedSession = parseSessionId(sessionId);
+            const name = parsedSession.name;
+            const time = parsedSession.formattedTime || 'Unknown time';
+            const color = getColorForUser(sessionId);
+
+            html += `
+                <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${sessionId}">
+                    <div class="session-item-info">
+                        <div class="session-item-name">
+                            ${name}
+                            ${isActive ? '<span class="active-badge" title="Active Session">⚡</span>' : ''}
+                        </div>
+                        <div class="session-item-time">${time}</div>
+                    </div>
+                    <div class="session-actions">
+                        <button class="session-action-btn toggle-visibility"
+                                onclick="toggleSessionVisibility('${sessionId}')"
+                                title="Toggle Visibility">
+                            👁
+                        </button>
+                        <button class="session-action-btn delete"
+                                onclick="confirmDeleteSession('${sessionId}')"
+                                title="Delete Session"
+                                ${isActive ? 'disabled' : ''}>
+                            🗑
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        sessionsList.innerHTML = html;
     }
 
     // Show confirmation dialog before deleting a session
@@ -1985,35 +2009,34 @@ function handleSessionList(sessions) {
         }, 3000);
     }
 
-    // Close the confirmation dialog
-    function closeConfirmDialog() {
-        const overlay = document.getElementById('confirmOverlay');
-        const dialog = document.querySelector('.confirm-delete');
+    function toggleSessionPanel() {
+        const panel = document.getElementById('sessionManagerPanel');
+        const content = panel.querySelector('.panel-content');
+        const toggleBtn = document.getElementById('toggleSessionPanel');
 
-        if (overlay) overlay.remove();
-        if (dialog) dialog.remove();
+        if (sessionPanelVisible) {
+            content.style.display = 'none';
+            toggleBtn.textContent = '+';
+        } else {
+            content.style.display = 'block';
+            toggleBtn.textContent = '-';
+        }
+
+        sessionPanelVisible = !sessionPanelVisible;
     }
 
-    // Send delete request to server
-	function deleteSession(sessionId) {
-		if (websocket && websocket.readyState === WebSocket.OPEN) {
-			const deleteRequest = {
-				type: 'delete_session',
-				sessionId: sessionId
-			};
+    // Request session list from server
+    function requestSessionList() {
+        if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(JSON.stringify({
+                type: 'request_sessions'
+            }));
 
-			console.log("Sending delete request:", deleteRequest);
-			addDebugMessage(`Sending delete request: ${JSON.stringify(deleteRequest)}`, 'system');
-
-			websocket.send(JSON.stringify(deleteRequest));
-		} else {
-			console.error("WebSocket not connected");
-			addDebugMessage('WebSocket not connected, cannot delete session', 'error');
-			showNotification('Cannot delete: Connection lost', 'warning');
-		}
-
-		closeConfirmDialog();
-	}
+            addDebugMessage('Requested session list from server', 'system');
+        } else {
+            addDebugMessage('WebSocket not connected, cannot request sessions', 'error');
+        }
+    }
 
     // Handle session deletion response from server
 	function handleSessionDeleted(sessionId) {
@@ -2087,23 +2110,34 @@ function handleSessionList(sessions) {
 		showNotification(`Session ${sessionId} deleted successfully`, 'info');
 	}
 
-    function exportDebugLog() {
-        const content = debugMessages.map(entry =>
-            `[${entry.timestamp}] [${entry.type}] ${entry.message}`
-        ).join('\n');
+    // Send delete request to server
+	function deleteSession(sessionId) {
+		if (websocket && websocket.readyState === WebSocket.OPEN) {
+			const deleteRequest = {
+				type: 'delete_session',
+				sessionId: sessionId
+			};
 
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
+			console.log("Sending delete request:", deleteRequest);
+			addDebugMessage(`Sending delete request: ${JSON.stringify(deleteRequest)}`, 'system');
 
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `debug-log-${new Date().toISOString().split('.')[0].replace(/[:.]/g, '-')}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+			websocket.send(JSON.stringify(deleteRequest));
+		} else {
+			console.error("WebSocket not connected");
+			addDebugMessage('WebSocket not connected, cannot delete session', 'error');
+			showNotification('Cannot delete: Connection lost', 'warning');
+		}
 
-        addDebugMessage('Debug log exported', 'system');
+		closeConfirmDialog();
+	}
+
+	// Close the confirmation dialog
+    function closeConfirmDialog() {
+        const overlay = document.getElementById('confirmOverlay');
+        const dialog = document.querySelector('.confirm-delete');
+
+        if (overlay) overlay.remove();
+        if (dialog) dialog.remove();
     }
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -2125,78 +2159,9 @@ function handleSessionList(sessions) {
                 });
             }
 
-            // Add custom styling for the stats container
-            const style = document.createElement('style');
-            style.textContent = `
-                #speedDisplay {
-                    position: absolute;
-                    top: 10px;
-                    right: 10px;
-                    z-index: 1000;
-                    background-color: white;
-                    padding: 10px 0;
-                    border-radius: 5px;
-                    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
-                    font-family: Arial, sans-serif;
-                    width: 280px;
-                    max-height: 300px; /* Limit height to fit approximately 2 session boxes */
-                    overflow-y: auto; /* Enable scrolling when content exceeds max-height */
-                    display: block;
-                }
+            // Custom styles were already added in the HTML
 
-                .session-container {
-                    margin-bottom: 10px;
-                    border-bottom: 1px solid #eee;
-                    padding-bottom: 10px;
-                }
-
-                .session-container:last-child {
-                    border-bottom: none;
-                    margin-bottom: 0;
-                }
-
-                .session-label {
-                    font-size: 12px;
-                    font-weight: bold;
-                    padding: 0 10px;
-                    margin-bottom: 5px;
-                    color: #333;
-                }
-
-                /* Custom scrollbar styling */
-                #speedDisplay::-webkit-scrollbar {
-                    width: 6px;
-                }
-
-                #speedDisplay::-webkit-scrollbar-track {
-                    background: #f1f1f1;
-                    border-radius: 3px;
-                }
-
-                #speedDisplay::-webkit-scrollbar-thumb {
-                    background: #888;
-                    border-radius: 3px;
-                }
-
-                #speedDisplay::-webkit-scrollbar-thumb:hover {
-                    background: #555;
-                }
-
-                /* Add hover effect for buttons */
-                #gpxUpload button:hover {
-                    background-color: #f0f0f0;
-                    border-color: #999;
-                }
-
-                /* Add active effect for Reset button */
-                #resetMapBtn:active {
-                    background-color: #e6e6e6 !important;
-                    transform: translateY(1px);
-                }
-            `;
-            document.head.appendChild(style);
-
-            addDebugMessage('Running Tracker application initialized with scrollable stats', 'system');
+            addDebugMessage('Running Tracker application initialized with heart rate monitoring support', 'system');
         } catch (error) {
             console.error("Error during application initialization:", error);
             alert("There was an error initializing the application. Please check the console for details.");

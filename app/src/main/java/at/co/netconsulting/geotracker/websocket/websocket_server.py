@@ -49,7 +49,7 @@ class TrackingServer:
         try:
             # Check for stale active sessions before sending data
             self.update_active_sessions()
-
+            
             # Gather and sort all points from all sessions
             all_points = []
             for session_id, points in self.tracking_history.items():
@@ -74,7 +74,7 @@ class TrackingServer:
                 }
                 for session_id in self.tracking_history.keys()
             ]
-
+            
             await websocket.send(json.dumps({
                 'type': 'session_list',
                 'sessions': session_info
@@ -105,6 +105,9 @@ class TrackingServer:
             "averageSpeed"
         ]
 
+        # Heart rate is optional, so we don't add it to required fields
+        # but we'll process it if it exists
+
         return all(
             key in message_data and message_data[key] is not None
             for key in required_fields
@@ -118,7 +121,8 @@ class TrackingServer:
             self.active_sessions.add(session_id)
             self.last_activity[session_id] = datetime.datetime.now()
 
-        return {
+        # Create base tracking point with standard fields
+        tracking_point = {
             "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
             **message_data,
             "currentSpeed": float(message_data["currentSpeed"]),
@@ -127,16 +131,25 @@ class TrackingServer:
             "averageSpeed": float(message_data["averageSpeed"])
         }
 
+        # Add heart rate data if available
+        if "heartRate" in message_data:
+            tracking_point["heartRate"] = int(message_data["heartRate"])
+
+        if "heartRateDevice" in message_data:
+            tracking_point["heartRateDevice"] = message_data["heartRateDevice"]
+
+        return tracking_point
+        
     def update_active_sessions(self) -> None:
         """Update the list of active sessions based on recent activity."""
         now = datetime.datetime.now()
         inactive_sessions = set()
-
+        
         for session_id, last_time in self.last_activity.items():
             time_diff = (now - last_time).total_seconds()
             if time_diff > self.activity_timeout:
                 inactive_sessions.add(session_id)
-
+        
         # Remove inactive sessions
         for session_id in inactive_sessions:
             if session_id in self.active_sessions:
@@ -150,28 +163,28 @@ class TrackingServer:
             if session_id not in self.tracking_history:
                 logging.warning(f"Attempted to delete non-existent session: {session_id}")
                 return {"success": False, "reason": "Session does not exist"}
-
+            
             # Check if session is active
             self.update_active_sessions()  # Refresh active sessions status first
             if session_id in self.active_sessions:
                 logging.warning(f"Attempted to delete active session: {session_id}")
                 return {"success": False, "reason": "Cannot delete active session"}
-
+            
             # Delete the session
             del self.tracking_history[session_id]
             if session_id in self.last_activity:
                 del self.last_activity[session_id]
-
+                
             logging.info(f"Deleted session: {session_id}")
-
+            
             # Notify all clients about the deletion
             await self.broadcast_update({
                 'type': 'session_deleted',
                 'sessionId': session_id
             })
-
+            
             return {"success": True}
-
+            
         except Exception as e:
             logging.error(f"Error deleting session {session_id}: {str(e)}")
             return {"success": False, "reason": str(e)}
@@ -197,7 +210,7 @@ class TrackingServer:
                     logging.info(f"Received message: {message}")
 
                     message_data = json.loads(message)
-
+                    
                     # Handle delete request
                     if message_data.get('type') == 'delete_session':
                         session_id = message_data.get('sessionId')
@@ -210,7 +223,7 @@ class TrackingServer:
                                 'reason': result.get("reason", "")
                             }))
                         continue
-
+                        
                     # Handle session status request
                     if message_data.get('type') == 'request_sessions':
                         self.update_active_sessions()  # Refresh active status
@@ -221,7 +234,7 @@ class TrackingServer:
                             }
                             for session_id in self.tracking_history.keys()
                         ]
-
+                        
                         await websocket.send(json.dumps({
                             'type': 'session_list',
                             'sessions': session_info
@@ -264,7 +277,7 @@ class TrackingServer:
 async def main():
     """Main function to run the WebSocket server."""
     server = TrackingServer()
-
+    
     logging.info("WebSocket server starting on port 6789")
 
     async with websockets.serve(server.handle_client, "0.0.0.0", 6789):

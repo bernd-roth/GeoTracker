@@ -42,6 +42,9 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import at.co.netconsulting.geotracker.data.HeartRateData
+import org.greenrobot.eventbus.Subscribe
+import org.greenrobot.eventbus.ThreadMode
 
 class CustomLocationListener: LocationListener {
     var startDateTime: LocalDateTime = LocalDateTime.now()
@@ -102,6 +105,10 @@ class CustomLocationListener: LocationListener {
     private var isCurrentlyTracking = false
     private val THRESHOLD_TIMEOUT_MS = 3000 // 3 seconds
 
+    // heartrate
+    private var currentHeartRate: Int = 0
+    private var heartRateDeviceName: String = ""
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -109,6 +116,12 @@ class CustomLocationListener: LocationListener {
 
         // Initialize Text-to-Speech
         initTextToSpeech()
+
+        // Register with EventBus to receive heart rate data
+        if (!EventBus.getDefault().isRegistered(this)) {
+            EventBus.getDefault().register(this)
+            Log.d(TAG_WEBSOCKET, "Registered with EventBus in constructor")
+        }
     }
 
     private fun initTextToSpeech() {
@@ -144,6 +157,16 @@ class CustomLocationListener: LocationListener {
         textToSpeech?.stop()
         textToSpeech?.shutdown()
 
+        // Unregister from EventBus
+        try {
+            if (EventBus.getDefault().isRegistered(this)) {
+                EventBus.getDefault().unregister(this)
+                Log.d(TAG_WEBSOCKET, "Unregistered from EventBus")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG_WEBSOCKET, "Error unregistering from EventBus", e)
+        }
+
         healthCheckJob?.cancel()
         job.cancel()
     }
@@ -154,6 +177,13 @@ class CustomLocationListener: LocationListener {
         createLocationUpdates()
         loadSessionId()  // Load sessionId from SharedPreferences
         registerNetworkCallback()
+
+        // Make sure we're registered to receive heart rate events
+        if (!EventBus.getDefault().isRegistered(this)) {
+            EventBus.getDefault().register(this)
+            Log.d(TAG_WEBSOCKET, "Registered with EventBus to receive heart rate data")
+        }
+
         connectWebSocket()
         //sending data as a test to my websocket server
         //sendTestDataToWebSocketServer(context)
@@ -469,6 +499,8 @@ class CustomLocationListener: LocationListener {
                 cumulativeElevationGain = cumulativeElevationGain,
                 sessionId = sessionId,
                 person = firstname,
+                heartRate = currentHeartRate,
+                heartRateDevice = heartRateDeviceName,
                 numberOfSatellites = numberOfSatellites,
                 usedNumberOfSatellites = usedNumberOfSatellites,
                 satellites = satelliteCount
@@ -553,12 +585,21 @@ class CustomLocationListener: LocationListener {
             return
         }
 
+        Log.d(TAG_WEBSOCKET, "Preparing to send data with heart rate: ${metrics.heartRate} from device: ${metrics.heartRateDevice}")
+
         // Convert metrics to JSON using a properly configured Gson instance
         val gson = GsonBuilder()
             .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
             .create()
 
         val jsonData = gson.toJson(metrics)
+
+        // Check if heart rate is included in the JSON
+        if (!jsonData.contains("\"heartRate\":")) {
+            Log.e(TAG_WEBSOCKET, "WARNING: Heart rate not included in JSON message!")
+        } else {
+            Log.d(TAG_WEBSOCKET, "Heart rate confirmed in JSON message")
+        }
 
         Log.d(TAG_WEBSOCKET, "Sending data: $jsonData")
 
@@ -1005,6 +1046,72 @@ class CustomLocationListener: LocationListener {
         )
         // Broadcast the current state
         EventBus.getDefault().post(metrics)
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onHeartRateData(data: HeartRateData) {
+        if (data.isConnected && data.heartRate > 0) {
+            val oldHeartRate = currentHeartRate
+            currentHeartRate = data.heartRate
+            heartRateDeviceName = data.deviceName
+            Log.d(TAG_WEBSOCKET, "Heart rate updated from $oldHeartRate to ${data.heartRate} bpm from device ${data.deviceName}")
+
+            // Debug log to confirm we're getting heart rate updates
+            Log.d(TAG_WEBSOCKET, "HEART RATE DEBUG: Current heart rate = $currentHeartRate, device = $heartRateDeviceName")
+        } else {
+            Log.d(TAG_WEBSOCKET, "Received heart rate data but it's not valid: connected=${data.isConnected}, rate=${data.heartRate}")
+        }
+    }
+
+    // Add this function to the CustomLocationListener class
+    fun updateHeartRate(heartRate: Int, deviceName: String) {
+        currentHeartRate = heartRate
+        heartRateDeviceName = deviceName
+        Log.d(TAG_WEBSOCKET, "Heart rate directly updated to $heartRate bpm from device $deviceName")
+
+        // Create an immediate update with latest data to ensure heart rate is sent to websocket
+        updateImmediateWebSocketData()
+    }
+
+    private fun updateImmediateWebSocketData() {
+        val locationManager = this.context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+        if (locationManager != null && checkLatitudeLongitude()) {
+            // Create Metrics object with all current data including heart rate
+            val metrics = Metrics(
+                latitude = oldLatitude,
+                longitude = oldLongitude,
+                speed = if (isCurrentlyTracking) (movingAverageSpeed * 3.6).toFloat() else 0f,
+                altitude = startingAltitude ?: 0.0,
+                coveredDistance = coveredDistance,
+                lap = lap,
+                startDateTime = startDateTime,
+                averageSpeed = averageSpeed,
+                maxSpeed = maxSpeed,
+                movingAverageSpeed = movingAverageSpeed,
+                cumulativeElevationGain = cumulativeElevationGain,
+                sessionId = sessionId,
+                person = firstname,
+                heartRate = currentHeartRate,
+                heartRateDevice = heartRateDeviceName,
+                numberOfSatellites = numberOfSatellites,
+                usedNumberOfSatellites = usedNumberOfSatellites
+            )
+
+            // Send immediate update to websocket
+            sendDataToWebsocketServer(metrics)
+            Log.d(TAG_WEBSOCKET, "Sent immediate update to WebSocket with heart rate: $currentHeartRate")
+
+            // Also post to EventBus for UI updates
+            EventBus.getDefault().post(metrics)
+        } else {
+            Log.d(TAG_WEBSOCKET, "Cannot send immediate update - invalid location data")
+        }
+    }
+
+    // Helper function to check if we have valid coordinates
+    private fun checkLatitudeLongitude(): Boolean {
+        return oldLatitude != -999.0 && oldLongitude != -999.0
     }
 
     companion object {

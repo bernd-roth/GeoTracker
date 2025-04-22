@@ -25,6 +25,10 @@ data class Metrics(
     val sessionId: String = "",
     val person: String = "",
 
+    // Heart rate data
+    val heartRate: Int = 0,
+    val heartRateDevice: String = "",
+
     // Fields for BottomSheet UI
     val numberOfSatellites: Int = 0,
     val usedNumberOfSatellites: Int = 0,

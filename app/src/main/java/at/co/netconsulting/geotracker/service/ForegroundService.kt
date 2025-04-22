@@ -918,6 +918,9 @@ class ForegroundService : Service() {
             currentHeartRate = data.heartRate
             Log.d(TAG, "Heart rate updated: ${data.heartRate} bpm")
 
+            // Update CustomLocationListener with the latest heart rate
+            updateLocationListenerHeartRate()
+
             // Update notification with heart rate
             showNotification()
         }
@@ -1302,6 +1305,13 @@ class ForegroundService : Service() {
                 }
             }
         }
+    }
+
+    private fun updateLocationListenerHeartRate() {
+        // Make sure to update CustomLocationListener with the latest heart rate data
+        customLocationListener?.updateHeartRate(currentHeartRate, heartRateDeviceName ?: "")
+
+        Log.d(TAG, "Updated CustomLocationListener with heart rate: $currentHeartRate from device: $heartRateDeviceName")
     }
 
     companion object {
