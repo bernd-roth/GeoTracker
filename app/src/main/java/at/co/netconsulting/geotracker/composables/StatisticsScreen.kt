@@ -47,6 +47,8 @@ fun StatisticsScreen() {
     // Collect flows as state
     val weather by weatherHandler.weather.collectAsState()
     val metrics by weatherHandler.metrics.collectAsState()
+    val heartRateData by weatherHandler.heartRate.collectAsState()
+    val heartRateHistory by weatherHandler.heartRateHistory.collectAsState()
 
     Column(
         modifier = Modifier
@@ -116,6 +118,49 @@ fun StatisticsScreen() {
                     MetricColumn("Total", formatDistance(metrics?.coveredDistance ?: 0.0))
                     MetricColumn("Altitude", formatAltitude(metrics?.altitude ?: 0.0))
                     MetricColumn("Elev. Gain", formatElevation(metrics?.cumulativeElevationGain ?: 0.0))
+                }
+            }
+        )
+
+        // Heart Rate Card
+        StatisticsCard(
+            title = "Heart Rate",
+            content = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = "Current",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+
+                        if (heartRateData?.isConnected == true) {
+                            Text(
+                                text = "${heartRateData?.heartRate ?: 0} bpm",
+                                fontSize = 20.sp
+                            )
+                        } else {
+                            Text(
+                                text = if (heartRateData?.isScanning == true) "Scanning..." else "Not connected",
+                                fontSize = 16.sp,
+                                color = Color.Gray
+                            )
+                        }
+
+                        // Show device name if connected
+                        heartRateData?.deviceName?.let { deviceName ->
+                            if (deviceName.isNotEmpty() && heartRateData?.isConnected == true) {
+                                Text(
+                                    text = deviceName,
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
                 }
             }
         )
@@ -240,6 +285,49 @@ fun StatisticsScreen() {
                         contentAlignment = Alignment.Center
                     ) {
                         Text("Chart will appear as you move")
+                    }
+                }
+            }
+        )
+
+        // Heart Rate vs Distance Card
+        StatisticsCard(
+            title = "Heart Rate vs Distance",
+            content = {
+                if (metrics != null && metrics!!.coveredDistance > 0 && heartRateHistory.isNotEmpty() &&
+                    heartRateData?.isConnected == true) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    ) {
+                        // Convert the heart rate history into chart entries
+                        val heartRateEntries = remember(heartRateHistory) {
+                            heartRateHistory.map { (distance, rate) ->
+                                Entry(distance.toFloat(), rate.toFloat())
+                            }
+                        }
+
+                        HeartRateDistanceChart(
+                            entries = heartRateEntries,
+                            lineColor = Color(0xFFE91E63), // Pink color for heart rate
+                            fillColor = Color(0xFFE91E63).copy(alpha = 0.2f)
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .background(Color.LightGray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (heartRateData?.isConnected == true)
+                                "Chart will appear as you move"
+                            else
+                                "Connect a heart rate sensor to see data"
+                        )
                     }
                 }
             }
