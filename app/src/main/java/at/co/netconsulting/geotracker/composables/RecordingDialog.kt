@@ -143,14 +143,15 @@ fun RecordingDialog(
                         readOnly = true,
                         label = { Text("Sport Type") },
                         trailingIcon = {
-                            Icon(
-                                imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.ArrowDropDown,
-                                contentDescription = "Dropdown Arrow"
-                            )
+                            IconButton(onClick = { expanded = !expanded }) {
+                                Icon(
+                                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.ArrowDropDown,
+                                    contentDescription = "Dropdown Arrow"
+                                )
+                            }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { expanded = !expanded }
                     )
 
                     DropdownMenu(
