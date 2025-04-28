@@ -126,6 +126,10 @@ class ForegroundService : Service() {
     private var lastLapCompletionTime: Long = 0
     private var lapStartTime: Long = System.currentTimeMillis()
 
+    // Pause button state
+    private var isPaused = false
+    private var pauseStartTime: Long = 0
+
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
 
@@ -533,6 +537,12 @@ class ForegroundService : Service() {
                         it.resumeFromSavedState(distance, lastKnownPosition, lap, lapCounter)
                         Log.d(TAG, "Resumed from saved state: distance=$distance, position=$lastKnownPosition, lap=$lap, lapCounter=$lapCounter")
                     }
+
+                    // Set pause state on the location listener
+                    if (isPaused) {
+                        it.setPaused(true)
+                        Log.d(TAG, "Restored paused state to location listener")
+                    }
                 }
 
                 val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
@@ -556,10 +566,14 @@ class ForegroundService : Service() {
                     if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
                         resetValues()
                     }
-                    if (speed >= MIN_SPEED_THRESHOLD) {
-                        showStopWatch()
-                    } else {
-                        showLazyStopWatch()
+
+                    // Skip stopwatch updates if paused
+                    if (!isPaused) {
+                        if (speed >= MIN_SPEED_THRESHOLD) {
+                            showStopWatch()
+                        } else {
+                            showLazyStopWatch()
+                        }
                     }
 
                     showNotification()
@@ -737,6 +751,11 @@ class ForegroundService : Service() {
     }
 
     private fun showStopWatch() {
+        // Skip timer logic if paused
+        if (isPaused) {
+            return
+        }
+
         if (speed >= MIN_SPEED_THRESHOLD) {
             if (!isCurrentlyMoving) {
                 lazyState.stop()
@@ -757,6 +776,11 @@ class ForegroundService : Service() {
     }
 
     private fun showLazyStopWatch() {
+        // Skip timer logic if paused
+        if (isPaused) {
+            return
+        }
+
         if (speed < MIN_SPEED_THRESHOLD) {
             Log.d("StopWatch", "Speed below threshold")
             if (isCurrentlyMoving) {
@@ -794,8 +818,11 @@ class ForegroundService : Service() {
             ""
         }
 
+        val pausePrefix = if (isPaused) "PAUSED\n" else ""
+
         updateNotification(
-            "Activity: " + movementFormattedTime +
+            pausePrefix +
+                    "Activity: " + movementFormattedTime +
                     "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
                     "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
@@ -928,6 +955,23 @@ class ForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
+            // Check for pause/resume actions
+            when (intent?.action) {
+                ACTION_PAUSE_RECORDING -> {
+                    pauseRecording()
+                    return START_STICKY
+                }
+                ACTION_RESUME_RECORDING -> {
+                    resumeRecording()
+                    return START_STICKY
+                }
+            }
+
+            // Check if we're stopping intentionally (flag set by stop button)
+            if (intent?.getBooleanExtra("stopping_intentionally", false) == true) {
+                isStoppingIntentionally = true
+                Log.d(TAG, "Service is being stopped intentionally")
+            }
             // Check if we're stopping intentionally (flag set by stop button)
             if (intent?.getBooleanExtra("stopping_intentionally", false) == true) {
                 isStoppingIntentionally = true
@@ -968,8 +1012,18 @@ class ForegroundService : Service() {
                     )
                 }
 
-                Log.d(TAG, "Restoring service state: eventId=$eventId, sessionId=$sessionId, " +
-                        "distance=$distance, lap=$lap, startTime=$startDateTime")
+                // Restore pause state
+                isPaused = prefs.getBoolean("is_paused", false)
+                pauseStartTime = prefs.getLong("pause_start_time", 0)
+
+                // Update shared preferences with restored pause state
+                getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("is_paused", isPaused)
+                    .apply()
+
+                Log.d(TAG, "Restored service state: eventId=$eventId, sessionId=$sessionId, " +
+                        "distance=$distance, lap=$lap, startTime=$startDateTime, isPaused=$isPaused")
 
                 // Clear restart flag
                 prefs.edit().putBoolean("was_running", false).apply()
@@ -1192,6 +1246,9 @@ class ForegroundService : Service() {
                 // Also save heart rate sensor information for restarts
                 .putString("heart_rate_device_address", heartRateDeviceAddress)
                 .putString("heart_rate_device_name", heartRateDeviceName)
+                // Save pause state
+                .putBoolean("is_paused", isPaused)
+                .putLong("pause_start_time", pauseStartTime)
                 .apply()
 
             // Create intent with all necessary extras from the original intent
@@ -1314,6 +1371,70 @@ class ForegroundService : Service() {
         Log.d(TAG, "Updated CustomLocationListener with heart rate: $currentHeartRate from device: $heartRateDeviceName")
     }
 
+    private fun pauseRecording() {
+        if (!isPaused) {
+            isPaused = true
+            pauseStartTime = System.currentTimeMillis()
+
+            // Pause both stopwatches
+            if (isCurrentlyMoving) {
+                movementState.stop()
+            }
+            lazyState.stop()
+
+            // Update the notification to show paused state
+            updateNotification("PAUSED\n" +
+                    "Activity: " + movementFormattedTime +
+                    "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
+                    "\nLap: " + String.format("%2d", lap)
+            )
+
+            // Inform location listener to stop updates
+            customLocationListener?.setPaused(true)
+
+            Log.d(TAG, "Recording paused at $pauseStartTime")
+
+            // Save paused state to SharedPreferences
+            getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("is_paused", true)
+                .apply()
+        }
+    }
+
+    private fun resumeRecording() {
+        if (isPaused) {
+            val pauseDuration = System.currentTimeMillis() - pauseStartTime
+            Log.d(TAG, "Resuming after pause of ${pauseDuration}ms")
+
+            isPaused = false
+
+            // Adjust timers to account for paused duration
+            lastUpdateTimestamp = System.currentTimeMillis()
+
+            // Resume appropriate stopwatch based on current speed
+            if (speed >= MIN_SPEED_THRESHOLD) {
+                movementState.start()
+                isCurrentlyMoving = true
+            } else {
+                lazyState.start()
+                isCurrentlyMoving = false
+            }
+
+            // Inform location listener to resume updates
+            customLocationListener?.setPaused(false)
+
+            // Show normal notification again
+            showNotification()
+
+            // Save resumed state to SharedPreferences
+            getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("is_paused", false)
+                .apply()
+        }
+    }
+
     companion object {
         private const val CHANNEL_ID = "ForegroundServiceChannel"
         private const val MIN_SPEED_THRESHOLD = 2.5f
@@ -1324,12 +1445,16 @@ class ForegroundService : Service() {
         // State saving constants
         private const val STATE_SAVE_INTERVAL = 5000L // 5 seconds
 
-        //Weather
+        // Weather
         private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
         private const val WEATHER_FAST_POLL_INTERVAL = 10000L // 10 seconds for initial polling
 
         // reconnection logic
         private const val CONNECTION_CHECK_INTERVAL = 60_000L // 1 minute
+
+        // Action constants for pause/resume
+        const val ACTION_PAUSE_RECORDING = "at.co.netconsulting.geotracker.PAUSE_RECORDING"
+        const val ACTION_RESUME_RECORDING = "at.co.netconsulting.geotracker.RESUME_RECORDING"
     }
 }

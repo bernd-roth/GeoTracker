@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -179,6 +180,14 @@ fun MapScreen() {
         }
     }
 
+    // tracking pause status
+    var isPaused by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getBoolean("is_paused", false)
+        )
+    }
+
     // Initialize or clean up path tracker based on showPath
     LaunchedEffect(showPath, currentEventId.value) {
         if (showPath) {
@@ -208,6 +217,9 @@ fun MapScreen() {
             val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .getBoolean("is_recording", false)
 
+            val newIsPaused = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getBoolean("is_paused", false)
+
             val newShowPath = context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
                 .getBoolean("show_path", false)
 
@@ -218,6 +230,11 @@ fun MapScreen() {
                 Log.d("MapScreen", "Recording state changed from $isRecording to $newIsRecording")
                 isRecording = newIsRecording
                 pathTracker.setRecording(newIsRecording)
+            }
+
+            if (isPaused != newIsPaused) {
+                Log.d("MapScreen", "Pause state changed from $isPaused to $newIsPaused")
+                isPaused = newIsPaused
             }
 
             if (showPath != newShowPath) {
@@ -379,10 +396,11 @@ fun MapScreen() {
                     overlays.add(scaleBarOverlay)
 
                     // Add my location overlay
-                    val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
-                        enableMyLocation()
-                        enableFollowLocation()
-                    }
+                    val locationOverlay =
+                        MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
+                            enableMyLocation()
+                            enableFollowLocation()
+                        }
                     overlays.add(locationOverlay)
 
                     // Store reference to MapView
@@ -442,9 +460,9 @@ fun MapScreen() {
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Toggle recording button
+            // Display different buttons based on recording state
             if (!isRecording) {
-                // Start recording button
+                // Start recording button (no change)
                 Surface(
                     modifier = Modifier
                         .size(56.dp),
@@ -468,7 +486,60 @@ fun MapScreen() {
                     }
                 }
             } else {
-                // Stop recording button
+                // Recording is active, show pause/resume and stop buttons
+                // Pause/Resume button
+                Surface(
+                    modifier = Modifier
+                        .size(56.dp)
+                        .padding(end = 8.dp),
+                    shape = CircleShape,
+                    color = if (isPaused) Color.Green else Color(0xFFFFA500), // Orange when not paused, Green when paused
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                // Toggle pause state
+                                val newPausedState = !isPaused
+                                isPaused = newPausedState
+
+                                // Update shared preferences
+                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("is_paused", newPausedState)
+                                    .apply()
+
+                                // Send command to service
+                                val intent = Intent(context, ForegroundService::class.java).apply {
+                                    action = if (newPausedState) {
+                                        "at.co.netconsulting.geotracker.PAUSE_RECORDING"
+                                    } else {
+                                        "at.co.netconsulting.geotracker.RESUME_RECORDING"
+                                    }
+                                }
+                                context.startService(intent)
+
+                                Toast.makeText(
+                                    context,
+                                    if (newPausedState) "Recording Paused" else "Recording Resumed",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                    ) {
+                        Icon(
+                            imageVector = if (isPaused)
+                                Icons.Default.PlayArrow  // Show play icon when paused
+                            else
+                                Icons.Filled.Pause,     // Show pause icon when recording
+                            contentDescription = if (isPaused) "Resume Recording" else "Pause Recording",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                // Stop recording button (no change)
                 Surface(
                     modifier = Modifier
                         .size(56.dp),
@@ -481,8 +552,11 @@ fun MapScreen() {
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable {
-                                // Stop recording
-                                val sharedPreferences = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                                // Stop recording logic (unchanged)
+                                val sharedPreferences = context.getSharedPreferences(
+                                    "CurrentEvent",
+                                    Context.MODE_PRIVATE
+                                )
                                 val currentEventId = sharedPreferences.getInt("active_event_id", -1)
                                 if (currentEventId != -1) {
                                     // Store as last event ID
@@ -491,32 +565,30 @@ fun MapScreen() {
                                         // Remove active_event_id key completely
                                         .remove("active_event_id")
                                         .apply()
-
-                                    Log.d("MapScreen", "Saved last_event_id=$currentEventId and removed active_event_id")
                                 }
 
                                 // Update recording state
                                 context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                                     .edit()
                                     .putBoolean("is_recording", false)
+                                    .putBoolean("is_paused", false) // Also reset pause state
                                     .apply()
 
                                 isRecording = false
-                                Log.d("MapScreen", "Set isRecording=false in SharedPreferences and local state")
+                                isPaused = false
 
                                 // Stop the foreground service
                                 val stopIntent = Intent(context, ForegroundService::class.java)
                                 // Set flag to mark the stop as intentional
                                 stopIntent.putExtra("stopping_intentionally", true)
                                 context.stopService(stopIntent)
-                                Log.d("MapScreen", "Stopped ForegroundService with stopping_intentionally=true")
 
                                 // Start the background service
                                 val intent = Intent(context, BackgroundLocationService::class.java)
                                 context.startService(intent)
-                                Log.d("MapScreen", "Started BackgroundLocationService")
 
-                                Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
+                                    .show()
                             }
                     ) {
                         Icon(

@@ -124,6 +124,7 @@ dependencies {
     implementation("com.polidea.rxandroidble3:rxandroidble:1.17.2")
     implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
     implementation("io.reactivex.rxjava3:rxjava:3.1.5")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
 }
 
 ksp {

@@ -109,6 +109,10 @@ class CustomLocationListener: LocationListener {
     private var currentHeartRate: Int = 0
     private var heartRateDeviceName: String = ""
 
+    // state pause button
+    private var isPaused = false
+    private var pauseStartTime: Long = 0
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -376,6 +380,45 @@ class CustomLocationListener: LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        // If paused, only update satellite information but don't record movement
+        if (isPaused) {
+            // Still update satellite information with each location update
+            updateSatelliteInfo(location)
+
+            // Update our last known position but don't record movement or send to WebSocket
+            oldLatitude = location.latitude
+            oldLongitude = location.longitude
+
+            // Post the current state with isPaused flag to UI through EventBus
+            val pausedMetrics = Metrics(
+                latitude = location.latitude,
+                longitude = location.longitude,
+                speed = 0f,  // Force speed to 0 while paused
+                speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
+                altitude = location.altitude,
+                horizontalAccuracy = location.accuracy,
+                verticalAccuracyMeters = location.verticalAccuracyMeters,
+                coveredDistance = coveredDistance,
+                lap = lap,
+                startDateTime = startDateTime,
+                averageSpeed = averageSpeed,
+                maxSpeed = maxSpeed,
+                movingAverageSpeed = 0.0,  // Force to 0 while paused
+                cumulativeElevationGain = cumulativeElevationGain,
+                sessionId = sessionId,
+                person = firstname,
+                heartRate = currentHeartRate,
+                heartRateDevice = heartRateDeviceName,
+                numberOfSatellites = numberOfSatellites,
+                usedNumberOfSatellites = usedNumberOfSatellites,
+                satellites = if (location.extras != null) location.extras!!.getInt("satellites", 0) else 0
+            )
+
+            // Only send to UI, not to WebSocket server while paused
+            EventBus.getDefault().post(pausedMetrics)
+            return
+        }
+
         if (startingAltitude == null) {
             startingAltitude = location.altitude
             Log.d("LocationTracker", "Starting altitude set: $startingAltitude meters")
@@ -578,6 +621,11 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun sendDataToWebsocketServer(metrics: Metrics) {
+        // Don't send data while paused
+        if (isPaused) {
+            Log.d(TAG_WEBSOCKET, "Skipping WebSocket update while paused")
+            return
+        }
         // Check if sessionId is available
         if (sessionId.isEmpty()) {
             Log.e(TAG_WEBSOCKET, "Cannot send data - missing sessionId")
@@ -1112,6 +1160,18 @@ class CustomLocationListener: LocationListener {
     // Helper function to check if we have valid coordinates
     private fun checkLatitudeLongitude(): Boolean {
         return oldLatitude != -999.0 && oldLongitude != -999.0
+    }
+
+    fun setPaused(paused: Boolean) {
+        isPaused = paused
+
+        if (paused) {
+            pauseStartTime = System.currentTimeMillis()
+            Log.d(TAG_WEBSOCKET, "Location tracking paused at $pauseStartTime")
+        } else {
+            val pauseDuration = System.currentTimeMillis() - pauseStartTime
+            Log.d(TAG_WEBSOCKET, "Location tracking resumed after pause of ${pauseDuration}ms")
+        }
     }
 
     companion object {
