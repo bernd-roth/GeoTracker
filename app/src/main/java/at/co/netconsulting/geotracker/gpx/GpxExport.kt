@@ -52,23 +52,24 @@ suspend fun export(eventId: Int, contextActivity: Context) {
 
             locations.forEachIndexed { index, location ->
                 val metric = metrics.getOrNull(index)
-                val timeInMillis = metric?.timeInMilliseconds ?: 0L
 
-                // Convert the timestamp to Instant and format it
-                val timestamp = Instant.ofEpochMilli(timeInMillis)
-                    .atZone(ZoneId.systemDefault())
-                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                // Only create a trackpoint if there's a valid metric with a valid timestamp
+                // Before we always added a Unix timestamp which is always wrong
+                if (metric != null && metric.timeInMilliseconds > 0) {
+                    val timestamp = Instant.ofEpochMilli(metric.timeInMilliseconds)
+                        .atZone(ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
-                gpxBuilder.append("""
+                    gpxBuilder.append("""
         |      <trkpt lat="${location.latitude}" lon="${location.longitude}">
         |        <ele>${location.altitude}</ele>
         |        <time>${timestamp}</time>
-        |        ${if (metric?.speed != null) "<speed>${metric.speed}</speed>" else ""}
-        |        ${if (metric?.heartRate != null && metric.heartRate > 0) "<hr>${metric.heartRate}</hr>" else ""}
-        |        ${if (metric?.cadence != null) "<cad>${metric.cadence}</cad>" else ""}
+        |        ${if (metric.speed != null) "<speed>${metric.speed}</speed>" else ""}
+        |        ${if (metric.heartRate > 0) "<hr>${metric.heartRate}</hr>" else ""}
+        |        ${if (metric.cadence != null) "<cad>${metric.cadence}</cad>" else ""}
         |      </trkpt>
-    """.trimMargin())
-                Log.d("GpxExport", "TimeInMillis: $timeInMillis, Date: ${Instant.ofEpochMilli(timeInMillis)}")
+        """.trimMargin())
+                }
             }
 
             gpxBuilder.append("""
