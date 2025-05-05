@@ -1,16 +1,15 @@
 package at.co.netconsulting.geotracker.viewmodel
 
+import EventWithDetails
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
@@ -156,7 +155,7 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
         return events.map { event ->
             val eventId = event.eventId
 
-            // Calculate heart rate statistics
+            // Calculate heart rate statistics (keep existing code)
             val metrics = database.metricDao().getMetricsForEvent(eventId)
             val heartRates = metrics.filter { it.heartRate > 0 }.map { it.heartRate }
             val minHeartRate = heartRates.minOrNull() ?: 0
@@ -165,41 +164,88 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 heartRates.sum() / heartRates.size
             else 0
 
-            // Get heart rate device name
+            // Keep existing heart rate device name code
             val heartRateDevice = metrics.firstOrNull {
                 it.heartRate > 0 && it.heartRateDevice.isNotEmpty() && it.heartRateDevice != "None"
             }?.heartRateDevice ?: ""
 
-            // Calculate basic metrics
+            // Calculate basic metrics (keep existing code)
             val totalDistance = metrics.maxByOrNull { it.distance }?.distance ?: 0.0
             val avgSpeed = if (metrics.isNotEmpty()) metrics.sumOf { it.speed.toDouble() } / metrics.size else 0.0
 
-            // Get elevation data
+            // Get elevation data (keep existing code)
             val elevations = metrics.map { it.elevation.toDouble() }
             val maxElevation = elevations.maxOrNull() ?: 0.0
             val minElevation = if (elevations.isNotEmpty()) elevations.minOrNull() ?: 0.0 else 0.0
-            val maxElevationGain = metrics.maxByOrNull { it.elevationGain }?.elevationGain?.toDouble() ?: 0.0
 
-            // Get time range
+            // Calculate total elevation gain and loss (keep existing code)
+            var totalElevationGain = 0.0
+            var totalElevationLoss = 0.0
+
+            // Use the actual elevation data points to calculate gain and loss properly
+            if (metrics.size > 1) {
+                for (i in 1 until metrics.size) {
+                    val currentElevation = metrics[i].elevation.toDouble()
+                    val previousElevation = metrics[i-1].elevation.toDouble()
+                    val elevationDiff = currentElevation - previousElevation
+
+                    if (elevationDiff > 0) {
+                        totalElevationGain += elevationDiff
+                    } else if (elevationDiff < 0) {
+                        totalElevationLoss += -elevationDiff  // Make positive for display
+                    }
+                }
+            }
+
+            // MODIFIED: Get maximum elevation gain value - check stored values first, then calculate
+            val storedMaxElevationGain = metrics.maxByOrNull { it.elevationGain }?.elevationGain?.toDouble() ?: 0.0
+
+            // If stored elevation gain is zero but we have elevation data, calculate it
+            val maxElevationGain = if (storedMaxElevationGain > 0.0) {
+                // Use stored value if available
+                storedMaxElevationGain
+            } else if (metrics.size > 1) {
+                // Calculate max elevation gain from consecutive points
+                var maxGain = 0.0
+                var currentGain = 0.0
+
+                // Find max consecutive elevation increase
+                for (i in 1 until metrics.size) {
+                    val diff = metrics[i].elevation - metrics[i-1].elevation
+
+                    if (diff > 0) {
+                        // Add to current gain
+                        currentGain += diff
+                    } else {
+                        // Reset current gain if elevation decreases
+                        currentGain = 0.0
+                    }
+
+                    // Update max gain if current gain is larger
+                    if (currentGain > maxGain) {
+                        maxGain = currentGain
+                    }
+                }
+
+                maxGain
+            } else {
+                0.0
+            }
+
+            // Get time range (keep existing code)
             val timeRange = database.metricDao().getEventTimeRange(eventId)
             val startTime = timeRange?.minTime ?: 0
             val endTime = timeRange?.maxTime ?: 0
 
-            // Fixed: use getLatestWeatherForEvent from your DAO
+            // Rest of your existing code...
             val weather = database.eventDao().getLatestWeatherForEvent(eventId)
-
-            // Get location data for map
             val locations = database.locationDao().getLocationsForEvent(eventId)
             val geoPoints = locations.map { GeoPoint(it.latitude, it.longitude) }
-
-            // Get lap times (if available)
             val lapTimes = try {
                 database.lapTimeDao().getLapTimesForEvent(eventId).map { it.endTime - it.startTime }
             } catch (e: Exception) {
                 emptyList<Long>()
             }
-
-            // Fixed: use getLastDeviceStatusByEvent
             val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(eventId)
             val satellites = deviceStatus?.numberOfSatellites?.toIntOrNull() ?: 0
 
@@ -210,6 +256,8 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 maxElevation = maxElevation,
                 minElevation = minElevation,
                 maxElevationGain = maxElevationGain,
+                elevationGain = totalElevationGain,
+                elevationLoss = totalElevationLoss,
                 startTime = startTime,
                 endTime = endTime,
                 weather = weather,
@@ -219,7 +267,8 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 minHeartRate = minHeartRate,
                 maxHeartRate = maxHeartRate,
                 avgHeartRate = avgHeartRate,
-                heartRateDevice = heartRateDevice
+                heartRateDevice = heartRateDevice,
+                metrics = metrics
             )
         }
     }
@@ -241,6 +290,76 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 }
             } catch (e: Exception) {
                 Log.e("EventsViewModel", "Error deleting event: ${e.message}")
+            }
+        }
+    }
+
+    fun debugElevationData(eventId: Int) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    // Get metrics for this specific event
+                    val metrics = database.metricDao().getMetricsForEvent(eventId)
+
+                    Log.d("ElevationDebug", "=== ELEVATION DEBUG FOR EVENT ID: $eventId ===")
+                    Log.d("ElevationDebug", "Total metric points: ${metrics.size}")
+
+                    // Check if we have any elevation data
+                    val elevations = metrics.map { it.elevation.toDouble() }
+                    val hasElevationData = elevations.isNotEmpty()
+                    Log.d("ElevationDebug", "Has elevation data: $hasElevationData")
+
+                    if (hasElevationData) {
+                        val minElevation = elevations.minOrNull() ?: 0.0
+                        val maxElevation = elevations.maxOrNull() ?: 0.0
+                        Log.d("ElevationDebug", "Min elevation: $minElevation m")
+                        Log.d("ElevationDebug", "Max elevation: $maxElevation m")
+                        Log.d("ElevationDebug", "Elevation range: ${maxElevation - minElevation} m")
+
+                        // Check for elevation gain field usage
+                        val elevationGainValues = metrics.map { it.elevationGain }
+                        val nonZeroGainValues = elevationGainValues.filter { it > 0 }
+                        Log.d("ElevationDebug", "Points with non-zero elevationGain: ${nonZeroGainValues.size}")
+                        Log.d("ElevationDebug", "Max recorded elevationGain: ${elevationGainValues.maxOrNull() ?: 0}")
+
+                        // Calculate the actual elevation gain from point-to-point analysis
+                        var calculatedGain = 0.0
+                        var calculatedLoss = 0.0
+
+                        for (i in 1 until metrics.size) {
+                            val diff = metrics[i].elevation - metrics[i-1].elevation
+                            if (diff > 0) {
+                                calculatedGain += diff
+                            } else {
+                                calculatedLoss += -diff
+                            }
+                        }
+
+                        Log.d("ElevationDebug", "Calculated elevation gain: $calculatedGain m")
+                        Log.d("ElevationDebug", "Calculated elevation loss: $calculatedLoss m")
+
+                        // Log a few sample points to check data quality
+                        if (metrics.size > 0) {
+                            Log.d("ElevationDebug", "--- Sample data points ---")
+                            val indicesToLog = listOf(0, metrics.size / 2, metrics.size - 1).distinct()
+                            indicesToLog.forEach { idx ->
+                                if (idx < metrics.size) {
+                                    val m = metrics[idx]
+                                    Log.d("ElevationDebug", "Point $idx: time=${m.timeInMilliseconds}, elev=${m.elevation}, gain=${m.elevationGain}")
+                                }
+                            }
+                        }
+                    }
+
+                    // Check event details
+                    val event = database.eventDao().getEventById(eventId)
+                    val eventName = event?.eventName ?: "Unknown"
+                    Log.d("ElevationDebug", "Event name: $eventName")
+                    Log.d("ElevationDebug", "=== END ELEVATION DEBUG ===")
+
+                } catch (e: Exception) {
+                    Log.e("ElevationDebug", "Error debugging elevation data", e)
+                }
             }
         }
     }

@@ -130,6 +130,11 @@ class ForegroundService : Service() {
     private var isPaused = false
     private var pauseStartTime: Long = 0
 
+    // Max. elevation gain calculation
+    private var previousElevation: Float = 0f
+    private var hasSetInitialElevation: Boolean = false
+    private var currentElevationGain: Float = 0f
+
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
 
@@ -861,6 +866,26 @@ class ForegroundService : Service() {
     private suspend fun insertDatabase(database: FitnessTrackerDatabase) {
         withContext(Dispatchers.IO) {
             try {
+                // Calculate elevation gain/loss
+                val currentElevation = altitude.toFloat()
+                var elevGain = 0f
+                var elevLoss = 0f
+
+                if (hasSetInitialElevation) {
+                    val elevationDiff = currentElevation - previousElevation
+                    if (elevationDiff > 0) {
+                        // We're going uphill, add to elevation gain
+                        elevGain = elevationDiff
+                        currentElevationGain += elevGain
+                    } else if (elevationDiff < 0) {
+                        // We're going downhill
+                        elevLoss = -elevationDiff // Convert to positive value
+                    }
+                } else {
+                    hasSetInitialElevation = true
+                }
+                previousElevation = currentElevation
+
                 // Always save metrics data regardless of speed
                 val metric = Metric(
                     eventId = eventId,
@@ -873,8 +898,8 @@ class ForegroundService : Service() {
                     timeInMilliseconds = currentTimeMillis(),
                     unity = "metric",
                     elevation = altitude.toFloat(),
-                    elevationGain = 0f,
-                    elevationLoss = 0f
+                    elevationGain = elevGain,        // Set the elevation gain for this point
+                    elevationLoss = elevLoss         // Set the elevation loss for this point
                 )
                 database.metricDao().insertMetric(metric)
                 Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds} with heart rate $currentHeartRate")

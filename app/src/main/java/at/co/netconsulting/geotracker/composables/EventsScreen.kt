@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.composables
 
+import EventWithDetails
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -82,7 +83,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
@@ -760,8 +760,10 @@ fun EventCard(
                             Column(modifier = Modifier.weight(1f)) {
                                 // Only show elevation gain if it's greater than 0
                                 val elevationGain = event.maxElevationGain.toInt()
+                                Log.d("TAG_EVENT_ID", "Event id: ${event.event.eventId}")
+                                Log.d("TAG_MAX_ELEVATION_GAIN", "Max. Elevation Gain: $elevationGain")
                                 if (elevationGain > 0) {
-                                    InfoRow("Elevation Gain:", "$elevationGain m")
+                                    InfoRow("Max. Elevation Gain:", "$elevationGain m")
                                 }
                             }
 
@@ -908,6 +910,57 @@ fun EventCard(
                 } else {
                     Text(
                         text = "No weather data available",
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                // Altitude information
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Altitude",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                if (event.maxElevation > 0 || event.minElevation > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRow("Max. Altitude:", String.format("%.1f m", event.maxElevation))
+                            InfoRow("Min. Altitude:", String.format("%.1f m", event.minElevation))
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRow("Acc. Elevation Gain:", String.format("%.1f m", event.elevationGain))
+                            InfoRow("Acc. Elevation Loss:", String.format("%.1f m", event.elevationLoss))
+                        }
+                    }
+
+                    // Altitude graph
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFF5F5F5))
+                            .padding(8.dp)
+                    ) {
+                        AltitudeGraph(
+                            metrics = event.metrics,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "No altitude data available",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
