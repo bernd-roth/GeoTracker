@@ -336,6 +336,11 @@
             <div class="elevation-unit">m</div>
         </div>
         <div class="stat-box">
+            <div class="speed-label">Distance</div>
+            <div class="elevation-value" id="totalDistance">0.0</div>
+            <div class="elevation-unit">km</div>
+        </div>
+        <div class="stat-box">
             <div class="speed-label">Heart Rate</div>
             <div class="speed-value" id="heartRate">0</div>
             <div class="speed-unit">bpm</div>
@@ -897,87 +902,89 @@ function connectToWebSocket() {
         });
     }
 
-    function finalizeBatchProcessing() {
-        if (!isProcessingBatch) return;
+function finalizeBatchProcessing() {
+    if (!isProcessingBatch) return;
 
-        // Sort all sessions by timestamp
+    // Sort all sessions by timestamp
+    Object.keys(trackPoints).forEach(sessionId => {
+        trackPoints[sessionId].sort((a, b) => a.timestamp - b.timestamp);
+    });
+
+    // Update visualizations for all sessions
+    requestAnimationFrame(() => {
         Object.keys(trackPoints).forEach(sessionId => {
-            trackPoints[sessionId].sort((a, b) => a.timestamp - b.timestamp);
-        });
-
-        // Update visualizations for all sessions
-        requestAnimationFrame(() => {
-            Object.keys(trackPoints).forEach(sessionId => {
-                updateMapTrack(sessionId);
-                updateCharts(sessionId);
-
-                // Update speed display with the latest point
-                const latestPoint = trackPoints[sessionId][trackPoints[sessionId].length - 1];
-                if (latestPoint) {
-                    updateSpeedDisplay(sessionId, latestPoint.speed, {
-                        averageSpeed: latestPoint.averageSpeed,
-                        cumulativeElevationGain: latestPoint.cumulativeElevationGain,
-                        heartRate: latestPoint.heartRate,
-                        personName: latestPoint.personName ||
-                            (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || ""
-                    });
-                }
-            });
-            isProcessingBatch = false;
-        });
-    }
-
-    function handlePoint(data) {
-        if (!data || isProcessingBatch) return;
-
-        const sessionId = data.sessionId || "default";
-        // Extract the person's name from the data
-        const personName = data.person || "";
-
-        if (personName) {
-            sessionPersonNames[sessionId] = personName;
-        }
-
-        // Create a display ID using our helper function
-        const displayId = createDisplayId(sessionId, personName);
-
-        const processedPoint = {
-            lat: parseFloat(data.latitude),
-            lng: parseFloat(data.longitude),
-            distance: parseFloat(data.distance) / 1000,
-            altitude: parseFloat(data.altitude || 0),
-            speed: parseFloat(data.currentSpeed || 0),
-            averageSpeed: parseFloat(data.averageSpeed || 0),
-            maxSpeed: parseFloat(data.maxSpeed || 0),
-            movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
-            cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
-            heartRate: parseInt(data.heartRate || 0), // Add heart rate extraction
-            timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
-            // Store the person's name for use in display
-            personName: personName
-        };
-
-        if (!trackPoints[sessionId]) {
-            trackPoints[sessionId] = [];
-        }
-
-        trackPoints[sessionId].push(processedPoint);
-
-        // Use requestAnimationFrame for smooth updates
-        requestAnimationFrame(() => {
             updateMapTrack(sessionId);
             updateCharts(sessionId);
-            updateSpeedDisplay(sessionId, processedPoint.speed, {
-                averageSpeed: processedPoint.averageSpeed,
-                maxSpeed: processedPoint.maxSpeed,
-                movingAverageSpeed: processedPoint.movingAverageSpeed,
-                cumulativeElevationGain: processedPoint.cumulativeElevationGain,
-                heartRate: processedPoint.heartRate,
-                // Pass the person name to the display function
-                personName: processedPoint.personName
-            });
+
+            // Update speed display with the latest point
+            const latestPoint = trackPoints[sessionId][trackPoints[sessionId].length - 1];
+            if (latestPoint) {
+                updateSpeedDisplay(sessionId, latestPoint.speed, {
+                    averageSpeed: latestPoint.averageSpeed,
+                    cumulativeElevationGain: latestPoint.cumulativeElevationGain,
+                    heartRate: latestPoint.heartRate,
+                    distance: latestPoint.distance, // Pass the distance to updateSpeedDisplay
+                    personName: latestPoint.personName ||
+                        (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || ""
+                });
+            }
         });
+        isProcessingBatch = false;
+    });
+}
+
+function handlePoint(data) {
+    if (!data || isProcessingBatch) return;
+
+    const sessionId = data.sessionId || "default";
+    // Extract the person's name from the data
+    const personName = data.person || "";
+
+    if (personName) {
+        sessionPersonNames[sessionId] = personName;
     }
+
+    // Create a display ID using our helper function
+    const displayId = createDisplayId(sessionId, personName);
+
+    const processedPoint = {
+        lat: parseFloat(data.latitude),
+        lng: parseFloat(data.longitude),
+        distance: parseFloat(data.distance) / 1000,
+        altitude: parseFloat(data.altitude || 0),
+        speed: parseFloat(data.currentSpeed || 0),
+        averageSpeed: parseFloat(data.averageSpeed || 0),
+        maxSpeed: parseFloat(data.maxSpeed || 0),
+        movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
+        cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
+        heartRate: parseInt(data.heartRate || 0), // Add heart rate extraction
+        timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+        // Store the person's name for use in display
+        personName: personName
+    };
+
+    if (!trackPoints[sessionId]) {
+        trackPoints[sessionId] = [];
+    }
+
+    trackPoints[sessionId].push(processedPoint);
+
+    // Use requestAnimationFrame for smooth updates
+    requestAnimationFrame(() => {
+        updateMapTrack(sessionId);
+        updateCharts(sessionId);
+        updateSpeedDisplay(sessionId, processedPoint.speed, {
+            averageSpeed: processedPoint.averageSpeed,
+            maxSpeed: processedPoint.maxSpeed,
+            movingAverageSpeed: processedPoint.movingAverageSpeed,
+            cumulativeElevationGain: processedPoint.cumulativeElevationGain,
+            heartRate: processedPoint.heartRate,
+            distance: processedPoint.distance, // Pass the distance to updateSpeedDisplay
+            // Pass the person name to the display function
+            personName: processedPoint.personName
+        });
+    });
+}
 
     function updateMapTrack(sessionId) {
         const points = trackPoints[sessionId];
@@ -1101,183 +1108,208 @@ function connectToWebSocket() {
         return '#F44336'; // Red for high
     }
 
-    function updateSpeedDisplay(sessionId, speed, data) {
-        // Get the person name from the data or from our saved mapping
-        const personName = data.personName || sessionPersonNames[sessionId] || "";
+function updateSpeedDisplay(sessionId, speed, data) {
+    // Get the person name from the data or from our saved mapping
+    const personName = data.personName || sessionPersonNames[sessionId] || "";
 
-        // Use helper function to create display ID
-        const displayId = createDisplayId(sessionId, personName);
+    // Use helper function to create display ID
+    const displayId = createDisplayId(sessionId, personName);
 
-        // Initialize or update the speed history
-        if (!speedHistory[sessionId]) {
-            speedHistory[sessionId] = {
-                speeds: [],
-                maxSpeed: 0,
-                avgSpeed: 0,
-                movingAvg: 0,
-                elevationGain: 0,
-                heartRate: 0,
-                lastUpdate: new Date(),
-                personName: personName
-            };
-        } else if (personName && !speedHistory[sessionId].personName) {
-            // Update the person name if it wasn't set before
-            speedHistory[sessionId].personName = personName;
-        }
+    // Initialize or update the speed history
+    if (!speedHistory[sessionId]) {
+        speedHistory[sessionId] = {
+            speeds: [],
+            maxSpeed: 0,
+            avgSpeed: 0,
+            movingAvg: 0,
+            elevationGain: 0,
+            heartRate: 0,
+            totalDistance: 0, // Add distance tracking
+            lastUpdate: new Date(),
+            personName: personName
+        };
+    } else if (personName && !speedHistory[sessionId].personName) {
+        // Update the person name if it wasn't set before
+        speedHistory[sessionId].personName = personName;
+    }
 
-        const history = speedHistory[sessionId];
-        history.speeds.push(speed);
-        history.lastUpdate = new Date();
+    const history = speedHistory[sessionId];
+    history.speeds.push(speed);
+    history.lastUpdate = new Date();
 
-        // If stats are hidden, just store the data without updating the DOM
-        if (!statsVisible && document.getElementById('speedDisplay').style.display === 'none') {
-            if (data.maxSpeed !== undefined) {
-                history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
-            }
-
-            if (data.cumulativeElevationGain !== undefined) {
-                history.elevationGain = data.cumulativeElevationGain;
-            }
-
-            if (data.heartRate !== undefined) {
-                history.heartRate = data.heartRate;
-            }
-
-            // Clean up old sessions
-            cleanupOldSessions();
-            return;
-        }
-
-        // Get the speed display element
-        const speedDisplay = document.getElementById('speedDisplay');
-
-        // Check for default display and remove it when first session arrives
-        // This happens before we check if the container exists
-        const defaultDisplay = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
-        if (defaultDisplay) {
-            // Remove the default display immediately when we get any new session
-            defaultDisplay.remove();
-            console.log("Removed default display when handling session: " + sessionId);
-        }
-
-        // Check if a container for this session already exists
-        let speedContainer = document.getElementById(`speed-container-${sessionId}`);
-
-        if (!speedContainer) {
-            // Create a new container for this session
-            speedContainer = document.createElement('div');
-            speedContainer.id = `speed-container-${sessionId}`;
-            speedContainer.className = 'session-container';
-
-            // Create the grid for this session
-            const statsGrid = document.createElement('div');
-            statsGrid.id = `speed-grid-${sessionId}`;
-            statsGrid.className = 'stats-grid';
-
-            // Add the session label
-            const sessionLabel = document.createElement('div');
-            sessionLabel.className = 'session-label';
-            sessionLabel.textContent = displayId;
-
-            // Add these elements to the container
-            speedContainer.appendChild(sessionLabel);
-            speedContainer.appendChild(statsGrid);
-
-            // Add the container to the speed display
-            speedDisplay.appendChild(speedContainer);
-
-            // Create all the stat boxes
-            statsGrid.innerHTML = `
-                <div class="stat-box">
-                    <div class="speed-label">Current Speed</div>
-                    <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box">
-                    <div class="speed-label">Maximum Speed</div>
-                    <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box">
-                    <div class="speed-label">Average Speed</div>
-                    <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box">
-                    <div class="speed-label">Moving Average</div>
-                    <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
-                    <div class="speed-unit">km/h</div>
-                </div>
-                <div class="stat-box">
-                    <div class="elevation-label">Elevation Gain</div>
-                    <div class="elevation-value" id="elevationGain-${sessionId}">0.0</div>
-                    <div class="elevation-unit">m</div>
-                </div>
-                <div class="stat-box">
-                    <div class="speed-label">Heart Rate</div>
-                    <div class="speed-value" id="heartRate-${sessionId}">0</div>
-                    <div class="speed-unit">bpm</div>
-                </div>
-            `;
-
-            // Auto-scroll to show the new session
-            speedDisplay.scrollTop = speedDisplay.scrollHeight;
-        } else {
-            // Update the session label if the person name has changed
-            const sessionLabel = speedContainer.querySelector('.session-label');
-            if (sessionLabel && personName) {
-                sessionLabel.textContent = displayId;
-            }
-        }
-
-        // Update current speed
-        const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
-        if (currentSpeedElement) {
-            currentSpeedElement.textContent = speed.toFixed(1);
-            currentSpeedElement.style.color = getSpeedColor(speed);
-        }
-
-        // Update max speed from the data
-        const maxSpeedElement = document.getElementById(`maxSpeed-${sessionId}`);
-        if (maxSpeedElement && data.maxSpeed !== undefined) {
+    // If stats are hidden, just store the data without updating the DOM
+    if (!statsVisible && document.getElementById('speedDisplay').style.display === 'none') {
+        if (data.maxSpeed !== undefined) {
             history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
-            maxSpeedElement.textContent = history.maxSpeed.toFixed(1);
-            maxSpeedElement.style.color = getSpeedColor(history.maxSpeed);
         }
 
-        // Update average speed
-        const avgSpeedElement = document.getElementById(`avgSpeed-${sessionId}`);
-        if (avgSpeedElement && data.averageSpeed !== undefined) {
-            avgSpeedElement.textContent = data.averageSpeed.toFixed(1);
-            avgSpeedElement.style.color = getSpeedColor(data.averageSpeed);
-        }
-
-        // Update moving average
-        const movingAvgElement = document.getElementById(`movingAvg-${sessionId}`);
-        if (movingAvgElement && data.movingAverageSpeed !== undefined) {
-            movingAvgElement.textContent = data.movingAverageSpeed.toFixed(1);
-            movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
-        }
-
-        // Update elevation gain
-        const elevationGainElement = document.getElementById(`elevationGain-${sessionId}`);
-        if (elevationGainElement && data.cumulativeElevationGain !== undefined) {
+        if (data.cumulativeElevationGain !== undefined) {
             history.elevationGain = data.cumulativeElevationGain;
-            elevationGainElement.textContent = history.elevationGain.toFixed(1);
-            elevationGainElement.style.color = getElevationColor(history.elevationGain);
         }
 
-        // Update heart rate
-        const heartRateElement = document.getElementById(`heartRate-${sessionId}`);
-        if (heartRateElement && data.heartRate !== undefined) {
+        if (data.heartRate !== undefined) {
             history.heartRate = data.heartRate;
-            heartRateElement.textContent = history.heartRate;
-            heartRateElement.style.color = getHeartRateColor(history.heartRate);
+        }
+
+        // Store distance data
+        if (data.distance !== undefined) {
+            history.totalDistance = data.distance;
         }
 
         // Clean up old sessions
         cleanupOldSessions();
+        return;
     }
+
+    // Get the speed display element
+    const speedDisplay = document.getElementById('speedDisplay');
+
+    // Check for default display and remove it when first session arrives
+    // This happens before we check if the container exists
+    const defaultDisplay = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
+    if (defaultDisplay) {
+        // Remove the default display immediately when we get any new session
+        defaultDisplay.remove();
+        console.log("Removed default display when handling session: " + sessionId);
+    }
+
+    // Check if a container for this session already exists
+    let speedContainer = document.getElementById(`speed-container-${sessionId}`);
+
+    if (!speedContainer) {
+        // Create a new container for this session
+        speedContainer = document.createElement('div');
+        speedContainer.id = `speed-container-${sessionId}`;
+        speedContainer.className = 'session-container';
+
+        // Create the grid for this session
+        const statsGrid = document.createElement('div');
+        statsGrid.id = `speed-grid-${sessionId}`;
+        statsGrid.className = 'stats-grid';
+
+        // Add the session label
+        const sessionLabel = document.createElement('div');
+        sessionLabel.className = 'session-label';
+        sessionLabel.textContent = displayId;
+
+        // Add these elements to the container
+        speedContainer.appendChild(sessionLabel);
+        speedContainer.appendChild(statsGrid);
+
+        // Add the container to the speed display
+        speedDisplay.appendChild(speedContainer);
+
+        // Create all the stat boxes
+        statsGrid.innerHTML = `
+            <div class="stat-box">
+                <div class="speed-label">Current Speed</div>
+                <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
+                <div class="speed-unit">km/h</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Maximum Speed</div>
+                <div class="speed-value" id="maxSpeed-${sessionId}">0.0</div>
+                <div class="speed-unit">km/h</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Average Speed</div>
+                <div class="speed-value" id="avgSpeed-${sessionId}">0.0</div>
+                <div class="speed-unit">km/h</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Moving Average</div>
+                <div class="speed-value" id="movingAvg-${sessionId}">0.0</div>
+                <div class="speed-unit">km/h</div>
+            </div>
+            <div class="stat-box">
+                <div class="elevation-label">Elevation Gain</div>
+                <div class="elevation-value" id="elevationGain-${sessionId}">0.0</div>
+                <div class="elevation-unit">m</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Distance</div>
+                <div class="elevation-value" id="totalDistance-${sessionId}">0.0</div>
+                <div class="elevation-unit">km</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Heart Rate</div>
+                <div class="speed-value" id="heartRate-${sessionId}">0</div>
+                <div class="speed-unit">bpm</div>
+            </div>
+        `;
+
+        // Auto-scroll to show the new session
+        speedDisplay.scrollTop = speedDisplay.scrollHeight;
+    } else {
+        // Update the session label if the person name has changed
+        const sessionLabel = speedContainer.querySelector('.session-label');
+        if (sessionLabel && personName) {
+            sessionLabel.textContent = displayId;
+        }
+    }
+
+    // Update current speed
+    const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
+    if (currentSpeedElement) {
+        currentSpeedElement.textContent = speed.toFixed(1);
+        currentSpeedElement.style.color = getSpeedColor(speed);
+    }
+
+    // Update max speed from the data
+    const maxSpeedElement = document.getElementById(`maxSpeed-${sessionId}`);
+    if (maxSpeedElement && data.maxSpeed !== undefined) {
+        history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
+        maxSpeedElement.textContent = history.maxSpeed.toFixed(1);
+        maxSpeedElement.style.color = getSpeedColor(history.maxSpeed);
+    }
+
+    // Update average speed
+    const avgSpeedElement = document.getElementById(`avgSpeed-${sessionId}`);
+    if (avgSpeedElement && data.averageSpeed !== undefined) {
+        avgSpeedElement.textContent = data.averageSpeed.toFixed(1);
+        avgSpeedElement.style.color = getSpeedColor(data.averageSpeed);
+    }
+
+    // Update moving average
+    const movingAvgElement = document.getElementById(`movingAvg-${sessionId}`);
+    if (movingAvgElement && data.movingAverageSpeed !== undefined) {
+        movingAvgElement.textContent = data.movingAverageSpeed.toFixed(1);
+        movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
+    }
+
+    // Update elevation gain
+    const elevationGainElement = document.getElementById(`elevationGain-${sessionId}`);
+    if (elevationGainElement && data.cumulativeElevationGain !== undefined) {
+        history.elevationGain = data.cumulativeElevationGain;
+        elevationGainElement.textContent = history.elevationGain.toFixed(1);
+        elevationGainElement.style.color = getElevationColor(history.elevationGain);
+    }
+
+    // Update total distance
+    const totalDistanceElement = document.getElementById(`totalDistance-${sessionId}`);
+    if (totalDistanceElement && data.distance !== undefined) {
+        history.totalDistance = data.distance;
+        totalDistanceElement.textContent = history.totalDistance.toFixed(2);
+        totalDistanceElement.style.color = getDistanceColor(history.totalDistance);
+    }
+
+    // Update heart rate
+    const heartRateElement = document.getElementById(`heartRate-${sessionId}`);
+    if (heartRateElement && data.heartRate !== undefined) {
+        history.heartRate = data.heartRate;
+        heartRateElement.textContent = history.heartRate;
+        heartRateElement.style.color = getHeartRateColor(history.heartRate);
+    }
+
+    // Clean up old sessions
+    cleanupOldSessions();
+}
+
+function getDistanceColor(distance) {
+    if (distance < 1) return '#2196F3';  // Low distance
+    if (distance < 5) return '#4CAF50';  // Medium distance
+    return '#FF9800';                    // High distance
+}
 
     function cleanupOldSessions() {
         const now = new Date();
@@ -1353,105 +1385,112 @@ function connectToWebSocket() {
         };
     }
 
-    // Improved resetMap function
-    function resetMap() {
-        addDebugMessage('Reset Map button clicked', 'system');
+function resetMap() {
+    addDebugMessage('Reset Map button clicked', 'system');
 
-        try {
-            // Flash the button for visual feedback
-            const resetBtn = document.getElementById('resetMapBtn');
-            if (resetBtn) {
-                resetBtn.classList.add('reset-flash');
-                setTimeout(() => {
-                    resetBtn.classList.remove('reset-flash');
-                }, 500);
-            }
+    try {
+        // Flash the button for visual feedback
+        const resetBtn = document.getElementById('resetMapBtn');
+        if (resetBtn) {
+            resetBtn.classList.add('reset-flash');
+            setTimeout(() => {
+                resetBtn.classList.remove('reset-flash');
+            }, 500);
+        }
 
-            // Clear all data structures
-            trackPoints = {};
-            speedHistory = {};
-            sessionPersonNames = {}; // Also clear session person names
-            userColors = {};
+        // Clear all data structures
+        trackPoints = {};
+        speedHistory = {};
+        sessionPersonNames = {}; // Also clear session person names
+        userColors = {};
 
-            // Remove all session containers from the speed display
-            const speedDisplay = document.getElementById('speedDisplay');
-            const sessionContainers = speedDisplay.querySelectorAll('.session-container');
-            sessionContainers.forEach(container => {
-                container.remove();
-            });
+        // Remove all session containers from the speed display
+        const speedDisplay = document.getElementById('speedDisplay');
+        const sessionContainers = speedDisplay.querySelectorAll('.session-container');
+        sessionContainers.forEach(container => {
+            container.remove();
+        });
 
-            // Reset the default speed display stats
-            const defaultStatsElements = {
-                'currentSpeed': '0.0',
-                'maxSpeed': '0.0',
-                'avgSpeed': '0.0',
-                'movingAvg': '0.0',
-                'elevationGain': '0.0',
-                'heartRate': '0'
-            };
+        // Reset the default speed display stats
+        const defaultStatsElements = {
+            'currentSpeed': '0.0',
+            'maxSpeed': '0.0',
+            'avgSpeed': '0.0',
+            'movingAvg': '0.0',
+            'elevationGain': '0.0',
+            'totalDistance': '0.0', // Add the new totalDistance field
+            'heartRate': '0'
+        };
 
-            // Reset all the default stats values
-            Object.entries(defaultStatsElements).forEach(([id, value]) => {
-                const element = document.getElementById(id);
-                if (element) {
-                    element.textContent = value;
-                    if (id === 'elevationGain') {
-                        element.style.color = '#4CAF50'; // Reset elevation color
-                    } else if (id === 'heartRate') {
-                        element.style.color = '#999'; // Reset heart rate color to gray
-                    } else {
-                        element.style.color = '#2196F3'; // Reset speed colors
-                    }
+        // Reset all the default stats values
+        Object.entries(defaultStatsElements).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value;
+                if (id === 'elevationGain') {
+                    element.style.color = '#4CAF50'; // Reset elevation color
+                } else if (id === 'heartRate') {
+                    element.style.color = '#999'; // Reset heart rate color to gray
+                } else if (id === 'totalDistance') {
+                    element.style.color = '#2196F3'; // Reset distance color
+                } else {
+                    element.style.color = '#2196F3'; // Reset speed colors
                 }
-            });
-
-            // Show the default stats grid if it's not already visible
-            const defaultStatsGrid = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
-            if (!defaultStatsGrid) {
-                // Create default stats grid if it doesn't exist
-                const defaultGrid = document.createElement('div');
-                defaultGrid.className = 'stats-grid';
-                defaultGrid.innerHTML = `
-                    <div class="stat-box">
-                        <div class="speed-label">Current Speed</div>
-                        <div class="speed-value" id="currentSpeed">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="speed-label">Maximum Speed</div>
-                        <div class="speed-value" id="maxSpeed">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="speed-label">Average Speed</div>
-                        <div class="speed-value" id="avgSpeed">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="speed-label">Moving Average</div>
-                        <div class="speed-value" id="movingAvg">0.0</div>
-                        <div class="speed-unit">km/h</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="elevation-label">Elevation Gain</div>
-                        <div class="elevation-value" id="elevationGain">0.0</div>
-                        <div class="elevation-unit">m</div>
-                    </div>
-                    <div class="stat-box">
-                        <div class="speed-label">Heart Rate</div>
-                        <div class="speed-value" id="heartRate">0</div>
-                        <div class="speed-unit">bpm</div>
-                    </div>
-                `;
-                speedDisplay.appendChild(defaultGrid);
             }
+        });
 
-            // Check if map is initialized before trying to remove layers
-            if (!isMapLoaded()) {
-                console.warn("Map not fully initialized during reset attempt");
-                addDebugMessage("Map not fully initialized - skipping layer removal", "warning");
-                return;
-            }
+        // Show the default stats grid if it's not already visible
+        const defaultStatsGrid = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
+        if (!defaultStatsGrid) {
+            // Create default stats grid if it doesn't exist
+            const defaultGrid = document.createElement('div');
+            defaultGrid.className = 'stats-grid';
+            defaultGrid.innerHTML = `
+                <div class="stat-box">
+                    <div class="speed-label">Current Speed</div>
+                    <div class="speed-value" id="currentSpeed">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Maximum Speed</div>
+                    <div class="speed-value" id="maxSpeed">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Average Speed</div>
+                    <div class="speed-value" id="avgSpeed">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Moving Average</div>
+                    <div class="speed-value" id="movingAvg">0.0</div>
+                    <div class="speed-unit">km/h</div>
+                </div>
+                <div class="stat-box">
+                    <div class="elevation-label">Elevation Gain</div>
+                    <div class="elevation-value" id="elevationGain">0.0</div>
+                    <div class="elevation-unit">m</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Distance</div>
+                    <div class="elevation-value" id="totalDistance">0.0</div>
+                    <div class="elevation-unit">km</div>
+                </div>
+                <div class="stat-box">
+                    <div class="speed-label">Heart Rate</div>
+                    <div class="speed-value" id="heartRate">0</div>
+                    <div class="speed-unit">bpm</div>
+                </div>
+            `;
+            speedDisplay.appendChild(defaultGrid);
+        }
+
+        // Check if map is initialized before trying to remove layers
+        if (!isMapLoaded()) {
+            console.warn("Map not fully initialized during reset attempt");
+            addDebugMessage("Map not fully initialized - skipping layer removal", "warning");
+            return;
+        }
 
             // Clear map layers safely
             Object.keys(polylines).forEach(key => {
@@ -1616,53 +1655,58 @@ function connectToWebSocket() {
         return trackPoints;
     }
 
-    function visualizeGPXData(trackPoints) {
-        addDebugMessage('Visualizing GPX data on map and charts', 'gpx');
+function visualizeGPXData(trackPoints) {
+    addDebugMessage('Visualizing GPX data on map and charts', 'gpx');
 
-        // Draw track on map
-        gpxPolyline = L.polyline(trackPoints.coordinates, {
-            color: 'red',
-            weight: 3
-        }).addTo(map);
+    // Draw track on map
+    gpxPolyline = L.polyline(trackPoints.coordinates, {
+        color: 'red',
+        weight: 3
+    }).addTo(map);
 
-        // Fit map to track bounds
-        map.fitBounds(gpxPolyline.getBounds());
+    // Fit map to track bounds
+    map.fitBounds(gpxPolyline.getBounds());
 
-        const bounds = gpxPolyline.getBounds();
-        addDebugMessage(`Map bounds adjusted to: SW(${bounds.getSouthWest().lat.toFixed(4)}, ${bounds.getSouthWest().lng.toFixed(4)})
-            NE(${bounds.getNorthEast().lat.toFixed(4)}, ${bounds.getNorthEast().lng.toFixed(4)})`, 'gpx');
+    const bounds = gpxPolyline.getBounds();
+    addDebugMessage(`Map bounds adjusted to: SW(${bounds.getSouthWest().lat.toFixed(4)}, ${bounds.getSouthWest().lng.toFixed(4)})
+        NE(${bounds.getNorthEast().lat.toFixed(4)}, ${bounds.getNorthEast().lng.toFixed(4)})`, 'gpx');
 
-        // Update altitude chart
-        if (trackPoints.altitudes.length > 0) {
-            const altDatasetIndex = altitudeChart.data.datasets.findIndex(
-                dataset => dataset.label === 'GPX Track'
-            );
+    // Update altitude chart
+    if (trackPoints.altitudes.length > 0) {
+        const altDatasetIndex = altitudeChart.data.datasets.findIndex(
+            dataset => dataset.label === 'GPX Track'
+        );
 
-            if (altDatasetIndex !== -1) {
-                altitudeChart.data.datasets.splice(altDatasetIndex, 1);
-            }
-
-            altitudeChart.data.datasets.push({
-                label: 'GPX Track',
-                borderColor: 'red',
-                fill: false,
-                data: trackPoints.distances.map((d, i) => ({
-                    x: d,
-                    y: trackPoints.altitudes[i]
-                }))
-            });
-
-            // Update speed chart if times are available
-            if (trackPoints.times.length > 0) {
-                updateSpeedChartFromGPX(trackPoints);
-            }
-
-            requestAnimationFrame(() => {
-                altitudeChart.update('none');
-                speedChart.update('none');
-            });
+        if (altDatasetIndex !== -1) {
+            altitudeChart.data.datasets.splice(altDatasetIndex, 1);
         }
+
+        altitudeChart.data.datasets.push({
+            label: 'GPX Track',
+            borderColor: 'red',
+            fill: false,
+            data: trackPoints.distances.map((d, i) => ({
+                x: d,
+                y: trackPoints.altitudes[i]
+            }))
+        });
+
+        // Update speed chart if times are available
+        if (trackPoints.times.length > 0) {
+            updateSpeedChartFromGPX(trackPoints);
+        }
+
+        // Show the total distance in the UI
+        const totalDistance = trackPoints.distances[trackPoints.distances.length - 1];
+        document.getElementById('totalDistance').textContent = totalDistance.toFixed(2);
+        document.getElementById('totalDistance').style.color = getDistanceColor(totalDistance);
+
+        requestAnimationFrame(() => {
+            altitudeChart.update('none');
+            speedChart.update('none');
+        });
     }
+}
 
     function updateSpeedChartFromGPX(trackPoints) {
         const speeds = [];
@@ -2158,9 +2202,6 @@ function connectToWebSocket() {
                     }, 300);
                 });
             }
-
-            // Custom styles were already added in the HTML
-
             addDebugMessage('Running Tracker application initialized with heart rate monitoring support', 'system');
         } catch (error) {
             console.error("Error during application initialization:", error);
