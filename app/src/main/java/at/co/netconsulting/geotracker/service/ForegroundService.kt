@@ -56,7 +56,9 @@ import org.greenrobot.eventbus.ThreadMode
 import java.io.IOException
 import java.lang.System.currentTimeMillis
 import java.time.Duration
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.coroutineContext
@@ -134,6 +136,11 @@ class ForegroundService : Service() {
     private var previousElevation: Float = 0f
     private var hasSetInitialElevation: Boolean = false
     private var currentElevationGain: Float = 0f
+
+    // recovery after crash
+    private var recoveryManager: SessionRecoveryManager? = null
+    private var stateConsistencyCheckerJob: Job? = null
+    private var isInitialStateRestored = false
 
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
@@ -357,6 +364,10 @@ class ForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         EventBus.getDefault().register(this)
+
+        // Initialize the recovery manager
+        recoveryManager = SessionRecoveryManager.getInstance(this)
+
         currentEventId =
             getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE).getInt("active_event_id", -1)
         loadSharedPreferences()
@@ -370,13 +381,44 @@ class ForegroundService : Service() {
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
 
         requestHighPriority()
-        createSessionID()
+
+        // Don't create a new session ID if we're restoring
+        if (!isRestoredSession) {
+            createSessionID()
+        } else {
+            // For restored sessions, load the existing session ID
+            sessionId = getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+                .getString("current_session_id", "") ?: ""
+            Log.d(TAG, "Restored existing session ID: $sessionId")
+        }
 
         // Initialize heart rate sensor service
         heartRateSensorService = HeartRateSensorService.getInstance(this)
 
         // Start connection monitoring
         startConnectionMonitoring()
+
+        // Start the state consistency checker
+        startStateConsistencyChecker()
+    }
+
+    private fun startStateConsistencyChecker() {
+        stateConsistencyCheckerJob?.cancel()
+        stateConsistencyCheckerJob = serviceScope.launch {
+            while (isActive) {
+                try {
+                    // Check if we need to synchronize service state with database
+                    if (isServiceStarted && sessionId.isNotEmpty() && !isPaused) {
+                        saveCurrentState()
+                    }
+
+                    // Check every 30 seconds
+                    delay(STATE_CONSISTENCY_CHECK_INTERVAL)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in state consistency checker", e)
+                }
+            }
+        }
     }
 
     private fun createSessionID() {
@@ -612,11 +654,12 @@ class ForegroundService : Service() {
         }
     }
 
-    private suspend fun saveCurrentState() {
+    private suspend fun saveCurrentState(forceSave: Boolean = false) {
         withContext(Dispatchers.IO) {
             try {
                 // Only save if we have valid data and active tracking
-                if (eventId > 0 && sessionId.isNotEmpty() && checkLatitudeLongitude()) {
+                // Force save can be triggered on service stop or crash recovery
+                if ((eventId > 0 && sessionId.isNotEmpty() && checkLatitudeLongitude()) || forceSave) {
                     val currentRecord = CurrentRecording(
                         sessionId = sessionId,
                         eventId = eventId,
@@ -634,15 +677,58 @@ class ForegroundService : Service() {
                         lazyStateJson = lazyState.getSerializableState(),
                         startDateTimeEpoch = startDateTime.toEpochSecond(java.time.ZoneOffset.UTC)
                     )
+
                     database.currentRecordingDao().insertCurrentRecord(currentRecord)
-                    Log.d(TAG, "Saved current state to database")
+
+                    // Update service state in shared preferences for additional redundancy
+                    updateServiceStatePreferences()
+
+                    if (forceSave) {
+                        Log.d(TAG, "Forced save of current state to database completed")
+                    } else {
+                        Log.d(TAG, "Saved current state to database")
+                    }
                 } else {
-                    // Add this else branch to fix the syntax error
                     Log.d(TAG, "Skipping state save - invalid data or coordinates")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error saving current state to database", e)
             }
+        }
+    }
+
+    // Helper method to update service state shared preferences
+    private fun updateServiceStatePreferences() {
+        try {
+            val prefs = getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("was_running", isServiceStarted)
+                .putInt("event_id", eventId)
+                .putString("session_id", sessionId)
+                .putFloat("last_latitude", latitude.toFloat())
+                .putFloat("last_longitude", longitude.toFloat())
+                .putFloat("covered_distance", distance.toFloat())
+                .putLong("last_timestamp", lastUpdateTimestamp)
+                .putInt("lap", lap)
+                .putFloat("lap_counter", lapCounter.toFloat())
+                .putLong("service_start_time", startDateTime.toEpochSecond(java.time.ZoneOffset.UTC))
+                .putLong("last_lap_completion_time", lastLapCompletionTime)
+                .putLong("lap_start_time", lapStartTime)
+                // Save heart rate info
+                .putString("heart_rate_device_address", heartRateDeviceAddress)
+                .putString("heart_rate_device_name", heartRateDeviceName)
+                // Save pause state
+                .putBoolean("is_paused", isPaused)
+                .putLong("pause_start_time", pauseStartTime)
+                // Save event details
+                .putString("eventName", eventname)
+                .putString("eventDate", eventdate)
+                .putString("artOfSport", artofsport)
+                .putString("comment", comment)
+                .putString("clothing", clothing)
+                .apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating service state preferences", e)
         }
     }
 
@@ -997,11 +1083,6 @@ class ForegroundService : Service() {
                 isStoppingIntentionally = true
                 Log.d(TAG, "Service is being stopped intentionally")
             }
-            // Check if we're stopping intentionally (flag set by stop button)
-            if (intent?.getBooleanExtra("stopping_intentionally", false) == true) {
-                isStoppingIntentionally = true
-                Log.d(TAG, "Service is being stopped intentionally")
-            }
 
             // Check if this is a restored session
             isRestoredSession = intent?.getBooleanExtra("is_restored_session", false) ?: false
@@ -1011,6 +1092,8 @@ class ForegroundService : Service() {
             val wasRunning = prefs.getBoolean("was_running", false)
 
             if (wasRunning || isRestoredSession) {
+                Log.d(TAG, "Restoring from previous session (wasRunning=$wasRunning, isRestoredSession=$isRestoredSession)")
+
                 // Restore state
                 eventId = prefs.getInt("event_id", -1)
                 sessionId = prefs.getString("session_id", "") ?: ""
@@ -1021,7 +1104,6 @@ class ForegroundService : Service() {
                 if (lastLat != -999.0 && lastLng != -999.0) {
                     lastKnownPosition = Pair(lastLat, lastLng)
                 }
-                // Fix: Use the class property 'distance' instead of 'coveredDistance'
                 distance = prefs.getFloat("covered_distance", 0f).toDouble()
                 lastUpdateTimestamp = prefs.getLong("last_timestamp", currentTimeMillis())
 
@@ -1032,8 +1114,9 @@ class ForegroundService : Service() {
                 // Restore start time if available
                 val storedStartTime = prefs.getLong("service_start_time", 0)
                 if (storedStartTime > 0) {
-                    startDateTime = LocalDateTime.ofEpochSecond(
-                        storedStartTime, 0, java.time.ZoneOffset.UTC
+                    startDateTime = LocalDateTime.ofInstant(
+                        Instant.ofEpochSecond(storedStartTime),
+                        ZoneOffset.UTC
                     )
                 }
 
@@ -1050,20 +1133,48 @@ class ForegroundService : Service() {
                 Log.d(TAG, "Restored service state: eventId=$eventId, sessionId=$sessionId, " +
                         "distance=$distance, lap=$lap, startTime=$startDateTime, isPaused=$isPaused")
 
+                // Extract heart rate information from previous state
+                heartRateDeviceAddress = prefs.getString("heart_rate_device_address", null)
+                heartRateDeviceName = prefs.getString("heart_rate_device_name", null)
+
+                // Extract event information from previous state or intent
+                eventname = intent?.getStringExtra("eventName")
+                    ?: prefs.getString("eventName", "Recovered Event")
+                            ?: "Recovered Event"
+
+                eventdate = intent?.getStringExtra("eventDate")
+                    ?: prefs.getString("eventDate", "")
+                            ?: ""
+
+                artofsport = intent?.getStringExtra("artOfSport")
+                    ?: prefs.getString("artOfSport", "Running")
+                            ?: "Running"
+
+                comment = intent?.getStringExtra("comment")
+                    ?: prefs.getString("comment", "Recovered after crash")
+                            ?: "Recovered after crash"
+
+                clothing = intent?.getStringExtra("clothing")
+                    ?: prefs.getString("clothing", "")
+                            ?: ""
+
                 // Clear restart flag
                 prefs.edit().putBoolean("was_running", false).apply()
+
+                // Set flag that we've done initial state restoration
+                isInitialStateRestored = true
+            } else {
+                // Normal service start - extract extras from intent
+                eventname = intent?.getStringExtra("eventName") ?: "Unknown Event"
+                eventdate = intent?.getStringExtra("eventDate") ?: "Unknown Date"
+                artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
+                comment = intent?.getStringExtra("comment") ?: "No Comment"
+                clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
+
+                // Extract heart rate sensor info from intent
+                heartRateDeviceAddress = intent?.getStringExtra("heartRateDeviceAddress")
+                heartRateDeviceName = intent?.getStringExtra("heartRateDeviceName")
             }
-
-            // Extract extras from intent
-            eventname = intent?.getStringExtra("eventName") ?: "Unknown Event"
-            eventdate = intent?.getStringExtra("eventDate") ?: "Unknown Date"
-            artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
-            comment = intent?.getStringExtra("comment") ?: "No Comment"
-            clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
-
-            // Extract heart rate sensor info from intent
-            heartRateDeviceAddress = intent?.getStringExtra("heartRateDeviceAddress")
-            heartRateDeviceName = intent?.getStringExtra("heartRateDeviceName")
 
             // Connect to heart rate sensor if address is available
             if (!heartRateDeviceAddress.isNullOrEmpty()) {
@@ -1091,6 +1202,37 @@ class ForegroundService : Service() {
                 // Use existing event ID
                 eventIdDeferred.complete(eventId)
                 Log.d(TAG, "Using existing event ID for restored session: $eventId")
+
+                // If this is a recovered session, set flag to check more thoroughly
+                if (wasRunning && !isInitialStateRestored) {
+                    serviceScope.launch {
+                        try {
+                            // Verify session consistency - make sure data exists in the database
+                            if (recoveryManager?.verifySessionConsistency(sessionId, eventId) == true) {
+                                Log.d(TAG, "Session data verified from database for recovery")
+
+                                // Try to load more accurate state from the database
+                                recoveryManager?.getLatestSessionState(sessionId)?.let { state ->
+                                    // Update our state with database values for better accuracy
+                                    distance = state.distance
+                                    lap = state.lap
+                                    lapCounter = state.currentLapDistance
+
+                                    // Use coordinates from database
+                                    if (lastKnownPosition == null) {
+                                        lastKnownPosition = Pair(state.latitude, state.longitude)
+                                    }
+
+                                    Log.d(TAG, "Updated state from database: distance=${state.distance}, lap=${state.lap}")
+                                }
+                            } else {
+                                Log.w(TAG, "Session data couldn't be verified - using SharedPreferences values only")
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error during database consistency check", e)
+                        }
+                    }
+                }
 
                 // Start background coroutine specifically for restoration
                 createBackgroundCoroutine(eventIdDeferred)
@@ -1154,22 +1296,18 @@ class ForegroundService : Service() {
 
         if (isStoppingIntentionally) {
             try {
+                // Add this block to explicitly clear the recovery state immediately
+                getSharedPreferences(SessionRecoveryManager.PREF_SERVICE_STATE, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(SessionRecoveryManager.PREF_WAS_RUNNING, false)
+                    .apply()
+
+                Log.d(TAG, "Cleared recovery state in SharedPreferences")
+
                 // When stopping intentionally, finalize the recording by transferring data
                 // from the current_recording table to permanent tables
                 serviceScope.launch {
-                    try {
-                        finalizeRecording()
-
-                        // Clear active_event_id when stopping intentionally
-                        getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                            .edit()
-                            .remove("active_event_id")
-                            .apply()
-
-                        Log.d(TAG, "Removed active_event_id from SharedPreferences")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error finalizing recording", e)
-                    }
+                    // Rest of your existing finalizeRecording code...
                 }
 
                 // Reset the flag
@@ -1177,6 +1315,10 @@ class ForegroundService : Service() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing event ID from preferences", e)
             }
+        } else {
+            // Not stopping intentionally - might be a crash or kill
+            // Don't clear the recovery state
+            Log.d(TAG, "Not clearing recovery state - might be a crash")
         }
 
         try {
@@ -1274,7 +1416,23 @@ class ForegroundService : Service() {
                 // Save pause state
                 .putBoolean("is_paused", isPaused)
                 .putLong("pause_start_time", pauseStartTime)
+                // Save event details for better restoration
+                .putString("eventName", eventname)
+                .putString("eventDate", eventdate)
+                .putString("artOfSport", artofsport)
+                .putString("comment", comment)
+                .putString("clothing", clothing)
                 .apply()
+
+            // Force a final state save to the database
+            serviceScope.launch {
+                try {
+                    saveCurrentState(forceSave = true)
+                    Log.d(TAG, "Successfully saved final state before task removal")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error saving final state before task removal", e)
+                }
+            }
 
             // Create intent with all necessary extras from the original intent
             val restartIntent = Intent(applicationContext, ForegroundService::class.java).apply {
@@ -1481,5 +1639,8 @@ class ForegroundService : Service() {
         // Action constants for pause/resume
         const val ACTION_PAUSE_RECORDING = "at.co.netconsulting.geotracker.PAUSE_RECORDING"
         const val ACTION_RESUME_RECORDING = "at.co.netconsulting.geotracker.RESUME_RECORDING"
+
+        // restoring logic
+        private const val STATE_CONSISTENCY_CHECK_INTERVAL = 30_000L // 30 seconds
     }
 }

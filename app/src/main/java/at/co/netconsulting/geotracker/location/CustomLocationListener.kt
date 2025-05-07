@@ -113,9 +113,16 @@ class CustomLocationListener: LocationListener {
     private var isPaused = false
     private var pauseStartTime: Long = 0
 
+    // restoring after crash
+    private var recoveredDistance = 0.0
+    private var lastAnnouncedDistanceKey = "last_announced_km"
+    private lateinit var persistenceHelper: LocationPersistenceHelper
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
+        persistenceHelper = LocationPersistenceHelper(context)  // Initialize after context
+
         Log.d(TAG_WEBSOCKET, "CustomLocationListener created with startDateTime: $startDateTime")
 
         // Initialize Text-to-Speech
@@ -173,6 +180,15 @@ class CustomLocationListener: LocationListener {
 
         healthCheckJob?.cancel()
         job.cancel()
+    }
+
+    fun cleanupSessionData() {
+        if (sessionId.isNotEmpty()) {
+            persistenceHelper.clearSessionData(sessionId)
+            Log.d(TAG_VOICE_ANNOUNCEMENT, "Cleared voice announcement data for session $sessionId")
+        }
+
+        cleanup()
     }
 
     fun startListener() {
@@ -572,13 +588,34 @@ class CustomLocationListener: LocationListener {
 
         // If we've reached a new milestone
         if (currentMilestone > lastAnnouncedKilometer) {
+            // Store previous value to detect if we're catching up after restoration
+            val previousAnnounced = lastAnnouncedKilometer
+
+            // Update last announced kilometer
             lastAnnouncedKilometer = currentMilestone
+
+            // Save the last announced value to survive crashes
+            if (sessionId.isNotEmpty()) {
+                persistenceHelper.saveLastAnnouncedKilometer(sessionId, lastAnnouncedKilometer)
+            }
+
+            // Calculate the reached distance
             val reachedDistance = currentMilestone * voiceAnnouncementInterval
 
-            // Announce the milestone
-            announceMessage("You've reached $reachedDistance kilometers")
+            // If this is a recovery and we've missed multiple announcements,
+            // only announce the latest milestone
+            if (recoveredDistance > 0 && currentMilestone - previousAnnounced > 1) {
+                Log.d(TAG_VOICE_ANNOUNCEMENT, "Recovered session detected, announcing only latest milestone: $reachedDistance km")
+                announceMessage("You've reached $reachedDistance kilometers")
+            }
+            // Normal case - just reached a new milestone
+            else {
+                Log.d(TAG_VOICE_ANNOUNCEMENT, "Distance milestone announced: $reachedDistance km")
+                announceMessage("You've reached $reachedDistance kilometers")
+            }
 
-            Log.d(TAG_VOICE_ANNOUNCEMENT, "Distance milestone announced: $reachedDistance km")
+            // Clear recovery flag after first announcement
+            recoveredDistance = 0.0
         }
     }
 
@@ -1048,12 +1085,13 @@ class CustomLocationListener: LocationListener {
      */
     fun resumeFromSavedState(
         savedDistance: Double,
-        lastPosition: Pair<Double, Double>?,
+        lastPosition: Pair<Double, Double>?, // Changed from Pair<Double, Long>
         savedLap: Int = 0,
         savedLapCounter: Double = 0.0
     ) {
         // Restore covered distance
         coveredDistance = savedDistance
+        recoveredDistance = savedDistance  // Store the recovered distance
         Log.d(TAG_WEBSOCKET, "Resumed with saved distance: $coveredDistance meters")
 
         // Restore position if available
@@ -1070,6 +1108,12 @@ class CustomLocationListener: LocationListener {
         lapCounter = savedLapCounter
 
         Log.d(TAG_WEBSOCKET, "Resumed with lap data: lap=$lap, lapCounter=$lapCounter")
+
+        // Restore last announced kilometer for voice announcements
+        if (sessionId.isNotEmpty()) {
+            lastAnnouncedKilometer = persistenceHelper.getLastAnnouncedKilometer(sessionId)
+            Log.d(TAG_VOICE_ANNOUNCEMENT, "Restored last announced km: $lastAnnouncedKilometer")
+        }
 
         // Create a metrics object to broadcast the resumed state
         val metrics = Metrics(
@@ -1171,6 +1215,27 @@ class CustomLocationListener: LocationListener {
         } else {
             val pauseDuration = System.currentTimeMillis() - pauseStartTime
             Log.d(TAG_WEBSOCKET, "Location tracking resumed after pause of ${pauseDuration}ms")
+        }
+    }
+
+    private inner class LocationPersistenceHelper(private val context: Context) {
+        private val voicePrefs = context.getSharedPreferences("VoiceAnnouncements", Context.MODE_PRIVATE)
+
+        fun saveLastAnnouncedKilometer(sessionId: String, kilometerValue: Int) {
+            voicePrefs.edit()
+                .putInt("${lastAnnouncedDistanceKey}_$sessionId", kilometerValue)
+                .apply()
+            Log.d(TAG_VOICE_ANNOUNCEMENT, "Saved last announced km: $kilometerValue for session $sessionId")
+        }
+
+        fun getLastAnnouncedKilometer(sessionId: String): Int {
+            return voicePrefs.getInt("${lastAnnouncedDistanceKey}_$sessionId", 0)
+        }
+
+        fun clearSessionData(sessionId: String) {
+            voicePrefs.edit()
+                .remove("${lastAnnouncedDistanceKey}_$sessionId")
+                .apply()
         }
     }
 

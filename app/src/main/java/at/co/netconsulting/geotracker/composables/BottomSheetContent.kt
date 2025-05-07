@@ -38,7 +38,12 @@ fun BottomSheetContent(
             .padding(16.dp)
     ) {
         Text(
-            text = "Latitude: $latitude Longitude: $longitude",
+            text = "Latitude: $latitude",
+            fontSize = 14.sp,
+            color = Color.Black
+        )
+        Text(
+            text = "Longitude: $longitude",
             fontSize = 14.sp,
             color = Color.Black
         )

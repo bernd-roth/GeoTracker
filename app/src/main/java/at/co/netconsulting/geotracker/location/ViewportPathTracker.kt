@@ -101,9 +101,9 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
             }
 
             // If this is a valid event, and zooming is enabled, try to zoom to the path bounds
-            if (eventId > 0 && mapView != null && zoomToPathEnabled) {
-                zoomToPathBounds(eventId, mapView)
-            }
+//            if (eventId > 0 && mapView != null && zoomToPathEnabled) {
+//                zoomToPathBounds(eventId, mapView)
+//            }
         }
     }
 
@@ -112,9 +112,10 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
      */
     fun setRecording(recording: Boolean) {
         isRecording.value = recording
-        // When recording, we don't want to automatically zoom to path bounds
-        // This prevents the zoom change when a session is started
-        zoomToPathEnabled = !recording
+        // Always set zoomToPathEnabled to false regardless of recording state
+        // This prevents any auto-zooming behavior
+        zoomToPathEnabled = false
+        Log.d(TAG, "Recording state changed to $recording, auto-zoom disabled")
     }
 
     /**
