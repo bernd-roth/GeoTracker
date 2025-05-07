@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.service.WeatherEventBusHandler
 import com.github.mikephil.charting.data.Entry
 import org.greenrobot.eventbus.EventBus
 import java.time.Duration

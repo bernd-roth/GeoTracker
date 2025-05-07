@@ -125,6 +125,8 @@ dependencies {
     implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
     implementation("io.reactivex.rxjava3:rxjava:3.1.5")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
+    // restoration logic
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 }
 
 ksp {

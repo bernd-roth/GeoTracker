@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
@@ -90,6 +91,12 @@ fun MapScreen() {
 
     // Create a reference to hold the MapView
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
+
+    // Add a reference to hold the MyLocationNewOverlay
+    val locationOverlayRef = remember { mutableStateOf<MyLocationNewOverlay?>(null) }
+
+    // Track follow mode state
+    var isFollowingLocation by remember { mutableStateOf(true) }
 
     // Get current event ID from shared preferences
     val currentEventId = remember {
@@ -395,13 +402,17 @@ fun MapScreen() {
                     }
                     overlays.add(scaleBarOverlay)
 
-                    // Add my location overlay
+                    // Add my location overlay with follow location enabled initially
                     val locationOverlay =
                         MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
                             enableMyLocation()
+                            // Enable follow location by default
                             enableFollowLocation()
                         }
                     overlays.add(locationOverlay)
+
+                    // Store reference to the location overlay
+                    locationOverlayRef.value = locationOverlay
 
                     // Store reference to MapView
                     mapViewRef.value = this
@@ -416,6 +427,13 @@ fun MapScreen() {
                     // Add map listener for viewport and zoom changes
                     addMapListener(object : MapListener {
                         override fun onScroll(event: ScrollEvent?): Boolean {
+                            // Disable follow location on any scroll
+                            if (isFollowingLocation) {
+                                locationOverlayRef.value?.disableFollowLocation()
+                                isFollowingLocation = false
+                                Log.d("MapScreen", "Map scrolled, disabled follow location")
+                            }
+
                             if (showPath) {
                                 pathTracker.updatePathForViewport(this@apply)
                             }
@@ -423,6 +441,8 @@ fun MapScreen() {
                         }
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
+                            // Do not change follow location state on zoom
+                            // Just update the path if needed
                             if (showPath) {
                                 pathTracker.updatePathForViewport(this@apply)
                             }
@@ -451,6 +471,60 @@ fun MapScreen() {
                 color = Color.Red,
                 strokeWidth = 2.dp
             )
+        }
+
+        // "My Location" button to re-enable follow mode
+        if (!isFollowingLocation) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .size(48.dp),
+                shape = CircleShape,
+                color = Color.White,
+                shadowElevation = 4.dp,
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable {
+                            // Get the current location from the overlay
+                            locationOverlayRef.value?.let { overlay ->
+                                // Get current location from the overlay
+                                val myLocation = overlay.myLocation
+
+                                // If we have a valid location, center on it
+                                if (myLocation != null) {
+                                    mapViewRef.value?.controller?.animateTo(myLocation)
+                                    Log.d(
+                                        "MapScreen",
+                                        "Centered map on current location: $myLocation"
+                                    )
+                                } else {
+                                    Log.d(
+                                        "MapScreen",
+                                        "Unable to center - current location is null"
+                                    )
+                                }
+
+                                // Enable follow location mode
+                                overlay.enableFollowLocation()
+                                isFollowingLocation = true
+                                Log.d(
+                                    "MapScreen",
+                                    "My Location button clicked, enabled follow location"
+                                )
+                            }
+                        }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = "My Location",
+                        tint = Color.Black
+                    )
+                }
+            }
         }
 
         // Control buttons row at the bottom
@@ -583,6 +657,13 @@ fun MapScreen() {
                                 stopIntent.putExtra("stopping_intentionally", true)
                                 context.stopService(stopIntent)
 
+                                // Also explicitly clear recovery state here to ensure it's cleared
+                                // even if service destruction is interrupted
+                                context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("was_running", false)
+                                    .apply()
+
                                 // Start the background service
                                 val intent = Intent(context, BackgroundLocationService::class.java)
                                 context.startService(intent)
@@ -606,6 +687,10 @@ fun MapScreen() {
     if (showRecordingDialog) {
         RecordingDialog(
             onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor ->
+                // Store current zoom level and center before making any changes
+                val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
+                val currentCenter = mapViewRef.value?.mapCenter
+
                 // Save path visibility preference
                 context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
                     .edit()
@@ -650,19 +735,31 @@ fun MapScreen() {
 
                 showRecordingDialog = false
 
-                // Get the newly created event ID after a short delay
-                // to ensure the service has created it
+                // Get the newly created event ID and restore map settings after a delay
                 Handler(Looper.getMainLooper()).postDelayed({
                     val newEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .getInt("active_event_id", -1)
 
-                    if (newEventId > 0 && pathOption) {
-                        Log.d("MapScreen", "Setting path tracker to new event: $newEventId")
-                        mapViewRef.value?.let { mapView ->
+                    mapViewRef.value?.let { mapView ->
+                        // First set the event ID for path tracking if needed
+                        if (newEventId > 0 && pathOption) {
+                            Log.d("MapScreen", "Setting path tracker to new event: $newEventId")
                             pathTracker.setCurrentEventId(newEventId, mapView)
                         }
+
+                        // Then restore the original zoom level and center
+                        mapView.controller.setZoom(currentZoomLevel)
+                        currentCenter?.let { center ->
+                            mapView.controller.setCenter(center)
+                        }
+
+                        // Make sure follow location is enabled
+                        locationOverlayRef.value?.enableFollowLocation()
+                        isFollowingLocation = true
+
+                        Log.d("MapScreen", "Restored map zoom level to $currentZoomLevel after recording started")
                     }
-                }, 500) // 500ms delay
+                }, 800) // Slightly longer delay to ensure all operations complete
             },
             onDismiss = {
                 showRecordingDialog = false
