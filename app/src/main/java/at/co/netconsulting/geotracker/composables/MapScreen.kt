@@ -68,6 +68,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 fun MapScreen() {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var hasInitializedMapCenter by remember { mutableStateOf(false) }
 
     // Get database instance
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
@@ -296,6 +297,39 @@ fun MapScreen() {
         }
     }
 
+    val locationUpdateListener = remember {
+        object : Any() {
+            @Subscribe(threadMode = ThreadMode.MAIN)
+            fun onLocationUpdate(metrics: Metrics) {
+                // Only center map on the first location update if we haven't done it yet
+                if (!hasInitializedMapCenter && metrics.latitude != 0.0 && metrics.longitude != 0.0) {
+                    mapViewRef.value?.let { mapView ->
+                        val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
+                        mapView.controller.animateTo(newLocation)
+                        Log.d("MapScreen", "Map centered on first received location: $newLocation")
+                        hasInitializedMapCenter = true
+                    }
+                }
+            }
+        }
+    }
+
+    DisposableEffect(locationUpdateListener) {
+        // Register with EventBus
+        if (!EventBus.getDefault().isRegistered(locationUpdateListener)) {
+            EventBus.getDefault().register(locationUpdateListener)
+            Log.d("MapScreen", "Registered location update listener with EventBus")
+        }
+
+        // Return the onDispose lambda
+        onDispose {
+            if (EventBus.getDefault().isRegistered(locationUpdateListener)) {
+                EventBus.getDefault().unregister(locationUpdateListener)
+                Log.d("MapScreen", "Unregistered location update listener from EventBus")
+            }
+        }
+    }
+
     // COMBINED DISPOSABLE EFFECT - handles all lifecycle-related side effects
     DisposableEffect(Unit) {
         // 1. Register with EventBus
@@ -385,10 +419,10 @@ fun MapScreen() {
                 MapView(ctx).apply {
                     setTileSource(TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)
-                    controller.setZoom(15.0)
+                    controller.setZoom(6)
 
-                    // Set a default location (can be updated with user's location later)
-                    controller.setCenter(GeoPoint(48.2082, 16.3738)) // Vienna coordinates
+                    // Set a default location initially (will be updated when location is available)
+                    controller.setCenter(GeoPoint(0.0, 0.0)) // Vienna coordinates as fallback
 
                     // Optimize for screen on/off cycles
                     isDrawingCacheEnabled = true
@@ -408,6 +442,24 @@ fun MapScreen() {
                             enableMyLocation()
                             // Enable follow location by default
                             enableFollowLocation()
+
+                            // Add a location listener to center map on first location fix
+                            runOnFirstFix {
+                                // This runs on a background thread, so we need to use a Handler
+                                Handler(Looper.getMainLooper()).post {
+                                    if (!hasInitializedMapCenter) {
+                                        // Get the current location
+                                        val location = myLocation
+                                        if (location != null) {
+                                            // Animate to the user's location
+                                            controller.animateTo(location)
+                                            controller.setZoom(15)
+                                            Log.d("MapScreen", "Map centered on initial location: $location")
+                                            hasInitializedMapCenter = true
+                                        }
+                                    }
+                                }
+                            }
                         }
                     overlays.add(locationOverlay)
 
@@ -494,13 +546,20 @@ fun MapScreen() {
                                 // Get current location from the overlay
                                 val myLocation = overlay.myLocation
 
-                                // If we have a valid location, center on it
+                                // If we have a valid location, center on it and set zoom to 15
                                 if (myLocation != null) {
-                                    mapViewRef.value?.controller?.animateTo(myLocation)
-                                    Log.d(
-                                        "MapScreen",
-                                        "Centered map on current location: $myLocation"
-                                    )
+                                    mapViewRef.value?.let { mapView ->
+                                        // First set zoom to 15
+                                        mapView.controller.setZoom(15.0)
+
+                                        // Then animate to the location
+                                        mapView.controller.animateTo(myLocation)
+
+                                        Log.d(
+                                            "MapScreen",
+                                            "Centered map on current location: $myLocation with zoom level 15"
+                                        )
+                                    }
                                 } else {
                                     Log.d(
                                         "MapScreen",
