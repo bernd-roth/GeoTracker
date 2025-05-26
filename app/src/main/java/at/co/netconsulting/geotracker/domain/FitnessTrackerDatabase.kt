@@ -23,10 +23,10 @@ import at.co.netconsulting.geotracker.repository.WeatherDao
         Location::class,
         Weather::class,
         DeviceStatus::class,
-        CurrentRecording::class, // Added for state preservation
-        LapTime::class           // Added for lap timing
+        CurrentRecording::class,
+        LapTime::class
     ],
-    version = 6, // Increment version to force migration
+    version = 7, // Increment to force new migration
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -36,8 +36,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     abstract fun locationDao(): LocationDao
     abstract fun weatherDao(): WeatherDao
     abstract fun deviceStatusDao(): DeviceStatusDao
-    abstract fun currentRecordingDao(): CurrentRecordingDao // New DAO
-    abstract fun lapTimeDao(): LapTimeDao                  // New DAO
+    abstract fun currentRecordingDao(): CurrentRecordingDao
+    abstract fun lapTimeDao(): LapTimeDao
 
     companion object {
         @Volatile
@@ -45,7 +45,6 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                // Drop the old table and create a new one with all required columns
                 database.execSQL("""
                     CREATE TABLE metrics_new (
                         metricId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -65,7 +64,6 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     )
                 """)
 
-                // Copy data from the old table to the new one
                 database.execSQL("""
                     INSERT INTO metrics_new (
                         metricId, eventId, heartRate, heartRateDevice, 
@@ -81,24 +79,15 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     FROM metrics
                 """)
 
-                // Remove the old table
                 database.execSQL("DROP TABLE metrics")
-
-                // Rename the new table to the correct name
                 database.execSQL("ALTER TABLE metrics_new RENAME TO metrics")
             }
         }
 
-        // Add a new migration from version 3 to 4
         private val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                // Instead of trying to modify the existing table, we'll drop and recreate it
-                // This is a more reliable approach for SQLite schema changes
-
-                // First, check if we need to drop the index if it exists
                 database.execSQL("DROP INDEX IF EXISTS index_device_status_eventId")
 
-                // Create new table with exactly the expected schema
                 database.execSQL("""
                     CREATE TABLE device_status_new (
                         deviceStatusId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -113,9 +102,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     )
                 """)
 
-                // Copy data from old table if it exists
                 try {
-                    // Try to check if the old table has data
                     database.execSQL("""
                         INSERT INTO device_status_new (
                             deviceStatusId, eventId, numberOfSatellites, sensorAccuracy,
@@ -127,27 +114,19 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                         FROM device_status
                     """)
                 } catch (e: Exception) {
-                    // If copying fails, it might be due to a schema mismatch or empty table
-                    // We'll continue with the migration anyway
+                    // Continue with migration anyway
                 }
 
-                // Drop the old table
                 database.execSQL("DROP TABLE IF EXISTS device_status")
-
-                // Rename the new table
                 database.execSQL("ALTER TABLE device_status_new RENAME TO device_status")
-
-                // Add the foreign key constraint
                 database.execSQL("""
                     CREATE INDEX IF NOT EXISTS index_device_status_eventId ON device_status(eventId)
                 """)
             }
         }
 
-        // Add migration from version 4 to 5 for our new state preservation tables
         private val MIGRATION_4_5 = object : Migration(4, 5) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                // Create CurrentRecording table
                 database.execSQL("""
                     CREATE TABLE IF NOT EXISTS current_recording (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -169,13 +148,11 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     )
                 """)
 
-                // Create index on sessionId for faster lookups
                 database.execSQL("""
                     CREATE INDEX IF NOT EXISTS index_current_recording_sessionId 
                     ON current_recording(sessionId)
                 """)
 
-                // Create LapTime table
                 database.execSQL("""
                     CREATE TABLE IF NOT EXISTS lap_times (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -188,7 +165,6 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     )
                 """)
 
-                // Create indexes for faster lap time lookups
                 database.execSQL("""
                     CREATE INDEX IF NOT EXISTS index_lap_times_sessionId 
                     ON lap_times(sessionId)
@@ -201,13 +177,10 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
-        // Add new migration to fix the current_recording table issue
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                // Drop and recreate the current_recording table with the correct schema
                 database.execSQL("DROP TABLE IF EXISTS current_recording")
 
-                // Recreate the current_recording table with the exact schema that Room expects
                 database.execSQL("""
                     CREATE TABLE IF NOT EXISTS current_recording (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -229,8 +202,41 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     )
                 """)
 
-                // Recreate the index exactly as expected by Room
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_current_recording_sessionId ON current_recording(sessionId)")
+            }
+        }
+
+        // Add completely new migration to fix the schema issue once and for all
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Completely drop and recreate the problematic table
+                database.execSQL("DROP TABLE IF EXISTS current_recording")
+                database.execSQL("DROP INDEX IF EXISTS index_current_recording_sessionId")
+
+                // Create the table with exactly the schema Room expects
+                database.execSQL("""
+                    CREATE TABLE current_recording (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        sessionId TEXT NOT NULL,
+                        eventId INTEGER NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        latitude REAL NOT NULL,
+                        longitude REAL NOT NULL,
+                        altitude REAL NOT NULL,
+                        speed REAL NOT NULL,
+                        distance REAL NOT NULL,
+                        lap INTEGER NOT NULL,
+                        currentLapDistance REAL NOT NULL,
+                        movementDuration TEXT NOT NULL,
+                        inactivityDuration TEXT NOT NULL,
+                        movementStateJson TEXT NOT NULL,
+                        lazyStateJson TEXT NOT NULL,
+                        startDateTimeEpoch INTEGER NOT NULL
+                    )
+                """)
+
+                // Create the index exactly as Room expects
+                database.execSQL("CREATE INDEX index_current_recording_sessionId ON current_recording(sessionId)")
             }
         }
 
@@ -241,8 +247,14 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     FitnessTrackerDatabase::class.java,
                     "fitness_tracker.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
-                    .fallbackToDestructiveMigration() // This is a last resort if migrations fail
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6,
+                        MIGRATION_6_7 // Add the new migration
+                    )
+                    .fallbackToDestructiveMigration() // Keep as safety net
                     .build()
                     .also { INSTANCE = it }
             }

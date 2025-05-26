@@ -126,36 +126,89 @@ fun EventsScreen(
         if (result.resultCode == Activity.RESULT_OK) {
             val uri = result.data?.data
             if (uri != null) {
-                // Show importing dialog
                 showImportingDialog = true
                 isImporting = true
 
-                // Import the GPX file
                 coroutineScope.launch {
                     try {
                         val gpxImporter = GpxImporter(context)
+                        Log.d("GPX_Import", "Starting import for URI: $uri")
+
                         val newEventId = gpxImporter.importGpx(uri)
+                        Log.d("GPX_Import", "Import completed with result: $newEventId")
 
-                        if (newEventId > 0) {
-                            // Import successful
-                            eventsViewModel.loadEvents() // Refresh the event list
-
-                            // Increment the refresh trigger to force stats update
-                            statsRefreshTrigger++
-
-                            Toast.makeText(context, "GPX file imported successfully!", Toast.LENGTH_SHORT).show()
-                        } else {
-                            // Import failed
-                            Toast.makeText(context, "Failed to import GPX file", Toast.LENGTH_SHORT).show()
+                        when {
+                            newEventId > 0 -> {
+                                // Success
+                                eventsViewModel.loadEvents()
+                                statsRefreshTrigger++
+                                Toast.makeText(
+                                    context,
+                                    "GPX file imported successfully! Event ID: $newEventId",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            newEventId == 0 -> {
+                                Toast.makeText(
+                                    context,
+                                    "No valid track data found in GPX file. Please check the file contains GPS coordinates.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            newEventId == -1 -> {
+                                Toast.makeText(
+                                    context,
+                                    "Error processing GPX file. Please check the file format and try again.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            newEventId == -2 -> {
+                                Toast.makeText(
+                                    context,
+                                    "Invalid GPX file format. Please select a valid GPX file.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            newEventId == -3 -> {
+                                Toast.makeText(
+                                    context,
+                                    "Permission denied. Please grant storage access and try again.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            else -> {
+                                Toast.makeText(
+                                    context,
+                                    "Unknown error occurred during import (code: $newEventId)",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
+                    } catch (e: SecurityException) {
+                        Log.e("GPX_Import", "Permission denied: ${e.message}")
+                        Toast.makeText(context, "Permission denied reading file", Toast.LENGTH_LONG).show()
+                    } catch (e: java.io.FileNotFoundException) {
+                        Log.e("GPX_Import", "File not found: ${e.message}")
+                        Toast.makeText(context, "File not found or cannot be accessed", Toast.LENGTH_LONG).show()
+                    } catch (e: org.xmlpull.v1.XmlPullParserException) {
+                        Log.e("GPX_Import", "XML parsing error: ${e.message}")
+                        Toast.makeText(context, "Invalid GPX file format - XML parsing failed", Toast.LENGTH_LONG).show()
+                    } catch (e: OutOfMemoryError) {
+                        Log.e("GPX_Import", "Out of memory: ${e.message}")
+                        Toast.makeText(context, "GPX file too large. Please try with a smaller file.", Toast.LENGTH_LONG).show()
                     } catch (e: Exception) {
-                        Toast.makeText(context, "Error importing GPX: ${e.message}", Toast.LENGTH_SHORT).show()
+                        Log.e("GPX_Import", "Unexpected error: ${e.message}", e)
+                        Toast.makeText(context, "Unexpected error: ${e.message?.take(100) ?: "Unknown error"}", Toast.LENGTH_LONG).show()
                     } finally {
                         isImporting = false
                         showImportingDialog = false
                     }
                 }
+            } else {
+                Toast.makeText(context, "No file selected", Toast.LENGTH_SHORT).show()
             }
+        } else {
+            Log.d("GPX_Import", "File selection cancelled or failed")
         }
     }
 
