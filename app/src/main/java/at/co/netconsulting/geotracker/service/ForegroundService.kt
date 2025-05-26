@@ -627,7 +627,8 @@ class ForegroundService : Service() {
 
                     // save data to database as long as we have valid coordinates,
                     // regardless of speed or duplicate coordinates
-                    if(checkLatitudeLongitude()) {
+                    // but only if not paused
+                    if(checkLatitudeLongitude() && !isPaused) {
                         insertDatabase(database)
                     }
                     delay(1000)
@@ -950,6 +951,12 @@ class ForegroundService : Service() {
     }
 
     private suspend fun insertDatabase(database: FitnessTrackerDatabase) {
+        // Don't save any data while paused
+        if (isPaused) {
+            Log.d(TAG, "Skipping database insertion - recording is paused")
+            return
+        }
+
         withContext(Dispatchers.IO) {
             try {
                 // Calculate elevation gain/loss
