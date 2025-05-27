@@ -1,3 +1,4 @@
+
 package at.co.netconsulting.geotracker.domain
 
 import androidx.room.Entity
@@ -28,5 +29,9 @@ data class Metric(
     val unity: String,
     val elevation: Float = 0f,
     val elevationGain: Float = 0f,
-    val elevationLoss: Float = 0f
+    val elevationLoss: Float = 0f,
+    val steps: Int? = null,                // Step count (from phone sensors or manual calculation)
+    val strideLength: Float? = null,       // Calculated from speed/cadence
+    val temperature: Float? = null,        // From weather API
+    val accuracy: Float? = null            // GPS accuracy in meters
 )

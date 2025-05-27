@@ -6,14 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import at.co.netconsulting.geotracker.repository.CurrentRecordingDao
-import at.co.netconsulting.geotracker.repository.DeviceStatusDao
-import at.co.netconsulting.geotracker.repository.EventDao
-import at.co.netconsulting.geotracker.repository.LapTimeDao
-import at.co.netconsulting.geotracker.repository.LocationDao
-import at.co.netconsulting.geotracker.repository.MetricDao
-import at.co.netconsulting.geotracker.repository.UserDao
-import at.co.netconsulting.geotracker.repository.WeatherDao
+import at.co.netconsulting.geotracker.repository.*
 
 @Database(
     entities = [
@@ -24,9 +17,13 @@ import at.co.netconsulting.geotracker.repository.WeatherDao
         Weather::class,
         DeviceStatus::class,
         CurrentRecording::class,
-        LapTime::class
+        LapTime::class,
+        PlannedEvent::class,
+        Clothing::class,
+        WheelSprocket::class,
+        Network::class
     ],
-    version = 7, // Increment to force new migration
+    version = 8, // Increment to 8 for new migration with power fields
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -39,10 +36,17 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     abstract fun currentRecordingDao(): CurrentRecordingDao
     abstract fun lapTimeDao(): LapTimeDao
 
+    // Add DAOs for additional entities
+    abstract fun plannedEventDao(): PlannedEventDao
+    abstract fun clothingDao(): ClothingDao
+    abstract fun wheelSprocketDao(): WheelSprocketDao
+    abstract fun networkDao(): NetworkDao
+
     companion object {
         @Volatile
         private var INSTANCE: FitnessTrackerDatabase? = null
 
+        // Your existing migrations (1-7)
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
@@ -206,7 +210,6 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
-        // Add completely new migration to fix the schema issue once and for all
         private val MIGRATION_6_7 = object : Migration(6, 7) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Completely drop and recreate the problematic table
@@ -240,6 +243,73 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        // NEW MIGRATION 7->8: Add practical fields (no power/advanced running dynamics)
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Add practical columns to metrics table that can be collected without expensive hardware
+                database.execSQL("ALTER TABLE metrics ADD COLUMN steps INTEGER")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN strideLength REAL")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN temperature REAL")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN accuracy REAL")
+
+                // Create missing tables that exist in your entities but not in database
+
+                // Planned Events table
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS planned_events (
+                        plannedEventId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        userId INTEGER NOT NULL,
+                        plannedEventName TEXT NOT NULL,
+                        plannedEventDate TEXT NOT NULL,
+                        plannedEventType TEXT NOT NULL,
+                        plannedEventCountry TEXT NOT NULL,
+                        plannedEventCity TEXT NOT NULL,
+                        plannedLatitude REAL,
+                        plannedLongitude REAL,
+                        FOREIGN KEY (userId) REFERENCES User(userId) ON DELETE CASCADE
+                    )
+                """)
+
+                // Clothing table
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS clothing (
+                        clothingId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        eventId INTEGER NOT NULL,
+                        clothing TEXT NOT NULL,
+                        FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                    )
+                """)
+
+                // Wheel Sprocket table
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS wheel_sprocket (
+                        wheelId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        eventId INTEGER NOT NULL,
+                        wheelSize REAL,
+                        sprocket INTEGER,
+                        FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                    )
+                """)
+
+                // Network table
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS network (
+                        networkId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        eventId INTEGER NOT NULL,
+                        websocketIpAddress TEXT NOT NULL,
+                        restApiAddress TEXT NOT NULL,
+                        FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                    )
+                """)
+
+                // Create indices for foreign keys
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_planned_events_userId ON planned_events(userId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_clothing_eventId ON clothing(eventId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_wheel_sprocket_eventId ON wheel_sprocket(eventId)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_network_eventId ON network(eventId)")
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -252,7 +322,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                         MIGRATION_3_4,
                         MIGRATION_4_5,
                         MIGRATION_5_6,
-                        MIGRATION_6_7 // Add the new migration
+                        MIGRATION_6_7,
+                        MIGRATION_7_8 // Add the new comprehensive migration
                     )
                     .fallbackToDestructiveMigration() // Keep as safety net
                     .build()
