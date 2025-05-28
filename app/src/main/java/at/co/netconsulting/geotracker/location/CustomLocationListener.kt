@@ -344,7 +344,7 @@ class CustomLocationListener: LocationListener {
             .build()
 
         val request = Request.Builder()
-            .url("ws://" + websocketserver + ":8011/geotracker")
+            .url("wss://" + websocketserver + "/geotracker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {

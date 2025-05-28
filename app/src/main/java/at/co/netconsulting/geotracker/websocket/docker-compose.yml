@@ -1,14 +1,17 @@
-version: '3'
+version: '3.8'
 services:
   nginx:
     restart: always
     image: arm64v8/nginx:alpine
     ports:
-      - "8011:80"
+      - "80:80"    # Standard HTTP port
+      - "443:443"  # Standard HTTPS port
     volumes:
       - ./static:/usr/share/nginx/html
       - ./nginx.conf:/etc/nginx/nginx.conf
       - ./.htpasswd:/etc/nginx/.htpasswd
+      - ./ssl:/etc/letsencrypt:ro
+      - ./certbot-webroot:/var/www/certbot
     depends_on:
       - websocket-server
     networks:
@@ -20,12 +23,33 @@ services:
     volumes:
       - ./websocket_server.py:/app/websocket_server.py
       - ./logs:/app/logs
-    command: sh -c "pip install websockets && python /app/websocket_server.py"
+    command: >
+      sh -c "pip install websockets asyncpg python-dateutil &&
+             python /app/websocket_server.py"
     expose:
       - "6789"
+    environment:
+      - USE_DATABASE=true
+      - POSTGRES_HOST=postgres-geotracker
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=geotracker
+      - POSTGRES_USER=geotracker
+      - POSTGRES_PASSWORD=3Jkris67zhnnhz76zhn
     networks:
       - app-network
+      - geotracker-network
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./ssl:/etc/letsencrypt
+      - ./certbot-webroot:/var/www/certbot
+    profiles:
+      - tools
 
 networks:
   app-network:
+    name: geotracker_app-network
     driver: bridge
+  geotracker-network:
+    external: true
