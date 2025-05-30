@@ -1155,14 +1155,16 @@ class CustomLocationListener: LocationListener {
         }
     }
 
-    // Add this function to the CustomLocationListener class
+    fun updateHeartRateOnly(heartRate: Int, deviceName: String) {
+        currentHeartRate = heartRate
+        heartRateDeviceName = deviceName
+        Log.d(TAG_WEBSOCKET, "Heart rate updated to $heartRate bpm from device $deviceName")
+    }
+
     fun updateHeartRate(heartRate: Int, deviceName: String) {
         currentHeartRate = heartRate
         heartRateDeviceName = deviceName
         Log.d(TAG_WEBSOCKET, "Heart rate directly updated to $heartRate bpm from device $deviceName")
-
-        // Create an immediate update with latest data to ensure heart rate is sent to websocket
-        updateImmediateWebSocketData()
     }
 
     private fun updateImmediateWebSocketData() {

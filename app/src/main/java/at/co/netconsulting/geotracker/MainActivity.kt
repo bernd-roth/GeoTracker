@@ -308,7 +308,11 @@ class MainActivity : ComponentActivity() {
                 content = { paddingValues ->
                     Box(modifier = Modifier.padding(paddingValues)) {
                         when (selectedTabIndex) {
-                            0 -> MapScreen()
+                            0 -> MapScreen(
+                                onNavigateToSettings = {
+                                    selectedTabIndex = 3 // Navigate to Settings tab
+                                }
+                            )
                             1 -> StatisticsScreen()
                             2 -> AppNavHost(mainNavController)
                             3 -> SettingsScreen()

@@ -13,8 +13,11 @@ import android.view.View
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -23,10 +26,14 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -49,6 +56,7 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.ForegroundService
+import at.co.netconsulting.geotracker.tools.Tools
 import kotlinx.coroutines.delay
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -65,7 +73,9 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapScreen() {
+fun MapScreen(
+    onNavigateToSettings: (() -> Unit)? = null
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var hasInitializedMapCenter by remember { mutableStateOf(false) }
@@ -81,6 +91,9 @@ fun MapScreen() {
     }
 
     var showRecordingDialog by remember { mutableStateOf(false) }
+
+    var showSettingsValidationDialog by remember { mutableStateOf(false) }
+    var missingSettingsFields by remember { mutableStateOf(listOf<String>()) }
 
     // Path visibility state
     var showPath by remember {
@@ -595,7 +608,7 @@ fun MapScreen() {
         ) {
             // Display different buttons based on recording state
             if (!isRecording) {
-                // Start recording button (no change)
+                // Start recording button - MODIFIED with validation
                 Surface(
                     modifier = Modifier
                         .size(56.dp),
@@ -608,7 +621,16 @@ fun MapScreen() {
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable {
-                                showRecordingDialog = true
+                                // Validate required settings before showing recording dialog
+                                val missingFields = Tools().validateRequiredSettings(context)
+                                if (missingFields.isNotEmpty()) {
+                                    // Show alert and redirect to settings
+                                    showSettingsValidationDialog = true
+                                    missingSettingsFields = missingFields
+                                } else {
+                                    // All required fields are filled, show recording dialog
+                                    showRecordingDialog = true
+                                }
                             }
                     ) {
                         Icon(
@@ -740,6 +762,40 @@ fun MapScreen() {
                 }
             }
         }
+    }
+
+    // Settings validation dialog
+    if (showSettingsValidationDialog) {
+        AlertDialog(
+            onDismissRequest = { showSettingsValidationDialog = false },
+            title = { Text("Required Settings Missing") },
+            text = {
+                Column {
+                    Text("Please fill in the following required fields in Settings:")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    missingSettingsFields.forEach { field ->
+                        Text("• $field", style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSettingsValidationDialog = false
+                        onNavigateToSettings?.invoke()
+                    }
+                ) {
+                    Text("Go to Settings")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showSettingsValidationDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // Recording dialog

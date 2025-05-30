@@ -47,4 +47,24 @@ class Tools {
         val format = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
         return format.format(date)
     }
+
+    fun validateRequiredSettings(context: Context): List<String> {
+        val sharedPreferences = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        val missingFields = mutableListOf<String>()
+
+        // Check required fields
+        val firstName = sharedPreferences.getString("firstname", "")
+        val lastName = sharedPreferences.getString("lastname", "")
+        val birthDate = sharedPreferences.getString("birthdate", "")
+        val height = sharedPreferences.getFloat("height", 0f)
+        val weight = sharedPreferences.getFloat("weight", 0f)
+
+        if (firstName.isNullOrBlank()) missingFields.add("First Name")
+        if (lastName.isNullOrBlank()) missingFields.add("Last Name")
+        if (birthDate.isNullOrBlank()) missingFields.add("Birth Date")
+        if (height <= 0f) missingFields.add("Height")
+        if (weight <= 0f) missingFields.add("Weight")
+
+        return missingFields
+    }
 }
