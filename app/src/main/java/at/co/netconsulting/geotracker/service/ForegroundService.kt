@@ -1056,18 +1056,15 @@ class ForegroundService : Service() {
         }
     }
 
-    // Add handler for heart rate data events
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onHeartRateData(data: HeartRateData) {
         if (data.isConnected && data.heartRate > 0) {
             currentHeartRate = data.heartRate
+            heartRateDeviceName = data.deviceName
             Log.d(TAG, "Heart rate updated: ${data.heartRate} bpm")
 
-            // Update CustomLocationListener with the latest heart rate
-            updateLocationListenerHeartRate()
-
-            // Update notification with heart rate
-            showNotification()
+            // Update CustomLocationListener with the latest heart rate (without triggering immediate updates)
+            customLocationListener?.updateHeartRateOnly(data.heartRate, data.deviceName)  // Use data.* instead of current*
         }
     }
 

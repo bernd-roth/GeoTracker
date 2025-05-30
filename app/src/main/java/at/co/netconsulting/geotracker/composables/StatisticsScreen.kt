@@ -15,10 +15,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.service.WeatherEventBusHandler
+import at.co.netconsulting.geotracker.tools.Tools
 import com.github.mikephil.charting.data.Entry
 import org.greenrobot.eventbus.EventBus
 import java.time.Duration
@@ -181,14 +183,54 @@ fun StatisticsScreen() {
             }
         )
 
-        // Lap Times Card
+        // Lap Times Card - Real-time tracking
         StatisticsCard(
             title = "Lap Times",
             content = {
-                if (metrics?.lap ?: 0 > 0) {
-                    Text("Lap ${metrics?.lap}: In progress")
-                } else {
-                    Text("No lap data available yet")
+                val currentLap = metrics?.lap ?: 0
+                val totalDistance = metrics?.coveredDistance ?: 0.0
+                val distanceKm = totalDistance / 1000.0
+
+                Column {
+                    if (currentLap > 0) {
+                        // Show current lap info
+                        LapInfoRow(
+                            label = "Current Lap:",
+                            value = "Lap $currentLap",
+                            textColor = Color.Blue
+                        )
+
+                        // Show distance in current lap
+                        val currentLapDistance = distanceKm % 1.0 // Assuming 1km laps
+                        LapInfoRow(
+                            label = "Lap Progress:",
+                            value = String.format("%.2f km / 1.00 km", currentLapDistance),
+                            textColor = Color.Gray
+                        )
+
+                        // Show completed laps count
+                        val completedLaps = (distanceKm / 1.0).toInt()
+                        if (completedLaps > 0) {
+                            LapInfoRow(
+                                label = "Completed Laps:",
+                                value = "$completedLaps laps",
+                                textColor = Color.Green
+                            )
+                        }
+
+                        // Show total distance covered
+                        LapInfoRow(
+                            label = "Total Distance:",
+                            value = String.format("%.2f km", distanceKm),
+                            textColor = Color.Unspecified
+                        )
+                    } else {
+                        Text(
+                            text = "Start moving to begin lap tracking",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
                 }
             }
         )
@@ -381,6 +423,33 @@ fun MetricColumn(label: String, value: String) {
             text = value,
             fontSize = 18.sp,
             fontWeight = FontWeight.Normal // Explicitly set to normal, not bold
+        )
+    }
+}
+
+@Composable
+fun LapInfoRow(label: String, value: String, textColor: Color = Color.Unspecified) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.Gray
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Text(
+            text = value,
+            fontSize = 14.sp,
+            overflow = TextOverflow.Ellipsis,
+            fontWeight = FontWeight.Normal,
+            color = textColor
         )
     }
 }
