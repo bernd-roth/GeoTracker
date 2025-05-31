@@ -61,16 +61,33 @@ function initMap() {
 }
 
 function initCharts() {
-    const chartOptions = {
+    // Modified options: Disable Chart.js tooltips but ENABLE custom hover interactions
+    const baseChartOptions = {
+        responsive: true,
         maintainAspectRatio: false,
-        animation: false, // Disable animations for better performance
+        animation: false,
+        // RE-ENABLE interactions for custom functionality
+        interaction: {
+            intersect: false,
+            mode: 'index'  // Changed back from 'none'
+        },
+        // REMOVE hover: { mode: null } to allow custom hover
         elements: {
             line: {
-                tension: 0 // Disable bezier curves for better performance
+                tension: 0
             },
             point: {
-                radius: 0, // Hide points for better performance
-                hoverRadius: 6 // Show points on hover
+                radius: 0,
+                hoverRadius: 6  // Changed back to 6 for hover detection
+            }
+        },
+        plugins: {
+            legend: {
+                onClick: handleLegendClick
+            },
+            // KEEP Chart.js tooltips disabled
+            tooltip: {
+                enabled: false  // This is the key - keeps Chart.js tooltips OFF
             }
         },
         scales: {
@@ -89,15 +106,7 @@ function initCharts() {
                 min: 0
             }
         },
-        plugins: {
-            legend: {
-                onClick: handleLegendClick
-            }
-        },
-        interaction: {
-            intersect: false,
-            mode: 'index'
-        },
+        // ADD BACK the custom hover handlers
         onHover: (event, activeElements) => {
             addDebugMessage(`Chart hover event triggered with ${activeElements.length} active elements`, 'interaction');
             handleChartHover(event, activeElements, 'altitude');
@@ -108,50 +117,46 @@ function initCharts() {
         }
     };
 
+    // Create altitude chart
     altitudeChart = new Chart(
         document.getElementById('altitudeChart').getContext('2d'),
         {
             type: 'line',
             data: { datasets: [] },
-            options: {
-                ...chartOptions,
-                scales: {
-                    ...chartOptions.scales,
-                    y: {
-                        ...chartOptions.scales.y,
-                        text: 'Altitude (m)'
-                    }
-                }
-            }
+            options: baseChartOptions
         }
     );
+
+    // Create speed chart with custom hover handlers
+    const speedChartOptions = {
+        ...baseChartOptions,
+        scales: {
+            ...baseChartOptions.scales,
+            y: {
+                ...baseChartOptions.scales.y,
+                title: {
+                    display: true,
+                    text: 'Speed (km/h)'
+                }
+            }
+        },
+        // Speed chart specific hover handlers
+        onHover: (event, activeElements) => {
+            addDebugMessage(`Speed chart hover event triggered with ${activeElements.length} active elements`, 'interaction');
+            handleChartHover(event, activeElements, 'speed');
+        },
+        onClick: (event, activeElements) => {
+            addDebugMessage(`Speed chart click event triggered with ${activeElements.length} active elements`, 'interaction');
+            handleChartClick(event, activeElements, 'speed');
+        }
+    };
 
     speedChart = new Chart(
         document.getElementById('speedChart').getContext('2d'),
         {
             type: 'line',
             data: { datasets: [] },
-            options: {
-                ...chartOptions,
-                scales: {
-                    ...chartOptions.scales,
-                    y: {
-                        ...chartOptions.scales.y,
-                        title: {
-                            display: true,
-                            text: 'Speed (km/h)'
-                        }
-                    }
-                },
-                onHover: (event, activeElements) => {
-                    addDebugMessage(`Speed chart hover event triggered with ${activeElements.length} active elements`, 'interaction');
-                    handleChartHover(event, activeElements, 'speed');
-                },
-                onClick: (event, activeElements) => {
-                    addDebugMessage(`Speed chart click event triggered with ${activeElements.length} active elements`, 'interaction');
-                    handleChartClick(event, activeElements, 'speed');
-                }
-            }
+            options: speedChartOptions
         }
     );
 
