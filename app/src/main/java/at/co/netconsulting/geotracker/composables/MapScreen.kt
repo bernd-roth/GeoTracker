@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -37,6 +38,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,8 +55,10 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
+import at.co.netconsulting.geotracker.service.FollowingService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import kotlinx.coroutines.delay
@@ -83,6 +87,9 @@ fun MapScreen(
     // Get database instance
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
 
+    // Get following service instance
+    val followingService = remember { FollowingService.getInstance(context) }
+
     var isRecording by remember {
         mutableStateOf(
             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
@@ -91,9 +98,16 @@ fun MapScreen(
     }
 
     var showRecordingDialog by remember { mutableStateOf(false) }
+    var showUserSelectionDialog by remember { mutableStateOf(false) }
 
     var showSettingsValidationDialog by remember { mutableStateOf(false) }
     var missingSettingsFields by remember { mutableStateOf(listOf<String>()) }
+
+    // Following service state
+    val activeUsers by followingService.activeUsers.collectAsState()
+    val followingState by followingService.followingState.collectAsState()
+    val isFollowingLoading by followingService.isLoading.collectAsState()
+    val isConnected by followingService.connectionState.collectAsState()
 
     // Path visibility state
     var showPath by remember {
@@ -108,6 +122,9 @@ fun MapScreen(
 
     // Add a reference to hold the MyLocationNewOverlay
     val locationOverlayRef = remember { mutableStateOf<MyLocationNewOverlay?>(null) }
+
+    // Add reference to hold the FollowedUsersOverlay
+    val followedUsersOverlayRef = remember { mutableStateOf<FollowedUsersOverlay?>(null) }
 
     // Track follow mode state
     var isFollowingLocation by remember { mutableStateOf(true) }
@@ -134,8 +151,8 @@ fun MapScreen(
         object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
             fun onLocationUpdate(metrics: Metrics) {
-                // When we get a location update and an event is active, refresh the path
-                if (showPath && currentEventId.value > 0) {
+                // Only update path when recording (not when following others)
+                if (showPath && currentEventId.value > 0 && isRecording && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
                         pathTracker.updatePathForViewport(mapView)
                     }
@@ -151,9 +168,8 @@ fun MapScreen(
                 when (intent.action) {
                     Intent.ACTION_SCREEN_ON -> {
                         Log.d("MapScreen", "Screen turned on, refreshing path")
-                        if (showPath) {
+                        if (showPath && isRecording && !followingState.isFollowing) {
                             mapViewRef.value?.let { mapView ->
-                                // Small delay to ensure the map is fully ready
                                 Handler(Looper.getMainLooper()).postDelayed({
                                     pathTracker.refreshPath(mapView)
                                 }, 300)
@@ -170,28 +186,23 @@ fun MapScreen(
         object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
                 super.onResume(owner)
-                // Refresh path when app is resumed
-                Log.d("MapScreen", "App resumed, refreshing path")
-                if (showPath) {
+                Log.d("MapScreen", "App resumed")
+
+                // Only refresh path if recording and not following others
+                if (showPath && isRecording && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
                         pathTracker.updatePathForViewport(mapView, forceUpdate = true)
                     }
                 }
 
-                // Check if service is actually running (in case of app restart)
                 val isServiceRunning = isServiceRunningFunc(
                     context,
                     "at.co.netconsulting.geotracker.service.ForegroundService"
                 )
 
-                // If there's a mismatch between SharedPreferences and actual service state
                 if (isServiceRunning != isRecording) {
                     Log.d("MapScreen", "Service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
-
-                    // Update UI to match actual service state
                     isRecording = isServiceRunning
-
-                    // Update SharedPreferences
                     context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                         .edit()
                         .putBoolean("is_recording", isServiceRunning)
@@ -209,21 +220,36 @@ fun MapScreen(
         )
     }
 
-    // Initialize or clean up path tracker based on showPath
-    LaunchedEffect(showPath, currentEventId.value) {
-        if (showPath) {
-            // Initialize path tracker
+    // Update followed users overlay when following state changes
+    LaunchedEffect(followingState.followedUserData) {
+        followedUsersOverlayRef.value?.updateFollowedUsers(followingState.followedUserData)
+    }
+
+    // Connect to following service only when not recording
+    LaunchedEffect(isRecording) {
+        if (!isRecording && !isConnected) {
+            followingService.connect()
+        } else if (isRecording && isConnected) {
+            // If we start recording while following, stop following
+            if (followingState.isFollowing) {
+                followingService.stopFollowing()
+            }
+        }
+    }
+
+    // Initialize or clean up path tracker based on recording and following state
+    LaunchedEffect(showPath, currentEventId.value, isRecording, followingState.isFollowing) {
+        if (showPath && isRecording && !followingState.isFollowing) {
+            // Only show path when recording own event
             mapViewRef.value?.let { mapView ->
                 pathTracker.initialize(mapView)
                 pathTracker.setCurrentEventId(currentEventId.value, mapView)
                 pathTracker.setRecording(isRecording)
-
-                // Initial update for the current viewport
                 pathTracker.updatePathForViewport(mapView, forceUpdate = true)
             }
             Log.d("MapScreen", "Path tracker initialized for event: ${currentEventId.value}")
         } else {
-            // Clear path if visibility is toggled off
+            // Clear path when following others or not recording
             mapViewRef.value?.let { mapView ->
                 pathTracker.clearPath(mapView)
             }
@@ -233,7 +259,6 @@ fun MapScreen(
 
     // Monitor recording state changes
     LaunchedEffect(Unit) {
-        // Check recording state periodically
         while (true) {
             val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .getBoolean("is_recording", false)
@@ -279,27 +304,20 @@ fun MapScreen(
             "at.co.netconsulting.geotracker.service.ForegroundService"
         )
 
-        // If there's a mismatch between SharedPreferences and actual service state
         if (isServiceRunning != isRecording) {
             Log.d("MapScreen", "Initial service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
-
-            // Update UI to match actual service state
             isRecording = isServiceRunning
-
-            // Update SharedPreferences
             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean("is_recording", isServiceRunning)
                 .apply()
 
-            // If service is running but we don't have an active event ID, check ServiceState
             if (isServiceRunning && currentEventId.value == -1) {
                 val serviceState = context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
                 val storedEventId = serviceState.getInt("event_id", -1)
 
                 if (storedEventId != -1) {
                     Log.d("MapScreen", "Restoring active event ID from ServiceState: $storedEventId")
-                    // Update current event ID in both state and SharedPreferences
                     currentEventId.value = storedEventId
                     context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .edit()
@@ -314,7 +332,6 @@ fun MapScreen(
         object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
             fun onLocationUpdate(metrics: Metrics) {
-                // Only center map on the first location update if we haven't done it yet
                 if (!hasInitializedMapCenter && metrics.latitude != 0.0 && metrics.longitude != 0.0) {
                     mapViewRef.value?.let { mapView ->
                         val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
@@ -328,13 +345,11 @@ fun MapScreen(
     }
 
     DisposableEffect(locationUpdateListener) {
-        // Register with EventBus
         if (!EventBus.getDefault().isRegistered(locationUpdateListener)) {
             EventBus.getDefault().register(locationUpdateListener)
             Log.d("MapScreen", "Registered location update listener with EventBus")
         }
 
-        // Return the onDispose lambda
         onDispose {
             if (EventBus.getDefault().isRegistered(locationUpdateListener)) {
                 EventBus.getDefault().unregister(locationUpdateListener)
@@ -345,40 +360,37 @@ fun MapScreen(
 
     // COMBINED DISPOSABLE EFFECT - handles all lifecycle-related side effects
     DisposableEffect(Unit) {
-        // 1. Register with EventBus
+        // Register with EventBus
         if (!isEventBusRegistered) {
             EventBus.getDefault().register(locationObserver)
             isEventBusRegistered = true
             Log.d("MapScreen", "Registered with EventBus")
         }
 
-        // 2. Register screen state receiver
+        // Register screen state receiver
         val intentFilter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
         }
         context.registerReceiver(screenStateReceiver, intentFilter)
 
-        // 3. Add lifecycle observer
+        // Add lifecycle observer
         lifecycle.addObserver(lifecycleObserver)
 
-        // 4. Handle recording state and services
+        // Handle recording state and services
         if (isRecording) {
-            // Recording is active, ForegroundService should be running
             Log.d("MapScreen", "DisposableEffect: Recording is active")
             pathTracker.setRecording(true)
 
-            // Update current event ID
             currentEventId.value = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                 .getInt("active_event_id", -1)
 
-            // Update path tracker with current event ID
-            if (showPath) {
+            if (showPath && !followingState.isFollowing) {
                 mapViewRef.value?.let { mapView ->
                     pathTracker.setCurrentEventId(currentEventId.value, mapView)
                 }
             }
-        } else {
-            // Start background service for normal tracking (if not already running)
+        } else if (!followingState.isFollowing) {
+            // Only start background service if not following others
             try {
                 Log.d("MapScreen", "DisposableEffect: Starting background service")
                 val intent = Intent(context, BackgroundLocationService::class.java)
@@ -392,29 +404,23 @@ fun MapScreen(
 
         // Combined cleanup function
         onDispose {
-            // 1. Unregister from EventBus
             if (isEventBusRegistered) {
                 EventBus.getDefault().unregister(locationObserver)
                 isEventBusRegistered = false
                 Log.d("MapScreen", "Unregistered from EventBus")
             }
 
-            // 2. Unregister screen receiver
             try {
                 context.unregisterReceiver(screenStateReceiver)
             } catch (e: Exception) {
                 Log.e("MapScreen", "Error unregistering receiver", e)
             }
 
-            // 3. Remove lifecycle observer
             lifecycle.removeObserver(lifecycleObserver)
 
-            // 4. Clean up path tracker
             pathTracker.cleanup()
 
-            // 5. Clean up services
-            if (!isRecording) {
-                // Only stop background service if we're not recording
+            if (!isRecording && !followingState.isFollowing) {
                 try {
                     Log.d("MapScreen", "onDispose: Stopping background service")
                     context.stopService(Intent(context, BackgroundLocationService::class.java))
@@ -433,11 +439,8 @@ fun MapScreen(
                     setTileSource(TileSourceFactory.MAPNIK)
                     setMultiTouchControls(true)
                     controller.setZoom(6)
+                    controller.setCenter(GeoPoint(0.0, 0.0))
 
-                    // Set a default location initially (will be updated when location is available)
-                    controller.setCenter(GeoPoint(0.0, 0.0)) // Vienna coordinates as fallback
-
-                    // Optimize for screen on/off cycles
                     isDrawingCacheEnabled = true
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
@@ -449,22 +452,17 @@ fun MapScreen(
                     }
                     overlays.add(scaleBarOverlay)
 
-                    // Add my location overlay with follow location enabled initially
+                    // Add my location overlay
                     val locationOverlay =
                         MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
                             enableMyLocation()
-                            // Enable follow location by default
                             enableFollowLocation()
 
-                            // Add a location listener to center map on first location fix
                             runOnFirstFix {
-                                // This runs on a background thread, so we need to use a Handler
                                 Handler(Looper.getMainLooper()).post {
                                     if (!hasInitializedMapCenter) {
-                                        // Get the current location
                                         val location = myLocation
                                         if (location != null) {
-                                            // Animate to the user's location
                                             controller.animateTo(location)
                                             controller.setZoom(15)
                                             Log.d("MapScreen", "Map centered on initial location: $location")
@@ -475,40 +473,39 @@ fun MapScreen(
                             }
                         }
                     overlays.add(locationOverlay)
-
-                    // Store reference to the location overlay
                     locationOverlayRef.value = locationOverlay
 
-                    // Store reference to MapView
+                    // Add followed users overlay
+                    val followedUsersOverlay = FollowedUsersOverlay(ctx, this)
+                    overlays.add(followedUsersOverlay)
+                    followedUsersOverlayRef.value = followedUsersOverlay
+
                     mapViewRef.value = this
 
-                    // If path display is enabled, initialize the tracker now that we have a MapView
-                    if (showPath) {
+                    if (showPath && isRecording && !followingState.isFollowing) {
                         pathTracker.initialize(this)
                         pathTracker.setCurrentEventId(currentEventId.value, this)
                         pathTracker.setRecording(isRecording)
                     }
 
-                    // Add map listener for viewport and zoom changes
                     addMapListener(object : MapListener {
                         override fun onScroll(event: ScrollEvent?): Boolean {
-                            // Disable follow location on any scroll
                             if (isFollowingLocation) {
                                 locationOverlayRef.value?.disableFollowLocation()
                                 isFollowingLocation = false
                                 Log.d("MapScreen", "Map scrolled, disabled follow location")
                             }
 
-                            if (showPath) {
+                            // Only update path when recording own event, not when following others
+                            if (showPath && isRecording && !followingState.isFollowing) {
                                 pathTracker.updatePathForViewport(this@apply)
                             }
                             return true
                         }
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
-                            // Do not change follow location state on zoom
-                            // Just update the path if needed
-                            if (showPath) {
+                            // Only update path when recording own event, not when following others
+                            if (showPath && isRecording && !followingState.isFollowing) {
                                 pathTracker.updatePathForViewport(this@apply)
                             }
                             return true
@@ -519,15 +516,35 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Heart Rate Panel - Add this to the Box
-        HeartRatePanel(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(top = 64.dp, start = 16.dp)
-        )
+        // Heart Rate Panel - only show when recording
+        if (isRecording && !followingState.isFollowing) {
+            HeartRatePanel(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 64.dp, start = 16.dp)
+            )
+        }
 
-        // Path loading indicator (only shown when loading)
-        if (isPathLoading && showPath) {
+        // Following indicator
+        if (followingState.isFollowing) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp),
+                shape = CircleShape,
+                color = Color.Blue,
+                shadowElevation = 4.dp
+            ) {
+                Text(
+                    text = "Following ${followingState.followedUsers.size} user(s)",
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = Color.White
+                )
+            }
+        }
+
+        // Path loading indicator (only shown when recording own path)
+        if (isPathLoading && showPath && isRecording && !followingState.isFollowing) {
             CircularProgressIndicator(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -538,12 +555,30 @@ fun MapScreen(
             )
         }
 
+        // Connection status indicator (only when following)
+        if (followingState.isFollowing && !isConnected) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp),
+                shape = CircleShape,
+                color = Color.Red,
+                shadowElevation = 4.dp
+            ) {
+                Text(
+                    text = "Offline",
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    color = Color.White
+                )
+            }
+        }
+
         // "My Location" button to re-enable follow mode
         if (!isFollowingLocation) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(16.dp)
+                    .padding(end = 16.dp, top = if (followingState.isFollowing && !isConnected) 64.dp else 16.dp)
                     .size(48.dp),
                 shape = CircleShape,
                 color = Color.White,
@@ -554,39 +589,22 @@ fun MapScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            // Get the current location from the overlay
                             locationOverlayRef.value?.let { overlay ->
-                                // Get current location from the overlay
                                 val myLocation = overlay.myLocation
 
-                                // If we have a valid location, center on it and set zoom to 15
                                 if (myLocation != null) {
                                     mapViewRef.value?.let { mapView ->
-                                        // First set zoom to 15
                                         mapView.controller.setZoom(15.0)
-
-                                        // Then animate to the location
                                         mapView.controller.animateTo(myLocation)
-
-                                        Log.d(
-                                            "MapScreen",
-                                            "Centered map on current location: $myLocation with zoom level 15"
-                                        )
+                                        Log.d("MapScreen", "Centered map on current location: $myLocation with zoom level 15")
                                     }
                                 } else {
-                                    Log.d(
-                                        "MapScreen",
-                                        "Unable to center - current location is null"
-                                    )
+                                    Log.d("MapScreen", "Unable to center - current location is null")
                                 }
 
-                                // Enable follow location mode
                                 overlay.enableFollowLocation()
                                 isFollowingLocation = true
-                                Log.d(
-                                    "MapScreen",
-                                    "My Location button clicked, enabled follow location"
-                                )
+                                Log.d("MapScreen", "My Location button clicked, enabled follow location")
                             }
                         }
                 ) {
@@ -599,21 +617,20 @@ fun MapScreen(
             }
         }
 
-        // Control buttons row at the bottom
-        Row(
+        // Control buttons column at the bottom
+        Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalAlignment = Alignment.End
         ) {
-            // Display different buttons based on recording state
+            // Follow Users button - only show when not recording
             if (!isRecording) {
-                // Start recording button - MODIFIED with validation
                 Surface(
                     modifier = Modifier
                         .size(56.dp),
                     shape = CircleShape,
-                    color = Color.Red,
+                    color = if (followingState.isFollowing) Color.Blue else Color.Gray,
                     shadowElevation = 8.dp,
                 ) {
                     Box(
@@ -621,147 +638,191 @@ fun MapScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .clickable {
-                                // Validate required settings before showing recording dialog
-                                val missingFields = Tools().validateRequiredSettings(context)
-                                if (missingFields.isNotEmpty()) {
-                                    // Show alert and redirect to settings
-                                    showSettingsValidationDialog = true
-                                    missingSettingsFields = missingFields
+                                if (followingState.isFollowing) {
+                                    // Stop following
+                                    followingService.stopFollowing()
                                 } else {
-                                    // All required fields are filled, show recording dialog
-                                    showRecordingDialog = true
+                                    // Show user selection dialog
+                                    followingService.requestActiveUsers()
+                                    showUserSelectionDialog = true
                                 }
                             }
                     ) {
                         Icon(
-                            imageVector = Icons.Default.PlayArrow,
-                            contentDescription = "Start Recording",
+                            imageVector = Icons.Default.Group,
+                            contentDescription = if (followingState.isFollowing) "Stop Following" else "Follow Users",
                             tint = Color.White
                         )
                     }
                 }
-            } else {
-                // Recording is active, show pause/resume and stop buttons
-                // Pause/Resume button
-                Surface(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .padding(end = 8.dp),
-                    shape = CircleShape,
-                    color = if (isPaused) Color.Green else Color(0xFFFFA500), // Orange when not paused, Green when paused
-                    shadowElevation = 8.dp,
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
+
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Recording controls row
+            Row {
+                // Display different buttons based on state
+                if (!isRecording && !followingState.isFollowing) {
+                    // Start recording button - only show when not following
+                    Surface(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .clickable {
-                                // Toggle pause state
-                                val newPausedState = !isPaused
-                                isPaused = newPausedState
-
-                                // Update shared preferences
-                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                                    .edit()
-                                    .putBoolean("is_paused", newPausedState)
-                                    .apply()
-
-                                // Send command to service
-                                val intent = Intent(context, ForegroundService::class.java).apply {
-                                    action = if (newPausedState) {
-                                        "at.co.netconsulting.geotracker.PAUSE_RECORDING"
+                            .size(56.dp),
+                        shape = CircleShape,
+                        color = Color.Red,
+                        shadowElevation = 8.dp,
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable {
+                                    val missingFields = Tools().validateRequiredSettings(context)
+                                    if (missingFields.isNotEmpty()) {
+                                        showSettingsValidationDialog = true
+                                        missingSettingsFields = missingFields
                                     } else {
-                                        "at.co.netconsulting.geotracker.RESUME_RECORDING"
+                                        showRecordingDialog = true
                                     }
                                 }
-                                context.startService(intent)
-
-                                Toast.makeText(
-                                    context,
-                                    if (newPausedState) "Recording Paused" else "Recording Resumed",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                    ) {
-                        Icon(
-                            imageVector = if (isPaused)
-                                Icons.Default.PlayArrow  // Show play icon when paused
-                            else
-                                Icons.Filled.Pause,     // Show pause icon when recording
-                            contentDescription = if (isPaused) "Resume Recording" else "Pause Recording",
-                            tint = Color.White
-                        )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Start Recording",
+                                tint = Color.White
+                            )
+                        }
                     }
-                }
-
-                // Stop recording button (no change)
-                Surface(
-                    modifier = Modifier
-                        .size(56.dp),
-                    shape = CircleShape,
-                    color = Color.Gray,
-                    shadowElevation = 8.dp,
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
+                } else if (isRecording && !followingState.isFollowing) {
+                    // Recording is active, show pause/resume and stop buttons
+                    Surface(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .clickable {
-                                // Stop recording logic (unchanged)
-                                val sharedPreferences = context.getSharedPreferences(
-                                    "CurrentEvent",
-                                    Context.MODE_PRIVATE
-                                )
-                                val currentEventId = sharedPreferences.getInt("active_event_id", -1)
-                                if (currentEventId != -1) {
-                                    // Store as last event ID
-                                    sharedPreferences.edit()
-                                        .putInt("last_event_id", currentEventId)
-                                        // Remove active_event_id key completely
-                                        .remove("active_event_id")
-                                        .apply()
-                                }
-
-                                // Update recording state
-                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                                    .edit()
-                                    .putBoolean("is_recording", false)
-                                    .putBoolean("is_paused", false) // Also reset pause state
-                                    .apply()
-
-                                isRecording = false
-                                isPaused = false
-
-                                // Stop the foreground service
-                                val stopIntent = Intent(context, ForegroundService::class.java)
-                                // Set flag to mark the stop as intentional
-                                stopIntent.putExtra("stopping_intentionally", true)
-                                context.stopService(stopIntent)
-
-                                // Also explicitly clear recovery state here to ensure it's cleared
-                                // even if service destruction is interrupted
-                                context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
-                                    .edit()
-                                    .putBoolean("was_running", false)
-                                    .apply()
-
-                                // Start the background service
-                                val intent = Intent(context, BackgroundLocationService::class.java)
-                                context.startService(intent)
-
-                                Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
-                                    .show()
-                            }
+                            .size(56.dp)
+                            .padding(end = 8.dp),
+                        shape = CircleShape,
+                        color = if (isPaused) Color.Green else Color(0xFFFFA500),
+                        shadowElevation = 8.dp,
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Stop Recording",
-                            tint = Color.White
-                        )
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable {
+                                    val newPausedState = !isPaused
+                                    isPaused = newPausedState
+
+                                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putBoolean("is_paused", newPausedState)
+                                        .apply()
+
+                                    val intent = Intent(context, ForegroundService::class.java).apply {
+                                        action = if (newPausedState) {
+                                            "at.co.netconsulting.geotracker.PAUSE_RECORDING"
+                                        } else {
+                                            "at.co.netconsulting.geotracker.RESUME_RECORDING"
+                                        }
+                                    }
+                                    context.startService(intent)
+
+                                    Toast.makeText(
+                                        context,
+                                        if (newPausedState) "Recording Paused" else "Recording Resumed",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                        ) {
+                            Icon(
+                                imageVector = if (isPaused)
+                                    Icons.Default.PlayArrow
+                                else
+                                    Icons.Filled.Pause,
+                                contentDescription = if (isPaused) "Resume Recording" else "Pause Recording",
+                                tint = Color.White
+                            )
+                        }
+                    }
+
+                    // Stop recording button
+                    Surface(
+                        modifier = Modifier
+                            .size(56.dp),
+                        shape = CircleShape,
+                        color = Color.Gray,
+                        shadowElevation = 8.dp,
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable {
+                                    val sharedPreferences = context.getSharedPreferences(
+                                        "CurrentEvent",
+                                        Context.MODE_PRIVATE
+                                    )
+                                    val currentEventId = sharedPreferences.getInt("active_event_id", -1)
+                                    if (currentEventId != -1) {
+                                        sharedPreferences.edit()
+                                            .putInt("last_event_id", currentEventId)
+                                            .remove("active_event_id")
+                                            .apply()
+                                    }
+
+                                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putBoolean("is_recording", false)
+                                        .putBoolean("is_paused", false)
+                                        .apply()
+
+                                    isRecording = false
+                                    isPaused = false
+
+                                    val stopIntent = Intent(context, ForegroundService::class.java)
+                                    stopIntent.putExtra("stopping_intentionally", true)
+                                    context.stopService(stopIntent)
+
+                                    context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putBoolean("was_running", false)
+                                        .apply()
+
+                                    val intent = Intent(context, BackgroundLocationService::class.java)
+                                    context.startService(intent)
+
+                                    Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
+                                        .show()
+                                }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Stop Recording",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    // User Selection Dialog
+    if (showUserSelectionDialog) {
+        UserSelectionDialog(
+            activeUsers = activeUsers,
+            currentlyFollowing = followingState.followedUsers,
+            isLoading = isFollowingLoading,
+            onFollowUsers = { selectedSessionIds ->
+                followingService.followUsers(selectedSessionIds)
+            },
+            onStopFollowing = {
+                followingService.stopFollowing()
+            },
+            onRefreshUsers = {
+                followingService.requestActiveUsers()
+            },
+            onDismiss = {
+                showUserSelectionDialog = false
+            }
+        )
     }
 
     // Settings validation dialog
@@ -802,20 +863,16 @@ fun MapScreen(
     if (showRecordingDialog) {
         RecordingDialog(
             onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor ->
-                // Store current zoom level and center before making any changes
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
 
-                // Save path visibility preference
                 context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean("show_path", pathOption)
                     .apply()
 
-                // Update local state
                 showPath = pathOption
 
-                // Start recording
                 context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean("is_recording", true)
@@ -824,12 +881,10 @@ fun MapScreen(
                 isRecording = true
                 Log.d("MapScreen", "Recording started, set isRecording=true")
 
-                // Stop background service
                 val stopIntent = Intent(context, BackgroundLocationService::class.java)
                 context.stopService(stopIntent)
                 Log.d("MapScreen", "Stopped BackgroundLocationService")
 
-                // Start foreground service with event details
                 val intent = Intent(context, ForegroundService::class.java).apply {
                     putExtra("eventName", eventName)
                     putExtra("eventDate", eventDate)
@@ -838,7 +893,6 @@ fun MapScreen(
                     putExtra("clothing", clothing)
                     putExtra("start_recording", true)
 
-                    // Add heart rate sensor information if selected
                     heartRateSensor?.let {
                         putExtra("heartRateDeviceAddress", it.address)
                         putExtra("heartRateDeviceName", it.name)
@@ -850,31 +904,27 @@ fun MapScreen(
 
                 showRecordingDialog = false
 
-                // Get the newly created event ID and restore map settings after a delay
                 Handler(Looper.getMainLooper()).postDelayed({
                     val newEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .getInt("active_event_id", -1)
 
                     mapViewRef.value?.let { mapView ->
-                        // First set the event ID for path tracking if needed
                         if (newEventId > 0 && pathOption) {
                             Log.d("MapScreen", "Setting path tracker to new event: $newEventId")
                             pathTracker.setCurrentEventId(newEventId, mapView)
                         }
 
-                        // Then restore the original zoom level and center
                         mapView.controller.setZoom(currentZoomLevel)
                         currentCenter?.let { center ->
                             mapView.controller.setCenter(center)
                         }
 
-                        // Make sure follow location is enabled
                         locationOverlayRef.value?.enableFollowLocation()
                         isFollowingLocation = true
 
                         Log.d("MapScreen", "Restored map zoom level to $currentZoomLevel after recording started")
                     }
-                }, 800) // Slightly longer delay to ensure all operations complete
+                }, 800)
             },
             onDismiss = {
                 showRecordingDialog = false
