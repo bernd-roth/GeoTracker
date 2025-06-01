@@ -118,6 +118,16 @@ class CustomLocationListener: LocationListener {
     private var lastAnnouncedDistanceKey = "last_announced_km"
     private lateinit var persistenceHelper: LocationPersistenceHelper
 
+    // Event/Session information fields
+    private var eventName: String = ""
+    private var sportType: String = ""
+    private var comment: String = ""
+    private var clothing: String = ""
+
+    // Settings fields to include in metrics
+    private var minDistanceMeters: Int = 1
+    private var minTimeSeconds: Int = 1
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -256,8 +266,9 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun loadSharedPreferences() {
-        val sharedPreferences =
-            this.context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+        val sharedPreferences = this.context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+
+        // Load user profile data
         firstname = sharedPreferences.getString("firstname", "") ?: ""
         lastname = sharedPreferences.getString("lastname", "") ?: ""
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
@@ -266,16 +277,23 @@ class CustomLocationListener: LocationListener {
         websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
 
         // Load location update settings from preferences
-        val minTimeSeconds = sharedPreferences.getInt("minTimeSeconds", 1)
-        val minDistanceMeters = sharedPreferences.getInt("minDistanceMeters", 1)
+        minTimeSeconds = sharedPreferences.getInt("minTimeSeconds", 1)
+        minDistanceMeters = sharedPreferences.getInt("minDistanceMeters", 1)
 
         // Load voice announcement interval
         voiceAnnouncementInterval = sharedPreferences.getInt("voiceAnnouncementInterval", 1)
 
+        // Load event/session information (these would be set when starting a recording session)
+        val sessionPrefs = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+        eventName = sessionPrefs.getString("current_event_name", "") ?: ""
+        sportType = sessionPrefs.getString("current_sport_type", "") ?: ""
+        comment = sessionPrefs.getString("current_comment", "") ?: ""
+        clothing = sessionPrefs.getString("current_clothing", "") ?: ""
+
         // Reset the last announced kilometer when loading settings
         lastAnnouncedKilometer = 0
 
-        // Convert to appropriate units
+        // Convert to appropriate units for location updates
         minTimeBetweenUpdates = minTimeSeconds * 1000L
         minDistanceBetweenUpdates = minDistanceMeters.toFloat()
 
@@ -286,6 +304,14 @@ class CustomLocationListener: LocationListener {
         Log.d(
             TAG_VOICE_ANNOUNCEMENT,
             "Loaded voice announcement interval: $voiceAnnouncementInterval km"
+        )
+        Log.d(
+            TAG_WEBSOCKET,
+            "Loaded user profile: $firstname $lastname, DOB: $birthdate, Height: ${height}cm, Weight: ${weight}kg"
+        )
+        Log.d(
+            TAG_WEBSOCKET,
+            "Loaded session info: Event: '$eventName', Sport: '$sportType', Comment: '$comment', Clothing: '$clothing'"
         )
     }
 
@@ -406,29 +432,7 @@ class CustomLocationListener: LocationListener {
             oldLongitude = location.longitude
 
             // Post the current state with isPaused flag to UI through EventBus
-            val pausedMetrics = Metrics(
-                latitude = location.latitude,
-                longitude = location.longitude,
-                speed = 0f,  // Force speed to 0 while paused
-                speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
-                altitude = location.altitude,
-                horizontalAccuracy = location.accuracy,
-                verticalAccuracyMeters = location.verticalAccuracyMeters,
-                coveredDistance = coveredDistance,
-                lap = lap,
-                startDateTime = startDateTime,
-                averageSpeed = averageSpeed,
-                maxSpeed = maxSpeed,
-                movingAverageSpeed = 0.0,  // Force to 0 while paused
-                cumulativeElevationGain = cumulativeElevationGain,
-                sessionId = sessionId,
-                person = firstname,
-                heartRate = currentHeartRate,
-                heartRateDevice = heartRateDeviceName,
-                numberOfSatellites = numberOfSatellites,
-                usedNumberOfSatellites = usedNumberOfSatellites,
-                satellites = if (location.extras != null) location.extras!!.getInt("satellites", 0) else 0
-            )
+            val pausedMetrics = createMetricsObject(location, 0f)
 
             // Only send to UI, not to WebSocket server while paused
             EventBus.getDefault().post(pausedMetrics)
@@ -456,7 +460,7 @@ class CustomLocationListener: LocationListener {
             )
 
             // Get current speed in km/h
-            val currentSpeedKmh = it.speed * 3.6
+            var currentSpeedKmh = it.speed * 3.6
             val isBelowThreshold = currentSpeedKmh < MIN_SPEED_THRESHOLD
 
             // Distance calculation with time-based approach
@@ -468,15 +472,24 @@ class CustomLocationListener: LocationListener {
                     if (belowThresholdStartTime == 0L) {
                         // Start the timer
                         belowThresholdStartTime = System.currentTimeMillis()
-                        Log.d("CustomLocationListener", "Speed dropped below threshold, starting grace period")
+                        Log.d(
+                            "CustomLocationListener",
+                            "Speed dropped below threshold, starting grace period"
+                        )
                     } else if (System.currentTimeMillis() - belowThresholdStartTime > THRESHOLD_TIMEOUT_MS) {
                         // We've been below threshold for too long, stop tracking
                         isCurrentlyTracking = false
                         belowThresholdStartTime = 0
-                        Log.d("CustomLocationListener", "Grace period ended, stopped tracking movement")
+                        Log.d(
+                            "CustomLocationListener",
+                            "Grace period ended, stopped tracking movement"
+                        )
                     } else {
                         // Still in grace period - continue to calculate distance
-                        Log.d("CustomLocationListener", "In grace period, continuing to track movement")
+                        Log.d(
+                            "CustomLocationListener",
+                            "In grace period, continuing to track movement"
+                        )
 
                         if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
                             (oldLatitude != location.latitude || oldLongitude != location.longitude)
@@ -488,7 +501,10 @@ class CustomLocationListener: LocationListener {
                             coveredDistance += distanceIncrement
                             lap = calculateLap(distanceIncrement)
 
-                            Log.d("CustomLocationListener", "Grace period distance added: $distanceIncrement")
+                            Log.d(
+                                "CustomLocationListener",
+                                "Grace period distance added: $distanceIncrement"
+                            )
 
                             // Check for distance milestone announcement
                             checkDistanceMilestone()
@@ -503,7 +519,10 @@ class CustomLocationListener: LocationListener {
                 if (!isCurrentlyTracking) {
                     // Start tracking if we weren't already
                     isCurrentlyTracking = true
-                    Log.d("CustomLocationListener", "Started tracking movement at speed: $currentSpeedKmh km/h")
+                    Log.d(
+                        "CustomLocationListener",
+                        "Started tracking movement at speed: $currentSpeedKmh km/h"
+                    )
                 }
 
                 // Calculate distance when above threshold
@@ -517,7 +536,10 @@ class CustomLocationListener: LocationListener {
                     coveredDistance += distanceIncrement
                     lap = calculateLap(distanceIncrement)
 
-                    Log.d("CustomLocationListener", "Distance added while moving: $distanceIncrement")
+                    Log.d(
+                        "CustomLocationListener",
+                        "Distance added while moving: $distanceIncrement"
+                    )
 
                     // Check for distance milestone announcement
                     checkDistanceMilestone()
@@ -541,7 +563,7 @@ class CustomLocationListener: LocationListener {
             movingAverageSpeed = calculateMovingAverageSpeed(currentSpeedKmh)
 
             // Create Metrics object with all required fields including satellite info
-            val metrics = Metrics(
+            var metrics = Metrics(
                 latitude = location.latitude,
                 longitude = location.longitude,
                 speed = currentSpeedKmh.toFloat(),
@@ -565,10 +587,12 @@ class CustomLocationListener: LocationListener {
                 satellites = satelliteCount
             )
 
-            // Send data to websocket server (always, regardless of speed)
-            sendDataToWebsocketServer(metrics)
+            // When creating metrics for active tracking:
+            currentSpeedKmh = location.speed * 3.6
+            metrics = createMetricsObject(location, currentSpeedKmh.toFloat())
 
-            // Also post through EventBus for UI updates (always, regardless of speed)
+            // Send data to websocket server and EventBus
+            sendDataToWebsocketServer(metrics)
             EventBus.getDefault().post(metrics)
         }
     }
@@ -1119,23 +1143,35 @@ class CustomLocationListener: LocationListener {
         val metrics = Metrics(
             latitude = oldLatitude,
             longitude = oldLongitude,
-            speed = 0f,  // Start with 0 speed
+            speed = 0f,
             speedAccuracyMetersPerSecond = 0f,
-            altitude = 0.0,  // Will be updated with next location update
+            altitude = 0.0,
             horizontalAccuracy = 0f,
             verticalAccuracyMeters = 0f,
             coveredDistance = coveredDistance,
             lap = lap,
             startDateTime = startDateTime,
-            averageSpeed = 0.0,  // Will be recalculated with next update
+            averageSpeed = 0.0,
             maxSpeed = 0.0,
             movingAverageSpeed = 0.0,
             sessionId = sessionId,
-            person = firstname,
+            firstname = firstname,
+            lastname = lastname,
+            birthdate = birthdate,
+            height = height,
+            weight = weight,
+            minDistanceMeters = minDistanceMeters,
+            minTimeSeconds = minTimeSeconds,
+            voiceAnnouncementInterval = voiceAnnouncementInterval,
+            eventName = eventName,
+            sportType = sportType,
+            comment = comment,
+            clothing = clothing,
             numberOfSatellites = 0,
             usedNumberOfSatellites = 0,
             satellites = 0
         )
+
         // Broadcast the current state
         EventBus.getDefault().post(metrics)
     }
@@ -1239,6 +1275,43 @@ class CustomLocationListener: LocationListener {
                 .remove("${lastAnnouncedDistanceKey}_$sessionId")
                 .apply()
         }
+    }
+
+    private fun createMetricsObject(location: Location, currentSpeedKmh: Float): Metrics {
+        return Metrics(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            speed = currentSpeedKmh,
+            speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
+            altitude = location.altitude,
+            horizontalAccuracy = location.accuracy,
+            verticalAccuracyMeters = location.verticalAccuracyMeters,
+            coveredDistance = coveredDistance,
+            lap = lap,
+            startDateTime = startDateTime,
+            averageSpeed = averageSpeed,
+            maxSpeed = maxSpeed,
+            movingAverageSpeed = movingAverageSpeed,
+            cumulativeElevationGain = cumulativeElevationGain,
+            sessionId = sessionId,
+            firstname = firstname,
+            lastname = lastname,
+            birthdate = birthdate,
+            height = height,
+            weight = weight,
+            minDistanceMeters = minDistanceMeters,
+            minTimeSeconds = minTimeSeconds,
+            voiceAnnouncementInterval = voiceAnnouncementInterval,
+            eventName = eventName,
+            sportType = sportType,
+            comment = comment,
+            clothing = clothing,
+            heartRate = currentHeartRate,
+            heartRateDevice = heartRateDeviceName,
+            numberOfSatellites = numberOfSatellites,
+            usedNumberOfSatellites = usedNumberOfSatellites,
+            satellites = if (location.extras != null) location.extras!!.getInt("satellites", 0) else 0
+        )
     }
 
     companion object {

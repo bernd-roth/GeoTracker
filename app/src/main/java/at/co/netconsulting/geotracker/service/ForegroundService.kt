@@ -142,6 +142,67 @@ class ForegroundService : Service() {
     private var stateConsistencyCheckerJob: Job? = null
     private var isInitialStateRestored = false
 
+    // Session data management methods
+    private fun saveSessionDataToPreferences(
+        eventName: String,
+        eventDate: String,
+        sportType: String,
+        comment: String,
+        clothing: String,
+        sessionId: String
+    ) {
+        try {
+            // Save to SessionPrefs for CustomLocationListener to access
+            val sessionPrefs = getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+            sessionPrefs.edit().apply {
+                putString("current_event_name", eventName)
+                putString("current_event_date", eventDate)
+                putString("current_sport_type", sportType)
+                putString("current_comment", comment)
+                putString("current_clothing", clothing)
+                putString("current_session_id", sessionId)
+                apply()
+            }
+
+            Log.d(TAG, "Session data saved to SessionPrefs: Event='$eventName', Sport='$sportType', Comment='$comment', Clothing='$clothing'")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving session data to SharedPreferences", e)
+        }
+    }
+
+    private fun clearSessionDataFromPreferences() {
+        try {
+            val sessionPrefs = getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+            sessionPrefs.edit().apply {
+                remove("current_event_name")
+                remove("current_event_date")
+                remove("current_sport_type")
+                remove("current_comment")
+                remove("current_clothing")
+                // Keep session_id as it might be needed for final data processing
+                apply()
+            }
+
+            Log.d(TAG, "Session data cleared from SharedPreferences")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing session data from SharedPreferences", e)
+        }
+    }
+
+    // Add debugging method to verify session data is saved correctly
+    private fun logSessionDataForDebugging() {
+        val sessionPrefs = getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+
+        Log.d(TAG, "=== FOREGROUND SERVICE SESSION DATA ===")
+        Log.d(TAG, "Event Name: ${sessionPrefs.getString("current_event_name", "NOT SET")}")
+        Log.d(TAG, "Event Date: ${sessionPrefs.getString("current_event_date", "NOT SET")}")
+        Log.d(TAG, "Sport Type: ${sessionPrefs.getString("current_sport_type", "NOT SET")}")
+        Log.d(TAG, "Comment: ${sessionPrefs.getString("current_comment", "NOT SET")}")
+        Log.d(TAG, "Clothing: ${sessionPrefs.getString("current_clothing", "NOT SET")}")
+        Log.d(TAG, "Session ID: ${sessionPrefs.getString("current_session_id", "NOT SET")}")
+        Log.d(TAG, "=========================================")
+    }
+
     private fun startWeatherUpdates() {
         stopWeatherUpdates()
 
@@ -721,7 +782,7 @@ class ForegroundService : Service() {
                 // Save pause state
                 .putBoolean("is_paused", isPaused)
                 .putLong("pause_start_time", pauseStartTime)
-                // Save event details
+                // Save event details for recovery
                 .putString("eventName", eventname)
                 .putString("eventDate", eventdate)
                 .putString("artOfSport", artofsport)
@@ -1162,6 +1223,16 @@ class ForegroundService : Service() {
                     ?: prefs.getString("clothing", "")
                             ?: ""
 
+                // Save restored session data to SessionPrefs
+                saveSessionDataToPreferences(
+                    eventName = eventname,
+                    eventDate = eventdate,
+                    sportType = artofsport,
+                    comment = comment,
+                    clothing = clothing,
+                    sessionId = sessionId
+                )
+
                 // Clear restart flag
                 prefs.edit().putBoolean("was_running", false).apply()
 
@@ -1178,6 +1249,21 @@ class ForegroundService : Service() {
                 // Extract heart rate sensor info from intent
                 heartRateDeviceAddress = intent?.getStringExtra("heartRateDeviceAddress")
                 heartRateDeviceName = intent?.getStringExtra("heartRateDeviceName")
+
+                // Generate session ID if not already created
+                if (sessionId.isEmpty()) {
+                    createSessionID()
+                }
+
+                // Save new session data to SessionPrefs
+                saveSessionDataToPreferences(
+                    eventName = eventname,
+                    eventDate = eventdate,
+                    sportType = artofsport,
+                    comment = comment,
+                    clothing = clothing,
+                    sessionId = sessionId
+                )
             }
 
             // Connect to heart rate sensor if address is available
@@ -1197,7 +1283,10 @@ class ForegroundService : Service() {
                 }
             }
 
-            Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport")
+            Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport, comment: $comment, clothing: $clothing")
+
+            // Debug log to verify session data is saved
+            logSessionDataForDebugging()
 
             val eventIdDeferred = CompletableDeferred<Int>()
 
@@ -1300,29 +1389,31 @@ class ForegroundService : Service() {
 
         if (isStoppingIntentionally) {
             try {
+                // Clear session data when stopping intentionally
+                clearSessionDataFromPreferences()
+
                 // Add this block to explicitly clear the recovery state immediately
                 getSharedPreferences(SessionRecoveryManager.PREF_SERVICE_STATE, Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean(SessionRecoveryManager.PREF_WAS_RUNNING, false)
                     .apply()
 
-                Log.d(TAG, "Cleared recovery state in SharedPreferences")
+                Log.d(TAG, "Cleared recovery state and session data in SharedPreferences")
 
                 // When stopping intentionally, finalize the recording by transferring data
-                // from the current_recording table to permanent tables
                 serviceScope.launch {
-                    // Rest of your existing finalizeRecording code...
+                    finalizeRecording()
                 }
 
                 // Reset the flag
                 isStoppingIntentionally = false
             } catch (e: Exception) {
-                Log.e(TAG, "Error clearing event ID from preferences", e)
+                Log.e(TAG, "Error clearing session data and event ID from preferences", e)
             }
         } else {
             // Not stopping intentionally - might be a crash or kill
-            // Don't clear the recovery state
-            Log.d(TAG, "Not clearing recovery state - might be a crash")
+            // Don't clear the session data - keep it for recovery
+            Log.d(TAG, "Not clearing session data - might be a crash")
         }
 
         try {

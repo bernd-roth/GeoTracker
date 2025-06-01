@@ -21,9 +21,24 @@ data class Metrics(
     val maxSpeed: Double = 0.0,
     val cumulativeElevationGain: Double = 0.0,
 
-    // WebSocket server fields
+    // WebSocket server fields - renamed person to firstname for clarity
     val sessionId: String = "",
-    val person: String = "",
+    val firstname: String = "",
+    val lastname: String = "",
+    val birthdate: String = "",
+    val height: Float = 0f,
+    val weight: Float = 0f,
+
+    // Settings fields
+    val minDistanceMeters: Int = 0,
+    val minTimeSeconds: Int = 0,
+    val voiceAnnouncementInterval: Int = 0,
+
+    // Event/Session information fields
+    val eventName: String = "",
+    val sportType: String = "",
+    val comment: String = "",
+    val clothing: String = "",
 
     // Heart rate data
     val heartRate: Int = 0,
@@ -37,6 +52,9 @@ data class Metrics(
     val distance: Double = coveredDistance,
     val currentSpeed: Double = speed.toDouble(),
     val movingAverageSpeed: Double,
+
+    // Keep person for backward compatibility (can be removed later)
+    val person: String = firstname,
 
     // Weather
     val satellites: Int? = null
