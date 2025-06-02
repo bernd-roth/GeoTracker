@@ -1816,6 +1816,71 @@ function visualizeGPXData(gpxTrackPoints) {
         updateVisibilityButtonAppearance(sessionId, !currentVisibility);
     }
 
+    // Update the visibility button appearance in the session list
+    function updateVisibilityButtonAppearance(sessionId, isVisible) {
+        const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
+        if (sessionItem) {
+            const visibilityBtn = sessionItem.querySelector('.toggle-visibility');
+            if (visibilityBtn) {
+                visibilityBtn.innerHTML = isVisible ? '👁' : '👁‍🗨';
+                visibilityBtn.style.opacity = isVisible ? '1' : '0.5';
+            }
+        }
+    }
+
+    // Zoom to a specific session's track
+    function zoomToSession(sessionId) {
+        addDebugMessage(`Zoom to session requested: ${sessionId}`, 'system');
+
+        // Check if we have track points for this session
+        const sessionTrackPoints = trackPoints[sessionId];
+        if (!sessionTrackPoints || sessionTrackPoints.length === 0) {
+            addDebugMessage(`No track points found for session ${sessionId}`, 'warning');
+            showNotification(`No track data available for session ${sessionId}`, 'warning');
+            return;
+        }
+
+        // Create coordinate array from track points
+        const coordinates = sessionTrackPoints.map(point => [point.lat, point.lng]);
+        
+        if (coordinates.length === 0) {
+            addDebugMessage(`No valid coordinates found for session ${sessionId}`, 'warning');
+            return;
+        }
+
+        try {
+            // Create a temporary polyline to get bounds
+            const tempPolyline = L.polyline(coordinates);
+            const bounds = tempPolyline.getBounds();
+            
+            // Fit map to the track bounds with some padding
+            map.fitBounds(bounds, {
+                padding: [20, 20],
+                maxZoom: 16 // Prevent zooming in too much for short tracks
+            });
+
+            addDebugMessage(`Zoomed to session ${sessionId} - ${coordinates.length} points`, 'system');
+            
+            // Optional: Flash the track briefly to show which one we zoomed to
+            if (polylines[sessionId]) {
+                const originalColor = polylines[sessionId].options.color;
+                const originalWeight = polylines[sessionId].options.weight;
+                
+                // Flash the track
+                polylines[sessionId].setStyle({ color: '#FF0000', weight: 6 });
+                setTimeout(() => {
+                    if (polylines[sessionId]) {
+                        polylines[sessionId].setStyle({ color: originalColor, weight: originalWeight });
+                    }
+                }, 1000);
+            }
+            
+        } catch (error) {
+            addDebugMessage(`Error zooming to session ${sessionId}: ${error.message}`, 'error');
+            showNotification(`Error zooming to session: ${error.message}`, 'warning');
+        }
+    }
+
     // Update the session list UI
     function updateSessionList() {
         const sessionsList = document.getElementById('sessionsList');
@@ -1851,12 +1916,18 @@ function visualizeGPXData(gpxTrackPoints) {
                                 title="Toggle Visibility">
                             👁
                         </button>
-                        <button class="session-action-btn delete"
+                        <button class="session-action-btn zoom-to-session"
+                                onclick="zoomToSession('${sessionId}')"
+                                title="Zoom to Track">
+                            🎯
+                        </button>
+<!--                        <button class="session-action-btn delete"
                                 onclick="confirmDeleteSession('${sessionId}')"
                                 title="Delete Session"
                                 ${isActive ? 'disabled' : ''}>
                             🗑
                         </button>
+-->
                     </div>
                 </div>
             `;
@@ -2134,6 +2205,7 @@ function setupChartEventListeners() {
         chartsContainer.addEventListener('mouseleave', () => {
             hideHoverMarker();
             hideInfoPopup();
-        });
+        }
+        );
     }
 }

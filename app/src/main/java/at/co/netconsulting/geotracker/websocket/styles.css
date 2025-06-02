@@ -446,6 +446,14 @@ html {
     color: #F44336;
 }
 
+.session-action-btn.zoom-to-session {
+    color: #2196F3;
+}
+
+.session-action-btn.zoom-to-session:hover {
+    background-color: rgba(33, 150, 243, 0.1);
+}
+
 .session-list-header {
     display: flex;
     justify-content: space-between;
