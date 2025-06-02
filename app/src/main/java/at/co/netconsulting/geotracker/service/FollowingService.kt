@@ -1,3 +1,5 @@
+// Enhanced FollowingService.kt to handle automatic active users updates
+
 package at.co.netconsulting.geotracker.service
 
 import android.content.Context
@@ -30,6 +32,7 @@ class FollowingService private constructor(private val context: Context) {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var webSocket: WebSocket? = null
     private var reconnectJob: Job? = null
+    private var periodicRefreshJob: Job? = null
     private var isConnected = false
 
     // State flows for UI
@@ -49,6 +52,7 @@ class FollowingService private constructor(private val context: Context) {
         private const val TAG = "FollowingService"
         private const val RECONNECT_DELAY = 5000L
         private const val MAX_RECONNECT_ATTEMPTS = 10
+        private const val PERIODIC_REFRESH_INTERVAL = 60000L // 60 seconds
 
         @Volatile
         private var INSTANCE: FollowingService? = null
@@ -65,8 +69,12 @@ class FollowingService private constructor(private val context: Context) {
             Log.d(TAG, "WebSocket connection opened for following mode")
             isConnected = true
             _connectionState.value = true
+
             // Request active users list immediately
             requestActiveUsers()
+
+            // Start periodic refresh
+            startPeriodicRefresh()
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -76,10 +84,17 @@ class FollowingService private constructor(private val context: Context) {
                 val type = json.getString("type")
 
                 when (type) {
-                    "active_users" -> handleActiveUsersResponse(json)
+                    "active_users" -> {
+                        handleActiveUsersResponse(json)
+                        _isLoading.value = false
+                    }
                     "followed_user_update" -> handleFollowedUserUpdate(json)
                     "follow_response" -> handleFollowResponse(json)
                     "unfollow_response" -> handleUnfollowResponse(json)
+                    "update" -> {
+                        // Handle regular tracking updates that might affect active users
+                        handleTrackingUpdate(json)
+                    }
                     // Ignore other message types since we're only following, not recording
                 }
             } catch (e: Exception) {
@@ -91,12 +106,14 @@ class FollowingService private constructor(private val context: Context) {
             Log.d(TAG, "WebSocket connection closing: $code $reason")
             isConnected = false
             _connectionState.value = false
+            stopPeriodicRefresh()
         }
 
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d(TAG, "WebSocket connection closed: $code $reason")
             isConnected = false
             _connectionState.value = false
+            stopPeriodicRefresh()
             scheduleReconnect()
         }
 
@@ -104,8 +121,28 @@ class FollowingService private constructor(private val context: Context) {
             Log.e(TAG, "WebSocket connection failed", t)
             isConnected = false
             _connectionState.value = false
+            stopPeriodicRefresh()
             scheduleReconnect()
         }
+    }
+
+    private fun startPeriodicRefresh() {
+        stopPeriodicRefresh() // Stop any existing job
+
+        periodicRefreshJob = serviceScope.launch {
+            while (isActive && isConnected) {
+                delay(PERIODIC_REFRESH_INTERVAL)
+                if (isConnected) {
+                    Log.d(TAG, "Performing periodic active users refresh")
+                    requestActiveUsers()
+                }
+            }
+        }
+    }
+
+    private fun stopPeriodicRefresh() {
+        periodicRefreshJob?.cancel()
+        periodicRefreshJob = null
     }
 
     fun connect() {
@@ -141,6 +178,7 @@ class FollowingService private constructor(private val context: Context) {
     fun disconnect() {
         Log.d(TAG, "Disconnecting from WebSocket server...")
         reconnectJob?.cancel()
+        stopPeriodicRefresh()
         webSocket?.close(1000, "User stopped following")
         webSocket = null
         isConnected = false
@@ -234,13 +272,58 @@ class FollowingService private constructor(private val context: Context) {
                 users.add(user)
             }
 
+            val previousCount = _activeUsers.value.size
             _activeUsers.value = users
             _isLoading.value = false
-            Log.d(TAG, "Updated active users list: ${users.size} users")
+
+            Log.d(TAG, "Updated active users list: ${users.size} users (was $previousCount)")
+
+            // Log the change details for debugging
+            if (users.size != previousCount) {
+                val currentSessionIds = users.map { it.sessionId }.toSet()
+                val previousSessionIds = _activeUsers.value.map { it.sessionId }.toSet()
+                val newUsers = currentSessionIds - previousSessionIds
+                val removedUsers = previousSessionIds - currentSessionIds
+
+                if (newUsers.isNotEmpty()) {
+                    Log.d(TAG, "New active users detected: $newUsers")
+                }
+                if (removedUsers.isNotEmpty()) {
+                    Log.d(TAG, "Users no longer active: $removedUsers")
+                }
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing active users response", e)
             _isLoading.value = false
+        }
+    }
+
+    private fun handleTrackingUpdate(json: JSONObject) {
+        try {
+            // This handles regular tracking updates that might indicate new active users
+            // We don't need to parse the full tracking data, but we can trigger a refresh
+            // if we detect this might be a new session
+
+            val point = json.optJSONObject("point")
+            if (point != null) {
+                val sessionId = point.optString("sessionId", "")
+                if (sessionId.isNotEmpty()) {
+                    val currentActiveSessionIds = _activeUsers.value.map { it.sessionId }.toSet()
+                    if (!currentActiveSessionIds.contains(sessionId)) {
+                        Log.d(TAG, "Detected tracking update from unknown session: $sessionId - refreshing active users")
+                        // Small delay to allow server to update its active sessions
+                        serviceScope.launch {
+                            delay(1000)
+                            if (isConnected) {
+                                requestActiveUsers()
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling tracking update", e)
         }
     }
 
