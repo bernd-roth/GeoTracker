@@ -27,6 +27,25 @@ let debugMessages = [];
 let debugPaused = false;
 let maxDebugMessages = 1000; // Limit to prevent browser slowdown
 
+// Distance markers
+let distanceMarkers = {};
+let distanceMarkerSettings = {
+    enabled: true,
+    interval: 1000, // Distance in meters (1km default)
+    showAll: 12, // Zoom level to show all markers
+    iconSize: [24, 24],
+    cssClass: 'distance-marker',
+    showForGPX: true,
+    showForLive: true
+};
+
+// export functions for global use
+window.createDistanceMarkers = createDistanceMarkers;
+window.removeDistanceMarkers = removeDistanceMarkers;
+window.toggleDistanceMarkers = toggleDistanceMarkers;
+window.updateDistanceMarkerSettings = updateDistanceMarkerSettings;
+window.initializeDistanceMarkers = initializeDistanceMarkers;
+
 function getRandomInRange(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -577,11 +596,355 @@ function toggleMapElementsVisibility(sessionId, visible) {
         }
     });
 
+    toggleDistanceMarkers(sessionId, visible);
+
     // Toggle speed display container
     const speedContainer = document.getElementById(`speed-container-${sessionId}`);
     if (speedContainer) {
         speedContainer.style.display = visible ? 'block' : 'none';
     }
+}
+
+// distance markers
+function injectDistanceMarkerStyles() {
+    if (!document.getElementById('distance-marker-styles')) {
+        const style = document.createElement('style');
+        style.id = 'distance-marker-styles';
+        style.textContent = `
+.distance-marker {
+    background-color: rgba(33, 150, 243, 0.9);
+    border: 2px solid white;
+    border-radius: 50%;
+    color: white;
+    font-weight: bold;
+    font-size: 11px;
+    text-align: center;
+    line-height: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.distance-marker.gpx-marker {
+    background-color: rgba(244, 67, 54, 0.9);
+}
+
+.distance-marker:hover {
+    transform: scale(1.1);
+    z-index: 1000;
+}
+        `;
+        document.head.appendChild(style);
+    }
+}
+
+// Function to calculate distance between two lat/lng points (Haversine formula)
+function calculateDistance(lat1, lng1, lat2, lng2) {
+    const R = 6371000; // Earth's radius in meters
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLng = (lng2 - lng1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLng/2) * Math.sin(dLng/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+// Function to interpolate point along a line at specific distance
+function interpolatePoint(startPoint, endPoint, targetDistance, currentDistance) {
+    const segmentDistance = calculateDistance(
+        startPoint.lat, startPoint.lng, 
+        endPoint.lat, endPoint.lng
+    );
+    
+    if (segmentDistance === 0) return null;
+    
+    const ratio = (targetDistance - currentDistance) / segmentDistance;
+    
+    if (ratio < 0 || ratio > 1) return null;
+    
+    return {
+        lat: startPoint.lat + (endPoint.lat - startPoint.lat) * ratio,
+        lng: startPoint.lng + (endPoint.lng - startPoint.lng) * ratio
+    };
+}
+
+// Function to create distance markers for a track
+function createDistanceMarkers(sessionId, trackPoints, isGPX = false) {
+    if (!distanceMarkerSettings.enabled) return;
+    if (isGPX && !distanceMarkerSettings.showForGPX) return;
+    if (!isGPX && !distanceMarkerSettings.showForLive) return;
+    
+    // Remove existing distance markers for this session
+    removeDistanceMarkers(sessionId);
+    
+    if (!trackPoints || trackPoints.length < 2) return;
+    
+    const markers = [];
+    const interval = distanceMarkerSettings.interval; // meters
+    let cumulativeDistance = 0;
+    let nextMarkerDistance = interval;
+    
+    addDebugMessage(`Creating distance markers for ${sessionId}, interval: ${interval}m`, 'distance-markers');
+    
+    for (let i = 1; i < trackPoints.length; i++) {
+        const prevPoint = trackPoints[i - 1];
+        const currentPoint = trackPoints[i];
+        
+        const segmentDistance = calculateDistance(
+            prevPoint.lat, prevPoint.lng,
+            currentPoint.lat, currentPoint.lng
+        );
+        
+        const segmentStart = cumulativeDistance;
+        const segmentEnd = cumulativeDistance + segmentDistance;
+        
+        // Check if we need to place markers in this segment
+        while (nextMarkerDistance <= segmentEnd) {
+            const markerPoint = interpolatePoint(
+                prevPoint, currentPoint, 
+                nextMarkerDistance, segmentStart
+            );
+            
+            if (markerPoint) {
+                const markerIndex = Math.round(nextMarkerDistance / interval);
+                const marker = createDistanceMarker(
+                    markerPoint.lat, 
+                    markerPoint.lng, 
+                    markerIndex, 
+                    sessionId,
+                    isGPX
+                );
+                
+                if (marker) {
+                    markers.push(marker);
+                    addDebugMessage(`Added distance marker at ${markerIndex}km for ${sessionId}`, 'distance-markers');
+                }
+            }
+            
+            nextMarkerDistance += interval;
+        }
+        
+        cumulativeDistance = segmentEnd;
+    }
+    
+    // Store markers for this session
+    distanceMarkers[sessionId] = markers;
+    
+    // Update marker visibility based on zoom level
+    updateDistanceMarkerVisibility();
+    
+    addDebugMessage(`Created ${markers.length} distance markers for ${sessionId}`, 'distance-markers');
+}
+
+// Function to create a single distance marker
+function createDistanceMarker(lat, lng, distanceKm, sessionId, isGPX = false) {
+    try {
+        const markerClass = isGPX ? 'distance-marker gpx-marker' : 'distance-marker';
+        const sessionColor = isGPX ? '#f44336' : getColorForUser(sessionId);
+        
+        const icon = L.divIcon({
+            html: `<div style="background-color: ${sessionColor}; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; font-size: 11px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${distanceKm}</div>`,
+            className: markerClass,
+            iconSize: distanceMarkerSettings.iconSize,
+            iconAnchor: [distanceMarkerSettings.iconSize[0]/2, distanceMarkerSettings.iconSize[1]/2]
+        });
+        
+        const marker = L.marker([lat, lng], { icon })
+            .bindTooltip(`${distanceKm}km - ${sessionId}`, {
+                permanent: false,
+                direction: 'top',
+                offset: [0, -12]
+            })
+            .addTo(map);
+        
+        // Store metadata
+        marker._distanceKm = distanceKm;
+        marker._sessionId = sessionId;
+        marker._isGPX = isGPX;
+        
+        return marker;
+        
+    } catch (error) {
+        addDebugMessage(`Error creating distance marker: ${error.message}`, 'error');
+        return null;
+    }
+}
+
+// Function to remove distance markers for a session
+function removeDistanceMarkers(sessionId) {
+    if (distanceMarkers[sessionId]) {
+        distanceMarkers[sessionId].forEach(marker => {
+            if (map.hasLayer(marker)) {
+                map.removeLayer(marker);
+            }
+        });
+        delete distanceMarkers[sessionId];
+        addDebugMessage(`Removed distance markers for ${sessionId}`, 'distance-markers');
+    }
+}
+
+// Function to update marker visibility based on zoom level
+function updateDistanceMarkerVisibility() {
+    const currentZoom = map.getZoom();
+    const showAll = distanceMarkerSettings.showAll;
+    
+    Object.keys(distanceMarkers).forEach(sessionId => {
+        const markers = distanceMarkers[sessionId];
+        if (!markers) return;
+        
+        markers.forEach((marker, index) => {
+            if (!marker || !marker._distanceKm) return;
+            
+            const distanceKm = marker._distanceKm;
+            let shouldShow = true;
+            
+            // Progressive visibility based on zoom level
+            if (currentZoom < showAll - 2) {
+                // Show every 5km at very low zoom
+                shouldShow = distanceKm % 5 === 0;
+            } else if (currentZoom < showAll - 1) {
+                // Show every 2km at low zoom
+                shouldShow = distanceKm % 2 === 0;
+            } else if (currentZoom < showAll) {
+                // Show every km at medium zoom
+                shouldShow = true;
+            } else {
+                // Show all at high zoom
+                shouldShow = true;
+            }
+            
+            if (shouldShow && !map.hasLayer(marker)) {
+                map.addLayer(marker);
+            } else if (!shouldShow && map.hasLayer(marker)) {
+                map.removeLayer(marker);
+            }
+        });
+    });
+}
+
+// Function to toggle distance markers for a session
+function toggleDistanceMarkers(sessionId, visible = null) {
+    if (!distanceMarkers[sessionId]) return;
+    
+    const markers = distanceMarkers[sessionId];
+    const shouldShow = visible !== null ? visible : !map.hasLayer(markers[0]);
+    
+    markers.forEach(marker => {
+        if (shouldShow && !map.hasLayer(marker)) {
+            map.addLayer(marker);
+        } else if (!shouldShow && map.hasLayer(marker)) {
+            map.removeLayer(marker);
+        }
+    });
+    
+    addDebugMessage(`Toggled distance markers for ${sessionId} to ${shouldShow ? 'visible' : 'hidden'}`, 'distance-markers');
+}
+
+function updateDistanceMarkerSettings(newSettings) {
+    Object.assign(distanceMarkerSettings, newSettings);
+    
+    // Recreate all markers with new settings
+    const sessionIds = Object.keys(distanceMarkers);
+    sessionIds.forEach(sessionId => {
+        if (trackPoints[sessionId]) {
+            const isGPX = sessionId === 'GPX Track';
+            createDistanceMarkers(sessionId, trackPoints[sessionId], isGPX);
+        }
+    });
+    
+    addDebugMessage(`Updated distance marker settings: ${JSON.stringify(newSettings)}`, 'distance-markers');
+}
+
+// Modified updateMapTrack function to include distance markers
+function updateMapTrackWithDistanceMarkers(sessionId) {
+    // Call the original updateMapTrack function
+    updateMapTrack(sessionId);
+    
+    // Add distance markers if enabled
+    if (distanceMarkerSettings.enabled && trackPoints[sessionId]) {
+        createDistanceMarkers(sessionId, trackPoints[sessionId], false);
+    }
+}
+
+// Modified visualizeGPXData function to include distance markers
+function visualizeGPXDataWithDistanceMarkers(gpxTrackPoints) {
+    // Call the original visualizeGPXData function
+    visualizeGPXData(gpxTrackPoints);
+    
+    // Add distance markers for GPX if enabled
+    if (distanceMarkerSettings.showForGPX && trackPoints['GPX Track']) {
+        createDistanceMarkers('GPX Track', trackPoints['GPX Track'], true);
+    }
+}
+
+// Event listeners for zoom changes
+function setupDistanceMarkerEventListeners() {
+    map.on('zoomend', updateDistanceMarkerVisibility);
+    
+    // Also update when map view changes significantly
+    map.on('moveend', () => {
+        // Only update if zoom changed
+        updateDistanceMarkerVisibility();
+    });
+}
+
+// Modified toggleMapElementsVisibility to include distance markers
+function toggleMapElementsVisibilityWithMarkers(sessionId, visible) {
+    // Call original function
+    toggleMapElementsVisibility(sessionId, visible);
+    
+    // Toggle distance markers
+    toggleDistanceMarkers(sessionId, visible);
+}
+
+// Function to add distance marker controls to the UI
+function addDistanceMarkerControls() {
+    const gpxUpload = document.getElementById('gpxUpload');
+    if (!gpxUpload) return;
+    
+    const distanceControls = document.createElement('div');
+    distanceControls.style.marginTop = '5px';
+    distanceControls.innerHTML = `
+        <div style="display: flex; gap: 5px; align-items: center; font-size: 12px;">
+            <label>
+                <input type="checkbox" id="toggleDistanceMarkers" ${distanceMarkerSettings.enabled ? 'checked' : ''}>
+                Distance Markers
+            </label>
+            <select id="distanceInterval" style="font-size: 11px;">
+                <option value="500" ${distanceMarkerSettings.interval === 500 ? 'selected' : ''}>0.5km</option>
+                <option value="1000" ${distanceMarkerSettings.interval === 1000 ? 'selected' : ''}>1km</option>
+                <option value="2000" ${distanceMarkerSettings.interval === 2000 ? 'selected' : ''}>2km</option>
+                <option value="5000" ${distanceMarkerSettings.interval === 5000 ? 'selected' : ''}>5km</option>
+            </select>
+        </div>
+    `;
+    
+    gpxUpload.appendChild(distanceControls);
+    
+    // Add event listeners
+    document.getElementById('toggleDistanceMarkers').addEventListener('change', (e) => {
+        updateDistanceMarkerSettings({ enabled: e.target.checked });
+    });
+    
+    document.getElementById('distanceInterval').addEventListener('change', (e) => {
+        updateDistanceMarkerSettings({ interval: parseInt(e.target.value) });
+    });
+}
+
+// Initialize distance markers system
+function initializeDistanceMarkers() {
+    // Inject CSS styles
+    injectDistanceMarkerStyles();
+    
+    // Add UI controls
+    addDistanceMarkerControls();
+    
+    // Setup event listeners
+    setupDistanceMarkerEventListeners();
+    
+    addDebugMessage('Distance markers system initialized', 'distance-markers');
 }
 
 function connectToWebSocket() {
@@ -797,6 +1160,11 @@ function updateMapTrack(sessionId) {
     endMarkers[sessionId] = L.marker(coordinates[coordinates.length - 1], {
         title: "Current Position - " + sessionId
     }).bindPopup('Current - ' + sessionId).addTo(map);
+
+    // ADD THIS: Create distance markers for live tracks
+    if (distanceMarkerSettings.enabled && distanceMarkerSettings.showForLive) {
+        createDistanceMarkers(sessionId, points, false);
+    }
 }
 
 function updateCharts(sessionId) {
@@ -1182,6 +1550,7 @@ function resetMap() {
         speedHistory = {};
         sessionPersonNames = {}; // Also clear session person names
         userColors = {};
+	distanceMarkers = {};
 
         // Remove all session containers from the speed display
         const speedDisplay = document.getElementById('speedDisplay');
@@ -1579,6 +1948,10 @@ function visualizeGPXData(gpxTrackPoints) {
             altitudeChart.update('none');
             speedChart.update('none');
         });
+
+	if (distanceMarkerSettings.showForGPX && trackPoints['GPX Track']) {
+	    createDistanceMarkers('GPX Track', trackPoints['GPX Track'], true);
+	}
     }
 }
 
@@ -2043,10 +2416,13 @@ function visualizeGPXData(gpxTrackPoints) {
         }
     }
 
-    // Handle session deletion response from server
+	// Handle session deletion response from server
 	function handleSessionDeleted(sessionId) {
 		// Add debug logging
 		addDebugMessage(`Handling deletion of session ${sessionId}`, 'system');
+
+		// Remove distance markers
+		removeDistanceMarkers(sessionId);
 
 		// Remove from available sessions list - fix the filter
 		availableSessions = availableSessions.filter(session => session.sessionId !== sessionId);
@@ -2151,6 +2527,8 @@ function visualizeGPXData(gpxTrackPoints) {
 
             // Initialize the map only once
             initMap();
+
+            initializeDistanceMarkers();
 
             // Add event listener to the reset button for visual feedback
             const resetBtn = document.getElementById('resetMapBtn');
