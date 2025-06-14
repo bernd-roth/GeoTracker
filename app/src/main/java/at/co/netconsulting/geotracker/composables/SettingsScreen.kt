@@ -80,6 +80,10 @@ fun SettingsScreen() {
         mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "")
     }
 
+    var darkModeEnabled by remember {
+        mutableStateOf(sharedPreferences.getBoolean("darkModeEnabled", false))
+    }
+
     // Added dropdown state for minimum distance
     var minDistanceMeters by remember {
         mutableStateOf(sharedPreferences.getInt("minDistanceMeters", 5))
@@ -197,6 +201,52 @@ fun SettingsScreen() {
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
             modifier = Modifier.fillMaxWidth()
         )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Map Appearance",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Dark Mode Map",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = darkModeEnabled,
+                        onCheckedChange = { isEnabled ->
+                            darkModeEnabled = isEnabled
+                            // Save immediately when toggled
+                            sharedPreferences.edit()
+                                .putBoolean("darkModeEnabled", isEnabled)
+                                .apply()
+                        }
+                    )
+                }
+
+                Text(
+                    text = "Enable dark map tiles for better viewing at night. App interface remains in light mode.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(16.dp))
 
         // Minimum distance dropdown
@@ -379,7 +429,8 @@ fun SettingsScreen() {
                     backupMinute,
                     minDistanceMeters,
                     minTimeSeconds,
-                    voiceAnnouncementInterval
+                    voiceAnnouncementInterval,
+                    darkModeEnabled // Add this parameter
                 )
 
                 // If auto backup is enabled, reschedule it with the new time
@@ -434,7 +485,8 @@ fun saveAllSettings(
     backupMinute: Int,
     minDistanceMeters: Int,
     minTimeSeconds: Int,
-    voiceAnnouncementInterval: Int
+    voiceAnnouncementInterval: Int,
+    darkModeEnabled: Boolean // Add this parameter
 ) {
     sharedPreferences.edit().apply {
         putString("firstname", firstName)
@@ -449,6 +501,7 @@ fun saveAllSettings(
         putInt("minDistanceMeters", minDistanceMeters)
         putInt("minTimeSeconds", minTimeSeconds)
         putInt("voiceAnnouncementInterval", voiceAnnouncementInterval)
+        putBoolean("darkModeEnabled", darkModeEnabled)
         apply()
     }
 }

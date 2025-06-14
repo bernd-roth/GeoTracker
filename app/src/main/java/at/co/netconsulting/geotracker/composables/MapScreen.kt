@@ -68,12 +68,60 @@ import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+
+// Dark mode tile source function - works with OSMDroid 6.1.18+
+private fun createDarkTileSource(): OnlineTileSourceBase {
+    return object : OnlineTileSourceBase(
+        "CartoDB Dark Matter",  // name
+        0,                      // zoomMinLevel
+        20,                     // zoomMaxLevel
+        256,                    // tileSizePixels
+        ".png",                 // imageFilenameEnding
+        arrayOf(                // baseUrl
+            "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/",
+            "https://cartodb-basemaps-b.global.ssl.fastly.net/dark_all/",
+            "https://cartodb-basemaps-c.global.ssl.fastly.net/dark_all/",
+            "https://cartodb-basemaps-d.global.ssl.fastly.net/dark_all/"
+        )
+    ) {
+        override fun getTileURLString(aMapTileIndex: Long): String {
+            val zoom = MapTileIndex.getZoom(aMapTileIndex)
+            val x = MapTileIndex.getX(aMapTileIndex)
+            val y = MapTileIndex.getY(aMapTileIndex)
+
+            val fileExtension = try {
+                imageFilenameEnding() // For older versions that use function
+            } catch (e: Exception) {
+                try {
+                    // For newer versions that might use property (if available)
+                    ".png" // Fallback to hardcoded extension
+                } catch (e2: Exception) {
+                    ".png"
+                }
+            }
+
+            return "${baseUrl}${zoom}/${x}/${y}${fileExtension}"
+        }
+    }
+}
+
+private fun updateMapStyle(mapView: MapView, isDarkMode: Boolean) {
+    val tileSource = if (isDarkMode) {
+        createDarkTileSource()
+    } else {
+        TileSourceFactory.MAPNIK
+    }
+    mapView.setTileSource(tileSource)
+    mapView.invalidate()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -114,6 +162,14 @@ fun MapScreen(
         mutableStateOf(
             context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
                 .getBoolean("show_path", false)
+        )
+    }
+
+    // Dark mode state
+    var isDarkMode by remember {
+        mutableStateOf(
+            context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                .getBoolean("darkModeEnabled", false)
         )
     }
 
@@ -218,6 +274,23 @@ fun MapScreen(
             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .getBoolean("is_paused", false)
         )
+    }
+
+    // Monitor dark mode changes
+    LaunchedEffect(Unit) {
+        while (true) {
+            val newDarkMode = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                .getBoolean("darkModeEnabled", false)
+
+            if (isDarkMode != newDarkMode) {
+                Log.d("MapScreen", "Dark mode changed from $isDarkMode to $newDarkMode")
+                isDarkMode = newDarkMode
+                mapViewRef.value?.let { mapView ->
+                    updateMapStyle(mapView, newDarkMode)
+                }
+            }
+            delay(1000) // Check every second
+        }
     }
 
     // Update followed users overlay when following state changes
@@ -436,7 +509,15 @@ fun MapScreen(
         AndroidView(
             factory = { ctx ->
                 MapView(ctx).apply {
-                    setTileSource(TileSourceFactory.MAPNIK)
+                    // Get initial dark mode setting
+                    val initialDarkMode = ctx.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                        .getBoolean("darkModeEnabled", false)
+
+                    // Set initial tile source based on dark mode
+                    setTileSource(
+                        if (initialDarkMode) createDarkTileSource() else TileSourceFactory.MAPNIK
+                    )
+
                     setMultiTouchControls(true)
                     controller.setZoom(6)
                     controller.setCenter(GeoPoint(0.0, 0.0))

@@ -4,9 +4,8 @@ import org.gradle.api.JavaVersion.VERSION_1_8
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
-    // Replace KAPT with KSP
-    // id("kotlin-kapt") // Remove this line
-    id("com.google.devtools.ksp") version "1.9.0-1.0.13" // Add this line
+    // id("kotlin-kapt")
+    id("com.google.devtools.ksp") version "1.9.0-1.0.13"
 }
 
 android {
@@ -69,7 +68,6 @@ android {
 }
 
 dependencies {
-    // Dependencies remain the same...
     // Core dependencies
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
@@ -87,7 +85,6 @@ dependencies {
     implementation(libs.play.services.maps)
     implementation(libs.firebase.database.ktx)
     implementation(libs.androidx.navigation.compose)
-//    kapt("androidx.room:room-compiler:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
     // Location services
@@ -104,8 +101,10 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 
+    // Updated OSMDroid version - this should fix the API compatibility issues
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+
     // Additional dependencies
-    implementation("org.osmdroid:osmdroid-android:6.1.20")
     implementation("androidx.compose.material3:material3:1.1.0")
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.30.1")
     implementation("org.greenrobot:eventbus:3.3.1")

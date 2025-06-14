@@ -52,6 +52,8 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.lightColorScheme
 
 class MainActivity : ComponentActivity() {
     private var latitudeState = mutableDoubleStateOf(-999.0)
@@ -106,9 +108,15 @@ class MainActivity : ComponentActivity() {
         // Register for EventBus events
         EventBus.getDefault().register(this)
 
-        // Set content to our Compose UI
+        // Set content to our Compose UI - ALWAYS use light theme for the app UI
         setContent {
-            MainScreen()
+            // Always use light color scheme for the app UI
+            // Only the map tiles will change to dark mode based on the setting
+            MaterialTheme(
+                colorScheme = lightColorScheme()
+            ) {
+                MainScreen()
+            }
         }
 
         checkServiceStateAndUpdateUI()
