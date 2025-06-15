@@ -14,7 +14,7 @@ android {
 
     defaultConfig {
         applicationId = "at.co.netconsulting.geotracker"
-        minSdk = 34
+        minSdk = 24  // Changed from 34 - this was way too high
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -68,30 +68,74 @@ android {
 }
 
 dependencies {
-    // Core dependencies
+    // Core AndroidX dependencies
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
 
-    // Compose dependencies
+    // Compose BOM and dependencies
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation("androidx.compose.material3:material3:1.1.2")
+    implementation("androidx.compose.material:material-icons-extended:1.5.4")
+
+    // Navigation
+    implementation(libs.androidx.navigation.compose)
+
+    // Lifecycle and ViewModel
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
 
     // Room dependencies
     implementation("androidx.room:room-ktx:2.6.1")
-    implementation(libs.play.services.maps)
-    implementation(libs.firebase.database.ktx)
-    implementation(libs.androidx.navigation.compose)
+    implementation("androidx.room:room-runtime:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
 
     // Location services
     implementation(libs.play.services.location)
+    implementation(libs.play.services.maps)
+
+    // OSMDroid for maps
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
+
+    // Network dependencies - consolidated versions
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.code.gson:gson:2.10.1")
+
+    // EventBus
+    implementation("org.greenrobot:eventbus:3.3.1")
+
+    // Logging
+    implementation("com.jakewharton.timber:timber:5.0.1")
+
+    // Date/Time
+    implementation("joda-time:joda-time:2.12.5")
+
+    // Charts
+    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
+
+    // System UI Controller
+    implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")
+
+    // RxAndroidBLE for Bluetooth LE communication
+    implementation("com.polidea.rxandroidble3:rxandroidble:1.17.2")
+    implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
+    implementation("io.reactivex.rxjava3:rxjava:3.1.8")
+
+    // Firebase (if needed)
+    implementation(libs.firebase.database.ktx)
 
     // Testing dependencies
     testImplementation(libs.junit)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.0")
+    testImplementation("org.mockito:mockito-core:5.5.0")
+
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -100,32 +144,6 @@ dependencies {
     // Debugging tools
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
-
-    // Updated OSMDroid version - this should fix the API compatibility issues
-    implementation("org.osmdroid:osmdroid-android:6.1.18")
-
-    // Additional dependencies
-    implementation("androidx.compose.material3:material3:1.1.0")
-    implementation("com.google.accompanist:accompanist-systemuicontroller:0.30.1")
-    implementation("org.greenrobot:eventbus:3.3.1")
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.8.10")
-    testImplementation("org.mockito:mockito-core:4.2.0")
-    implementation("com.google.code.gson:gson:2.10.1")
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.jakewharton.timber:timber:4.7.1")
-    implementation("joda-time:joda-time:2.13.0")
-    implementation("com.squareup.okhttp3:okhttp:4.9.3")
-    implementation("com.google.code.gson:gson:2.8.9")
-    implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.2")
-    // RxAndroidBLE for Bluetooth LE communication
-    implementation("com.polidea.rxandroidble3:rxandroidble:1.17.2")
-    implementation("io.reactivex.rxjava3:rxandroid:3.0.2")
-    implementation("io.reactivex.rxjava3:rxjava:3.1.5")
-    implementation("androidx.compose.material:material-icons-extended:1.7.8")
-    // restoration logic
-    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
 }
 
 ksp {

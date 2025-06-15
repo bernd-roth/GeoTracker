@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -35,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -47,13 +50,10 @@ import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
 import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.Metrics
-import androidx.navigation.NavType
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import org.osmdroid.config.Configuration
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.lightColorScheme
 
 class MainActivity : ComponentActivity() {
     private var latitudeState = mutableDoubleStateOf(-999.0)
@@ -76,18 +76,7 @@ class MainActivity : ComponentActivity() {
         fun editEvent(eventId: Int) = "edit_event/$eventId"
     }
 
-    // Permissions
-    private val foregroundPermissions = listOf(
-        Manifest.permission.INTERNET,
-        Manifest.permission.ACCESS_NETWORK_STATE,
-        Manifest.permission.POST_NOTIFICATIONS,
-        Manifest.permission.WRITE_EXTERNAL_STORAGE,
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-        Manifest.permission.FOREGROUND_SERVICE,
-        Manifest.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-        Manifest.permission.WAKE_LOCK
-    )
+    // Permission constants
     private val backgroundLocationPermission = Manifest.permission.ACCESS_BACKGROUND_LOCATION
     private val FOREGROUND_PERMISSION_REQUEST_CODE = 1001
     private val BACKGROUND_PERMISSION_REQUEST_CODE = 1002
@@ -140,21 +129,74 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestPermissionsInSequence() {
-        // First, check and request foreground permissions
-        if (!areForegroundPermissionsGranted()) {
+        // Only request permissions that are actually needed and runtime permissions
+        val runtimePermissionsToRequest = getRuntimePermissionsToRequest()
+
+        if (runtimePermissionsToRequest.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 this,
-                foregroundPermissions.toTypedArray(),
+                runtimePermissionsToRequest.toTypedArray(),
                 FOREGROUND_PERMISSION_REQUEST_CODE
             )
         } else {
-            // Only if foreground permissions are granted, check and request background location
+            // All runtime permissions already granted, check background permission
             checkAndRequestBackgroundPermission()
         }
     }
 
+    private fun getRuntimePermissionsToRequest(): List<String> {
+        val permissionsToRequest = mutableListOf<String>()
+
+        // Core location permissions - always needed
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+
+        // Storage permission - only for Android 9 and below
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            }
+        }
+
+        // Notification permission - only for Android 13+, but don't treat as critical
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+
+        // Always include these if not granted (they're automatically granted but good to check)
+        listOf(
+            Manifest.permission.INTERNET,
+            Manifest.permission.ACCESS_NETWORK_STATE
+        ).forEach { permission ->
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                permissionsToRequest.add(permission)
+            }
+        }
+
+        return permissionsToRequest
+    }
+
+    private fun getCriticalPermissions(): List<String> {
+        // Only permissions that are critical for core functionality
+        return listOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    }
+
     private fun areForegroundPermissionsGranted(): Boolean {
-        return foregroundPermissions.all { permission ->
+        return getCriticalPermissions().all { permission ->
             ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
         }
     }
@@ -192,22 +234,40 @@ class MainActivity : ComponentActivity() {
 
         when (requestCode) {
             FOREGROUND_PERMISSION_REQUEST_CODE -> {
-                // If foreground permissions are granted, proceed to background permission
-                if (grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }) {
-                    checkAndRequestBackgroundPermission()
-                } else {
-                    // Some foreground permissions denied
-                    val deniedPermissions = permissions.zip(grantResults.toList())
-                        .filter { it.second != PackageManager.PERMISSION_GRANTED }
-                        .map { it.first }
-
-                    if (deniedPermissions.isNotEmpty()) {
-                        Toast.makeText(
-                            this,
-                            "Some permissions were denied. Functionality may be limited.",
-                            Toast.LENGTH_LONG
-                        ).show()
+                // Check only critical permissions for the error message
+                val criticalPermissions = getCriticalPermissions()
+                val deniedCriticalPermissions = permissions.zip(grantResults.toList())
+                    .filter { (permission, result) ->
+                        permission in criticalPermissions && result != PackageManager.PERMISSION_GRANTED
                     }
+
+                if (deniedCriticalPermissions.isNotEmpty()) {
+                    Toast.makeText(
+                        this,
+                        "Location permissions are required for core functionality.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    // All critical permissions granted, check non-critical ones
+                    val deniedNonCriticalPermissions = permissions.zip(grantResults.toList())
+                        .filter { (permission, result) ->
+                            permission !in criticalPermissions && result != PackageManager.PERMISSION_GRANTED
+                        }
+
+                    if (deniedNonCriticalPermissions.isNotEmpty()) {
+                        // Only show info about non-critical permissions if user wants to know
+                        val deniedNames = deniedNonCriticalPermissions.map { it.first }
+                        if (deniedNames.contains(Manifest.permission.POST_NOTIFICATIONS)) {
+                            Toast.makeText(
+                                this,
+                                "Notifications disabled - you won't receive tracking alerts.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+
+                    // Proceed to background permission regardless
+                    checkAndRequestBackgroundPermission()
                 }
             }
             BACKGROUND_PERMISSION_REQUEST_CODE -> {
