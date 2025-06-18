@@ -14,7 +14,7 @@ android {
 
     defaultConfig {
         applicationId = "at.co.netconsulting.geotracker"
-        minSdk = 24  // Changed from 34 - this was way too high
+        minSdk = 29
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
@@ -64,6 +64,13 @@ android {
 
     packaging {
         resources.excludes.add("/META-INF/{AL2.0,LGPL2.1}")
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+        }
     }
 }
 
@@ -132,9 +139,13 @@ dependencies {
 
     // Testing dependencies
     testImplementation(libs.junit)
-    testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit:1.9.0")
     testImplementation("org.mockito:mockito-core:5.5.0")
+    testImplementation("io.mockk:mockk:1.13.8")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("androidx.arch.core:core-testing:2.2.0")
+    testImplementation("org.robolectric:robolectric:4.11.1")
 
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
