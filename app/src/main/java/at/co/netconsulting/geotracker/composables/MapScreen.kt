@@ -25,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -268,14 +267,6 @@ fun MapScreen(
         }
     }
 
-    // tracking pause status
-    var isPaused by remember {
-        mutableStateOf(
-            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                .getBoolean("is_paused", false)
-        )
-    }
-
     // Monitor dark mode changes
     LaunchedEffect(Unit) {
         while (true) {
@@ -336,9 +327,6 @@ fun MapScreen(
             val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .getBoolean("is_recording", false)
 
-            val newIsPaused = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                .getBoolean("is_paused", false)
-
             val newShowPath = context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
                 .getBoolean("show_path", false)
 
@@ -349,11 +337,6 @@ fun MapScreen(
                 Log.d("MapScreen", "Recording state changed from $isRecording to $newIsRecording")
                 isRecording = newIsRecording
                 pathTracker.setRecording(newIsRecording)
-            }
-
-            if (isPaused != newIsPaused) {
-                Log.d("MapScreen", "Pause state changed from $isPaused to $newIsPaused")
-                isPaused = newIsPaused
             }
 
             if (showPath != newShowPath) {
@@ -740,145 +723,91 @@ fun MapScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // Recording controls row
-            Row {
-                // Display different buttons based on state
-                if (!isRecording && !followingState.isFollowing) {
-                    // Start recording button - only show when not following
-                    Surface(
+            // Recording controls
+            if (!isRecording && !followingState.isFollowing) {
+                // Start recording button - only show when not following
+                Surface(
+                    modifier = Modifier
+                        .size(56.dp),
+                    shape = CircleShape,
+                    color = Color.Red,
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(56.dp),
-                        shape = CircleShape,
-                        color = Color.Red,
-                        shadowElevation = 8.dp,
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clickable {
-                                    val missingFields = Tools().validateRequiredSettings(context)
-                                    if (missingFields.isNotEmpty()) {
-                                        showSettingsValidationDialog = true
-                                        missingSettingsFields = missingFields
-                                    } else {
-                                        showRecordingDialog = true
-                                    }
+                            .fillMaxSize()
+                            .clickable {
+                                val missingFields = Tools().validateRequiredSettings(context)
+                                if (missingFields.isNotEmpty()) {
+                                    showSettingsValidationDialog = true
+                                    missingSettingsFields = missingFields
+                                } else {
+                                    showRecordingDialog = true
                                 }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Start Recording",
-                                tint = Color.White
-                            )
-                        }
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Start Recording",
+                            tint = Color.White
+                        )
                     }
-                } else if (isRecording && !followingState.isFollowing) {
-                    // Recording is active, show pause/resume and stop buttons
-                    Surface(
+                }
+            } else if (isRecording && !followingState.isFollowing) {
+                // Recording is active, show stop button
+                Surface(
+                    modifier = Modifier
+                        .size(56.dp),
+                    shape = CircleShape,
+                    color = Color.Gray,
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(56.dp)
-                            .padding(end = 8.dp),
-                        shape = CircleShape,
-                        color = if (isPaused) Color.Green else Color(0xFFFFA500),
-                        shadowElevation = 8.dp,
-                    ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clickable {
-                                    val newPausedState = !isPaused
-                                    isPaused = newPausedState
-
-                                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                                        .edit()
-                                        .putBoolean("is_paused", newPausedState)
+                            .fillMaxSize()
+                            .clickable {
+                                val sharedPreferences = context.getSharedPreferences(
+                                    "CurrentEvent",
+                                    Context.MODE_PRIVATE
+                                )
+                                val currentEventId = sharedPreferences.getInt("active_event_id", -1)
+                                if (currentEventId != -1) {
+                                    sharedPreferences.edit()
+                                        .putInt("last_event_id", currentEventId)
+                                        .remove("active_event_id")
                                         .apply()
-
-                                    val intent = Intent(context, ForegroundService::class.java).apply {
-                                        action = if (newPausedState) {
-                                            "at.co.netconsulting.geotracker.PAUSE_RECORDING"
-                                        } else {
-                                            "at.co.netconsulting.geotracker.RESUME_RECORDING"
-                                        }
-                                    }
-                                    context.startService(intent)
-
-                                    Toast.makeText(
-                                        context,
-                                        if (newPausedState) "Recording Paused" else "Recording Resumed",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
                                 }
-                        ) {
-                            Icon(
-                                imageVector = if (isPaused)
-                                    Icons.Default.PlayArrow
-                                else
-                                    Icons.Filled.Pause,
-                                contentDescription = if (isPaused) "Resume Recording" else "Pause Recording",
-                                tint = Color.White
-                            )
-                        }
-                    }
 
-                    // Stop recording button
-                    Surface(
-                        modifier = Modifier
-                            .size(56.dp),
-                        shape = CircleShape,
-                        color = Color.Gray,
-                        shadowElevation = 8.dp,
+                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("is_recording", false)
+                                    .apply()
+
+                                isRecording = false
+
+                                val stopIntent = Intent(context, ForegroundService::class.java)
+                                stopIntent.putExtra("stopping_intentionally", true)
+                                context.stopService(stopIntent)
+
+                                context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("was_running", false)
+                                    .apply()
+
+                                val intent = Intent(context, BackgroundLocationService::class.java)
+                                context.startService(intent)
+
+                                Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
+                                    .show()
+                            }
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clickable {
-                                    val sharedPreferences = context.getSharedPreferences(
-                                        "CurrentEvent",
-                                        Context.MODE_PRIVATE
-                                    )
-                                    val currentEventId = sharedPreferences.getInt("active_event_id", -1)
-                                    if (currentEventId != -1) {
-                                        sharedPreferences.edit()
-                                            .putInt("last_event_id", currentEventId)
-                                            .remove("active_event_id")
-                                            .apply()
-                                    }
-
-                                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                                        .edit()
-                                        .putBoolean("is_recording", false)
-                                        .putBoolean("is_paused", false)
-                                        .apply()
-
-                                    isRecording = false
-                                    isPaused = false
-
-                                    val stopIntent = Intent(context, ForegroundService::class.java)
-                                    stopIntent.putExtra("stopping_intentionally", true)
-                                    context.stopService(stopIntent)
-
-                                    context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
-                                        .edit()
-                                        .putBoolean("was_running", false)
-                                        .apply()
-
-                                    val intent = Intent(context, BackgroundLocationService::class.java)
-                                    context.startService(intent)
-
-                                    Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
-                                        .show()
-                                }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Stop Recording",
-                                tint = Color.White
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Stop Recording",
+                            tint = Color.White
+                        )
                     }
                 }
             }

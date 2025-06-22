@@ -128,10 +128,6 @@ class ForegroundService : Service() {
     private var lastLapCompletionTime: Long = 0
     private var lapStartTime: Long = System.currentTimeMillis()
 
-    // Pause button state
-    private var isPaused = false
-    private var pauseStartTime: Long = 0
-
     // Max. elevation gain calculation
     private var previousElevation: Float = 0f
     private var hasSetInitialElevation: Boolean = false
@@ -469,7 +465,7 @@ class ForegroundService : Service() {
             while (isActive) {
                 try {
                     // Check if we need to synchronize service state with database
-                    if (isServiceStarted && sessionId.isNotEmpty() && !isPaused) {
+                    if (isServiceStarted && sessionId.isNotEmpty()) {
                         saveCurrentState()
                     }
 
@@ -645,12 +641,6 @@ class ForegroundService : Service() {
                         it.resumeFromSavedState(distance, lastKnownPosition, lap, lapCounter)
                         Log.d(TAG, "Resumed from saved state: distance=$distance, position=$lastKnownPosition, lap=$lap, lapCounter=$lapCounter")
                     }
-
-                    // Set pause state on the location listener
-                    if (isPaused) {
-                        it.setPaused(true)
-                        Log.d(TAG, "Restored paused state to location listener")
-                    }
                 }
 
                 val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
@@ -675,21 +665,17 @@ class ForegroundService : Service() {
                         resetValues()
                     }
 
-                    // Skip stopwatch updates if paused
-                    if (!isPaused) {
-                        if (speed >= MIN_SPEED_THRESHOLD) {
-                            showStopWatch()
-                        } else {
-                            showLazyStopWatch()
-                        }
+                    if (speed >= MIN_SPEED_THRESHOLD) {
+                        showStopWatch()
+                    } else {
+                        showLazyStopWatch()
                     }
 
                     showNotification()
 
                     // save data to database as long as we have valid coordinates,
                     // regardless of speed or duplicate coordinates
-                    // but only if not paused
-                    if(checkLatitudeLongitude() && !isPaused) {
+                    if(checkLatitudeLongitude()) {
                         insertDatabase(database)
                     }
                     delay(1000)
@@ -779,9 +765,6 @@ class ForegroundService : Service() {
                 // Save heart rate info
                 .putString("heart_rate_device_address", heartRateDeviceAddress)
                 .putString("heart_rate_device_name", heartRateDeviceName)
-                // Save pause state
-                .putBoolean("is_paused", isPaused)
-                .putLong("pause_start_time", pauseStartTime)
                 // Save event details for recovery
                 .putString("eventName", eventname)
                 .putString("eventDate", eventdate)
@@ -904,11 +887,6 @@ class ForegroundService : Service() {
     }
 
     private fun showStopWatch() {
-        // Skip timer logic if paused
-        if (isPaused) {
-            return
-        }
-
         if (speed >= MIN_SPEED_THRESHOLD) {
             if (!isCurrentlyMoving) {
                 lazyState.stop()
@@ -929,11 +907,6 @@ class ForegroundService : Service() {
     }
 
     private fun showLazyStopWatch() {
-        // Skip timer logic if paused
-        if (isPaused) {
-            return
-        }
-
         if (speed < MIN_SPEED_THRESHOLD) {
             Log.d("StopWatch", "Speed below threshold")
             if (isCurrentlyMoving) {
@@ -971,11 +944,8 @@ class ForegroundService : Service() {
             ""
         }
 
-        val pausePrefix = if (isPaused) "PAUSED\n" else ""
-
         updateNotification(
-            pausePrefix +
-                    "Activity: " + movementFormattedTime +
+            "Activity: " + movementFormattedTime +
                     "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
                     "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
@@ -1012,12 +982,6 @@ class ForegroundService : Service() {
     }
 
     private suspend fun insertDatabase(database: FitnessTrackerDatabase) {
-        // Don't save any data while paused
-        if (isPaused) {
-            Log.d(TAG, "Skipping database insertion - recording is paused")
-            return
-        }
-
         withContext(Dispatchers.IO) {
             try {
                 // Calculate elevation gain/loss
@@ -1131,18 +1095,6 @@ class ForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         try {
-            // Check for pause/resume actions
-            when (intent?.action) {
-                ACTION_PAUSE_RECORDING -> {
-                    pauseRecording()
-                    return START_STICKY
-                }
-                ACTION_RESUME_RECORDING -> {
-                    resumeRecording()
-                    return START_STICKY
-                }
-            }
-
             // Check if we're stopping intentionally (flag set by stop button)
             if (intent?.getBooleanExtra("stopping_intentionally", false) == true) {
                 isStoppingIntentionally = true
@@ -1185,18 +1137,8 @@ class ForegroundService : Service() {
                     )
                 }
 
-                // Restore pause state
-                isPaused = prefs.getBoolean("is_paused", false)
-                pauseStartTime = prefs.getLong("pause_start_time", 0)
-
-                // Update shared preferences with restored pause state
-                getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("is_paused", isPaused)
-                    .apply()
-
                 Log.d(TAG, "Restored service state: eventId=$eventId, sessionId=$sessionId, " +
-                        "distance=$distance, lap=$lap, startTime=$startDateTime, isPaused=$isPaused")
+                        "distance=$distance, lap=$lap, startTime=$startDateTime")
 
                 // Extract heart rate information from previous state
                 heartRateDeviceAddress = prefs.getString("heart_rate_device_address", null)
@@ -1508,9 +1450,6 @@ class ForegroundService : Service() {
                 // Also save heart rate sensor information for restarts
                 .putString("heart_rate_device_address", heartRateDeviceAddress)
                 .putString("heart_rate_device_name", heartRateDeviceName)
-                // Save pause state
-                .putBoolean("is_paused", isPaused)
-                .putLong("pause_start_time", pauseStartTime)
                 // Save event details for better restoration
                 .putString("eventName", eventname)
                 .putString("eventDate", eventdate)
@@ -1649,70 +1588,6 @@ class ForegroundService : Service() {
         Log.d(TAG, "Updated CustomLocationListener with heart rate: $currentHeartRate from device: $heartRateDeviceName")
     }
 
-    private fun pauseRecording() {
-        if (!isPaused) {
-            isPaused = true
-            pauseStartTime = System.currentTimeMillis()
-
-            // Pause both stopwatches
-            if (isCurrentlyMoving) {
-                movementState.stop()
-            }
-            lazyState.stop()
-
-            // Update the notification to show paused state
-            updateNotification("PAUSED\n" +
-                    "Activity: " + movementFormattedTime +
-                    "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
-                    "\nLap: " + String.format("%2d", lap)
-            )
-
-            // Inform location listener to stop updates
-            customLocationListener?.setPaused(true)
-
-            Log.d(TAG, "Recording paused at $pauseStartTime")
-
-            // Save paused state to SharedPreferences
-            getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("is_paused", true)
-                .apply()
-        }
-    }
-
-    private fun resumeRecording() {
-        if (isPaused) {
-            val pauseDuration = System.currentTimeMillis() - pauseStartTime
-            Log.d(TAG, "Resuming after pause of ${pauseDuration}ms")
-
-            isPaused = false
-
-            // Adjust timers to account for paused duration
-            lastUpdateTimestamp = System.currentTimeMillis()
-
-            // Resume appropriate stopwatch based on current speed
-            if (speed >= MIN_SPEED_THRESHOLD) {
-                movementState.start()
-                isCurrentlyMoving = true
-            } else {
-                lazyState.start()
-                isCurrentlyMoving = false
-            }
-
-            // Inform location listener to resume updates
-            customLocationListener?.setPaused(false)
-
-            // Show normal notification again
-            showNotification()
-
-            // Save resumed state to SharedPreferences
-            getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("is_paused", false)
-                .apply()
-        }
-    }
-
     companion object {
         private const val CHANNEL_ID = "ForegroundServiceChannel"
         private const val MIN_SPEED_THRESHOLD = 2.5f
@@ -1730,10 +1605,6 @@ class ForegroundService : Service() {
 
         // reconnection logic
         private const val CONNECTION_CHECK_INTERVAL = 60_000L // 1 minute
-
-        // Action constants for pause/resume
-        const val ACTION_PAUSE_RECORDING = "at.co.netconsulting.geotracker.PAUSE_RECORDING"
-        const val ACTION_RESUME_RECORDING = "at.co.netconsulting.geotracker.RESUME_RECORDING"
 
         // restoring logic
         private const val STATE_CONSISTENCY_CHECK_INTERVAL = 30_000L // 30 seconds
