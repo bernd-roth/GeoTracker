@@ -1,6 +1,7 @@
 package at.co.netconsulting.geotracker.composables
 
 import EventWithDetails
+import HeartRateGraph
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -925,6 +926,22 @@ fun EventCard(
                                 InfoRow("Device:", event.heartRateDevice)
                             }
                         }
+                    }
+                    //HeartRateGraph
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFF5F5F5))
+                            .padding(8.dp)
+                    ) {
+                        HeartRateGraph(
+                            metrics = event.metrics,
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 } else {
                     Text(
