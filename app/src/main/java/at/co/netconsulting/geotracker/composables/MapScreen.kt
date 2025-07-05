@@ -181,8 +181,22 @@ fun MapScreen(
     // Add reference to hold the FollowedUsersOverlay
     val followedUsersOverlayRef = remember { mutableStateOf<FollowedUsersOverlay?>(null) }
 
-    // Track follow mode state
-    var isFollowingLocation by remember { mutableStateOf(true) }
+    // Persist auto-follow state
+    var isFollowingLocation by remember {
+        mutableStateOf(
+            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                .getBoolean("auto_follow_enabled", true)
+        )
+    }
+
+    // Track the last known location for restoration
+    val lastKnownLocation = remember { mutableStateOf<GeoPoint?>(null) }
+
+    // Flag to ignore scroll events during programmatic map movements (for logging)
+    var ignoringScrollEvents by remember { mutableStateOf(false) }
+
+    // Track touch events to detect genuine user interaction
+    var lastTouchTime by remember { mutableStateOf(0L) }
 
     // Get current event ID from shared preferences
     val currentEventId = remember {
@@ -201,12 +215,94 @@ fun MapScreen(
     // Remember EventBus registration state
     var isEventBusRegistered by remember { mutableStateOf(false) }
 
-    // Observer object for EventBus that will receive location updates
+    // Function to save auto-follow state
+    fun saveAutoFollowState(enabled: Boolean) {
+        context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("auto_follow_enabled", enabled)
+            .apply()
+        Log.d("MapScreen", "Saved auto-follow state: $enabled")
+    }
+
+    // Function to programmatically trigger "My Location" button logic
+    fun triggerMyLocationLogic() {
+        if (isFollowingLocation) {
+            Log.d("MapScreen", "Triggering My Location button logic programmatically")
+
+            locationOverlayRef.value?.let { overlay ->
+                overlay.enableFollowLocation()
+
+                val myLocation = overlay.myLocation ?: lastKnownLocation.value
+
+                if (myLocation != null) {
+                    mapViewRef.value?.let { mapView ->
+                        // Set flag for logging purposes
+                        ignoringScrollEvents = true
+                        mapView.controller.setZoom(15.0)
+                        mapView.controller.setCenter(myLocation)
+                        Log.d("MapScreen", "Programmatically centered map on location: $myLocation")
+
+                        // Reset flag after short delay
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            ignoringScrollEvents = false
+                        }, 300)
+                    }
+                } else {
+                    Log.d("MapScreen", "No location available for programmatic centering")
+                }
+            }
+
+            Log.d("MapScreen", "My Location logic triggered programmatically")
+        }
+    }
+
+    // Single location listener that handles both path updates and auto-follow
     val locationObserver = remember {
         object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
             fun onLocationUpdate(metrics: Metrics) {
-                // Only update path when recording (not when following others)
+                Log.d("MapScreen", "Location update: lat=${metrics.latitude}, lon=${metrics.longitude}, follow=$isFollowingLocation")
+
+                // Update last known location
+                if (metrics.latitude != 0.0 && metrics.longitude != 0.0) {
+                    lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
+                }
+
+                // Handle auto-follow functionality
+                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0) {
+                    mapViewRef.value?.let { mapView ->
+                        val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
+
+                        // Set ignoring flag BEFORE any programmatic movement for logging
+                        ignoringScrollEvents = true
+
+                        if (hasInitializedMapCenter) {
+                            mapView.controller.setCenter(newLocation)
+                            Log.d("MapScreen", "Auto-follow: centered to $newLocation")
+                        } else {
+                            mapView.controller.setCenter(newLocation)
+                            mapView.controller.setZoom(15.0)
+                            hasInitializedMapCenter = true
+                            Log.d("MapScreen", "Auto-follow: initial center at $newLocation")
+                        }
+
+                        // Ensure overlay is also following
+                        locationOverlayRef.value?.let { overlay ->
+                            if (!overlay.isFollowLocationEnabled) {
+                                overlay.enableFollowLocation()
+                                Log.d("MapScreen", "Re-enabled overlay follow location during location update")
+                            }
+                        }
+
+                        // Reset ignoring flag after a delay
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            ignoringScrollEvents = false
+                            Log.d("MapScreen", "Re-enabled scroll event handling after location update")
+                        }, 300) // Reduced delay since we're not using this for protection anymore
+                    }
+                }
+
+                // Handle path updates when recording (not when following others)
                 if (showPath && currentEventId.value > 0 && isRecording && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
                         pathTracker.updatePathForViewport(mapView)
@@ -216,13 +312,20 @@ fun MapScreen(
         }
     }
 
-    // Screen state receiver for handling screen on/off events
+    // Screen state receiver that triggers My Location logic
     val screenStateReceiver = remember {
         object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
                     Intent.ACTION_SCREEN_ON -> {
-                        Log.d("MapScreen", "Screen turned on, refreshing path")
+                        Log.d("MapScreen", "Screen turned ON - triggering My Location logic")
+
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            if (isFollowingLocation) {
+                                triggerMyLocationLogic()
+                            }
+                        }, 1000)
+
                         if (showPath && isRecording && !followingState.isFollowing) {
                             mapViewRef.value?.let { mapView ->
                                 Handler(Looper.getMainLooper()).postDelayed({
@@ -231,19 +334,28 @@ fun MapScreen(
                             }
                         }
                     }
+                    Intent.ACTION_SCREEN_OFF -> {
+                        Log.d("MapScreen", "Screen turned OFF - saving auto-follow state: $isFollowingLocation")
+                        saveAutoFollowState(isFollowingLocation)
+                    }
                 }
             }
         }
     }
 
-    // Lifecycle observer for app resume events
+    // Lifecycle observer that triggers My Location logic
     val lifecycleObserver = remember {
         object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
                 super.onResume(owner)
-                Log.d("MapScreen", "App resumed")
+                Log.d("MapScreen", "App RESUMED - triggering My Location logic")
 
-                // Only refresh path if recording and not following others
+                Handler(Looper.getMainLooper()).postDelayed({
+                    if (isFollowingLocation) {
+                        triggerMyLocationLogic()
+                    }
+                }, 500)
+
                 if (showPath && isRecording && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
                         pathTracker.updatePathForViewport(mapView, forceUpdate = true)
@@ -264,6 +376,28 @@ fun MapScreen(
                         .apply()
                 }
             }
+
+            override fun onPause(owner: LifecycleOwner) {
+                super.onPause(owner)
+                Log.d("MapScreen", "App PAUSED - saving auto-follow state: $isFollowingLocation")
+                saveAutoFollowState(isFollowingLocation)
+            }
+        }
+    }
+
+    // Periodic auto-follow monitoring
+    LaunchedEffect(isFollowingLocation) {
+        if (isFollowingLocation) {
+            while (true) {
+                delay(10000)
+
+                locationOverlayRef.value?.let { overlay ->
+                    if (!overlay.isFollowLocationEnabled && isFollowingLocation) {
+                        Log.d("MapScreen", "Detected overlay follow disabled - triggering My Location logic")
+                        triggerMyLocationLogic()
+                    }
+                }
+            }
         }
     }
 
@@ -280,7 +414,7 @@ fun MapScreen(
                     updateMapStyle(mapView, newDarkMode)
                 }
             }
-            delay(1000) // Check every second
+            delay(1000)
         }
     }
 
@@ -294,17 +428,29 @@ fun MapScreen(
         if (!isRecording && !isConnected) {
             followingService.connect()
         } else if (isRecording && isConnected) {
-            // If we start recording while following, stop following
             if (followingState.isFollowing) {
                 followingService.stopFollowing()
             }
         }
     }
 
+    // Handle auto-follow state when recording starts/stops
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            isFollowingLocation = true
+            saveAutoFollowState(true)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (isFollowingLocation) {
+                    triggerMyLocationLogic()
+                }
+            }, 100)
+            Log.d("MapScreen", "Recording started - enabled auto-follow")
+        }
+    }
+
     // Initialize or clean up path tracker based on recording and following state
     LaunchedEffect(showPath, currentEventId.value, isRecording, followingState.isFollowing) {
         if (showPath && isRecording && !followingState.isFollowing) {
-            // Only show path when recording own event
             mapViewRef.value?.let { mapView ->
                 pathTracker.initialize(mapView)
                 pathTracker.setCurrentEventId(currentEventId.value, mapView)
@@ -313,7 +459,6 @@ fun MapScreen(
             }
             Log.d("MapScreen", "Path tracker initialized for event: ${currentEventId.value}")
         } else {
-            // Clear path when following others or not recording
             mapViewRef.value?.let { mapView ->
                 pathTracker.clearPath(mapView)
             }
@@ -384,55 +529,31 @@ fun MapScreen(
         }
     }
 
-    val locationUpdateListener = remember {
-        object : Any() {
-            @Subscribe(threadMode = ThreadMode.MAIN)
-            fun onLocationUpdate(metrics: Metrics) {
-                if (!hasInitializedMapCenter && metrics.latitude != 0.0 && metrics.longitude != 0.0) {
-                    mapViewRef.value?.let { mapView ->
-                        val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
-                        mapView.controller.animateTo(newLocation)
-                        Log.d("MapScreen", "Map centered on first received location: $newLocation")
-                        hasInitializedMapCenter = true
-                    }
-                }
-            }
-        }
-    }
-
-    DisposableEffect(locationUpdateListener) {
-        if (!EventBus.getDefault().isRegistered(locationUpdateListener)) {
-            EventBus.getDefault().register(locationUpdateListener)
-            Log.d("MapScreen", "Registered location update listener with EventBus")
+    // Single location update listener registration
+    DisposableEffect(locationObserver) {
+        if (!EventBus.getDefault().isRegistered(locationObserver)) {
+            EventBus.getDefault().register(locationObserver)
+            Log.d("MapScreen", "Registered consolidated location listener with EventBus")
         }
 
         onDispose {
-            if (EventBus.getDefault().isRegistered(locationUpdateListener)) {
-                EventBus.getDefault().unregister(locationUpdateListener)
-                Log.d("MapScreen", "Unregistered location update listener from EventBus")
+            if (EventBus.getDefault().isRegistered(locationObserver)) {
+                EventBus.getDefault().unregister(locationObserver)
+                Log.d("MapScreen", "Unregistered consolidated location listener from EventBus")
             }
         }
     }
 
     // COMBINED DISPOSABLE EFFECT - handles all lifecycle-related side effects
     DisposableEffect(Unit) {
-        // Register with EventBus
-        if (!isEventBusRegistered) {
-            EventBus.getDefault().register(locationObserver)
-            isEventBusRegistered = true
-            Log.d("MapScreen", "Registered with EventBus")
-        }
-
-        // Register screen state receiver
         val intentFilter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_SCREEN_OFF)
         }
         context.registerReceiver(screenStateReceiver, intentFilter)
 
-        // Add lifecycle observer
         lifecycle.addObserver(lifecycleObserver)
 
-        // Handle recording state and services
         if (isRecording) {
             Log.d("MapScreen", "DisposableEffect: Recording is active")
             pathTracker.setRecording(true)
@@ -446,7 +567,6 @@ fun MapScreen(
                 }
             }
         } else if (!followingState.isFollowing) {
-            // Only start background service if not following others
             try {
                 Log.d("MapScreen", "DisposableEffect: Starting background service")
                 val intent = Intent(context, BackgroundLocationService::class.java)
@@ -458,14 +578,7 @@ fun MapScreen(
             }
         }
 
-        // Combined cleanup function
         onDispose {
-            if (isEventBusRegistered) {
-                EventBus.getDefault().unregister(locationObserver)
-                isEventBusRegistered = false
-                Log.d("MapScreen", "Unregistered from EventBus")
-            }
-
             try {
                 context.unregisterReceiver(screenStateReceiver)
             } catch (e: Exception) {
@@ -492,11 +605,9 @@ fun MapScreen(
         AndroidView(
             factory = { ctx ->
                 MapView(ctx).apply {
-                    // Get initial dark mode setting
                     val initialDarkMode = ctx.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
                         .getBoolean("darkModeEnabled", false)
 
-                    // Set initial tile source based on dark mode
                     setTileSource(
                         if (initialDarkMode) createDarkTileSource() else TileSourceFactory.MAPNIK
                     )
@@ -508,7 +619,6 @@ fun MapScreen(
                     isDrawingCacheEnabled = true
                     setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
-                    // Add scale bar
                     val dm: DisplayMetrics = ctx.resources.displayMetrics
                     val scaleBarOverlay = ScaleBarOverlay(this).apply {
                         setCentred(true)
@@ -516,30 +626,41 @@ fun MapScreen(
                     }
                     overlays.add(scaleBarOverlay)
 
-                    // Add my location overlay
-                    val locationOverlay =
-                        MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
-                            enableMyLocation()
-                            enableFollowLocation()
+                    val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
+                        enableMyLocation()
 
-                            runOnFirstFix {
-                                Handler(Looper.getMainLooper()).post {
-                                    if (!hasInitializedMapCenter) {
-                                        val location = myLocation
-                                        if (location != null) {
-                                            controller.animateTo(location)
-                                            controller.setZoom(15)
-                                            Log.d("MapScreen", "Map centered on initial location: $location")
-                                            hasInitializedMapCenter = true
-                                        }
+                        if (isFollowingLocation) {
+                            enableFollowLocation()
+                            Log.d("MapScreen", "Initial enableFollowLocation() called")
+                        }
+
+                        runOnFirstFix {
+                            Handler(Looper.getMainLooper()).post {
+                                if (!hasInitializedMapCenter) {
+                                    val location = myLocation
+                                    if (location != null) {
+                                        lastKnownLocation.value = location
+
+                                        // Protect the initial GPS fix centering for logging
+                                        ignoringScrollEvents = true
+                                        controller.setCenter(location)
+                                        controller.setZoom(15)
+                                        hasInitializedMapCenter = true
+
+                                        Handler(Looper.getMainLooper()).postDelayed({
+                                            ignoringScrollEvents = false
+                                            Log.d("MapScreen", "Re-enabled scroll events after GPS fix")
+                                        }, 300)
+
+                                        Log.d("MapScreen", "Map centered on initial GPS fix: $location")
                                     }
                                 }
                             }
                         }
+                    }
                     overlays.add(locationOverlay)
                     locationOverlayRef.value = locationOverlay
 
-                    // Add followed users overlay
                     val followedUsersOverlay = FollowedUsersOverlay(ctx, this)
                     overlays.add(followedUsersOverlay)
                     followedUsersOverlayRef.value = followedUsersOverlay
@@ -552,15 +673,37 @@ fun MapScreen(
                         pathTracker.setRecording(isRecording)
                     }
 
+                    // Touch-based scroll detection for auto-follow
+                    // Set up touch listener to detect user interaction
+                    setOnTouchListener { _, event ->
+                        when (event.action) {
+                            android.view.MotionEvent.ACTION_DOWN -> {
+                                lastTouchTime = System.currentTimeMillis()
+                                Log.d("MapScreen", "Touch detected - potential manual interaction")
+                            }
+                        }
+                        false // Don't consume the event
+                    }
+
                     addMapListener(object : MapListener {
                         override fun onScroll(event: ScrollEvent?): Boolean {
-                            if (isFollowingLocation) {
+                            val currentTime = System.currentTimeMillis()
+                            val timeSinceLastTouch = currentTime - lastTouchTime
+
+                            Log.d("MapScreen", "Scroll event: isFollowing=$isFollowingLocation, timeSinceTouch=${timeSinceLastTouch}ms")
+
+                            // REVOLUTIONARY APPROACH: Only disable auto-follow if there was a recent touch event
+                            if (isFollowingLocation && timeSinceLastTouch < 1000) {
+                                // Only disable if user touched the screen within the last second
                                 locationOverlayRef.value?.disableFollowLocation()
                                 isFollowingLocation = false
-                                Log.d("MapScreen", "Map scrolled, disabled follow location")
+                                saveAutoFollowState(false)
+                                Log.d("MapScreen", "Touch-based manual scroll detected - disabled auto-follow")
+                            } else if (isFollowingLocation) {
+                                // Scroll event without recent touch - likely automatic, ignore
+                                Log.d("MapScreen", "Scroll event without recent touch - keeping auto-follow active")
                             }
 
-                            // Only update path when recording own event, not when following others
                             if (showPath && isRecording && !followingState.isFollowing) {
                                 pathTracker.updatePathForViewport(this@apply)
                             }
@@ -568,7 +711,6 @@ fun MapScreen(
                         }
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
-                            // Only update path when recording own event, not when following others
                             if (showPath && isRecording && !followingState.isFollowing) {
                                 pathTracker.updatePathForViewport(this@apply)
                             }
@@ -589,6 +731,61 @@ fun MapScreen(
             )
         }
 
+        // My Location button and auto-follow indicator - always visible
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(end = 16.dp, top = if (followingState.isFollowing && !isConnected) 64.dp else 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // "My Location" button - always visible
+            Surface(
+                modifier = Modifier.size(48.dp),
+                shape = CircleShape,
+                color = if (isFollowingLocation) Color.Blue else Color.White,
+                shadowElevation = 4.dp,
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable {
+                            Log.d("MapScreen", "My Location button clicked - toggling auto-follow")
+
+                            isFollowingLocation = !isFollowingLocation
+                            saveAutoFollowState(isFollowingLocation)
+
+                            if (isFollowingLocation) {
+                                triggerMyLocationLogic()
+                            }
+                        }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = if (isFollowingLocation) "Disable Auto-Follow" else "Enable Auto-Follow",
+                        tint = if (isFollowingLocation) Color.White else Color.Black
+                    )
+                }
+            }
+
+            // Auto-follow indicator below the button
+            if (isFollowingLocation && hasInitializedMapCenter) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Blue.copy(alpha = 0.8f),
+                    shadowElevation = 2.dp
+                ) {
+                    Text(
+                        text = "Auto-Follow",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+
         // Following indicator
         if (followingState.isFollowing) {
             Surface(
@@ -607,7 +804,7 @@ fun MapScreen(
             }
         }
 
-        // Path loading indicator (only shown when recording own path)
+        // Path loading indicator
         if (isPathLoading && showPath && isRecording && !followingState.isFollowing) {
             CircularProgressIndicator(
                 modifier = Modifier
@@ -619,7 +816,7 @@ fun MapScreen(
             )
         }
 
-        // Connection status indicator (only when following)
+        // Connection status indicator
         if (followingState.isFollowing && !isConnected) {
             Surface(
                 modifier = Modifier
@@ -637,7 +834,7 @@ fun MapScreen(
             }
         }
 
-        // "My Location" button to re-enable follow mode
+        // "My Location" button - shows when auto-follow is disabled
         if (!isFollowingLocation) {
             Surface(
                 modifier = Modifier
@@ -653,28 +850,16 @@ fun MapScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            locationOverlayRef.value?.let { overlay ->
-                                val myLocation = overlay.myLocation
+                            Log.d("MapScreen", "My Location button clicked - enabling auto-follow")
 
-                                if (myLocation != null) {
-                                    mapViewRef.value?.let { mapView ->
-                                        mapView.controller.setZoom(15.0)
-                                        mapView.controller.animateTo(myLocation)
-                                        Log.d("MapScreen", "Centered map on current location: $myLocation with zoom level 15")
-                                    }
-                                } else {
-                                    Log.d("MapScreen", "Unable to center - current location is null")
-                                }
-
-                                overlay.enableFollowLocation()
-                                isFollowingLocation = true
-                                Log.d("MapScreen", "My Location button clicked, enabled follow location")
-                            }
+                            isFollowingLocation = true
+                            saveAutoFollowState(true)
+                            triggerMyLocationLogic()
                         }
                 ) {
                     Icon(
                         imageVector = Icons.Default.MyLocation,
-                        contentDescription = "My Location",
+                        contentDescription = "Enable Auto-Follow",
                         tint = Color.Black
                     )
                 }
@@ -703,10 +888,8 @@ fun MapScreen(
                             .fillMaxSize()
                             .clickable {
                                 if (followingState.isFollowing) {
-                                    // Stop following
                                     followingService.stopFollowing()
                                 } else {
-                                    // Show user selection dialog
                                     followingService.requestActiveUsers()
                                     showUserSelectionDialog = true
                                 }
@@ -725,7 +908,6 @@ fun MapScreen(
 
             // Recording controls
             if (!isRecording && !followingState.isFollowing) {
-                // Start recording button - only show when not following
                 Surface(
                     modifier = Modifier
                         .size(56.dp),
@@ -755,7 +937,6 @@ fun MapScreen(
                     }
                 }
             } else if (isRecording && !followingState.isFollowing) {
-                // Recording is active, show stop button
                 Surface(
                     modifier = Modifier
                         .size(56.dp),
@@ -914,6 +1095,7 @@ fun MapScreen(
 
                 showRecordingDialog = false
 
+                // Recording dialog completion handler
                 Handler(Looper.getMainLooper()).postDelayed({
                     val newEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .getInt("active_event_id", -1)
@@ -924,13 +1106,15 @@ fun MapScreen(
                             pathTracker.setCurrentEventId(newEventId, mapView)
                         }
 
+                        // Restore zoom and center
                         mapView.controller.setZoom(currentZoomLevel)
                         currentCenter?.let { center ->
                             mapView.controller.setCenter(center)
                         }
 
-                        locationOverlayRef.value?.enableFollowLocation()
                         isFollowingLocation = true
+                        saveAutoFollowState(true)
+                        triggerMyLocationLogic()
 
                         Log.d("MapScreen", "Restored map zoom level to $currentZoomLevel after recording started")
                     }
