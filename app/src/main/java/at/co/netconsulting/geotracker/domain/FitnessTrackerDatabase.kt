@@ -23,7 +23,7 @@ import at.co.netconsulting.geotracker.repository.*
         WheelSprocket::class,
         Network::class
     ],
-    version = 8, // Increment to 8 for new migration with power fields
+    version = 11, // Increment to 11 for recurring reminder fields
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -243,7 +243,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
-        // NEW MIGRATION 7->8: Add practical fields (no power/advanced running dynamics)
+        // MIGRATION 7->8: Add practical fields (no power/advanced running dynamics)
         private val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Add practical columns to metrics table that can be collected without expensive hardware
@@ -310,6 +310,34 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        // NEW MIGRATION 8->9: Add competitions fields to planned_events table
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN isEnteredAndFinished INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN website TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN comment TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        // NEW MIGRATION 9->10: Add reminder fields to planned_events table
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN reminderDateTime TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN isReminderActive INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        // NEW MIGRATION 10->11: Add recurring reminder fields to planned_events table
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN isRecurring INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN recurringType TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN recurringInterval INTEGER NOT NULL DEFAULT 1")
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN recurringEndDate TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN recurringDaysOfWeek TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -323,7 +351,10 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
-                        MIGRATION_7_8 // Add the new comprehensive migration
+                        MIGRATION_7_8,
+                        MIGRATION_8_9, // Migration for competitions fields
+                        MIGRATION_9_10, // Migration for reminder fields
+                        MIGRATION_10_11 // Migration for recurring reminder fields
                     )
                     .fallbackToDestructiveMigration() // Keep as safety net
                     .build()

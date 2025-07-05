@@ -89,5 +89,11 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <receiver android:name=".reminder.ReminderBroadcastReceiver" android:enabled="true" android:exported="false" />
+        <receiver android:name=".receiver.BootReceiver" android:enabled="true" android:exported="false">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
