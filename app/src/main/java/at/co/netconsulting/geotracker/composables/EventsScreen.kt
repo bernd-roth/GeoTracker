@@ -963,16 +963,40 @@ fun EventCard(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 if (event.weather != null && event.weather.temperature > 0f) {
+                    // Calculate temperature statistics from metrics if available
+                    val temperatures = event.metrics.mapNotNull { it.temperature }.filter { it > 0f }
+                    val maxTemp = temperatures.maxOrNull() ?: event.weather.temperature
+                    val minTemp = temperatures.minOrNull() ?: event.weather.temperature
+                    val avgTemp = if (temperatures.isNotEmpty()) {
+                        temperatures.average().toFloat()
+                    } else {
+                        event.weather.temperature
+                    }
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            InfoRow("Temperature:", "${event.weather.temperature}°C")
-                            InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
+                            InfoRowWithColor(
+                                label = "↑ Max. Temperature:",
+                                value = String.format("%.1f°C", maxTemp),
+                                textColor = Color.Red
+                            )
+                            InfoRowWithColor(
+                                label = "⌀ Avg. Temperature:",
+                                value = String.format("%.1f°C", avgTemp),
+                                textColor = MaterialTheme.colorScheme.primary
+                            )
+                            InfoRowWithColor(
+                                label = "↓ Min. Temperature:",
+                                value = String.format("%.1f°C", minTemp),
+                                textColor = Color.Blue
+                            )
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
+                            InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
                             InfoRow("Wind Direction:", event.weather.windDirection)
                             InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
                         }

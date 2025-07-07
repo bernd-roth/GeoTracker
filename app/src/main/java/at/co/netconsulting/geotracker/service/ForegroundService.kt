@@ -1599,7 +1599,7 @@ class ForegroundService : Service() {
         private const val STATE_SAVE_INTERVAL = 5000L // 5 seconds
 
         // Weather
-        private const val WEATHER_UPDATE_INTERVAL = 3600000L // 1 hour in milliseconds
+        private const val WEATHER_UPDATE_INTERVAL = 1800000L // 30 minutes in milliseconds
         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
         private const val WEATHER_FAST_POLL_INTERVAL = 10000L // 10 seconds for initial polling
 
