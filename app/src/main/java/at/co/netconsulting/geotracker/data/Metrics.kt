@@ -44,6 +44,14 @@ data class Metrics(
     val heartRate: Int = 0,
     val heartRateDevice: String = "",
 
+    // Weather data
+    val temperature: Double = 0.0,
+    val windSpeed: Double = 0.0,
+    val windDirection: Double = 0.0,
+    val relativeHumidity: Int = 0,
+    val weatherCode: Int = 0,
+    val weatherTime: String = "",
+
     // Fields for BottomSheet UI
     val numberOfSatellites: Int = 0,
     val usedNumberOfSatellites: Int = 0,
@@ -56,6 +64,6 @@ data class Metrics(
     // Keep person for backward compatibility (can be removed later)
     val person: String = firstname,
 
-    // Weather
+    // Satellites
     val satellites: Int? = null
 )

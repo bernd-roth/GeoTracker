@@ -34,6 +34,7 @@
     import androidx.compose.runtime.setValue
     import androidx.compose.ui.Modifier
     import androidx.compose.ui.graphics.Color
+    import androidx.compose.ui.text.style.TextOverflow
     import androidx.compose.ui.unit.dp
     import androidx.core.app.ActivityCompat
     import androidx.core.content.ContextCompat
@@ -333,8 +334,8 @@
                 getString(R.string.map),
                 getString(R.string.statistics),
                 getString(R.string.events),
-                "Competitions", // New tab at index 3
-                getString(R.string.settings), // Settings moved to index 4
+                getString(R.string.competitions),
+                getString(R.string.settings),
             )
 
             // Satellite info
@@ -399,7 +400,13 @@
                                 Tab(
                                     selected = selectedTabIndex == index,
                                     onClick = { selectedTabIndex = index },
-                                    text = { Text(title) }
+                                    text = {
+                                        Text(
+                                            text = title,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -414,8 +421,8 @@
                                 )
                                 1 -> StatisticsScreen()
                                 2 -> AppNavHost(mainNavController)
-                                3 -> CompetitionsScreen() // New Competitions tab
-                                4 -> SettingsScreen() // Settings moved to index 4
+                                3 -> CompetitionsScreen()
+                                4 -> SettingsScreen()
                             }
                         }
                     }

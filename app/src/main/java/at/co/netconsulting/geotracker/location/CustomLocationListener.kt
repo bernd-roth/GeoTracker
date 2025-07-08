@@ -13,6 +13,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.data.CurrentWeather
 import at.co.netconsulting.geotracker.tools.LocalDateTimeAdapter
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
@@ -28,6 +29,8 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
 import org.greenrobot.eventbus.EventBus
+import org.greenrobot.eventbus.Subscribe
+import org.greenrobot.eventbus.ThreadMode
 import timber.log.Timber
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
@@ -43,8 +46,6 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
 import at.co.netconsulting.geotracker.data.HeartRateData
-import org.greenrobot.eventbus.Subscribe
-import org.greenrobot.eventbus.ThreadMode
 
 class CustomLocationListener: LocationListener {
     var startDateTime: LocalDateTime = LocalDateTime.now()
@@ -124,6 +125,14 @@ class CustomLocationListener: LocationListener {
     private var minDistanceMeters: Int = 1
     private var minTimeSeconds: Int = 1
 
+    // Weather data fields - NEW FIELDS
+    private var currentTemperature: Double = 0.0
+    private var currentWindSpeed: Double = 0.0
+    private var currentWindDirection: Double = 0.0
+    private var currentRelativeHumidity: Int = 0
+    private var currentWeatherCode: Int = 0
+    private var currentWeatherTime: String = ""
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -134,7 +143,7 @@ class CustomLocationListener: LocationListener {
         // Initialize Text-to-Speech
         initTextToSpeech()
 
-        // Register with EventBus to receive heart rate data
+        // Register with EventBus to receive heart rate data and weather data
         if (!EventBus.getDefault().isRegistered(this)) {
             EventBus.getDefault().register(this)
             Log.d(TAG_WEBSOCKET, "Registered with EventBus in constructor")
@@ -204,10 +213,10 @@ class CustomLocationListener: LocationListener {
         loadSessionId()  // Load sessionId from SharedPreferences
         registerNetworkCallback()
 
-        // Make sure we're registered to receive heart rate events
+        // Make sure we're registered to receive heart rate events and weather events
         if (!EventBus.getDefault().isRegistered(this)) {
             EventBus.getDefault().register(this)
-            Log.d(TAG_WEBSOCKET, "Registered with EventBus to receive heart rate data")
+            Log.d(TAG_WEBSOCKET, "Registered with EventBus to receive heart rate and weather data")
         }
 
         connectWebSocket()
@@ -541,34 +550,9 @@ class CustomLocationListener: LocationListener {
             // Calculate moving average speed
             movingAverageSpeed = calculateMovingAverageSpeed(currentSpeedKmh)
 
-            // Create Metrics object with all required fields including satellite info
-            var metrics = Metrics(
-                latitude = location.latitude,
-                longitude = location.longitude,
-                speed = currentSpeedKmh.toFloat(),
-                speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
-                altitude = location.altitude,
-                horizontalAccuracy = location.accuracy,
-                verticalAccuracyMeters = location.verticalAccuracyMeters,
-                coveredDistance = coveredDistance,
-                lap = lap,
-                startDateTime = startDateTime,
-                averageSpeed = averageSpeed,
-                maxSpeed = maxSpeed,
-                movingAverageSpeed = movingAverageSpeed,
-                cumulativeElevationGain = cumulativeElevationGain,
-                sessionId = sessionId,
-                person = firstname,
-                heartRate = currentHeartRate,
-                heartRateDevice = heartRateDeviceName,
-                numberOfSatellites = numberOfSatellites,
-                usedNumberOfSatellites = usedNumberOfSatellites,
-                satellites = satelliteCount
-            )
-
             // When creating metrics for active tracking:
             currentSpeedKmh = location.speed * 3.6
-            metrics = createMetricsObject(location, currentSpeedKmh.toFloat())
+            val metrics = createMetricsObject(location, currentSpeedKmh.toFloat())
 
             // Send data to websocket server and EventBus
             sendDataToWebsocketServer(metrics)
@@ -669,6 +653,7 @@ class CustomLocationListener: LocationListener {
         }
 
         Log.d(TAG_WEBSOCKET, "Preparing to send data with heart rate: ${metrics.heartRate} from device: ${metrics.heartRateDevice}")
+        Log.d(TAG_WEBSOCKET, "Weather data: temp=${metrics.temperature}°C, humidity=${metrics.relativeHumidity}%, wind=${metrics.windSpeed}km/h")
 
         // Convert metrics to JSON using a properly configured Gson instance
         val gson = GsonBuilder()
@@ -677,14 +662,20 @@ class CustomLocationListener: LocationListener {
 
         val jsonData = gson.toJson(metrics)
 
-        // Check if heart rate is included in the JSON
+        // Check if heart rate and weather data are included in the JSON
         if (!jsonData.contains("\"heartRate\":")) {
             Log.e(TAG_WEBSOCKET, "WARNING: Heart rate not included in JSON message!")
         } else {
             Log.d(TAG_WEBSOCKET, "Heart rate confirmed in JSON message")
         }
 
-        Log.d(TAG_WEBSOCKET, "Sending data: $jsonData")
+        if (jsonData.contains("\"temperature\":") && jsonData.contains("\"windSpeed\":")) {
+            Log.d(TAG_WEBSOCKET, "Weather data confirmed in JSON message")
+        } else {
+            Log.w(TAG_WEBSOCKET, "WARNING: Weather data not found in JSON message!")
+        }
+
+        Log.d(TAG_WEBSOCKET, "Sending data: ${jsonData.take(500)}...")
 
         // Send via WebSocket if connection is available
         webSocket?.let { socket ->
@@ -1080,16 +1071,20 @@ class CustomLocationListener: LocationListener {
      * Resume tracking from a saved state (after service restart)
      * @param savedDistance The previously covered distance
      * @param lastPosition The last known position (latitude, longitude)
+     * @param savedLap The saved lap number
+     * @param savedLapCounter The saved lap counter (partial lap distance)
      */
     fun resumeFromSavedState(
         savedDistance: Double,
-        lastPosition: Pair<Double, Double>?, // Changed from Pair<Double, Long>
+        lastPosition: Pair<Double, Double>?,
         savedLap: Int = 0,
         savedLapCounter: Double = 0.0
     ) {
+        Log.d(TAG_WEBSOCKET, "Starting resumeFromSavedState with distance=$savedDistance, lap=$savedLap, lapCounter=$savedLapCounter")
+
         // Restore covered distance
         coveredDistance = savedDistance
-        recoveredDistance = savedDistance  // Store the recovered distance
+        recoveredDistance = savedDistance  // Store the recovered distance for voice announcements
         Log.d(TAG_WEBSOCKET, "Resumed with saved distance: $coveredDistance meters")
 
         // Restore position if available
@@ -1104,7 +1099,6 @@ class CustomLocationListener: LocationListener {
         // Restore lap counter based on provided values
         lap = savedLap
         lapCounter = savedLapCounter
-
         Log.d(TAG_WEBSOCKET, "Resumed with lap data: lap=$lap, lapCounter=$lapCounter")
 
         // Restore last announced kilometer for voice announcements
@@ -1113,41 +1107,118 @@ class CustomLocationListener: LocationListener {
             Log.d(TAG_VOICE_ANNOUNCEMENT, "Restored last announced km: $lastAnnouncedKilometer")
         }
 
-        // Create a metrics object to broadcast the resumed state
+        // Recalculate average speed based on time elapsed and distance covered
+        try {
+            val currentTime = LocalDateTime.now()
+            val durationSeconds = ChronoUnit.SECONDS.between(startDateTime, currentTime).toDouble()
+
+            if (durationSeconds > 0 && coveredDistance > 0) {
+                averageSpeed = (coveredDistance / durationSeconds) * 3.6 // Convert m/s to km/h
+                Log.d(TAG_WEBSOCKET, "Recalculated average speed: $averageSpeed km/h")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG_WEBSOCKET, "Error calculating average speed during restore", e)
+        }
+
+        // Create a metrics object to broadcast the resumed state with complete data
         val metrics = Metrics(
+            // Location data
             latitude = oldLatitude,
             longitude = oldLongitude,
-            speed = 0f,
+            speed = 0f, // Set to 0 since we're just resuming
             speedAccuracyMetersPerSecond = 0f,
-            altitude = 0.0,
+            altitude = startingAltitude ?: 0.0,
             horizontalAccuracy = 0f,
             verticalAccuracyMeters = 0f,
+
+            // Distance and lap data
             coveredDistance = coveredDistance,
             lap = lap,
+
+            // Time and speed data
             startDateTime = startDateTime,
-            averageSpeed = 0.0,
-            maxSpeed = 0.0,
-            movingAverageSpeed = 0.0,
+            averageSpeed = averageSpeed,
+            maxSpeed = maxSpeed,
+            movingAverageSpeed = movingAverageSpeed,
+            cumulativeElevationGain = cumulativeElevationGain,
+
+            // Session and user data
             sessionId = sessionId,
             firstname = firstname,
             lastname = lastname,
             birthdate = birthdate,
             height = height,
             weight = weight,
+
+            // Settings data
             minDistanceMeters = minDistanceMeters,
             minTimeSeconds = minTimeSeconds,
             voiceAnnouncementInterval = voiceAnnouncementInterval,
+
+            // Event/Session information
             eventName = eventName,
             sportType = sportType,
             comment = comment,
             clothing = clothing,
-            numberOfSatellites = 0,
-            usedNumberOfSatellites = 0,
-            satellites = 0
+
+            // Heart rate data (current values)
+            heartRate = currentHeartRate,
+            heartRateDevice = heartRateDeviceName,
+
+            // Weather data (current values)
+            temperature = currentTemperature,
+            windSpeed = currentWindSpeed,
+            windDirection = currentWindDirection,
+            relativeHumidity = currentRelativeHumidity,
+            weatherCode = currentWeatherCode,
+            weatherTime = currentWeatherTime,
+
+            // Satellite data
+            numberOfSatellites = numberOfSatellites,
+            usedNumberOfSatellites = usedNumberOfSatellites,
+            satellites = 0 // Will be updated when we get actual location data
         )
 
-        // Broadcast the current state
+        // Broadcast the current state to UI and other components
         EventBus.getDefault().post(metrics)
+        Log.d(TAG_WEBSOCKET, "Posted resumed state to EventBus")
+
+        // Also send the resumed state to WebSocket server
+        sendDataToWebsocketServer(metrics)
+        Log.d(TAG_WEBSOCKET, "Sent resumed state to WebSocket server")
+
+        // Log summary of restored state
+        Log.d(TAG_WEBSOCKET, "=== RESUME STATE SUMMARY ===")
+        Log.d(TAG_WEBSOCKET, "Distance: ${String.format("%.2f", coveredDistance/1000)} km")
+        Log.d(TAG_WEBSOCKET, "Lap: $lap (${String.format("%.0f", lapCounter)}m into next lap)")
+        Log.d(TAG_WEBSOCKET, "Position: ${String.format("%.6f", oldLatitude)}, ${String.format("%.6f", oldLongitude)}")
+        Log.d(TAG_WEBSOCKET, "Average Speed: ${String.format("%.2f", averageSpeed)} km/h")
+        Log.d(TAG_WEBSOCKET, "Session ID: $sessionId")
+        Log.d(TAG_WEBSOCKET, "Heart Rate: $currentHeartRate bpm (${heartRateDeviceName})")
+        Log.d(TAG_WEBSOCKET, "Weather: ${currentTemperature}°C, ${currentRelativeHumidity}% humidity, ${currentWindSpeed} km/h wind")
+        Log.d(TAG_WEBSOCKET, "Last Announced: $lastAnnouncedKilometer km")
+        Log.d(TAG_WEBSOCKET, "============================")
+    }
+
+    // NEW METHOD: Subscribe to weather data from EventBus
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onWeatherUpdate(currentWeather: CurrentWeather) {
+        Log.d(TAG_WEBSOCKET, "Received weather update: temp=${currentWeather.temperature}°C, wind=${currentWeather.windspeed}km/h")
+
+        currentTemperature = currentWeather.temperature
+        currentWindSpeed = currentWeather.windspeed
+        currentWindDirection = currentWeather.winddirection
+        currentWeatherCode = currentWeather.weathercode
+        currentWeatherTime = currentWeather.time
+
+        // If we have humidity data from the database/service, we'll update it there
+        Log.d(TAG_WEBSOCKET, "Weather data updated - will be included in next metrics transmission")
+    }
+
+    // NEW METHOD: Update humidity separately (called from ForegroundService)
+    fun updateWeatherHumidity(humidity: Int) {
+        currentRelativeHumidity = humidity
+        Log.d(TAG_WEBSOCKET, "Weather humidity updated: $humidity%")
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -1181,30 +1252,12 @@ class CustomLocationListener: LocationListener {
         val locationManager = this.context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
 
         if (locationManager != null && checkLatitudeLongitude()) {
-            // Create Metrics object with all current data including heart rate
-            val metrics = Metrics(
-                latitude = oldLatitude,
-                longitude = oldLongitude,
-                speed = if (isCurrentlyTracking) (movingAverageSpeed * 3.6).toFloat() else 0f,
-                altitude = startingAltitude ?: 0.0,
-                coveredDistance = coveredDistance,
-                lap = lap,
-                startDateTime = startDateTime,
-                averageSpeed = averageSpeed,
-                maxSpeed = maxSpeed,
-                movingAverageSpeed = movingAverageSpeed,
-                cumulativeElevationGain = cumulativeElevationGain,
-                sessionId = sessionId,
-                person = firstname,
-                heartRate = currentHeartRate,
-                heartRateDevice = heartRateDeviceName,
-                numberOfSatellites = numberOfSatellites,
-                usedNumberOfSatellites = usedNumberOfSatellites
-            )
+            // Create Metrics object with all current data including heart rate and weather
+            val metrics = createMetricsWithCurrentData()
 
             // Send immediate update to websocket
             sendDataToWebsocketServer(metrics)
-            Log.d(TAG_WEBSOCKET, "Sent immediate update to WebSocket with heart rate: $currentHeartRate")
+            Log.d(TAG_WEBSOCKET, "Sent immediate update to WebSocket with heart rate: $currentHeartRate and weather data")
 
             // Also post to EventBus for UI updates
             EventBus.getDefault().post(metrics)
@@ -1218,27 +1271,51 @@ class CustomLocationListener: LocationListener {
         return oldLatitude != -999.0 && oldLongitude != -999.0
     }
 
-    private inner class LocationPersistenceHelper(private val context: Context) {
-        private val voicePrefs = context.getSharedPreferences("VoiceAnnouncements", Context.MODE_PRIVATE)
+    // UPDATED METHOD: Create metrics with current weather data for immediate updates
+    private fun createMetricsWithCurrentData(): Metrics {
+        return Metrics(
+            latitude = oldLatitude,
+            longitude = oldLongitude,
+            speed = if (isCurrentlyTracking) (movingAverageSpeed * 3.6).toFloat() else 0f,
+            altitude = startingAltitude ?: 0.0,
+            coveredDistance = coveredDistance,
+            lap = lap,
+            startDateTime = startDateTime,
+            averageSpeed = averageSpeed,
+            maxSpeed = maxSpeed,
+            movingAverageSpeed = movingAverageSpeed,
+            cumulativeElevationGain = cumulativeElevationGain,
+            sessionId = sessionId,
+            firstname = firstname,
+            lastname = lastname,
+            birthdate = birthdate,
+            height = height,
+            weight = weight,
+            minDistanceMeters = minDistanceMeters,
+            minTimeSeconds = minTimeSeconds,
+            voiceAnnouncementInterval = voiceAnnouncementInterval,
+            eventName = eventName,
+            sportType = sportType,
+            comment = comment,
+            clothing = clothing,
+            heartRate = currentHeartRate,
+            heartRateDevice = heartRateDeviceName,
 
-        fun saveLastAnnouncedKilometer(sessionId: String, kilometerValue: Int) {
-            voicePrefs.edit()
-                .putInt("${lastAnnouncedDistanceKey}_$sessionId", kilometerValue)
-                .apply()
-            Log.d(TAG_VOICE_ANNOUNCEMENT, "Saved last announced km: $kilometerValue for session $sessionId")
-        }
+            // Weather data - INCLUDED IN ALL METRICS
+            temperature = currentTemperature,
+            windSpeed = currentWindSpeed,
+            windDirection = currentWindDirection,
+            relativeHumidity = currentRelativeHumidity,
+            weatherCode = currentWeatherCode,
+            weatherTime = currentWeatherTime,
 
-        fun getLastAnnouncedKilometer(sessionId: String): Int {
-            return voicePrefs.getInt("${lastAnnouncedDistanceKey}_$sessionId", 0)
-        }
-
-        fun clearSessionData(sessionId: String) {
-            voicePrefs.edit()
-                .remove("${lastAnnouncedDistanceKey}_$sessionId")
-                .apply()
-        }
+            numberOfSatellites = numberOfSatellites,
+            usedNumberOfSatellites = usedNumberOfSatellites,
+            satellites = 0
+        )
     }
 
+    // UPDATED METHOD: Create metrics object with weather data included
     private fun createMetricsObject(location: Location, currentSpeedKmh: Float): Metrics {
         return Metrics(
             latitude = location.latitude,
@@ -1270,10 +1347,40 @@ class CustomLocationListener: LocationListener {
             clothing = clothing,
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
+
+            // Weather data - NEW FIELDS INCLUDED
+            temperature = currentTemperature,
+            windSpeed = currentWindSpeed,
+            windDirection = currentWindDirection,
+            relativeHumidity = currentRelativeHumidity,
+            weatherCode = currentWeatherCode,
+            weatherTime = currentWeatherTime,
+
             numberOfSatellites = numberOfSatellites,
             usedNumberOfSatellites = usedNumberOfSatellites,
             satellites = if (location.extras != null) location.extras!!.getInt("satellites", 0) else 0
         )
+    }
+
+    private inner class LocationPersistenceHelper(private val context: Context) {
+        private val voicePrefs = context.getSharedPreferences("VoiceAnnouncements", Context.MODE_PRIVATE)
+
+        fun saveLastAnnouncedKilometer(sessionId: String, kilometerValue: Int) {
+            voicePrefs.edit()
+                .putInt("${lastAnnouncedDistanceKey}_$sessionId", kilometerValue)
+                .apply()
+            Log.d(TAG_VOICE_ANNOUNCEMENT, "Saved last announced km: $kilometerValue for session $sessionId")
+        }
+
+        fun getLastAnnouncedKilometer(sessionId: String): Int {
+            return voicePrefs.getInt("${lastAnnouncedDistanceKey}_$sessionId", 0)
+        }
+
+        fun clearSessionData(sessionId: String) {
+            voicePrefs.edit()
+                .remove("${lastAnnouncedDistanceKey}_$sessionId")
+                .apply()
+        }
     }
 
     companion object {

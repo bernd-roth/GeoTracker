@@ -349,6 +349,10 @@ class ForegroundService : Service() {
                                         Log.d(TAG, "Hourly data is incomplete or null")
                                     }
 
+                                    // NEW: Update CustomLocationListener with humidity data
+                                    customLocationListener?.updateWeatherHumidity(currentHumidity)
+                                    Log.d(TAG, "Updated CustomLocationListener with humidity: $currentHumidity%")
+
                                     // Create and save weather object
                                     val weather = Weather(
                                         eventId = eventId,

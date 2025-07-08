@@ -518,3 +518,137 @@ html {
     background-color: #F44336;
     color: white;
 }
+
+/* FIXED: Replace the #chartInfoPopup section in your CSS with this version */
+/* Enhanced popup styling - REMOVED !important from display property */
+#chartInfoPopup {
+    position: fixed !important;
+    background: white !important;
+    border: 2px solid #333 !important;
+    border-radius: 8px !important;
+    padding: 12px !important;
+    font-family: Arial, sans-serif !important;
+    font-size: 12px !important;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+    z-index: 9999 !important;  /* Increased z-index */
+    display: none;  /* REMOVED !important - this was blocking JavaScript */
+    pointer-events: none !important;
+    max-width: 320px !important;
+    line-height: 1.4 !important;
+    visibility: visible !important;  /* Ensure visibility */
+    opacity: 1 !important;  /* Ensure opacity */
+}
+
+/* ADDED: Specific class for when popup should be visible */
+#chartInfoPopup.popup-visible {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+
+/* Weather info popup styling */
+#chartInfoPopup .weather-section {
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    padding: 8px;
+    margin: 6px 0;
+    border-left: 3px solid #FF5722;
+}
+
+#chartInfoPopup .weather-header {
+    font-weight: bold;
+    color: #FF5722;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+#chartInfoPopup .weather-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    font-size: 10px;
+}
+
+#chartInfoPopup .weather-item {
+    text-align: center;
+}
+
+#chartInfoPopup .weather-label {
+    font-weight: bold;
+    margin-bottom: 2px;
+}
+
+#chartInfoPopup .weather-value {
+    color: #333;
+    font-size: 11px;
+}
+
+#chartInfoPopup .weather-footer {
+    margin-top: 6px;
+    font-size: 9px;
+    color: #666;
+    font-style: italic;
+    text-align: center;
+}
+
+/* Weather-specific color classes */
+.temp-color { color: #FF5722; }
+.humidity-color { color: #607D8B; }
+.wind-color { color: #795548; }
+.weather-desc-color { color: #4CAF50; }
+
+/* Weather icon styling */
+.weather-icon {
+    font-size: 14px;
+    margin-right: 4px;
+}
+
+/* Make weather values stand out */
+.weather-value.temperature {
+    color: #FF5722;
+    font-weight: bold;
+}
+
+.weather-value.humidity {
+    color: #2196F3;
+    font-weight: bold;
+}
+
+.weather-value.wind {
+    color: #795548;
+    font-weight: bold;
+}
+
+/* Add subtle animation for weather section */
+@keyframes fadeInWeather {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.weather-section {
+    animation: fadeInWeather 0.3s ease-in;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 768px) {
+    #chartInfoPopup {
+        max-width: 280px !important;
+        font-size: 11px !important;
+    }
+
+    #chartInfoPopup .weather-grid {
+        font-size: 9px;
+    }
+
+    #chartInfoPopup .weather-value {
+        font-size: 10px;
+    }
+}

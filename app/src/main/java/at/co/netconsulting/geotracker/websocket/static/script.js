@@ -8,7 +8,7 @@ let gpxPolyline;
 let altitudeChart;
 let speedChart;
 let speedHistory = {};
-let elevationHistory = {}; // Added to track elevation gain
+let elevationHistory = {};
 let userColors = {};
 let trackPoints = {};
 let isProcessingBatch = false;
@@ -37,6 +37,14 @@ let distanceMarkerSettings = {
     cssClass: 'distance-marker',
     showForGPX: true,
     showForLive: true
+};
+
+// Weather statistics tracking
+let weatherStats = {
+    totalUpdates: 0,
+    lastTemperature: null,
+    lastUpdate: null,
+    temperatureRange: { min: null, max: null }
 };
 
 // export functions for global use
@@ -79,34 +87,35 @@ function initMap() {
     }
 }
 
+// Fixed initCharts function with better hover detection
+// TARGETED FIX: Replace your initCharts function with this version
+// This preserves your original working settings while fixing the hover issues
 function initCharts() {
-    // Modified options: Disable Chart.js tooltips but ENABLE custom hover interactions
+    // Keep your original working chart options - these were fine!
     const baseChartOptions = {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
-        // RE-ENABLE interactions for custom functionality
+        // KEEP original interaction settings that were working
         interaction: {
             intersect: false,
-            mode: 'index'  // Changed back from 'none'
+            mode: 'index'  // Keep original working mode
         },
-        // REMOVE hover: { mode: null } to allow custom hover
         elements: {
             line: {
                 tension: 0
             },
             point: {
-                radius: 0,
-                hoverRadius: 6  // Changed back to 6 for hover detection
+                radius: 0,        // Keep original - this was working
+                hoverRadius: 6    // Keep original - this was working
             }
         },
         plugins: {
             legend: {
                 onClick: handleLegendClick
             },
-            // KEEP Chart.js tooltips disabled
             tooltip: {
-                enabled: false  // This is the key - keeps Chart.js tooltips OFF
+                enabled: false  // Keep Chart.js tooltips disabled
             }
         },
         scales: {
@@ -125,28 +134,49 @@ function initCharts() {
                 min: 0
             }
         },
-        // ADD BACK the custom hover handlers
+        // ENHANCED: Better hover event handling with more debugging
         onHover: (event, activeElements) => {
+            // Add immediate console logging to verify events are firing
+            console.log('🎯 CHART HOVER EVENT FIRED:', {
+                elementCount: activeElements.length,
+                hasEvent: !!event,
+                eventType: event?.type,
+                chartCanvas: event?.native?.target?.id || 'unknown'
+            });
+
             addDebugMessage(`Chart hover event triggered with ${activeElements.length} active elements`, 'interaction');
+
+            // Change cursor to indicate interactivity
+            if (event.native && event.native.target) {
+                event.native.target.style.cursor = activeElements.length > 0 ? 'pointer' : 'default';
+            }
+
             handleChartHover(event, activeElements, 'altitude');
         },
         onClick: (event, activeElements) => {
+            console.log('🎯 CHART CLICK EVENT FIRED:', activeElements.length, 'elements');
             addDebugMessage(`Chart click event triggered with ${activeElements.length} active elements`, 'interaction');
             handleChartClick(event, activeElements, 'altitude');
         }
     };
 
     // Create altitude chart
-    altitudeChart = new Chart(
-        document.getElementById('altitudeChart').getContext('2d'),
-        {
-            type: 'line',
-            data: { datasets: [] },
-            options: baseChartOptions
-        }
-    );
+    try {
+        altitudeChart = new Chart(
+            document.getElementById('altitudeChart').getContext('2d'),
+            {
+                type: 'line',
+                data: { datasets: [] },
+                options: baseChartOptions
+            }
+        );
+        console.log('✅ Altitude chart created successfully');
+    } catch (error) {
+        console.error('❌ Error creating altitude chart:', error);
+        addDebugMessage(`Error creating altitude chart: ${error.message}`, 'error');
+    }
 
-    // Create speed chart with custom hover handlers
+    // Create speed chart with same settings
     const speedChartOptions = {
         ...baseChartOptions,
         scales: {
@@ -161,26 +191,50 @@ function initCharts() {
         },
         // Speed chart specific hover handlers
         onHover: (event, activeElements) => {
+            console.log('🎯 SPEED CHART HOVER EVENT FIRED:', {
+                elementCount: activeElements.length,
+                hasEvent: !!event,
+                chartCanvas: event?.native?.target?.id || 'unknown'
+            });
+
             addDebugMessage(`Speed chart hover event triggered with ${activeElements.length} active elements`, 'interaction');
+
+            // Change cursor to indicate interactivity
+            if (event.native && event.native.target) {
+                event.native.target.style.cursor = activeElements.length > 0 ? 'pointer' : 'default';
+            }
+
             handleChartHover(event, activeElements, 'speed');
         },
         onClick: (event, activeElements) => {
+            console.log('🎯 SPEED CHART CLICK EVENT FIRED:', activeElements.length, 'elements');
             addDebugMessage(`Speed chart click event triggered with ${activeElements.length} active elements`, 'interaction');
             handleChartClick(event, activeElements, 'speed');
         }
     };
 
-    speedChart = new Chart(
-        document.getElementById('speedChart').getContext('2d'),
-        {
-            type: 'line',
-            data: { datasets: [] },
-            options: speedChartOptions
-        }
-    );
+    try {
+        speedChart = new Chart(
+            document.getElementById('speedChart').getContext('2d'),
+            {
+                type: 'line',
+                data: { datasets: [] },
+                options: speedChartOptions
+            }
+        );
+        console.log('✅ Speed chart created successfully');
+    } catch (error) {
+        console.error('❌ Error creating speed chart:', error);
+        addDebugMessage(`Error creating speed chart: ${error.message}`, 'error');
+    }
 
-    // Create info popup element
+    // Create info popup element with enhanced error checking
     createInfoPopup();
+
+    // Test the setup after creation
+    setTimeout(() => {
+        testChartSetup();
+    }, 100);
 }
 
 // Create the floating info popup
@@ -189,109 +243,167 @@ function createInfoPopup() {
     const existingPopup = document.getElementById('chartInfoPopup');
     if (existingPopup) {
         existingPopup.remove();
+        console.log('🗑️ Removed existing popup');
     }
 
-    infoPopup = document.createElement('div');
-    infoPopup.id = 'chartInfoPopup';
-    infoPopup.style.cssText = `
-        position: fixed !important;
-        background: white !important;
-        border: 2px solid #333 !important;
-        border-radius: 8px !important;
-        padding: 12px !important;
-        font-family: Arial, sans-serif !important;
-        font-size: 12px !important;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-        z-index: 2500 !important;
-        display: none !important;
-        pointer-events: none !important;
-        max-width: 300px !important;
-        line-height: 1.4 !important;
-    `;
-    document.body.appendChild(infoPopup);
-    
-    addDebugMessage('Info popup element created and added to DOM', 'system');
+    try {
+        infoPopup = document.createElement('div');
+        infoPopup.id = 'chartInfoPopup';
+
+        // Use your original working CSS with some improvements
+        infoPopup.style.cssText = `
+            position: fixed !important;
+            background: white !important;
+            border: 2px solid #333 !important;
+            border-radius: 8px !important;
+            padding: 12px !important;
+            font-family: Arial, sans-serif !important;
+            font-size: 12px !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+            z-index: 9999 !important;
+            display: none !important;
+            pointer-events: none !important;
+            max-width: 320px !important;
+            line-height: 1.4 !important;
+            color: #333 !important;
+        `;
+
+        document.body.appendChild(infoPopup);
+        console.log('✅ Info popup created and added to DOM');
+        addDebugMessage('Info popup element created and added to DOM', 'system');
+
+        // Verify it was added
+        const verifyPopup = document.getElementById('chartInfoPopup');
+        if (!verifyPopup) {
+            throw new Error('Popup not found in DOM after creation');
+        }
+
+    } catch (error) {
+        console.error('❌ Error creating info popup:', error);
+        addDebugMessage(`Error creating info popup: ${error.message}`, 'error');
+    }
 }
 
 // Handle chart hover events
 function handleChartHover(event, activeElements, chartType) {
+    console.log(`🔍 handleChartHover called for ${chartType} chart:`, {
+        activeElementsCount: activeElements ? activeElements.length : 0,
+        hasEvent: !!event,
+        infoPopupExists: !!infoPopup
+    });
+
     if (!activeElements || activeElements.length === 0) {
+        console.log('❌ No active elements, hiding hover effects');
         hideHoverMarker();
         hideInfoPopup();
         return;
     }
 
-    const element = activeElements[0];
-    const datasetIndex = element.datasetIndex;
-    const dataIndex = element.index;
-    
-    // Get the chart and dataset
-    const chart = chartType === 'altitude' ? altitudeChart : speedChart;
-    const dataset = chart.data.datasets[datasetIndex];
-    
-    if (!dataset) {
-        addDebugMessage(`No dataset found at index ${datasetIndex}`, 'warning');
-        return;
-    }
+    try {
+        const element = activeElements[0];
+        const datasetIndex = element.datasetIndex;
+        const dataIndex = element.index;
 
-    addDebugMessage(`Chart hover - Dataset: ${dataset.label}, DataIndex: ${dataIndex}`, 'interaction');
+        console.log(`📊 Processing hover:`, {
+            datasetIndex,
+            dataIndex,
+            chartType
+        });
 
-    // Use the dataset label directly as session ID first
-    let sessionId = dataset.label;
-    
-    // Check if we have track points for this session ID
-    let sessionTrackPoints = trackPoints[sessionId];
-    
-    if (!sessionTrackPoints) {
-        // If not found, try extracting session ID (for cases where display ID format differs)
-        if (sessionId.includes('_') && sessionId !== 'GPX Track') {
-            const parts = sessionId.split('_');
-            if (parts.length > 1) {
-                // Try removing just the first part (person name)
-                const extractedId = parts.slice(1).join('_');
-                sessionTrackPoints = trackPoints[extractedId];
-                if (sessionTrackPoints) {
-                    sessionId = extractedId;
-                    addDebugMessage(`Found track points using extracted session ID: ${sessionId}`, 'interaction');
+        // Get the chart and dataset
+        const chart = chartType === 'altitude' ? altitudeChart : speedChart;
+        const dataset = chart.data.datasets[datasetIndex];
+
+        if (!dataset) {
+            console.log('❌ No dataset found at index:', datasetIndex);
+            addDebugMessage(`No dataset found at index ${datasetIndex}`, 'warning');
+            return;
+        }
+
+        console.log(`📈 Found dataset:`, {
+            label: dataset.label,
+            dataLength: dataset.data ? dataset.data.length : 0
+        });
+
+        // Session ID matching (keep your original logic)
+        let sessionId = dataset.label;
+        let sessionTrackPoints = trackPoints[sessionId];
+
+        if (!sessionTrackPoints) {
+            // Try extracting session ID if direct match fails
+            if (sessionId.includes('_') && sessionId !== 'GPX Track') {
+                const parts = sessionId.split('_');
+                if (parts.length > 1) {
+                    const extractedId = parts.slice(1).join('_');
+                    sessionTrackPoints = trackPoints[extractedId];
+                    if (sessionTrackPoints) {
+                        sessionId = extractedId;
+                        console.log('✅ Found using extracted ID:', sessionId);
+                    }
                 }
             }
         }
-    }
-    
-    if (!sessionTrackPoints) {
-        addDebugMessage(`No track points found for session: ${sessionId}`, 'warning');
-        addDebugMessage(`Available sessions: ${Object.keys(trackPoints).join(', ')}`, 'debug');
-        
-        // Try one more approach - look for sessions that end with part of our ID
-        const availableKeys = Object.keys(trackPoints);
-        for (const key of availableKeys) {
-            if (key.includes(sessionId) || sessionId.includes(key)) {
-                sessionTrackPoints = trackPoints[key];
-                sessionId = key;
-                addDebugMessage(`Found match using partial matching: ${sessionId}`, 'interaction');
-                break;
-            }
-        }
-        
+
         if (!sessionTrackPoints) {
+            console.log('❌ No track points found. Available sessions:', Object.keys(trackPoints));
+            addDebugMessage(`No track points found for session: ${sessionId}`, 'warning');
             return;
         }
+
+        if (!sessionTrackPoints[dataIndex]) {
+            console.log('❌ No track point at index:', dataIndex, 'of', sessionTrackPoints.length);
+            addDebugMessage(`No track point at index ${dataIndex}`, 'warning');
+            return;
+        }
+
+        const point = sessionTrackPoints[dataIndex];
+
+        console.log(`📍 Found point:`, {
+            lat: point.lat,
+            lng: point.lng,
+            distance: point.distance,
+            altitude: point.altitude
+        });
+
+        // Show hover effects
+        showHoverMarker(point.lat, point.lng, sessionId);
+        showInfoPopup(event, point, sessionId, chartType);
+
+        console.log('✅ Hover processing completed successfully');
+        addDebugMessage(`Hover successful - Session: ${sessionId}, Point: ${dataIndex}`, 'interaction');
+
+    } catch (error) {
+        console.error('❌ Error in handleChartHover:', error);
+        addDebugMessage(`Hover error: ${error.message}`, 'error');
     }
-    
-    if (!sessionTrackPoints[dataIndex]) {
-        addDebugMessage(`No track point at index ${dataIndex} for session ${sessionId}. Available: ${sessionTrackPoints.length}`, 'warning');
-        return;
+}
+
+function findSessionIdFromDataset(datasetLabel) {
+    // Direct match first
+    if (trackPoints[datasetLabel]) {
+        return datasetLabel;
     }
 
-    const point = sessionTrackPoints[dataIndex];
-    
-    // Show marker on map
-    showHoverMarker(point.lat, point.lng, sessionId);
-    
-    // Show info popup
-    showInfoPopup(event, point, sessionId, chartType);
-    
-    addDebugMessage(`Chart hover successful - Session: ${sessionId}, Point: ${dataIndex}, Coords: ${point.lat}, ${point.lng}`, 'interaction');
+    // Try extracting session ID if it contains underscore (person_sessionId format)
+    if (datasetLabel.includes('_')) {
+        const parts = datasetLabel.split('_');
+        if (parts.length > 1) {
+            const extractedId = parts.slice(1).join('_');
+            if (trackPoints[extractedId]) {
+                return extractedId;
+            }
+        }
+    }
+
+    // Try partial matching
+    const availableKeys = Object.keys(trackPoints);
+    for (const key of availableKeys) {
+        if (key.includes(datasetLabel) || datasetLabel.includes(key)) {
+            return key;
+        }
+    }
+
+    return datasetLabel; // fallback to original
 }
 
 // Handle chart click events
@@ -301,17 +413,17 @@ function handleChartClick(event, activeElements, chartType) {
     const element = activeElements[0];
     const datasetIndex = element.datasetIndex;
     const dataIndex = element.index;
-    
+
     // Get the chart and dataset
     const chart = chartType === 'altitude' ? altitudeChart : speedChart;
     const dataset = chart.data.datasets[datasetIndex];
-    
+
     if (!dataset) return;
 
     // Use the same session ID matching logic as hover
     let sessionId = dataset.label;
     let sessionTrackPoints = trackPoints[sessionId];
-    
+
     if (!sessionTrackPoints) {
         // Try extracting session ID if direct match fails
         if (sessionId.includes('_') && sessionId !== 'GPX Track') {
@@ -325,7 +437,7 @@ function handleChartClick(event, activeElements, chartType) {
             }
         }
     }
-    
+
     if (!sessionTrackPoints) {
         // Try partial matching
         const availableKeys = Object.keys(trackPoints);
@@ -336,17 +448,17 @@ function handleChartClick(event, activeElements, chartType) {
                 break;
             }
         }
-        
+
         if (!sessionTrackPoints) return;
     }
-    
+
     if (!sessionTrackPoints[dataIndex]) return;
 
     const point = sessionTrackPoints[dataIndex];
-    
+
     // Center map on clicked point
     map.setView([point.lat, point.lng], Math.max(map.getZoom(), 15));
-    
+
     addDebugMessage(`Chart click - Centered map on Session: ${sessionId}, Point: ${dataIndex}`, 'interaction');
 }
 
@@ -365,7 +477,7 @@ function showHoverMarker(lat, lng, sessionId) {
 
     // Create new hover marker with session color
     const sessionColor = getColorForUser(sessionId);
-    
+
     try {
         hoverMarker = L.circleMarker([lat, lng], {
             radius: 10,
@@ -375,7 +487,7 @@ function showHoverMarker(lat, lng, sessionId) {
             opacity: 1,
             fillOpacity: 0.8
         }).addTo(map);
-        
+
         addDebugMessage(`Hover marker created at ${lat}, ${lng} with color ${sessionColor}`, 'interaction');
     } catch (error) {
         addDebugMessage(`Error creating hover marker: ${error.message}`, 'error');
@@ -390,121 +502,470 @@ function hideHoverMarker() {
     }
 }
 
-// Show info popup with point details
+function hideInfoPopup() {
+    if (infoPopup) {
+        infoPopup.style.display = 'none';
+        infoPopup.classList.remove('popup-visible');
+    }
+}
+
+// Helper function to get weather description from weather code
+function getWeatherDescription(weatherCode) {
+    const weatherCodes = {
+        0: "Clear sky",
+        1: "Mainly clear",
+        2: "Partly cloudy",
+        3: "Overcast",
+        45: "Fog",
+        48: "Depositing rime fog",
+        51: "Light drizzle",
+        53: "Moderate drizzle",
+        55: "Dense drizzle",
+        61: "Slight rain",
+        63: "Moderate rain",
+        65: "Heavy rain",
+        71: "Slight snow",
+        73: "Moderate snow",
+        75: "Heavy snow",
+        77: "Snow grains",
+        80: "Slight rain showers",
+        81: "Moderate rain showers",
+        82: "Violent rain showers",
+        85: "Slight snow showers",
+        86: "Heavy snow showers",
+        95: "Thunderstorm",
+        96: "Thunderstorm with hail",
+        99: "Thunderstorm with heavy hail"
+    };
+
+    return weatherCodes[weatherCode] || `Code ${weatherCode}`;
+}
+
+// Helper function to get wind direction text
+function getWindDirectionText(degrees) {
+    if (degrees === undefined || degrees === null || degrees === 0) {
+        return 'N/A';
+    }
+
+    // Ensure degrees is a number
+    const deg = parseFloat(degrees);
+    if (isNaN(deg)) {
+        return 'N/A';
+    }
+
+    const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
+                       "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+
+    // Normalize degrees to 0-360 range
+    const normalizedDeg = ((deg % 360) + 360) % 360;
+    const index = Math.round(normalizedDeg / 22.5) % 16;
+
+    return `${directions[index]} (${normalizedDeg.toFixed(0)}°)`;
+}
+
+// Helper function to format weather time
+function formatWeatherTime(weatherTime) {
+    if (!weatherTime) return "N/A";
+
+    try {
+        const date = new Date(weatherTime);
+        return date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+    } catch (e) {
+        return weatherTime;
+    }
+}
+
+// Helper function to get weather emoji based on weather code
+function getWeatherEmoji(weatherCode) {
+    const weatherEmojis = {
+        0: "☀️",   // Clear sky
+        1: "🌤️",   // Mainly clear
+        2: "⛅",   // Partly cloudy
+        3: "☁️",   // Overcast
+        45: "🌫️",  // Fog
+        48: "🌫️",  // Depositing rime fog
+        51: "🌦️",  // Light drizzle
+        53: "🌦️",  // Moderate drizzle
+        55: "🌧️",  // Dense drizzle
+        61: "🌧️",  // Slight rain
+        63: "🌧️",  // Moderate rain
+        65: "⛈️",  // Heavy rain
+        71: "🌨️",  // Slight snow
+        73: "❄️",  // Moderate snow
+        75: "❄️",  // Heavy snow
+        77: "❄️",  // Snow grains
+        80: "🌦️",  // Slight rain showers
+        81: "🌧️",  // Moderate rain showers
+        82: "⛈️",  // Violent rain showers
+        85: "🌨️",  // Slight snow showers
+        86: "❄️",  // Heavy snow showers
+        95: "⛈️",  // Thunderstorm
+        96: "⛈️",  // Thunderstorm with hail
+        99: "⛈️"   // Thunderstorm with heavy hail
+    };
+
+    return weatherEmojis[weatherCode] || "🌤️";
+}
+
+// Show info popup with point details including weather data
 function showInfoPopup(event, point, sessionId, chartType) {
+    console.log('🖼️ showInfoPopup called:', {
+        hasPopup: !!infoPopup,
+        hasEvent: !!event,
+        hasPoint: !!point,
+        sessionId,
+        chartType
+    });
+
     if (!infoPopup) {
+        console.error('❌ Info popup element not found!');
         addDebugMessage('Info popup element not found', 'error');
-        return;
+        createInfoPopup();
+        if (!infoPopup) {
+            console.error('❌ Failed to recreate popup');
+            return;
+        }
     }
 
-    // Get person name for display
-    const personName = sessionPersonNames[sessionId] || "";
-    let displayId = sessionId;
-    if (personName) {
-        displayId = createDisplayId(sessionId, personName);
-    }
+    try {
+        // Get display information
+        const personName = sessionPersonNames[sessionId] || "";
+        let displayId = sessionId;
+        if (personName) {
+            displayId = createDisplayId(sessionId, personName);
+        }
 
-    // Format time
-    const timeStr = point.timestamp ? point.timestamp.toLocaleTimeString() : 'N/A';
-    const dateStr = point.timestamp ? point.timestamp.toLocaleDateString() : 'N/A';
+        // Format time
+        const timeStr = point.timestamp ? point.timestamp.toLocaleTimeString() : 'N/A';
+        const dateStr = point.timestamp ? point.timestamp.toLocaleDateString() : 'N/A';
+        const isGPXTrack = sessionId === 'GPX Track';
 
-    // Check if this is a GPX track to show additional info
-    const isGPXTrack = sessionId === 'GPX Track';
-    
-    // Build additional info for GPX tracks
-    let additionalInfo = '';
-    if (isGPXTrack && point.lap !== undefined && point.activityType) {
-        additionalInfo = `
+        // Build additional info for GPX tracks
+        let additionalInfo = '';
+        if (isGPXTrack && point.lap !== undefined && point.activityType) {
+            additionalInfo = `
+                <div style="border-bottom: 1px solid #ddd; margin-bottom: 6px; padding-bottom: 4px;">
+                    <strong>Activity:</strong> ${point.activityType}<br>
+                    <strong>Lap:</strong> ${point.lap}
+                </div>
+            `;
+        }
+
+        // NEW: Extract and format weather data
+        const weatherData = extractWeatherData(point);
+        let weatherSection = '';
+
+        if (weatherData.hasData) {
+            const weatherDescription = getWeatherDescription(weatherData.weatherCode || 0);
+            const weatherEmoji = getWeatherEmoji(weatherData.weatherCode || 0);
+            const windDirectionText = getWindDirectionText(weatherData.windDirection || 0);
+            const weatherTimeFormatted = formatWeatherTime(weatherData.weatherTime);
+
+            weatherSection = `
+                <div class="weather-section" style="background-color: #f8f9fa; border-radius: 4px; padding: 8px; margin: 8px 0; border-left: 3px solid #FF5722;">
+                    <div class="weather-header" style="font-weight: bold; color: #FF5722; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                        ${weatherEmoji} Weather Conditions
+                    </div>
+                    <div class="weather-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px;">
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #FF5722;">Temperature</div>
+                            <div class="weather-value temperature" style="color: #FF5722; font-weight: bold; font-size: 11px;">
+                                ${weatherData.temperature ? weatherData.temperature.toFixed(1) + '°C' : 'N/A'}
+                            </div>
+                        </div>
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #2196F3;">Humidity</div>
+                            <div class="weather-value humidity" style="color: #2196F3; font-weight: bold; font-size: 11px;">
+                                ${weatherData.humidity ? weatherData.humidity + '%' : 'N/A'}
+                            </div>
+                        </div>
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #795548;">Wind Speed</div>
+                            <div class="weather-value wind" style="color: #795548; font-weight: bold; font-size: 11px;">
+                                ${weatherData.windSpeed ? weatherData.windSpeed.toFixed(1) + ' km/h' : 'N/A'}
+                            </div>
+                        </div>
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #795548;">Wind Dir</div>
+                            <div class="weather-value wind" style="color: #795548; font-weight: bold; font-size: 11px;">
+                                ${windDirectionText}
+                            </div>
+                        </div>
+                    </div>
+                    ${weatherDescription !== 'Code 0' ? `
+                        <div class="weather-footer" style="margin-top: 6px; font-size: 9px; color: #666; font-style: italic; text-align: center;">
+                            ${weatherDescription} • ${weatherTimeFormatted}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        } else {
+            // Show "No weather data" message
+            weatherSection = `
+                <div class="weather-section" style="background-color: #f8f9fa; border-radius: 4px; padding: 8px; margin: 8px 0; border-left: 3px solid #999;">
+                    <div class="weather-header" style="font-weight: bold; color: #999; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; font-size: 11px;">
+                        🌤️ Weather Conditions
+                    </div>
+                    <div style="text-align: center; color: #999; font-style: italic; font-size: 10px; padding: 6px;">
+                        No weather data available for this point
+                    </div>
+                </div>
+            `;
+        }
+
+        // Create popup content with weather data inserted where you wanted it
+        const content = `
+            <div style="font-weight: bold; color: ${isGPXTrack ? 'red' : getColorForUser(sessionId)}; margin-bottom: 8px;">
+                ${displayId}
+            </div>
             <div style="border-bottom: 1px solid #ddd; margin-bottom: 6px; padding-bottom: 4px;">
-                <strong>Activity:</strong> ${point.activityType}<br>
-                <strong>Lap:</strong> ${point.lap}
+                <strong>Time:</strong> ${timeStr}<br>
+                <strong>Date:</strong> ${dateStr}
+            </div>
+            ${additionalInfo}
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                <div>
+                    <strong style="color: #2196F3;">Distance</strong><br>
+                    ${point.distance.toFixed(2)} km
+                </div>
+                <div>
+                    <strong style="color: #4CAF50;">Altitude</strong><br>
+                    ${point.altitude.toFixed(1)} m
+                </div>
+                <div>
+                    <strong style="color: #FF9800;">Speed</strong><br>
+                    ${point.speed.toFixed(1)} km/h
+                </div>
+                <div>
+                    <strong style="color: ${getHeartRateColor(point.heartRate || 0)};">Heart Rate</strong><br>
+                    ${point.heartRate || 0} bpm
+                </div>
+            </div>
+            ${weatherSection}
+            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd; font-size: 10px; color: #666;">
+                Coordinates: ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}
+            </div>
+            ${isGPXTrack ? '<div style="font-size: 9px; color: #999; margin-top: 4px;">📁 GPX File Data</div>' : ''}
+        `;
+
+        infoPopup.innerHTML = content;
+
+        // Get mouse position
+        let x, y;
+        if (event.native) {
+            x = event.native.pageX || event.native.clientX + window.scrollX || 0;
+            y = event.native.pageY || event.native.clientY + window.scrollY || 0;
+        } else {
+            x = event.pageX || event.clientX + window.scrollX || 0;
+            y = event.pageY || event.clientY + window.scrollY || 0;
+        }
+
+        console.log('🖱️ Mouse position:', { x, y });
+
+        // Position popup
+        const finalX = Math.max(10, Math.min(x + 15, window.innerWidth - 420));
+        const finalY = Math.max(10, Math.min(y - 10, window.innerHeight - 300)); // Increased height allowance for weather data
+
+        infoPopup.style.left = finalX + 'px';
+        infoPopup.style.top = finalY + 'px';
+        infoPopup.style.display = 'block';
+        infoPopup.classList.add('popup-visible');
+
+        console.log('✅ Popup with weather data displayed at:', finalX, finalY);
+        addDebugMessage(`Info popup with weather shown at coordinates: ${finalX}, ${finalY}`, 'interaction');
+
+        // Adjust position if popup goes off screen
+        setTimeout(() => {
+            const popupRect = infoPopup.getBoundingClientRect();
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+
+            let newX = finalX;
+            let newY = finalY;
+
+            if (popupRect.right > windowWidth) {
+                newX = x - popupRect.width - 15;
+            }
+            if (popupRect.bottom > windowHeight) {
+                newY = y - popupRect.height + 10;
+            }
+
+            if (newX !== finalX || newY !== finalY) {
+                infoPopup.style.left = newX + 'px';
+                infoPopup.style.top = newY + 'px';
+                console.log('📐 Popup repositioned to:', newX, newY);
+            }
+        }, 1);
+
+    } catch (error) {
+        console.error('❌ Error in showInfoPopup:', error);
+        addDebugMessage(`Popup error: ${error.message}`, 'error');
+    }
+}
+
+// Helper function to extract and validate weather data
+function extractWeatherData(point) {
+    const hasTemperature = point.temperature !== undefined && point.temperature !== null && point.temperature > 0;
+    const hasWindSpeed = point.windSpeed !== undefined && point.windSpeed !== null && point.windSpeed > 0;
+    const hasHumidity = point.relativeHumidity !== undefined && point.relativeHumidity !== null && point.relativeHumidity > 0;
+    const hasWeatherCode = point.weatherCode !== undefined && point.weatherCode !== null && point.weatherCode > 0;
+    const hasWindDirection = point.windDirection !== undefined && point.windDirection !== null;
+
+    return {
+        hasData: hasTemperature || hasWindSpeed || hasHumidity || hasWeatherCode || hasWindDirection,
+        temperature: hasTemperature ? point.temperature : null,
+        windSpeed: hasWindSpeed ? point.windSpeed : null,
+        windDirection: hasWindDirection ? point.windDirection : null,
+        humidity: hasHumidity ? point.relativeHumidity : null,
+        weatherCode: hasWeatherCode ? point.weatherCode : null,
+        weatherTime: point.weatherTime || ""
+    };
+}
+
+function testChartSetup() {
+    console.log('🧪 Testing chart setup...');
+
+    const tests = {
+        altitudeChart: !!altitudeChart,
+        speedChart: !!speedChart,
+        infoPopup: !!infoPopup,
+        altitudeCanvas: !!document.getElementById('altitudeChart'),
+        speedCanvas: !!document.getElementById('speedChart'),
+        trackPointsCount: Object.keys(trackPoints).length
+    };
+
+    console.log('🧪 Chart setup test results:', tests);
+    addDebugMessage(`Chart setup test: ${JSON.stringify(tests)}`, 'system');
+
+    // Test if hover events are properly bound
+    if (altitudeChart && altitudeChart.options && altitudeChart.options.onHover) {
+        console.log('✅ Altitude chart hover handler is bound');
+    } else {
+        console.log('❌ Altitude chart hover handler NOT bound');
+    }
+
+    if (speedChart && speedChart.options && speedChart.options.onHover) {
+        console.log('✅ Speed chart hover handler is bound');
+    } else {
+        console.log('❌ Speed chart hover handler NOT bound');
+    }
+}
+
+// Helper function to format weather section
+function formatWeatherSection(weatherData) {
+    if (!weatherData.hasData) {
+        return `
+            <div style="background-color: #f8f9fa; border-radius: 4px; padding: 6px; margin: 6px 0; border-left: 3px solid #999;">
+                <div style="font-weight: bold; color: #999; font-size: 11px;">🌤️ No weather data</div>
             </div>
         `;
     }
 
-    // Create popup content
-    const content = `
-        <div style="font-weight: bold; color: ${isGPXTrack ? 'red' : getColorForUser(sessionId)}; margin-bottom: 8px;">
-            ${displayId}
-        </div>
-        <div style="border-bottom: 1px solid #ddd; margin-bottom: 6px; padding-bottom: 4px;">
-            <strong>Time:</strong> ${timeStr}<br>
-            <strong>Date:</strong> ${dateStr}
-        </div>
-        ${additionalInfo}
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
-            <div>
-                <strong style="color: #2196F3;">Distance</strong><br>
-                ${point.distance.toFixed(2)} km
+    const weatherDescription = getWeatherDescription(weatherData.weatherCode || 0);
+    const weatherEmoji = getWeatherEmoji(weatherData.weatherCode || 0);
+    const windDirectionText = getWindDirectionText(weatherData.windDirection || 0);
+
+    return `
+        <div style="background-color: #f8f9fa; border-radius: 4px; padding: 6px; margin: 6px 0; border-left: 3px solid #FF5722;">
+            <div style="font-weight: bold; color: #FF5722; margin-bottom: 4px; font-size: 11px;">
+                ${weatherEmoji} Weather Data
             </div>
-            <div>
-                <strong style="color: #4CAF50;">Altitude</strong><br>
-                ${point.altitude.toFixed(1)} m
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 10px;">
+                <div><strong>Temp:</strong> ${weatherData.temperature ? weatherData.temperature.toFixed(1) + '°C' : 'N/A'}</div>
+                <div><strong>Humidity:</strong> ${weatherData.humidity ? weatherData.humidity + '%' : 'N/A'}</div>
+                <div><strong>Wind:</strong> ${weatherData.windSpeed ? weatherData.windSpeed.toFixed(1) + ' km/h' : 'N/A'}</div>
+                <div><strong>Dir:</strong> ${windDirectionText}</div>
             </div>
-            <div>
-                <strong style="color: #FF9800;">Speed</strong><br>
-                ${point.speed.toFixed(1)} km/h
-            </div>
-            <div>
-                <strong style="color: ${getHeartRateColor(point.heartRate || 0)};">Heart Rate</strong><br>
-                ${point.heartRate || 0} bpm
-            </div>
+            ${weatherDescription !== 'Code 0' ? `<div style="font-size: 9px; color: #666; margin-top: 2px;">${weatherDescription}</div>` : ''}
         </div>
-        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd; font-size: 10px; color: #666;">
-            Coordinates: ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}
-        </div>
-        ${isGPXTrack ? '<div style="font-size: 9px; color: #999; margin-top: 4px;">📁 GPX File Data</div>' : ''}
     `;
-
-    infoPopup.innerHTML = content;
-    
-    // Get mouse position relative to the page
-    let x, y;
-    
-    if (event.native) {
-        // Chart.js provides native event
-        x = event.native.pageX || event.native.clientX;
-        y = event.native.pageY || event.native.clientY;
-    } else {
-        // Fallback to event coordinates
-        x = event.pageX || event.clientX;
-        y = event.pageY || event.clientY;
-    }
-    
-    // Position popup near mouse cursor
-    infoPopup.style.left = (x + 15) + 'px';
-    infoPopup.style.top = (y - 10) + 'px';
-    infoPopup.style.display = 'block';
-
-    addDebugMessage(`Info popup shown at coordinates: ${x}, ${y} for ${isGPXTrack ? 'GPX track' : 'live session'}`, 'interaction');
-
-    // Adjust position if popup goes off screen
-    setTimeout(() => {
-        const popupRect = infoPopup.getBoundingClientRect();
-        const windowWidth = window.innerWidth;
-        const windowHeight = window.innerHeight;
-
-        let newX = x + 15;
-        let newY = y - 10;
-
-        if (popupRect.right > windowWidth) {
-            newX = x - popupRect.width - 15;
-        }
-        if (popupRect.bottom > windowHeight) {
-            newY = y - popupRect.height + 10;
-        }
-        
-        infoPopup.style.left = newX + 'px';
-        infoPopup.style.top = newY + 'px';
-        
-        addDebugMessage(`Popup repositioned to: ${newX}, ${newY}`, 'interaction');
-    }, 1);
 }
 
-// Hide info popup
-function hideInfoPopup() {
-    if (infoPopup) {
-        infoPopup.style.display = 'none';
+// Function to test chart interaction functionality
+function testChartInteraction() {
+    console.log('🧪 Testing chart interaction setup...');
+
+    const tests = {
+        altitudeChart: !!altitudeChart,
+        speedChart: !!speedChart,
+        infoPopup: !!infoPopup,
+        trackPoints: Object.keys(trackPoints).length > 0,
+        hasCanvasElements: !!document.getElementById('altitudeChart') && !!document.getElementById('speedChart')
+    };
+
+    console.log('🧪 Chart interaction test results:', tests);
+    addDebugMessage(`Chart interaction test: ${JSON.stringify(tests)}`, 'system');
+
+    if (tests.altitudeChart && tests.speedChart) {
+        addDebugMessage('✅ Charts properly initialized with hover support', 'system');
+    } else {
+        addDebugMessage('❌ Chart initialization issues detected', 'error');
+    }
+
+    if (!tests.infoPopup) {
+        addDebugMessage('❌ Info popup not created, attempting recreation', 'error');
+        createInfoPopup();
+    }
+}
+
+// Weather data logging function
+function logWeatherData(data) {
+    if (data.temperature !== undefined && data.temperature > 0) {
+        const weatherDesc = getWeatherDescription(data.weatherCode || 0);
+        const windDir = getWindDirectionText(data.windDirection || 0);
+
+        addDebugMessage(
+            `Weather Update: ${data.temperature}°C, ${data.relativeHumidity}% humidity, ` +
+            `${data.windSpeed}km/h ${windDir} wind, ${weatherDesc}`,
+            'weather'
+        );
+    }
+}
+
+// Weather data validation function
+function validateWeatherData(point) {
+    const weatherFields = ['temperature', 'windSpeed', 'windDirection', 'relativeHumidity', 'weatherCode'];
+    const hasWeatherData = weatherFields.some(field =>
+        point[field] !== undefined && point[field] !== null && point[field] !== 0
+    );
+
+    if (hasWeatherData) {
+        addDebugMessage(`Valid weather data found in point: ${JSON.stringify({
+            temp: point.temperature,
+            wind: point.windSpeed,
+            humidity: point.relativeHumidity,
+            code: point.weatherCode
+        })}`, 'weather');
+    } else {
+        addDebugMessage('No weather data found in this point', 'weather');
+    }
+
+    return hasWeatherData;
+}
+
+// Weather statistics update function
+function updateWeatherStats(point) {
+    if (point.temperature !== undefined && point.temperature > 0) {
+        weatherStats.totalUpdates++;
+        weatherStats.lastTemperature = point.temperature;
+        weatherStats.lastUpdate = new Date();
+
+        if (weatherStats.temperatureRange.min === null || point.temperature < weatherStats.temperatureRange.min) {
+            weatherStats.temperatureRange.min = point.temperature;
+        }
+        if (weatherStats.temperatureRange.max === null || point.temperature > weatherStats.temperatureRange.max) {
+            weatherStats.temperatureRange.max = point.temperature;
+        }
+
+        // Log weather statistics every 10 updates
+        if (weatherStats.totalUpdates % 10 === 0) {
+            addDebugMessage(
+                `Weather Stats: ${weatherStats.totalUpdates} updates, ` +
+                `Temp range: ${weatherStats.temperatureRange.min}°C - ${weatherStats.temperatureRange.max}°C, ` +
+                `Last: ${weatherStats.lastTemperature}°C`,
+                'weather-stats'
+            );
+        }
     }
 }
 
@@ -654,16 +1115,16 @@ function calculateDistance(lat1, lng1, lat2, lng2) {
 // Function to interpolate point along a line at specific distance
 function interpolatePoint(startPoint, endPoint, targetDistance, currentDistance) {
     const segmentDistance = calculateDistance(
-        startPoint.lat, startPoint.lng, 
+        startPoint.lat, startPoint.lng,
         endPoint.lat, endPoint.lng
     );
-    
+
     if (segmentDistance === 0) return null;
-    
+
     const ratio = (targetDistance - currentDistance) / segmentDistance;
-    
+
     if (ratio < 0 || ratio > 1) return null;
-    
+
     return {
         lat: startPoint.lat + (endPoint.lat - startPoint.lat) * ratio,
         lng: startPoint.lng + (endPoint.lng - startPoint.lng) * ratio
@@ -675,66 +1136,66 @@ function createDistanceMarkers(sessionId, trackPoints, isGPX = false) {
     if (!distanceMarkerSettings.enabled) return;
     if (isGPX && !distanceMarkerSettings.showForGPX) return;
     if (!isGPX && !distanceMarkerSettings.showForLive) return;
-    
+
     // Remove existing distance markers for this session
     removeDistanceMarkers(sessionId);
-    
+
     if (!trackPoints || trackPoints.length < 2) return;
-    
+
     const markers = [];
     const interval = distanceMarkerSettings.interval; // meters
     let cumulativeDistance = 0;
     let nextMarkerDistance = interval;
-    
+
     addDebugMessage(`Creating distance markers for ${sessionId}, interval: ${interval}m`, 'distance-markers');
-    
+
     for (let i = 1; i < trackPoints.length; i++) {
         const prevPoint = trackPoints[i - 1];
         const currentPoint = trackPoints[i];
-        
+
         const segmentDistance = calculateDistance(
             prevPoint.lat, prevPoint.lng,
             currentPoint.lat, currentPoint.lng
         );
-        
+
         const segmentStart = cumulativeDistance;
         const segmentEnd = cumulativeDistance + segmentDistance;
-        
+
         // Check if we need to place markers in this segment
         while (nextMarkerDistance <= segmentEnd) {
             const markerPoint = interpolatePoint(
-                prevPoint, currentPoint, 
+                prevPoint, currentPoint,
                 nextMarkerDistance, segmentStart
             );
-            
+
             if (markerPoint) {
                 const markerIndex = Math.round(nextMarkerDistance / interval);
                 const marker = createDistanceMarker(
-                    markerPoint.lat, 
-                    markerPoint.lng, 
-                    markerIndex, 
+                    markerPoint.lat,
+                    markerPoint.lng,
+                    markerIndex,
                     sessionId,
                     isGPX
                 );
-                
+
                 if (marker) {
                     markers.push(marker);
                     addDebugMessage(`Added distance marker at ${markerIndex}km for ${sessionId}`, 'distance-markers');
                 }
             }
-            
+
             nextMarkerDistance += interval;
         }
-        
+
         cumulativeDistance = segmentEnd;
     }
-    
+
     // Store markers for this session
     distanceMarkers[sessionId] = markers;
-    
+
     // Update marker visibility based on zoom level
     updateDistanceMarkerVisibility();
-    
+
     addDebugMessage(`Created ${markers.length} distance markers for ${sessionId}`, 'distance-markers');
 }
 
@@ -743,14 +1204,14 @@ function createDistanceMarker(lat, lng, distanceKm, sessionId, isGPX = false) {
     try {
         const markerClass = isGPX ? 'distance-marker gpx-marker' : 'distance-marker';
         const sessionColor = isGPX ? '#f44336' : getColorForUser(sessionId);
-        
+
         const icon = L.divIcon({
             html: `<div style="background-color: ${sessionColor}; border: 2px solid white; border-radius: 50%; color: white; font-weight: bold; font-size: 11px; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${distanceKm}</div>`,
             className: markerClass,
             iconSize: distanceMarkerSettings.iconSize,
             iconAnchor: [distanceMarkerSettings.iconSize[0]/2, distanceMarkerSettings.iconSize[1]/2]
         });
-        
+
         const marker = L.marker([lat, lng], { icon })
             .bindTooltip(`${distanceKm}km - ${sessionId}`, {
                 permanent: false,
@@ -758,14 +1219,14 @@ function createDistanceMarker(lat, lng, distanceKm, sessionId, isGPX = false) {
                 offset: [0, -12]
             })
             .addTo(map);
-        
+
         // Store metadata
         marker._distanceKm = distanceKm;
         marker._sessionId = sessionId;
         marker._isGPX = isGPX;
-        
+
         return marker;
-        
+
     } catch (error) {
         addDebugMessage(`Error creating distance marker: ${error.message}`, 'error');
         return null;
@@ -789,17 +1250,17 @@ function removeDistanceMarkers(sessionId) {
 function updateDistanceMarkerVisibility() {
     const currentZoom = map.getZoom();
     const showAll = distanceMarkerSettings.showAll;
-    
+
     Object.keys(distanceMarkers).forEach(sessionId => {
         const markers = distanceMarkers[sessionId];
         if (!markers) return;
-        
+
         markers.forEach((marker, index) => {
             if (!marker || !marker._distanceKm) return;
-            
+
             const distanceKm = marker._distanceKm;
             let shouldShow = true;
-            
+
             // Progressive visibility based on zoom level
             if (currentZoom < showAll - 2) {
                 // Show every 5km at very low zoom
@@ -814,7 +1275,7 @@ function updateDistanceMarkerVisibility() {
                 // Show all at high zoom
                 shouldShow = true;
             }
-            
+
             if (shouldShow && !map.hasLayer(marker)) {
                 map.addLayer(marker);
             } else if (!shouldShow && map.hasLayer(marker)) {
@@ -827,10 +1288,10 @@ function updateDistanceMarkerVisibility() {
 // Function to toggle distance markers for a session
 function toggleDistanceMarkers(sessionId, visible = null) {
     if (!distanceMarkers[sessionId]) return;
-    
+
     const markers = distanceMarkers[sessionId];
     const shouldShow = visible !== null ? visible : !map.hasLayer(markers[0]);
-    
+
     markers.forEach(marker => {
         if (shouldShow && !map.hasLayer(marker)) {
             map.addLayer(marker);
@@ -838,13 +1299,13 @@ function toggleDistanceMarkers(sessionId, visible = null) {
             map.removeLayer(marker);
         }
     });
-    
+
     addDebugMessage(`Toggled distance markers for ${sessionId} to ${shouldShow ? 'visible' : 'hidden'}`, 'distance-markers');
 }
 
 function updateDistanceMarkerSettings(newSettings) {
     Object.assign(distanceMarkerSettings, newSettings);
-    
+
     // Recreate all markers with new settings
     const sessionIds = Object.keys(distanceMarkers);
     sessionIds.forEach(sessionId => {
@@ -853,7 +1314,7 @@ function updateDistanceMarkerSettings(newSettings) {
             createDistanceMarkers(sessionId, trackPoints[sessionId], isGPX);
         }
     });
-    
+
     addDebugMessage(`Updated distance marker settings: ${JSON.stringify(newSettings)}`, 'distance-markers');
 }
 
@@ -861,7 +1322,7 @@ function updateDistanceMarkerSettings(newSettings) {
 function updateMapTrackWithDistanceMarkers(sessionId) {
     // Call the original updateMapTrack function
     updateMapTrack(sessionId);
-    
+
     // Add distance markers if enabled
     if (distanceMarkerSettings.enabled && trackPoints[sessionId]) {
         createDistanceMarkers(sessionId, trackPoints[sessionId], false);
@@ -872,7 +1333,7 @@ function updateMapTrackWithDistanceMarkers(sessionId) {
 function visualizeGPXDataWithDistanceMarkers(gpxTrackPoints) {
     // Call the original visualizeGPXData function
     visualizeGPXData(gpxTrackPoints);
-    
+
     // Add distance markers for GPX if enabled
     if (distanceMarkerSettings.showForGPX && trackPoints['GPX Track']) {
         createDistanceMarkers('GPX Track', trackPoints['GPX Track'], true);
@@ -882,7 +1343,7 @@ function visualizeGPXDataWithDistanceMarkers(gpxTrackPoints) {
 // Event listeners for zoom changes
 function setupDistanceMarkerEventListeners() {
     map.on('zoomend', updateDistanceMarkerVisibility);
-    
+
     // Also update when map view changes significantly
     map.on('moveend', () => {
         // Only update if zoom changed
@@ -894,7 +1355,7 @@ function setupDistanceMarkerEventListeners() {
 function toggleMapElementsVisibilityWithMarkers(sessionId, visible) {
     // Call original function
     toggleMapElementsVisibility(sessionId, visible);
-    
+
     // Toggle distance markers
     toggleDistanceMarkers(sessionId, visible);
 }
@@ -903,7 +1364,7 @@ function toggleMapElementsVisibilityWithMarkers(sessionId, visible) {
 function addDistanceMarkerControls() {
     const gpxUpload = document.getElementById('gpxUpload');
     if (!gpxUpload) return;
-    
+
     const distanceControls = document.createElement('div');
     distanceControls.style.marginTop = '5px';
     distanceControls.innerHTML = `
@@ -920,14 +1381,14 @@ function addDistanceMarkerControls() {
             </select>
         </div>
     `;
-    
+
     gpxUpload.appendChild(distanceControls);
-    
+
     // Add event listeners
     document.getElementById('toggleDistanceMarkers').addEventListener('change', (e) => {
         updateDistanceMarkerSettings({ enabled: e.target.checked });
     });
-    
+
     document.getElementById('distanceInterval').addEventListener('change', (e) => {
         updateDistanceMarkerSettings({ interval: parseInt(e.target.value) });
     });
@@ -937,13 +1398,13 @@ function addDistanceMarkerControls() {
 function initializeDistanceMarkers() {
     // Inject CSS styles
     injectDistanceMarkerStyles();
-    
+
     // Add UI controls
     addDistanceMarkerControls();
-    
+
     // Setup event listeners
     setupDistanceMarkerEventListeners();
-    
+
     addDebugMessage('Distance markers system initialized', 'distance-markers');
 }
 
@@ -966,6 +1427,16 @@ function connectToWebSocket() {
 
         // Add to debug log first
         addDebugMessage(JSON.stringify(message, null, 2), message.type);
+
+        // NEW: Log weather data if present in the message
+        if (message.type === 'update' && message.point) {
+            logWeatherData(message.point);
+        } else if (message.type === 'history_batch' && message.points) {
+            // Log weather data from batch points (just the first one to avoid spam)
+            if (message.points.length > 0) {
+                logWeatherData(message.points[0]);
+            }
+        }
 
         switch (message.type) {
             case 'history_batch':
@@ -1011,6 +1482,8 @@ function connectToWebSocket() {
 function handleHistoryBatch(points) {
     if (!points || points.length === 0) return;
 
+    console.log('📦 Processing history batch:', points.length, 'points');
+
     isProcessingBatch = true;
 
     points.forEach(point => {
@@ -1026,7 +1499,7 @@ function handleHistoryBatch(points) {
             trackPoints[sessionId] = [];
         }
 
-        // Convert data types and add to trackPoints
+        // Convert data types and add to trackPoints - WITH FIXED WEATHER DATA
         const processedPoint = {
             lat: parseFloat(point.latitude),
             lng: parseFloat(point.longitude),
@@ -1035,10 +1508,29 @@ function handleHistoryBatch(points) {
             speed: parseFloat(point.currentSpeed || 0),
             averageSpeed: parseFloat(point.averageSpeed || 0),
             cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
-            heartRate: parseInt(point.heartRate || 0), // Add heart rate extraction
+            heartRate: parseInt(point.heartRate || 0),
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
-            personName: personName
+            personName: personName,
+
+            // FIXED: Extract weather data with correct field names
+            temperature: parseFloat(point.temperature || 0),
+            windSpeed: parseFloat(point.windSpeed || 0),
+            windDirection: parseFloat(point.windDirection || 0),
+            relativeHumidity: parseInt(point.relativeHumidity || point.humidity || 0), // Support both field names
+            weatherCode: parseInt(point.weatherCode || 0),
+            weatherTime: point.weatherTime || ""
         };
+
+        console.log('🌤️ Processed point weather data:', {
+            sessionId,
+            temperature: processedPoint.temperature,
+            windSpeed: processedPoint.windSpeed,
+            relativeHumidity: processedPoint.relativeHumidity
+        });
+
+        // Validate and track weather data
+        validateWeatherData(processedPoint);
+        updateWeatherStats(processedPoint);
 
         trackPoints[sessionId].push(processedPoint);
     });
@@ -1065,9 +1557,18 @@ function finalizeBatchProcessing() {
                     averageSpeed: latestPoint.averageSpeed,
                     cumulativeElevationGain: latestPoint.cumulativeElevationGain,
                     heartRate: latestPoint.heartRate,
-                    distance: latestPoint.distance, // Pass the distance to updateSpeedDisplay
+                    distance: latestPoint.distance,
                     personName: latestPoint.personName ||
-                        (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || ""
+                        (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || "",
+                    // Pass weather data to display function
+                    weather: {
+                        temperature: latestPoint.temperature,
+                        windSpeed: latestPoint.windSpeed,
+                        windDirection: latestPoint.windDirection,
+                        relativeHumidity: latestPoint.relativeHumidity,
+                        weatherCode: latestPoint.weatherCode,
+                        weatherTime: latestPoint.weatherTime
+                    }
                 });
             }
         });
@@ -1099,11 +1600,23 @@ function handlePoint(data) {
         maxSpeed: parseFloat(data.maxSpeed || 0),
         movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
-        heartRate: parseInt(data.heartRate || 0), // Add heart rate extraction
+        heartRate: parseInt(data.heartRate || 0),
         timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
         // Store the person's name for use in display
-        personName: personName
+        personName: personName,
+
+        // NEW: Extract weather data from the incoming message
+        temperature: parseFloat(data.temperature || 0),
+        windSpeed: parseFloat(data.windSpeed || 0),
+        windDirection: parseFloat(data.windDirection || 0),
+        relativeHumidity: parseInt(data.relativeHumidity || 0),
+        weatherCode: parseInt(data.weatherCode || 0),
+        weatherTime: data.weatherTime || ""
     };
+
+    // Validate and track weather data
+    validateWeatherData(processedPoint);
+    updateWeatherStats(processedPoint);
 
     if (!trackPoints[sessionId]) {
         trackPoints[sessionId] = [];
@@ -1121,9 +1634,17 @@ function handlePoint(data) {
             movingAverageSpeed: processedPoint.movingAverageSpeed,
             cumulativeElevationGain: processedPoint.cumulativeElevationGain,
             heartRate: processedPoint.heartRate,
-            distance: processedPoint.distance, // Pass the distance to updateSpeedDisplay
-            // Pass the person name to the display function
-            personName: processedPoint.personName
+            distance: processedPoint.distance,
+            personName: processedPoint.personName,
+            // Pass weather data to display function
+            weather: {
+                temperature: processedPoint.temperature,
+                windSpeed: processedPoint.windSpeed,
+                windDirection: processedPoint.windDirection,
+                relativeHumidity: processedPoint.relativeHumidity,
+                weatherCode: processedPoint.weatherCode,
+                weatherTime: processedPoint.weatherTime
+            }
         });
     });
 }
@@ -1271,7 +1792,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
             movingAvg: 0,
             elevationGain: 0,
             heartRate: 0,
-            totalDistance: 0, // Add distance tracking
+            totalDistance: 0,
             lastUpdate: new Date(),
             personName: personName
         };
@@ -1550,7 +2071,7 @@ function resetMap() {
         speedHistory = {};
         sessionPersonNames = {}; // Also clear session person names
         userColors = {};
-	distanceMarkers = {};
+        distanceMarkers = {};
 
         // Remove all session containers from the speed display
         const speedDisplay = document.getElementById('speedDisplay');
@@ -1566,7 +2087,7 @@ function resetMap() {
             'avgSpeed': '0.0',
             'movingAvg': '0.0',
             'elevationGain': '0.0',
-            'totalDistance': '0.0', // Add the new totalDistance field
+            'totalDistance': '0.0',
             'heartRate': '0'
         };
 
@@ -1640,238 +2161,238 @@ function resetMap() {
             return;
         }
 
-            // Clear map layers safely
-            Object.keys(polylines).forEach(key => {
-                if (polylines[key] && map.hasLayer(polylines[key])) {
-                    map.removeLayer(polylines[key]);
-                }
-            });
-
-            Object.keys(startMarkers).forEach(key => {
-                if (startMarkers[key] && map.hasLayer(startMarkers[key])) {
-                    map.removeLayer(startMarkers[key]);
-                }
-            });
-
-            Object.keys(endMarkers).forEach(key => {
-                if (endMarkers[key] && map.hasLayer(endMarkers[key])) {
-                    map.removeLayer(endMarkers[key]);
-                }
-            });
-
-            polylines = {};
-            startMarkers = {};
-            endMarkers = {};
-
-            if (gpxPolyline && map.hasLayer(gpxPolyline)) {
-                map.removeLayer(gpxPolyline);
-                gpxPolyline = null;
+        // Clear map layers safely
+        Object.keys(polylines).forEach(key => {
+            if (polylines[key] && map.hasLayer(polylines[key])) {
+                map.removeLayer(polylines[key]);
             }
+        });
 
-            // Reset charts
-            altitudeChart.data.datasets = [];
-            speedChart.data.datasets = [];
-            altitudeChart.update();
-            speedChart.update();
-
-            // Reset map view
-            map.setView([48.1818798, 16.3607528], 10);
-
-            // Clear file input
-            const fileInput = document.getElementById('gpxFile');
-            if (fileInput) {
-                fileInput.value = '';
+        Object.keys(startMarkers).forEach(key => {
+            if (startMarkers[key] && map.hasLayer(startMarkers[key])) {
+                map.removeLayer(startMarkers[key]);
             }
+        });
 
-            addDebugMessage('Map reset completed successfully', 'system');
-        } catch (error) {
-            console.error('Error during map reset:', error);
-            addDebugMessage(`Error during map reset: ${error.message}`, 'error');
+        Object.keys(endMarkers).forEach(key => {
+            if (endMarkers[key] && map.hasLayer(endMarkers[key])) {
+                map.removeLayer(endMarkers[key]);
+            }
+        });
+
+        polylines = {};
+        startMarkers = {};
+        endMarkers = {};
+
+        if (gpxPolyline && map.hasLayer(gpxPolyline)) {
+            map.removeLayer(gpxPolyline);
+            gpxPolyline = null;
         }
-    }
 
-    // Function to check if the map has loaded properly
-    function isMapLoaded() {
-        return map && typeof map.getCenter === 'function';
-    }
+        // Reset charts
+        altitudeChart.data.datasets = [];
+        speedChart.data.datasets = [];
+        altitudeChart.update();
+        speedChart.update();
 
-    // GPX file handling
-    async function loadGPX() {
+        // Reset map view
+        map.setView([48.1818798, 16.3607528], 10);
+
+        // Clear file input
         const fileInput = document.getElementById('gpxFile');
-        const file = fileInput.files[0];
+        if (fileInput) {
+            fileInput.value = '';
+        }
 
-        if (!file) {
-            alert('Please select a GPX file first.');
-            addDebugMessage('GPX file load attempted but no file selected', 'error');
+        addDebugMessage('Map reset completed successfully', 'system');
+    } catch (error) {
+        console.error('Error during map reset:', error);
+        addDebugMessage(`Error during map reset: ${error.message}`, 'error');
+    }
+}
+
+// Function to check if the map has loaded properly
+function isMapLoaded() {
+    return map && typeof map.getCenter === 'function';
+}
+
+// GPX file handling
+async function loadGPX() {
+    const fileInput = document.getElementById('gpxFile');
+    const file = fileInput.files[0];
+
+    if (!file) {
+        alert('Please select a GPX file first.');
+        addDebugMessage('GPX file load attempted but no file selected', 'error');
+        return;
+    }
+
+    addDebugMessage(`Loading GPX file: ${file.name}`, 'gpx');
+
+    try {
+        const gpxText = await readFileAsync(file);
+        addDebugMessage(`GPX file loaded: ${file.name} (${Math.round(gpxText.length / 1024)} KB)`, 'gpx');
+
+        const parser = new DOMParser();
+        const gpxDoc = parser.parseFromString(gpxText, "text/xml");
+
+        // Reset previous GPX data
+        if (gpxPolyline && map.hasLayer(gpxPolyline)) {
+            map.removeLayer(gpxPolyline);
+        }
+
+        const trackPoints = processGPXTrack(gpxDoc);
+        if (!trackPoints.coordinates.length) {
+            alert('No valid track points found in GPX file.');
+            addDebugMessage('No valid track points found in GPX file', 'error');
             return;
         }
 
-        addDebugMessage(`Loading GPX file: ${file.name}`, 'gpx');
+        addDebugMessage(`Processed GPX track: ${trackPoints.coordinates.length} points`, 'gpx');
+        visualizeGPXData(trackPoints);
 
-        try {
-            const gpxText = await readFileAsync(file);
-            addDebugMessage(`GPX file loaded: ${file.name} (${Math.round(gpxText.length / 1024)} KB)`, 'gpx');
+    } catch (error) {
+        console.error('Error processing GPX file:', error);
+        alert('Error processing GPX file. Please check the console for details.');
+        addDebugMessage(`Error processing GPX file: ${error.message}`, 'error');
+    }
+}
 
-            const parser = new DOMParser();
-            const gpxDoc = parser.parseFromString(gpxText, "text/xml");
+function readFileAsync(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = (e) => reject(e);
+        reader.readAsText(file);
+    });
+}
 
-            // Reset previous GPX data
-            if (gpxPolyline && map.hasLayer(gpxPolyline)) {
-                map.removeLayer(gpxPolyline);
+function processGPXTrack(gpxDoc) {
+    const trackPoints = {
+        coordinates: [],
+        altitudes: [],
+        times: [],
+        distances: [0],
+        speeds: [],
+        customData: [] // Store additional GPX data
+    };
+
+    addDebugMessage('Starting GPX track processing', 'gpx');
+
+    const points = gpxDoc.getElementsByTagName('trkpt');
+    let lastCoord = null;
+    let cumulativeDistance = 0;
+
+    for (let i = 0; i < points.length; i++) {
+        const point = points[i];
+        const lat = parseFloat(point.getAttribute('lat'));
+        const lon = parseFloat(point.getAttribute('lon'));
+
+        trackPoints.coordinates.push([lat, lon]);
+
+        // Extract elevation
+        const ele = point.getElementsByTagName('ele')[0];
+        const altitude = ele ? parseFloat(ele.textContent) : 0;
+        trackPoints.altitudes.push(altitude);
+
+        // Extract time
+        const time = point.getElementsByTagName('time')[0];
+        const timestamp = time ? new Date(time.textContent) : new Date();
+        trackPoints.times.push(timestamp);
+
+        // Extract speed - try multiple sources and convert from m/s to km/h
+        let speed = 0;
+        let speedMPS = 0;
+
+        // Try direct speed element first
+        const speedElement = point.getElementsByTagName('speed')[0];
+        if (speedElement) {
+            speedMPS = parseFloat(speedElement.textContent);
+            speed = (speedMPS / 1000) * 3600; // Convert m/s to km/h
+        } else {
+            // Try custom extension speed
+            const customSpeed = point.getElementsByTagName('custom:speed')[0];
+            if (customSpeed) {
+                speedMPS = parseFloat(customSpeed.textContent);
+                speed = (speedMPS / 1000) * 3600; // Convert m/s to km/h
             }
-
-            const trackPoints = processGPXTrack(gpxDoc);
-            if (!trackPoints.coordinates.length) {
-                alert('No valid track points found in GPX file.');
-                addDebugMessage('No valid track points found in GPX file', 'error');
-                return;
-            }
-
-            addDebugMessage(`Processed GPX track: ${trackPoints.coordinates.length} points`, 'gpx');
-            visualizeGPXData(trackPoints);
-
-        } catch (error) {
-            console.error('Error processing GPX file:', error);
-            alert('Error processing GPX file. Please check the console for details.');
-            addDebugMessage(`Error processing GPX file: ${error.message}`, 'error');
         }
-    }
+        trackPoints.speeds.push(speed);
 
-    function readFileAsync(file) {
-        return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = (e) => reject(e);
-            reader.readAsText(file);
-        });
-    }
+        // Log speed conversion for first few points
+        if (i < 3 && speedMPS > 0) {
+            addDebugMessage(`Speed conversion point ${i}: ${speedMPS.toFixed(2)} m/s → ${speed.toFixed(2)} km/h`, 'gpx');
+        }
 
-    function processGPXTrack(gpxDoc) {
-        const trackPoints = {
-            coordinates: [],
-            altitudes: [],
-            times: [],
-            distances: [0],
-            speeds: [],
-            customData: [] // Store additional GPX data
+        // Extract distance from custom extensions
+        let distance = 0;
+        const customDistance = point.getElementsByTagName('custom:distance')[0];
+        if (customDistance) {
+            distance = parseFloat(customDistance.textContent) / 1000; // Convert to km
+        } else {
+            // Calculate cumulative distance if not provided
+            if (lastCoord) {
+                const distanceMeters = map.distance(lastCoord, [lat, lon]);
+                cumulativeDistance += distanceMeters;
+                distance = cumulativeDistance / 1000; // Convert to km
+            }
+        }
+        trackPoints.distances.push(distance);
+
+        // Store additional custom data
+        const customData = {
+            lat: lat,
+            lng: lon,
+            altitude: altitude,
+            speed: speed,
+            distance: distance,
+            timestamp: timestamp,
+            lap: 0,
+            type: 'gpx'
         };
 
-        addDebugMessage('Starting GPX track processing', 'gpx');
-
-        const points = gpxDoc.getElementsByTagName('trkpt');
-        let lastCoord = null;
-        let cumulativeDistance = 0;
-
-        for (let i = 0; i < points.length; i++) {
-            const point = points[i];
-            const lat = parseFloat(point.getAttribute('lat'));
-            const lon = parseFloat(point.getAttribute('lon'));
-            
-            trackPoints.coordinates.push([lat, lon]);
-
-            // Extract elevation
-            const ele = point.getElementsByTagName('ele')[0];
-            const altitude = ele ? parseFloat(ele.textContent) : 0;
-            trackPoints.altitudes.push(altitude);
-
-            // Extract time
-            const time = point.getElementsByTagName('time')[0];
-            const timestamp = time ? new Date(time.textContent) : new Date();
-            trackPoints.times.push(timestamp);
-
-            // Extract speed - try multiple sources and convert from m/s to km/h
-            let speed = 0;
-            let speedMPS = 0;
-            
-            // Try direct speed element first
-            const speedElement = point.getElementsByTagName('speed')[0];
-            if (speedElement) {
-                speedMPS = parseFloat(speedElement.textContent);
-                speed = (speedMPS / 1000) * 3600; // Convert m/s to km/h
-            } else {
-                // Try custom extension speed
-                const customSpeed = point.getElementsByTagName('custom:speed')[0];
-                if (customSpeed) {
-                    speedMPS = parseFloat(customSpeed.textContent);
-                    speed = (speedMPS / 1000) * 3600; // Convert m/s to km/h
-                }
-            }
-            trackPoints.speeds.push(speed);
-
-            // Log speed conversion for first few points
-            if (i < 3 && speedMPS > 0) {
-                addDebugMessage(`Speed conversion point ${i}: ${speedMPS.toFixed(2)} m/s → ${speed.toFixed(2)} km/h`, 'gpx');
-            }
-
-            // Extract distance from custom extensions
-            let distance = 0;
-            const customDistance = point.getElementsByTagName('custom:distance')[0];
-            if (customDistance) {
-                distance = parseFloat(customDistance.textContent) / 1000; // Convert to km
-            } else {
-                // Calculate cumulative distance if not provided
-                if (lastCoord) {
-                    const distanceMeters = map.distance(lastCoord, [lat, lon]);
-                    cumulativeDistance += distanceMeters;
-                    distance = cumulativeDistance / 1000; // Convert to km
-                }
-            }
-            trackPoints.distances.push(distance);
-
-            // Store additional custom data
-            const customData = {
-                lat: lat,
-                lng: lon,
-                altitude: altitude,
-                speed: speed,
-                distance: distance,
-                timestamp: timestamp,
-                lap: 0,
-                type: 'gpx'
-            };
-
-            // Extract lap information if available
-            const customLap = point.getElementsByTagName('custom:lap')[0];
-            if (customLap) {
-                customData.lap = parseInt(customLap.textContent);
-            }
-
-            // Extract activity type if available
-            const customType = point.getElementsByTagName('custom:type')[0];
-            if (customType) {
-                customData.type = customType.textContent;
-            }
-
-            trackPoints.customData.push(customData);
-            lastCoord = [lat, lon];
+        // Extract lap information if available
+        const customLap = point.getElementsByTagName('custom:lap')[0];
+        if (customLap) {
+            customData.lap = parseInt(customLap.textContent);
         }
 
-        // Remove the first distance entry (which is always 0)
-        if (trackPoints.distances.length > 0) {
-            trackPoints.distances.shift();
+        // Extract activity type if available
+        const customType = point.getElementsByTagName('custom:type')[0];
+        if (customType) {
+            customData.type = customType.textContent;
         }
 
-        // Log summary stats
-        const totalDistance = trackPoints.distances[trackPoints.distances.length - 1] || 0;
-        let minAlt = Infinity, maxAlt = -Infinity;
-        if (trackPoints.altitudes.length > 0) {
-            minAlt = Math.min(...trackPoints.altitudes);
-            maxAlt = Math.max(...trackPoints.altitudes);
-        }
-
-        const maxSpeed = trackPoints.speeds.length > 0 ? Math.max(...trackPoints.speeds) : 0;
-        const avgSpeed = trackPoints.speeds.length > 0 ? 
-            trackPoints.speeds.reduce((sum, speed) => sum + speed, 0) / trackPoints.speeds.length : 0;
-
-        addDebugMessage(`GPX track processed: ${trackPoints.coordinates.length} points,
-            Distance: ${totalDistance.toFixed(2)} km,
-            Altitude range: ${minAlt.toFixed(1)}m - ${maxAlt.toFixed(1)}m,
-            Max speed: ${maxSpeed.toFixed(1)} km/h,
-            Avg speed: ${avgSpeed.toFixed(1)} km/h,
-            Speed conversion: m/s to km/h applied`, 'gpx');
-
-        return trackPoints;
+        trackPoints.customData.push(customData);
+        lastCoord = [lat, lon];
     }
+
+    // Remove the first distance entry (which is always 0)
+    if (trackPoints.distances.length > 0) {
+        trackPoints.distances.shift();
+    }
+
+    // Log summary stats
+    const totalDistance = trackPoints.distances[trackPoints.distances.length - 1] || 0;
+    let minAlt = Infinity, maxAlt = -Infinity;
+    if (trackPoints.altitudes.length > 0) {
+        minAlt = Math.min(...trackPoints.altitudes);
+        maxAlt = Math.max(...trackPoints.altitudes);
+    }
+
+    const maxSpeed = trackPoints.speeds.length > 0 ? Math.max(...trackPoints.speeds) : 0;
+    const avgSpeed = trackPoints.speeds.length > 0 ?
+        trackPoints.speeds.reduce((sum, speed) => sum + speed, 0) / trackPoints.speeds.length : 0;
+
+    addDebugMessage(`GPX track processed: ${trackPoints.coordinates.length} points,
+        Distance: ${totalDistance.toFixed(2)} km,
+        Altitude range: ${minAlt.toFixed(1)}m - ${maxAlt.toFixed(1)}m,
+        Max speed: ${maxSpeed.toFixed(1)} km/h,
+        Avg speed: ${avgSpeed.toFixed(1)} km/h,
+        Speed conversion: m/s to km/h applied`, 'gpx');
+
+    return trackPoints;
+}
 
 function visualizeGPXData(gpxTrackPoints) {
     addDebugMessage('Visualizing GPX data on map and charts', 'gpx');
@@ -1927,7 +2448,14 @@ function visualizeGPXData(gpxTrackPoints) {
             timestamp: customPoint.timestamp,
             personName: 'GPX Track',
             lap: customPoint.lap,
-            activityType: customPoint.type
+            activityType: customPoint.type,
+            // GPX files typically don't have weather data, but we can add empty fields for consistency
+            temperature: 0,
+            windSpeed: 0,
+            windDirection: 0,
+            relativeHumidity: 0,
+            weatherCode: 0,
+            weatherTime: ""
         }));
 
         // Store in the GLOBAL trackPoints object for interactive features
@@ -1949,178 +2477,178 @@ function visualizeGPXData(gpxTrackPoints) {
             speedChart.update('none');
         });
 
-	if (distanceMarkerSettings.showForGPX && trackPoints['GPX Track']) {
-	    createDistanceMarkers('GPX Track', trackPoints['GPX Track'], true);
-	}
+        if (distanceMarkerSettings.showForGPX && trackPoints['GPX Track']) {
+            createDistanceMarkers('GPX Track', trackPoints['GPX Track'], true);
+        }
     }
 }
 
-    function updateSpeedChartFromGPX(gpxTrackPoints) {
-        const speeds = [];
+function updateSpeedChartFromGPX(gpxTrackPoints) {
+    const speeds = [];
 
-        // Use extracted speeds if available, otherwise calculate from time/distance
-        if (gpxTrackPoints.speeds && gpxTrackPoints.speeds.length > 0) {
-            // Use the speeds extracted from GPX extensions
-            for (let i = 0; i < gpxTrackPoints.speeds.length; i++) {
-                if (gpxTrackPoints.distances[i] !== undefined && gpxTrackPoints.speeds[i] !== undefined) {
-                    speeds.push({
-                        x: gpxTrackPoints.distances[i],
-                        y: gpxTrackPoints.speeds[i]
-                    });
-                }
+    // Use extracted speeds if available, otherwise calculate from time/distance
+    if (gpxTrackPoints.speeds && gpxTrackPoints.speeds.length > 0) {
+        // Use the speeds extracted from GPX extensions
+        for (let i = 0; i < gpxTrackPoints.speeds.length; i++) {
+            if (gpxTrackPoints.distances[i] !== undefined && gpxTrackPoints.speeds[i] !== undefined) {
+                speeds.push({
+                    x: gpxTrackPoints.distances[i],
+                    y: gpxTrackPoints.speeds[i]
+                });
             }
-            addDebugMessage(`Speed chart updated with ${speeds.length} extracted speed points from GPX`, 'gpx');
-        } else if (gpxTrackPoints.times && gpxTrackPoints.times.length > 1) {
-            // Fallback to calculating speeds from time/distance
-            for (let i = 1; i < gpxTrackPoints.times.length; i++) {
-                const timeDiff = (gpxTrackPoints.times[i] - gpxTrackPoints.times[i - 1]) / 1000; // seconds
-                const dist = gpxTrackPoints.distances[i] - gpxTrackPoints.distances[i - 1]; // kilometers
-
-                if (timeDiff > 0) {
-                    // Convert to km/h
-                    const speed = (dist / timeDiff) * 3600;
-                    speeds.push({
-                        x: gpxTrackPoints.distances[i],
-                        y: speed
-                    });
-                }
-            }
-            addDebugMessage(`Speed chart updated with ${speeds.length} calculated speed points from GPX`, 'gpx');
         }
+        addDebugMessage(`Speed chart updated with ${speeds.length} extracted speed points from GPX`, 'gpx');
+    } else if (gpxTrackPoints.times && gpxTrackPoints.times.length > 1) {
+        // Fallback to calculating speeds from time/distance
+        for (let i = 1; i < gpxTrackPoints.times.length; i++) {
+            const timeDiff = (gpxTrackPoints.times[i] - gpxTrackPoints.times[i - 1]) / 1000; // seconds
+            const dist = gpxTrackPoints.distances[i] - gpxTrackPoints.distances[i - 1]; // kilometers
 
-        if (speeds.length > 0) {
-            const speedDatasetIndex = speedChart.data.datasets.findIndex(
-                dataset => dataset.label === 'GPX Track'
-            );
-
-            if (speedDatasetIndex !== -1) {
-                speedChart.data.datasets.splice(speedDatasetIndex, 1);
+            if (timeDiff > 0) {
+                // Convert to km/h
+                const speed = (dist / timeDiff) * 3600;
+                speeds.push({
+                    x: gpxTrackPoints.distances[i],
+                    y: speed
+                });
             }
-
-            speedChart.data.datasets.push({
-                label: 'GPX Track',
-                borderColor: 'red',
-                fill: false,
-                data: speeds
-            });
         }
+        addDebugMessage(`Speed chart updated with ${speeds.length} calculated speed points from GPX`, 'gpx');
     }
 
-    // Debug popup functions
-    function toggleDebugPopup() {
-        const popup = document.getElementById('debugPopup');
-        const overlay = document.getElementById('debugOverlay');
-        const button = document.getElementById('debugToggle');
+    if (speeds.length > 0) {
+        const speedDatasetIndex = speedChart.data.datasets.findIndex(
+            dataset => dataset.label === 'GPX Track'
+        );
 
-        if (popup.style.display === 'flex') {
-            popup.style.display = 'none';
-            overlay.style.display = 'none';
-            button.textContent = 'Show Debug Data';
-        } else {
-            popup.style.display = 'flex';
-            overlay.style.display = 'block';
-            button.textContent = 'Hide Debug Data';
-
-            // Scroll to bottom when opening
-            const content = document.getElementById('debugContent');
-            content.scrollTop = content.scrollHeight;
+        if (speedDatasetIndex !== -1) {
+            speedChart.data.datasets.splice(speedDatasetIndex, 1);
         }
-    }
 
-    function addDebugMessage(message, type) {
-        if (debugPaused) return;
-
-        const now = new Date();
-        const timestamp = now.toISOString().split('T')[1].split('.')[0];
-
-        debugMessages.push({
-            timestamp: timestamp,
-            message: message,
-            type: type
+        speedChart.data.datasets.push({
+            label: 'GPX Track',
+            borderColor: 'red',
+            fill: false,
+            data: speeds
         });
-
-        // Limit the number of messages to prevent browser slowdown
-        if (debugMessages.length > maxDebugMessages) {
-            debugMessages.shift();
-        }
-
-        updateDebugContent();
     }
+}
 
-    function updateDebugContent() {
+// Debug popup functions
+function toggleDebugPopup() {
+    const popup = document.getElementById('debugPopup');
+    const overlay = document.getElementById('debugOverlay');
+    const button = document.getElementById('debugToggle');
+
+    if (popup.style.display === 'flex') {
+        popup.style.display = 'none';
+        overlay.style.display = 'none';
+        button.textContent = 'Show Debug Data';
+    } else {
+        popup.style.display = 'flex';
+        overlay.style.display = 'block';
+        button.textContent = 'Hide Debug Data';
+
+        // Scroll to bottom when opening
         const content = document.getElementById('debugContent');
-        if (!content) return;
+        content.scrollTop = content.scrollHeight;
+    }
+}
 
-        const filterText = document.getElementById('debugFilter').value.toLowerCase();
-        const wasAtBottom = content.scrollHeight - content.clientHeight <= content.scrollTop + 5;
+function addDebugMessage(message, type) {
+    if (debugPaused) return;
 
-        let html = '';
-        debugMessages.forEach(entry => {
-            if (filterText && !entry.message.toLowerCase().includes(filterText) &&
-                !entry.type.toLowerCase().includes(filterText)) {
-                return;
-            }
+    const now = new Date();
+    const timestamp = now.toISOString().split('T')[1].split('.')[0];
 
-            let messageClass = 'message';
-            if (entry.type === 'update') messageClass += ' update-message';
-            if (entry.type === 'history_batch') messageClass += ' batch-message';
-            if (entry.type === 'error') messageClass += ' error-message';
+    debugMessages.push({
+        timestamp: timestamp,
+        message: message,
+        type: type
+    });
 
-            html += `<div class="${messageClass}">
-                <span class="message-timestamp">[${entry.timestamp}]</span>
-                <span class="message-type">[${entry.type}]</span>
-                <pre>${entry.message}</pre>
-            </div>`;
-        });
+    // Limit the number of messages to prevent browser slowdown
+    if (debugMessages.length > maxDebugMessages) {
+        debugMessages.shift();
+    }
 
-        content.innerHTML = html;
+    updateDebugContent();
+}
 
-        // If previously at bottom, scroll to bottom after update
-        if (wasAtBottom) {
-            content.scrollTop = content.scrollHeight;
+function updateDebugContent() {
+    const content = document.getElementById('debugContent');
+    if (!content) return;
+
+    const filterText = document.getElementById('debugFilter').value.toLowerCase();
+    const wasAtBottom = content.scrollHeight - content.clientHeight <= content.scrollTop + 5;
+
+    let html = '';
+    debugMessages.forEach(entry => {
+        if (filterText && !entry.message.toLowerCase().includes(filterText) &&
+            !entry.type.toLowerCase().includes(filterText)) {
+            return;
         }
+
+        let messageClass = 'message';
+        if (entry.type === 'update') messageClass += ' update-message';
+        if (entry.type === 'history_batch') messageClass += ' batch-message';
+        if (entry.type === 'error') messageClass += ' error-message';
+
+        html += `<div class="${messageClass}">
+            <span class="message-timestamp">[${entry.timestamp}]</span>
+            <span class="message-type">[${entry.type}]</span>
+            <pre>${entry.message}</pre>
+        </div>`;
+    });
+
+    content.innerHTML = html;
+
+    // If previously at bottom, scroll to bottom after update
+    if (wasAtBottom) {
+        content.scrollTop = content.scrollHeight;
     }
+}
 
-    function filterDebugMessages() {
-        updateDebugContent();
+function filterDebugMessages() {
+    updateDebugContent();
+}
+
+function clearDebugLog() {
+    debugMessages = [];
+    updateDebugContent();
+    addDebugMessage('Debug log cleared', 'system');
+}
+
+function pauseDebugLog() {
+    debugPaused = !debugPaused;
+    const pauseButton = document.getElementById('pauseButton');
+    pauseButton.textContent = debugPaused ? 'Resume' : 'Pause';
+
+    if (!debugPaused) {
+        addDebugMessage('Debug logging resumed', 'system');
     }
+}
 
-    function clearDebugLog() {
-        debugMessages = [];
-        updateDebugContent();
-        addDebugMessage('Debug log cleared', 'system');
-    }
+function exportDebugLog() {
+    const content = debugMessages.map(entry =>
+        `[${entry.timestamp}] [${entry.type}] ${entry.message}`
+    ).join('\n');
 
-    function pauseDebugLog() {
-        debugPaused = !debugPaused;
-        const pauseButton = document.getElementById('pauseButton');
-        pauseButton.textContent = debugPaused ? 'Resume' : 'Pause';
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
 
-        if (!debugPaused) {
-            addDebugMessage('Debug logging resumed', 'system');
-        }
-    }
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `debug-log-${new Date().toISOString().split('.')[0].replace(/[:.]/g, '-')}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 
-    function exportDebugLog() {
-        const content = debugMessages.map(entry =>
-            `[${entry.timestamp}] [${entry.type}] ${entry.message}`
-        ).join('\n');
+    addDebugMessage('Debug log exported', 'system');
+}
 
-        const blob = new Blob([content], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `debug-log-${new Date().toISOString().split('.')[0].replace(/[:.]/g, '-')}.txt`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        addDebugMessage('Debug log exported', 'system');
-    }
-
-    function handleSessionList(sessions) {
+function handleSessionList(sessions) {
     console.log("Raw sessions data:", sessions);
     addDebugMessage(`Raw sessions data: ${JSON.stringify(sessions)}`, 'debug');
 
@@ -2135,455 +2663,457 @@ function visualizeGPXData(gpxTrackPoints) {
     addDebugMessage(`Processed ${sessions.length} sessions`, 'system');
 }
 
-    // Toggle session visibility on map and charts
-    function toggleSessionVisibility(sessionId) {
-        addDebugMessage(`Toggle visibility requested for session ${sessionId}`, 'system');
+// Toggle session visibility on map and charts
+function toggleSessionVisibility(sessionId) {
+    addDebugMessage(`Toggle visibility requested for session ${sessionId}`, 'system');
 
-        // First, find if there's a person name associated with this session
-        const personName = sessionPersonNames[sessionId] || "";
-        const displayId = createDisplayId(sessionId, personName);
+    // First, find if there's a person name associated with this session
+    const personName = sessionPersonNames[sessionId] || "";
+    const displayId = createDisplayId(sessionId, personName);
 
-        // Find all datasets in charts that match this session or display ID
-        let currentVisibility = null;
+    // Find all datasets in charts that match this session or display ID
+    let currentVisibility = null;
 
-        // Check altitude chart first
-        const altDatasets = altitudeChart.data.datasets;
-        for (let i = 0; i < altDatasets.length; i++) {
-            if (altDatasets[i].label === displayId ||
-                altDatasets[i].label.includes(sessionId)) {
-                // Set initial visibility based on first found dataset
-                if (currentVisibility === null) {
-                    currentVisibility = altitudeChart.isDatasetVisible(i);
-                }
-                // Toggle visibility
-                altitudeChart.setDatasetVisibility(i, !currentVisibility);
+    // Check altitude chart first
+    const altDatasets = altitudeChart.data.datasets;
+    for (let i = 0; i < altDatasets.length; i++) {
+        if (altDatasets[i].label === displayId ||
+            altDatasets[i].label.includes(sessionId)) {
+            // Set initial visibility based on first found dataset
+            if (currentVisibility === null) {
+                currentVisibility = altitudeChart.isDatasetVisible(i);
             }
-        }
-
-        // Then check speed chart
-        const speedDatasets = speedChart.data.datasets;
-        for (let i = 0; i < speedDatasets.length; i++) {
-            if (speedDatasets[i].label === displayId ||
-                speedDatasets[i].label.includes(sessionId)) {
-                // Toggle visibility (using the same as altitude chart)
-                speedChart.setDatasetVisibility(i, !currentVisibility);
-            }
-        }
-
-        // Update charts
-        altitudeChart.update();
-        speedChart.update();
-
-        // Toggle map elements visibility
-        toggleMapElementsVisibility(sessionId, !currentVisibility);
-
-        // If we didn't find any datasets, default to showing
-        if (currentVisibility === null) {
-            toggleMapElementsVisibility(sessionId, true);
-            addDebugMessage(`No datasets found for session ${sessionId}, defaulting to visible`, 'warning');
-        } else {
-            addDebugMessage(`Toggled visibility of session ${sessionId} to ${!currentVisibility ? 'visible' : 'hidden'}`, 'system');
-        }
-
-        // Update the eye button in the session list
-        updateVisibilityButtonAppearance(sessionId, !currentVisibility);
-    }
-
-    // Update the visibility button appearance in the session list
-    function updateVisibilityButtonAppearance(sessionId, isVisible) {
-        const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
-        if (sessionItem) {
-            const visibilityBtn = sessionItem.querySelector('.toggle-visibility');
-            if (visibilityBtn) {
-                visibilityBtn.innerHTML = isVisible ? '👁' : '👁‍🗨';
-                visibilityBtn.style.opacity = isVisible ? '1' : '0.5';
-            }
+            // Toggle visibility
+            altitudeChart.setDatasetVisibility(i, !currentVisibility);
         }
     }
 
-    // Zoom to a specific session's track
-    function zoomToSession(sessionId) {
-        addDebugMessage(`Zoom to session requested: ${sessionId}`, 'system');
-
-        // Check if we have track points for this session
-        const sessionTrackPoints = trackPoints[sessionId];
-        if (!sessionTrackPoints || sessionTrackPoints.length === 0) {
-            addDebugMessage(`No track points found for session ${sessionId}`, 'warning');
-            showNotification(`No track data available for session ${sessionId}`, 'warning');
-            return;
-        }
-
-        // Create coordinate array from track points
-        const coordinates = sessionTrackPoints.map(point => [point.lat, point.lng]);
-        
-        if (coordinates.length === 0) {
-            addDebugMessage(`No valid coordinates found for session ${sessionId}`, 'warning');
-            return;
-        }
-
-        try {
-            // Create a temporary polyline to get bounds
-            const tempPolyline = L.polyline(coordinates);
-            const bounds = tempPolyline.getBounds();
-            
-            // Fit map to the track bounds with some padding
-            map.fitBounds(bounds, {
-                padding: [20, 20],
-                maxZoom: 16 // Prevent zooming in too much for short tracks
-            });
-
-            addDebugMessage(`Zoomed to session ${sessionId} - ${coordinates.length} points`, 'system');
-            
-            // Optional: Flash the track briefly to show which one we zoomed to
-            if (polylines[sessionId]) {
-                const originalColor = polylines[sessionId].options.color;
-                const originalWeight = polylines[sessionId].options.weight;
-                
-                // Flash the track
-                polylines[sessionId].setStyle({ color: '#FF0000', weight: 6 });
-                setTimeout(() => {
-                    if (polylines[sessionId]) {
-                        polylines[sessionId].setStyle({ color: originalColor, weight: originalWeight });
-                    }
-                }, 1000);
-            }
-            
-        } catch (error) {
-            addDebugMessage(`Error zooming to session ${sessionId}: ${error.message}`, 'error');
-            showNotification(`Error zooming to session: ${error.message}`, 'warning');
+    // Then check speed chart
+    const speedDatasets = speedChart.data.datasets;
+    for (let i = 0; i < speedDatasets.length; i++) {
+        if (speedDatasets[i].label === displayId ||
+            speedDatasets[i].label.includes(sessionId)) {
+            // Toggle visibility (using the same as altitude chart)
+            speedChart.setDatasetVisibility(i, !currentVisibility);
         }
     }
 
-    // Update the session list UI
-    function updateSessionList() {
-        const sessionsList = document.getElementById('sessionsList');
+    // Update charts
+    altitudeChart.update();
+    speedChart.update();
 
-        if (!availableSessions || availableSessions.length === 0) {
-            sessionsList.innerHTML = '<p class="no-sessions">No sessions found.</p>';
-            return;
+    // Toggle map elements visibility
+    toggleMapElementsVisibility(sessionId, !currentVisibility);
+
+    // If we didn't find any datasets, default to showing
+    if (currentVisibility === null) {
+        toggleMapElementsVisibility(sessionId, true);
+        addDebugMessage(`No datasets found for session ${sessionId}, defaulting to visible`, 'warning');
+    } else {
+        addDebugMessage(`Toggled visibility of session ${sessionId} to ${!currentVisibility ? 'visible' : 'hidden'}`, 'system');
+    }
+
+    // Update the eye button in the session list
+    updateVisibilityButtonAppearance(sessionId, !currentVisibility);
+}
+
+// Update the visibility button appearance in the session list
+function updateVisibilityButtonAppearance(sessionId, isVisible) {
+    const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
+    if (sessionItem) {
+        const visibilityBtn = sessionItem.querySelector('.toggle-visibility');
+        if (visibilityBtn) {
+            visibilityBtn.innerHTML = isVisible ? '👁' : '👁‍🗨';
+            visibilityBtn.style.opacity = isVisible ? '1' : '0.5';
         }
+    }
+}
 
-        let html = '';
+// Zoom to a specific session's track
+function zoomToSession(sessionId) {
+    addDebugMessage(`Zoom to session requested: ${sessionId}`, 'system');
 
-        availableSessions.forEach(session => {
-            const sessionId = session.sessionId;
-            const isActive = session.isActive;
+    // Check if we have track points for this session
+    const sessionTrackPoints = trackPoints[sessionId];
+    if (!sessionTrackPoints || sessionTrackPoints.length === 0) {
+        addDebugMessage(`No track points found for session ${sessionId}`, 'warning');
+        showNotification(`No track data available for session ${sessionId}`, 'warning');
+        return;
+    }
 
-            const parsedSession = parseSessionId(sessionId);
-            const name = parsedSession.name;
-            const time = parsedSession.formattedTime || 'Unknown time';
-            const color = getColorForUser(sessionId);
+    // Create coordinate array from track points
+    const coordinates = sessionTrackPoints.map(point => [point.lat, point.lng]);
 
-            html += `
-                <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${sessionId}">
-                    <div class="session-item-info">
-                        <div class="session-item-name">
-                            ${name}
-                            ${isActive ? '<span class="active-badge" title="Active Session">⚡</span>' : ''}
-                        </div>
-                        <div class="session-item-time">${time}</div>
-                    </div>
-                    <div class="session-actions">
-                        <button class="session-action-btn toggle-visibility"
-                                onclick="toggleSessionVisibility('${sessionId}')"
-                                title="Toggle Visibility">
-                            👁
-                        </button>
-                        <button class="session-action-btn zoom-to-session"
-                                onclick="zoomToSession('${sessionId}')"
-                                title="Zoom to Track">
-                            🎯
-                        </button>
-<!--                        <button class="session-action-btn delete"
-                                onclick="confirmDeleteSession('${sessionId}')"
-                                title="Delete Session"
-                                ${isActive ? 'disabled' : ''}>
-                            🗑
-                        </button>
--->
-                    </div>
-                </div>
-            `;
+    if (coordinates.length === 0) {
+        addDebugMessage(`No valid coordinates found for session ${sessionId}`, 'warning');
+        return;
+    }
+
+    try {
+        // Create a temporary polyline to get bounds
+        const tempPolyline = L.polyline(coordinates);
+        const bounds = tempPolyline.getBounds();
+
+        // Fit map to the track bounds with some padding
+        map.fitBounds(bounds, {
+            padding: [20, 20],
+            maxZoom: 16 // Prevent zooming in too much for short tracks
         });
 
-        sessionsList.innerHTML = html;
-    }
+        addDebugMessage(`Zoomed to session ${sessionId} - ${coordinates.length} points`, 'system');
 
-    // Show confirmation dialog before deleting a session
-    function confirmDeleteSession(sessionId) {
-        // Check if session is active
-        const session = availableSessions.find(s => s.sessionId === sessionId);
-        if (session && session.isActive) {
-            showNotification('Cannot delete an active session. Wait for the session to complete first.', 'warning');
-            addDebugMessage(`Attempted to delete active session: ${sessionId}`, 'warning');
-            return;
-        }
+        // Optional: Flash the track briefly to show which one we zoomed to
+        if (polylines[sessionId]) {
+            const originalColor = polylines[sessionId].options.color;
+            const originalWeight = polylines[sessionId].options.weight;
 
-        // Create overlay
-        const overlay = document.createElement('div');
-        overlay.id = 'confirmOverlay';
-        overlay.style.position = 'fixed';
-        overlay.style.top = '0';
-        overlay.style.left = '0';
-        overlay.style.width = '100%';
-        overlay.style.height = '100%';
-        overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
-        overlay.style.zIndex = '2000';
-
-        // Create confirmation dialog
-        const dialog = document.createElement('div');
-        dialog.className = 'confirm-delete';
-
-        const parsedSession = parseSessionId(sessionId);
-
-        dialog.innerHTML = `
-            <h3>Delete Session</h3>
-            <p>Are you sure you want to delete "${parsedSession.name}" session?</p>
-            <p><strong>This action cannot be undone.</strong></p>
-            <div class="confirm-buttons">
-                <button class="confirm-btn cancel" onclick="closeConfirmDialog()">Cancel</button>
-                <button class="confirm-btn delete" onclick="deleteSession('${sessionId}')">Delete</button>
-            </div>
-        `;
-
-        // Add to document
-        document.body.appendChild(overlay);
-        document.body.appendChild(dialog);
-
-        addDebugMessage(`Showing delete confirmation for session ${sessionId}`, 'system');
-    }
-
-    // Show notification message
-    function showNotification(message, type = 'info') {
-        const notification = document.createElement('div');
-        notification.className = `notification ${type}`;
-        notification.innerHTML = message;
-
-        // Style the notification
-        Object.assign(notification.style, {
-            position: 'fixed',
-            top: '20px',
-            right: '20px',
-            padding: '12px 20px',
-            backgroundColor: type === 'warning' ? '#ff9800' : '#4CAF50',
-            color: 'white',
-            borderRadius: '4px',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-            zIndex: '3000',
-            fontFamily: 'Arial, sans-serif',
-            fontSize: '14px',
-            maxWidth: '300px'
-        });
-
-        document.body.appendChild(notification);
-
-        // Remove after 3 seconds
-        setTimeout(() => {
-            notification.style.opacity = '0';
-            notification.style.transition = 'opacity 0.5s';
+            // Flash the track
+            polylines[sessionId].setStyle({ color: '#FF0000', weight: 6 });
             setTimeout(() => {
-                document.body.removeChild(notification);
-            }, 500);
-        }, 3000);
-    }
-
-    function toggleSessionPanel() {
-        const panel = document.getElementById('sessionManagerPanel');
-        const content = panel.querySelector('.panel-content');
-        const toggleBtn = document.getElementById('toggleSessionPanel');
-
-        if (sessionPanelVisible) {
-            content.style.display = 'none';
-            toggleBtn.textContent = '+';
-        } else {
-            content.style.display = 'block';
-            toggleBtn.textContent = '-';
-        }
-
-        sessionPanelVisible = !sessionPanelVisible;
-    }
-
-    // Request session list from server
-    function requestSessionList() {
-        if (websocket && websocket.readyState === WebSocket.OPEN) {
-            websocket.send(JSON.stringify({
-                type: 'request_sessions'
-            }));
-
-            addDebugMessage('Requested session list from server', 'system');
-        } else {
-            addDebugMessage('WebSocket not connected, cannot request sessions', 'error');
-        }
-    }
-
-	// Handle session deletion response from server
-	function handleSessionDeleted(sessionId) {
-		// Add debug logging
-		addDebugMessage(`Handling deletion of session ${sessionId}`, 'system');
-
-		// Remove distance markers
-		removeDistanceMarkers(sessionId);
-
-		// Remove from available sessions list - fix the filter
-		availableSessions = availableSessions.filter(session => session.sessionId !== sessionId);
-
-		// Remove from trackPoints
-		if (trackPoints[sessionId]) {
-			delete trackPoints[sessionId];
-		}
-
-		// Remove from speedHistory
-		if (speedHistory[sessionId]) {
-			delete speedHistory[sessionId];
-		}
-
-		// Remove from charts - the key fix is here!
-		// Use includes() instead of exact match to handle cases where the label includes the person name
-		const altDatasets = altitudeChart.data.datasets;
-		for (let i = altDatasets.length - 1; i >= 0; i--) {
-			if (altDatasets[i].label.includes(sessionId)) {
-				addDebugMessage(`Removing altitude dataset: ${altDatasets[i].label}`, 'system');
-				altDatasets.splice(i, 1);
-			}
-		}
-		altitudeChart.update();
-
-		const speedDatasets = speedChart.data.datasets;
-		for (let i = speedDatasets.length - 1; i >= 0; i--) {
-			if (speedDatasets[i].label.includes(sessionId)) {
-				addDebugMessage(`Removing speed dataset: ${speedDatasets[i].label}`, 'system');
-				speedDatasets.splice(i, 1);
-			}
-		}
-		speedChart.update();
-
-		// Remove from map
-		if (polylines[sessionId]) {
-			map.removeLayer(polylines[sessionId]);
-			delete polylines[sessionId];
-		}
-
-		if (startMarkers[sessionId]) {
-			map.removeLayer(startMarkers[sessionId]);
-			delete startMarkers[sessionId];
-		}
-
-		if (endMarkers[sessionId]) {
-			map.removeLayer(endMarkers[sessionId]);
-			delete endMarkers[sessionId];
-		}
-
-		// Remove from speed display - fix the container ID
-		const speedContainer = document.getElementById(`speed-container-${sessionId}`);
-		if (speedContainer) {
-			speedContainer.remove();
-		}
-
-		// Clean up session name mapping
-		if (sessionPersonNames[sessionId]) {
-			delete sessionPersonNames[sessionId];
-		}
-
-		// Update session list UI
-		updateSessionList();
-
-		addDebugMessage(`Session ${sessionId} deleted and removed from all displays`, 'system');
-		showNotification(`Session ${sessionId} deleted successfully`, 'info');
-	}
-
-    // Send delete request to server
-	function deleteSession(sessionId) {
-		if (websocket && websocket.readyState === WebSocket.OPEN) {
-			const deleteRequest = {
-				type: 'delete_session',
-				sessionId: sessionId
-			};
-
-			console.log("Sending delete request:", deleteRequest);
-			addDebugMessage(`Sending delete request: ${JSON.stringify(deleteRequest)}`, 'system');
-
-			websocket.send(JSON.stringify(deleteRequest));
-		} else {
-			console.error("WebSocket not connected");
-			addDebugMessage('WebSocket not connected, cannot delete session', 'error');
-			showNotification('Cannot delete: Connection lost', 'warning');
-		}
-
-		closeConfirmDialog();
-	}
-
-	// Close the confirmation dialog
-    function closeConfirmDialog() {
-        const overlay = document.getElementById('confirmOverlay');
-        const dialog = document.querySelector('.confirm-delete');
-
-        if (overlay) overlay.remove();
-        if (dialog) dialog.remove();
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        try {
-            console.log("DOM content loaded, initializing application...");
-
-            // Initialize the map only once
-            initMap();
-
-            initializeDistanceMarkers();
-
-            // Add event listener to the reset button for visual feedback
-            const resetBtn = document.getElementById('resetMapBtn');
-            if (resetBtn) {
-                resetBtn.addEventListener('click', function() {
-                    // Add visual feedback
-                    this.style.backgroundColor = '#e6e6e6';
-                    setTimeout(() => {
-                        this.style.backgroundColor = 'white';
-                    }, 300);
-                });
-            }
-            
-            addDebugMessage('Running Tracker application initialized with interactive chart features', 'system');
-            
-            // Add chart container event listeners for mouse leave
-            setupChartEventListeners();
-            
-            // Test chart interaction setup
-            setTimeout(() => {
-                if (altitudeChart && speedChart) {
-                    addDebugMessage('Charts initialized successfully with hover support', 'system');
-                } else {
-                    addDebugMessage('Chart initialization may have failed', 'error');
+                if (polylines[sessionId]) {
+                    polylines[sessionId].setStyle({ color: originalColor, weight: originalWeight });
                 }
             }, 1000);
-            
-        } catch (error) {
-            console.error("Error during application initialization:", error);
-            alert("There was an error initializing the application. Please check the console for details.");
         }
+
+    } catch (error) {
+        addDebugMessage(`Error zooming to session ${sessionId}: ${error.message}`, 'error');
+        showNotification(`Error zooming to session: ${error.message}`, 'warning');
+    }
+}
+
+// Update the session list UI
+function updateSessionList() {
+    const sessionsList = document.getElementById('sessionsList');
+
+    if (!availableSessions || availableSessions.length === 0) {
+        sessionsList.innerHTML = '<p class="no-sessions">No sessions found.</p>';
+        return;
+    }
+
+    let html = '';
+
+    availableSessions.forEach(session => {
+        const sessionId = session.sessionId;
+        const isActive = session.isActive;
+
+        const parsedSession = parseSessionId(sessionId);
+        const name = parsedSession.name;
+        const time = parsedSession.formattedTime || 'Unknown time';
+        const color = getColorForUser(sessionId);
+
+        html += `
+            <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${sessionId}">
+                <div class="session-item-info">
+                    <div class="session-item-name">
+                        ${name}
+                        ${isActive ? '<span class="active-badge" title="Active Session">⚡</span>' : ''}
+                    </div>
+                    <div class="session-item-time">${time}</div>
+                </div>
+                <div class="session-actions">
+                    <button class="session-action-btn toggle-visibility"
+                            onclick="toggleSessionVisibility('${sessionId}')"
+                            title="Toggle Visibility">
+                        👁
+                    </button>
+                    <button class="session-action-btn zoom-to-session"
+                            onclick="zoomToSession('${sessionId}')"
+                            title="Zoom to Track">
+                        🎯
+                    </button>
+                </div>
+            </div>
+        `;
     });
+
+    sessionsList.innerHTML = html;
+}
+
+// Show confirmation dialog before deleting a session
+function confirmDeleteSession(sessionId) {
+    // Check if session is active
+    const session = availableSessions.find(s => s.sessionId === sessionId);
+    if (session && session.isActive) {
+        showNotification('Cannot delete an active session. Wait for the session to complete first.', 'warning');
+        addDebugMessage(`Attempted to delete active session: ${sessionId}`, 'warning');
+        return;
+    }
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'confirmOverlay';
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    overlay.style.zIndex = '2000';
+
+    // Create confirmation dialog
+    const dialog = document.createElement('div');
+    dialog.className = 'confirm-delete';
+
+    const parsedSession = parseSessionId(sessionId);
+
+    dialog.innerHTML = `
+        <h3>Delete Session</h3>
+        <p>Are you sure you want to delete "${parsedSession.name}" session?</p>
+        <p><strong>This action cannot be undone.</strong></p>
+        <div class="confirm-buttons">
+            <button class="confirm-btn cancel" onclick="closeConfirmDialog()">Cancel</button>
+            <button class="confirm-btn delete" onclick="deleteSession('${sessionId}')">Delete</button>
+        </div>
+    `;
+
+    // Add to document
+    document.body.appendChild(overlay);
+    document.body.appendChild(dialog);
+
+    addDebugMessage(`Showing delete confirmation for session ${sessionId}`, 'system');
+}
+
+// Show notification message
+function showNotification(message, type = 'info') {
+    const notification = document.createElement('div');
+    notification.className = `notification ${type}`;
+    notification.innerHTML = message;
+
+    // Style the notification
+    Object.assign(notification.style, {
+        position: 'fixed',
+        top: '20px',
+        right: '20px',
+        padding: '12px 20px',
+        backgroundColor: type === 'warning' ? '#ff9800' : '#4CAF50',
+        color: 'white',
+        borderRadius: '4px',
+        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+        zIndex: '3000',
+        fontFamily: 'Arial, sans-serif',
+        fontSize: '14px',
+        maxWidth: '300px'
+    });
+
+    document.body.appendChild(notification);
+
+    // Remove after 3 seconds
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 0.5s';
+        setTimeout(() => {
+            document.body.removeChild(notification);
+        }, 500);
+    }, 3000);
+}
+
+function toggleSessionPanel() {
+    const panel = document.getElementById('sessionManagerPanel');
+    const content = panel.querySelector('.panel-content');
+    const toggleBtn = document.getElementById('toggleSessionPanel');
+
+    if (sessionPanelVisible) {
+        content.style.display = 'none';
+        toggleBtn.textContent = '+';
+    } else {
+        content.style.display = 'block';
+        toggleBtn.textContent = '-';
+    }
+
+    sessionPanelVisible = !sessionPanelVisible;
+}
+
+// Request session list from server
+function requestSessionList() {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        websocket.send(JSON.stringify({
+            type: 'request_sessions'
+        }));
+
+        addDebugMessage('Requested session list from server', 'system');
+    } else {
+        addDebugMessage('WebSocket not connected, cannot request sessions', 'error');
+    }
+}
+
+// Handle session deletion response from server
+function handleSessionDeleted(sessionId) {
+    // Add debug logging
+    addDebugMessage(`Handling deletion of session ${sessionId}`, 'system');
+
+    // Remove distance markers
+    removeDistanceMarkers(sessionId);
+
+    // Remove from available sessions list - fix the filter
+    availableSessions = availableSessions.filter(session => session.sessionId !== sessionId);
+
+    // Remove from trackPoints
+    if (trackPoints[sessionId]) {
+        delete trackPoints[sessionId];
+    }
+
+    // Remove from speedHistory
+    if (speedHistory[sessionId]) {
+        delete speedHistory[sessionId];
+    }
+
+    // Remove from charts - the key fix is here!
+    // Use includes() instead of exact match to handle cases where the label includes the person name
+    const altDatasets = altitudeChart.data.datasets;
+    for (let i = altDatasets.length - 1; i >= 0; i--) {
+        if (altDatasets[i].label.includes(sessionId)) {
+            addDebugMessage(`Removing altitude dataset: ${altDatasets[i].label}`, 'system');
+            altDatasets.splice(i, 1);
+        }
+    }
+    altitudeChart.update();
+
+    const speedDatasets = speedChart.data.datasets;
+    for (let i = speedDatasets.length - 1; i >= 0; i--) {
+        if (speedDatasets[i].label.includes(sessionId)) {
+            addDebugMessage(`Removing speed dataset: ${speedDatasets[i].label}`, 'system');
+            speedDatasets.splice(i, 1);
+        }
+    }
+    speedChart.update();
+
+    // Remove from map
+    if (polylines[sessionId]) {
+        map.removeLayer(polylines[sessionId]);
+        delete polylines[sessionId];
+    }
+
+    if (startMarkers[sessionId]) {
+        map.removeLayer(startMarkers[sessionId]);
+        delete startMarkers[sessionId];
+    }
+
+    if (endMarkers[sessionId]) {
+        map.removeLayer(endMarkers[sessionId]);
+        delete endMarkers[sessionId];
+    }
+
+    // Remove from speed display - fix the container ID
+    const speedContainer = document.getElementById(`speed-container-${sessionId}`);
+    if (speedContainer) {
+        speedContainer.remove();
+    }
+
+    // Clean up session name mapping
+    if (sessionPersonNames[sessionId]) {
+        delete sessionPersonNames[sessionId];
+    }
+
+    // Update session list UI
+    updateSessionList();
+
+    addDebugMessage(`Session ${sessionId} deleted and removed from all displays`, 'system');
+    showNotification(`Session ${sessionId} deleted successfully`, 'info');
+}
+
+// Send delete request to server
+function deleteSession(sessionId) {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        const deleteRequest = {
+            type: 'delete_session',
+            sessionId: sessionId
+        };
+
+        console.log("Sending delete request:", deleteRequest);
+        addDebugMessage(`Sending delete request: ${JSON.stringify(deleteRequest)}`, 'system');
+
+        websocket.send(JSON.stringify(deleteRequest));
+    } else {
+        console.error("WebSocket not connected");
+        addDebugMessage('WebSocket not connected, cannot delete session', 'error');
+        showNotification('Cannot delete: Connection lost', 'warning');
+    }
+
+    closeConfirmDialog();
+}
+
+// Close the confirmation dialog
+function closeConfirmDialog() {
+    const overlay = document.getElementById('confirmOverlay');
+    const dialog = document.querySelector('.confirm-delete');
+
+    if (overlay) overlay.remove();
+    if (dialog) dialog.remove();
+}
 
 // Setup additional event listeners for chart interactions
 function setupChartEventListeners() {
     const altitudeContainer = document.getElementById('altitudeChartContainer');
     const speedContainer = document.getElementById('speedChartContainer');
 
-    // Hide hover effects when mouse leaves chart containers
     [altitudeContainer, speedContainer].forEach(container => {
         if (container) {
+            // Hide hover effects when mouse leaves chart
             container.addEventListener('mouseleave', () => {
+                console.log('🖱️ Mouse left chart container');
                 hideHoverMarker();
                 hideInfoPopup();
+            });
+
+            // Additional event to ensure hover detection works
+            container.addEventListener('mouseenter', () => {
+                console.log('🖱️ Mouse entered chart container');
             });
         }
     });
 
-    // Also hide when mouse leaves the charts area entirely
+    // Global mouse leave for charts container
     const chartsContainer = document.querySelector('.charts-container');
     if (chartsContainer) {
         chartsContainer.addEventListener('mouseleave', () => {
+            console.log('🖱️ Mouse left charts area');
             hideHoverMarker();
             hideInfoPopup();
-        }
-        );
+        });
     }
+
+    addDebugMessage('Chart event listeners configured', 'system');
 }
+
+// Document ready event listener
+document.addEventListener('DOMContentLoaded', () => {
+    try {
+        console.log("DOM content loaded, initializing application...");
+
+        // Initialize the map only once
+        initMap();
+
+        initializeDistanceMarkers();
+
+        // Add event listener to the reset button for visual feedback
+        const resetBtn = document.getElementById('resetMapBtn');
+        if (resetBtn) {
+            resetBtn.addEventListener('click', function() {
+                // Add visual feedback
+                this.style.backgroundColor = '#e6e6e6';
+                setTimeout(() => {
+                    this.style.backgroundColor = 'white';
+                }, 300);
+            });
+        }
+
+        addDebugMessage('Running Tracker application initialized with interactive chart features and weather data support', 'system');
+
+        // Add chart container event listeners for mouse leave
+        setupChartEventListeners();
+
+        // Test chart interaction setup
+        setTimeout(() => {
+            if (altitudeChart && speedChart) {
+                addDebugMessage('Charts initialized successfully with hover support', 'system');
+            } else {
+                addDebugMessage('Chart initialization may have failed', 'error');
+            }
+        }, 1000);
+
+    } catch (error) {
+        console.error("Error during application initialization:", error);
+        alert("There was an error initializing the application. Please check the console for details.");
+    }
+});

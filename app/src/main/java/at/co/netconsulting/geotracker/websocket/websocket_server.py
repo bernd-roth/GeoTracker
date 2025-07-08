@@ -225,7 +225,7 @@ class TrackingServer:
                 )
             """)
 
-            # Create gps_tracking_points table
+            # Create gps_tracking_points table with weather columns
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS gps_tracking_points (
                     id SERIAL PRIMARY KEY,
@@ -250,6 +250,12 @@ class TrackingServer:
                     heart_rate INTEGER,
                     heart_rate_device_id INTEGER REFERENCES heart_rate_devices(device_id),
                     lap INTEGER DEFAULT 0,
+                    temperature NUMERIC(5, 2),
+                    wind_speed NUMERIC(6, 2),
+                    wind_direction VARCHAR(3),
+                    humidity INTEGER,
+                    weather_timestamp BIGINT,
+                    weather_code INTEGER,
                     received_at TIMESTAMPTZ DEFAULT NOW(),
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
@@ -261,6 +267,8 @@ class TrackingServer:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_location ON gps_tracking_points(latitude, longitude)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON tracking_sessions(user_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_name ON users(firstname, lastname)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_temperature ON gps_tracking_points(temperature) WHERE temperature IS NOT NULL")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_wind_speed ON gps_tracking_points(wind_speed) WHERE wind_speed IS NOT NULL")
 
             logging.info("Normalized database tables created successfully")
 
@@ -366,7 +374,7 @@ class TrackingServer:
         logging.info(f"Created session: {session_id} for user: {user_id}")
 
     async def save_tracking_data_to_db(self, message_data: Dict[str, Any]) -> bool:
-        """Save tracking data to normalized PostgreSQL database."""
+        """Save tracking data to normalized PostgreSQL database with weather data in gps_tracking_points."""
         if not self.db_pool:
             logging.error("Database pool not initialized")
             return False
@@ -396,7 +404,33 @@ class TrackingServer:
                             conn, message_data.get('heartRateDevice')
                         )
 
-                    # Insert GPS tracking point
+                    # Extract weather data
+                    temperature = None
+                    wind_speed = None
+                    wind_direction = None  # This will be numeric now
+                    humidity = None
+                    weather_timestamp = None
+                    weather_code = None
+
+                    if message_data.get('temperature') is not None:
+                        temperature = float(message_data.get('temperature'))
+                    if message_data.get('windSpeed') is not None:
+                        wind_speed = float(message_data.get('windSpeed'))
+                    if message_data.get('windDirection') is not None:
+                        # Store as numeric degrees instead of string
+                        wind_direction = float(message_data.get('windDirection'))
+                    if message_data.get('humidity') is not None:
+                        humidity = int(message_data.get('humidity'))
+                    if message_data.get('weatherTimestamp') is not None:
+                        weather_timestamp = int(message_data.get('weatherTimestamp'))
+                    if message_data.get('weatherCode') is not None:
+                        weather_code = int(message_data.get('weatherCode'))
+
+                    # Log weather data for debugging
+                    if temperature is not None or wind_speed is not None:
+                        logging.info(f"Weather data received: temp={temperature}°C, wind={wind_speed}km/h {wind_direction}°, humidity={humidity}%, code={weather_code}")
+
+                    # Insert GPS tracking point with weather data
                     await conn.execute("""
                         INSERT INTO gps_tracking_points (
                             session_id, latitude, longitude, altitude, horizontal_accuracy,
@@ -404,10 +438,11 @@ class TrackingServer:
                             used_number_of_satellites, current_speed, average_speed, max_speed,
                             moving_average_speed, speed, speed_accuracy_meters_per_second,
                             distance, covered_distance, cumulative_elevation_gain, heart_rate,
-                            heart_rate_device_id, lap
+                            heart_rate_device_id, lap, temperature, wind_speed, wind_direction,
+                            humidity, weather_timestamp, weather_code
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                            $16, $17, $18, $19, $20, $21
+                            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
                         )
                     """,
                                        session_id,
@@ -430,7 +465,13 @@ class TrackingServer:
                                        float(message_data.get('cumulativeElevationGain', 0)) if message_data.get('cumulativeElevationGain') is not None else None,
                                        int(message_data.get('heartRate', 0)) if message_data.get('heartRate') and message_data.get('heartRate') > 0 else None,
                                        heart_rate_device_id,
-                                       int(message_data.get('lap', 0)) if message_data.get('lap') is not None else 0
+                                       int(message_data.get('lap', 0)) if message_data.get('lap') is not None else 0,
+                                       temperature,
+                                       wind_speed,
+                                       wind_direction,
+                                       humidity,
+                                       weather_timestamp,
+                                       weather_code
                                        )
 
             logging.info(f"Successfully saved normalized tracking data for session {session_id}")
@@ -460,6 +501,8 @@ class TrackingServer:
                     gtp.latitude, gtp.longitude, gtp.altitude,
                     gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
                     gtp.distance, gtp.heart_rate, hrd.device_name as heart_rate_device,
+                    gtp.temperature, gtp.wind_speed, gtp.wind_direction,
+                    gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
                     gtp.received_at
                 FROM gps_tracking_points gtp
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
@@ -510,12 +553,114 @@ class TrackingServer:
                 if row['heart_rate_device']:
                     tracking_point["heartRateDevice"] = row['heart_rate_device']
 
+                # Add weather data if available
+                if row['temperature'] is not None:
+                    tracking_point["temperature"] = float(row['temperature'])
+                if row['wind_speed'] is not None:
+                    tracking_point["windSpeed"] = float(row['wind_speed'])
+                if row['wind_direction'] is not None:
+                    # Handle both numeric and string wind directions for backward compatibility
+                    wind_dir = row['wind_direction']
+                    if isinstance(wind_dir, (int, float)):
+                        tracking_point["windDirection"] = float(wind_dir)
+                    else:
+                        # Convert string direction to numeric if needed
+                        tracking_point["windDirection"] = float(wind_dir) if str(wind_dir).replace('.', '').isdigit() else 0
+                if row['humidity'] is not None:
+                    tracking_point["relativeHumidity"] = int(row['humidity'])
+                if row['weather_timestamp'] is not None:
+                    tracking_point["weatherTimestamp"] = int(row['weather_timestamp'])
+                if row['weather_code'] is not None:
+                    tracking_point["weatherCode"] = int(row['weather_code'])
+
                 self.tracking_history[row['session_id']].append(tracking_point)
 
             logging.info(f"Loaded {len(rows)} tracking points from database (last {self.data_retention_hours} hours)")
 
         except Exception as e:
             logging.error(f"Error loading tracking history from normalized database: {str(e)}")
+
+    async def get_weather_data_for_session(self, session_id: str) -> List[Dict[str, Any]]:
+        """Retrieve weather data from GPS tracking points for a specific session."""
+        if not self.db_pool:
+            return []
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT 
+                        id, latitude, longitude, temperature, wind_speed, wind_direction,
+                        humidity, weather_timestamp, weather_code, received_at
+                    FROM gps_tracking_points 
+                    WHERE session_id = $1 
+                    AND (temperature IS NOT NULL OR wind_speed IS NOT NULL OR humidity IS NOT NULL)
+                    ORDER BY received_at ASC
+                """, session_id)
+
+                weather_data = []
+                for row in rows:
+                    weather_point = {
+                        "id": row['id'],
+                        "latitude": float(row['latitude']),
+                        "longitude": float(row['longitude']),
+                        "temperature": float(row['temperature']) if row['temperature'] is not None else None,
+                        "windSpeed": float(row['wind_speed']) if row['wind_speed'] is not None else None,
+                        "windDirection": float(row['wind_direction']) if row['wind_direction'] is not None else None,  # Now numeric
+                        "humidity": int(row['humidity']) if row['humidity'] is not None else None,
+                        "weatherCode": int(row['weather_code']) if row['weather_code'] is not None else None,
+                        "weatherTimestamp": int(row['weather_timestamp']) if row['weather_timestamp'] is not None else None,
+                        "receivedAt": row['received_at'].isoformat() if row['received_at'] else None
+                    }
+                    weather_data.append(weather_point)
+
+                return weather_data
+
+        except Exception as e:
+            logging.error(f"Error retrieving weather data for session {session_id}: {str(e)}")
+            return []
+
+    async def get_weather_summary_for_session(self, session_id: str) -> Dict[str, Any]:
+        """Get weather summary statistics for a session."""
+        if not self.db_pool:
+            return {}
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                row = await conn.fetchrow("""
+                    SELECT 
+                        COUNT(*) as weather_point_count,
+                        AVG(temperature) as avg_temp,
+                        MIN(temperature) as min_temp,
+                        MAX(temperature) as max_temp,
+                        AVG(wind_speed) as avg_wind_speed,
+                        MAX(wind_speed) as max_wind_speed,
+                        AVG(humidity) as avg_humidity,
+                        MIN(received_at) as first_weather,
+                        MAX(received_at) as last_weather
+                    FROM gps_tracking_points
+                    WHERE session_id = $1
+                    AND (temperature IS NOT NULL OR wind_speed IS NOT NULL OR humidity IS NOT NULL)
+                """, session_id)
+
+                if row and row['weather_point_count'] > 0:
+                    return {
+                        "sessionId": session_id,
+                        "weatherPointCount": int(row['weather_point_count']),
+                        "avgTemperature": float(row['avg_temp']) if row['avg_temp'] is not None else None,
+                        "minTemperature": float(row['min_temp']) if row['min_temp'] is not None else None,
+                        "maxTemperature": float(row['max_temp']) if row['max_temp'] is not None else None,
+                        "avgWindSpeed": float(row['avg_wind_speed']) if row['avg_wind_speed'] is not None else None,
+                        "maxWindSpeed": float(row['max_wind_speed']) if row['max_wind_speed'] is not None else None,
+                        "avgHumidity": float(row['avg_humidity']) if row['avg_humidity'] is not None else None,
+                        "firstWeatherTime": row['first_weather'].isoformat() if row['first_weather'] else None,
+                        "lastWeatherTime": row['last_weather'].isoformat() if row['last_weather'] else None
+                    }
+                else:
+                    return {"sessionId": session_id, "weatherPointCount": 0}
+
+        except Exception as e:
+            logging.error(f"Error getting weather summary for session {session_id}: {str(e)}")
+            return {"sessionId": session_id, "error": str(e)}
 
     async def broadcast_update(self, message: Dict[str, Any]) -> None:
         """Broadcast message to all connected clients."""
@@ -806,7 +951,7 @@ class TrackingServer:
             if not was_active:
                 logging.info(f"Session {session_id} became ACTIVE - total active: {len(self.active_sessions)}")
 
-        # Create base tracking point with all fields
+        # Create base tracking point with all fields including weather
         tracking_point = {
             "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
             **message_data,
@@ -828,6 +973,26 @@ class TrackingServer:
 
         if "heartRateDevice" in message_data:
             tracking_point["heartRateDevice"] = message_data["heartRateDevice"]
+
+        # Add weather data if available (already included in **message_data)
+        # Just ensure proper types for weather fields
+        if "temperature" in message_data:
+            tracking_point["temperature"] = float(message_data["temperature"])
+
+        if "windSpeed" in message_data:
+            tracking_point["windSpeed"] = float(message_data["windSpeed"])
+
+        if "windDirection" in message_data:
+            tracking_point["windDirection"] = str(message_data["windDirection"])
+
+        if "humidity" in message_data:
+            tracking_point["relativeHumidity"] = int(message_data["humidity"])
+
+        if "weatherTimestamp" in message_data:
+            tracking_point["weatherTimestamp"] = int(message_data["weatherTimestamp"])
+
+        if "weatherCode" in message_data:
+            tracking_point["weatherCode"] = int(message_data["weatherCode"])
 
         return tracking_point
 
@@ -935,6 +1100,57 @@ class TrackingServer:
                     # Handle unfollow_users request
                     if message_data.get('type') == 'unfollow_users':
                         await self.handle_unfollow_users_request(websocket)
+                        continue
+
+                    # Handle get_weather request
+                    if message_data.get('type') == 'get_weather':
+                        session_id = message_data.get('sessionId')
+                        if session_id:
+                            try:
+                                weather_data = await self.get_weather_data_for_session(session_id)
+                                await websocket.send(json.dumps({
+                                    'type': 'weather_data',
+                                    'sessionId': session_id,
+                                    'weather': weather_data
+                                }))
+                                logging.info(f"Sent weather data for session {session_id}: {len(weather_data)} weather points")
+                            except Exception as e:
+                                logging.error(f"Error handling weather data request: {str(e)}")
+                                await websocket.send(json.dumps({
+                                    'type': 'weather_data',
+                                    'sessionId': session_id,
+                                    'weather': [],
+                                    'error': str(e)
+                                }))
+                        else:
+                            await websocket.send(json.dumps({
+                                'type': 'weather_data',
+                                'error': 'sessionId is required'
+                            }))
+                        continue
+
+                    # Handle get_weather_summary request
+                    if message_data.get('type') == 'get_weather_summary':
+                        session_id = message_data.get('sessionId')
+                        if session_id:
+                            try:
+                                summary = await self.get_weather_summary_for_session(session_id)
+                                await websocket.send(json.dumps({
+                                    'type': 'weather_summary',
+                                    'summary': summary
+                                }))
+                                logging.info(f"Sent weather summary for session {session_id}")
+                            except Exception as e:
+                                logging.error(f"Error handling weather summary request: {str(e)}")
+                                await websocket.send(json.dumps({
+                                    'type': 'weather_summary',
+                                    'error': str(e)
+                                }))
+                        else:
+                            await websocket.send(json.dumps({
+                                'type': 'weather_summary',
+                                'error': 'sessionId is required'
+                            }))
                         continue
 
                     # Handle delete request
