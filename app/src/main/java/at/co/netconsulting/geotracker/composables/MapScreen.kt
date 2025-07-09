@@ -8,13 +8,11 @@ import android.content.IntentFilter
 import android.os.Handler
 import android.os.Looper
 import android.util.DisplayMetrics
-import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
@@ -75,6 +73,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import timber.log.Timber
 
 // Dark mode tile source function - works with OSMDroid 6.1.18+
 private fun createDarkTileSource(): OnlineTileSourceBase {
@@ -221,13 +220,13 @@ fun MapScreen(
             .edit()
             .putBoolean("auto_follow_enabled", enabled)
             .apply()
-        Log.d("MapScreen", "Saved auto-follow state: $enabled")
+        Timber.d("Saved auto-follow state: $enabled")
     }
 
     // Function to programmatically trigger "My Location" button logic
     fun triggerMyLocationLogic() {
         if (isFollowingLocation) {
-            Log.d("MapScreen", "Triggering My Location button logic programmatically")
+            Timber.d("Triggering My Location button logic programmatically")
 
             locationOverlayRef.value?.let { overlay ->
                 overlay.enableFollowLocation()
@@ -240,7 +239,7 @@ fun MapScreen(
                         ignoringScrollEvents = true
                         mapView.controller.setZoom(15.0)
                         mapView.controller.setCenter(myLocation)
-                        Log.d("MapScreen", "Programmatically centered map on location: $myLocation")
+                        Timber.d("Programmatically centered map on location: $myLocation")
 
                         // Reset flag after short delay
                         Handler(Looper.getMainLooper()).postDelayed({
@@ -248,11 +247,10 @@ fun MapScreen(
                         }, 300)
                     }
                 } else {
-                    Log.d("MapScreen", "No location available for programmatic centering")
+                    Timber.d("No location available for programmatic centering")
                 }
             }
-
-            Log.d("MapScreen", "My Location logic triggered programmatically")
+            Timber.d("My Location logic triggered programmatically")
         }
     }
 
@@ -261,7 +259,7 @@ fun MapScreen(
         object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
             fun onLocationUpdate(metrics: Metrics) {
-                Log.d("MapScreen", "Location update: lat=${metrics.latitude}, lon=${metrics.longitude}, follow=$isFollowingLocation")
+                Timber.d("Location update: lat=${metrics.latitude}, lon=${metrics.longitude}, follow=$isFollowingLocation")
 
                 // Update last known location
                 if (metrics.latitude != 0.0 && metrics.longitude != 0.0) {
@@ -278,26 +276,26 @@ fun MapScreen(
 
                         if (hasInitializedMapCenter) {
                             mapView.controller.setCenter(newLocation)
-                            Log.d("MapScreen", "Auto-follow: centered to $newLocation")
+                            Timber.d("Auto-follow: centered to $newLocation")
                         } else {
                             mapView.controller.setCenter(newLocation)
                             mapView.controller.setZoom(15.0)
                             hasInitializedMapCenter = true
-                            Log.d("MapScreen", "Auto-follow: initial center at $newLocation")
+                            Timber.d("Auto-follow: initial center at $newLocation")
                         }
 
                         // Ensure overlay is also following
                         locationOverlayRef.value?.let { overlay ->
                             if (!overlay.isFollowLocationEnabled) {
                                 overlay.enableFollowLocation()
-                                Log.d("MapScreen", "Re-enabled overlay follow location during location update")
+                                Timber.d("Re-enabled overlay follow location during location update")
                             }
                         }
 
                         // Reset ignoring flag after a delay
                         Handler(Looper.getMainLooper()).postDelayed({
                             ignoringScrollEvents = false
-                            Log.d("MapScreen", "Re-enabled scroll event handling after location update")
+                            Timber.d("Re-enabled scroll event handling after location update")
                         }, 300) // Reduced delay since we're not using this for protection anymore
                     }
                 }
@@ -318,7 +316,7 @@ fun MapScreen(
             override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
                     Intent.ACTION_SCREEN_ON -> {
-                        Log.d("MapScreen", "Screen turned ON - triggering My Location logic")
+                        Timber.d("Screen turned ON - triggering My Location logic")
 
                         Handler(Looper.getMainLooper()).postDelayed({
                             if (isFollowingLocation) {
@@ -335,7 +333,7 @@ fun MapScreen(
                         }
                     }
                     Intent.ACTION_SCREEN_OFF -> {
-                        Log.d("MapScreen", "Screen turned OFF - saving auto-follow state: $isFollowingLocation")
+                        Timber.d("Screen turned OFF - saving auto-follow state: $isFollowingLocation")
                         saveAutoFollowState(isFollowingLocation)
                     }
                 }
@@ -348,7 +346,7 @@ fun MapScreen(
         object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
                 super.onResume(owner)
-                Log.d("MapScreen", "App RESUMED - triggering My Location logic")
+                Timber.d("App RESUMED - triggering My Location logic")
 
                 Handler(Looper.getMainLooper()).postDelayed({
                     if (isFollowingLocation) {
@@ -368,7 +366,7 @@ fun MapScreen(
                 )
 
                 if (isServiceRunning != isRecording) {
-                    Log.d("MapScreen", "Service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
+                    Timber.d("Service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
                     isRecording = isServiceRunning
                     context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                         .edit()
@@ -379,7 +377,7 @@ fun MapScreen(
 
             override fun onPause(owner: LifecycleOwner) {
                 super.onPause(owner)
-                Log.d("MapScreen", "App PAUSED - saving auto-follow state: $isFollowingLocation")
+                Timber.d("App PAUSED - saving auto-follow state: $isFollowingLocation")
                 saveAutoFollowState(isFollowingLocation)
             }
         }
@@ -393,7 +391,7 @@ fun MapScreen(
 
                 locationOverlayRef.value?.let { overlay ->
                     if (!overlay.isFollowLocationEnabled && isFollowingLocation) {
-                        Log.d("MapScreen", "Detected overlay follow disabled - triggering My Location logic")
+                        Timber.d("Detected overlay follow disabled - triggering My Location logic")
                         triggerMyLocationLogic()
                     }
                 }
@@ -408,7 +406,7 @@ fun MapScreen(
                 .getBoolean("darkModeEnabled", false)
 
             if (isDarkMode != newDarkMode) {
-                Log.d("MapScreen", "Dark mode changed from $isDarkMode to $newDarkMode")
+                Timber.d("Dark mode changed from $isDarkMode to $newDarkMode")
                 isDarkMode = newDarkMode
                 mapViewRef.value?.let { mapView ->
                     updateMapStyle(mapView, newDarkMode)
@@ -444,7 +442,7 @@ fun MapScreen(
                     triggerMyLocationLogic()
                 }
             }, 100)
-            Log.d("MapScreen", "Recording started - enabled auto-follow")
+            Timber.d("Recording started - enabled auto-follow")
         }
     }
 
@@ -457,12 +455,12 @@ fun MapScreen(
                 pathTracker.setRecording(isRecording)
                 pathTracker.updatePathForViewport(mapView, forceUpdate = true)
             }
-            Log.d("MapScreen", "Path tracker initialized for event: ${currentEventId.value}")
+            Timber.d("Path tracker initialized for event: ${currentEventId.value}")
         } else {
             mapViewRef.value?.let { mapView ->
                 pathTracker.clearPath(mapView)
             }
-            Log.d("MapScreen", "Path tracking disabled")
+            Timber.d("Path tracking disabled")
         }
     }
 
@@ -479,18 +477,18 @@ fun MapScreen(
                 .getInt("active_event_id", -1)
 
             if (isRecording != newIsRecording) {
-                Log.d("MapScreen", "Recording state changed from $isRecording to $newIsRecording")
+                Timber.d("Recording state changed from $isRecording to $newIsRecording")
                 isRecording = newIsRecording
                 pathTracker.setRecording(newIsRecording)
             }
 
             if (showPath != newShowPath) {
-                Log.d("MapScreen", "Path visibility changed from $showPath to $newShowPath")
+                Timber.d("Path visibility changed from $showPath to $newShowPath")
                 showPath = newShowPath
             }
 
             if (currentEventId.value != newEventId) {
-                Log.d("MapScreen", "Event ID changed from ${currentEventId.value} to $newEventId")
+                Timber.d("Event ID changed from ${currentEventId.value} to $newEventId")
                 currentEventId.value = newEventId
             }
 
@@ -506,7 +504,7 @@ fun MapScreen(
         )
 
         if (isServiceRunning != isRecording) {
-            Log.d("MapScreen", "Initial service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
+            Timber.d("Initial service state mismatch detected: service=$isServiceRunning, UI=$isRecording")
             isRecording = isServiceRunning
             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .edit()
@@ -518,7 +516,7 @@ fun MapScreen(
                 val storedEventId = serviceState.getInt("event_id", -1)
 
                 if (storedEventId != -1) {
-                    Log.d("MapScreen", "Restoring active event ID from ServiceState: $storedEventId")
+                    Timber.d("Restoring active event ID from ServiceState: $storedEventId")
                     currentEventId.value = storedEventId
                     context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .edit()
@@ -533,13 +531,13 @@ fun MapScreen(
     DisposableEffect(locationObserver) {
         if (!EventBus.getDefault().isRegistered(locationObserver)) {
             EventBus.getDefault().register(locationObserver)
-            Log.d("MapScreen", "Registered consolidated location listener with EventBus")
+            Timber.d("Registered consolidated location listener with EventBus")
         }
 
         onDispose {
             if (EventBus.getDefault().isRegistered(locationObserver)) {
                 EventBus.getDefault().unregister(locationObserver)
-                Log.d("MapScreen", "Unregistered consolidated location listener from EventBus")
+                Timber.d("Unregistered consolidated location listener from EventBus")
             }
         }
     }
@@ -555,7 +553,7 @@ fun MapScreen(
         lifecycle.addObserver(lifecycleObserver)
 
         if (isRecording) {
-            Log.d("MapScreen", "DisposableEffect: Recording is active")
+            Timber.d("DisposableEffect: Recording is active")
             pathTracker.setRecording(true)
 
             currentEventId.value = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
@@ -568,12 +566,12 @@ fun MapScreen(
             }
         } else if (!followingState.isFollowing) {
             try {
-                Log.d("MapScreen", "DisposableEffect: Starting background service")
+                Timber.d("DisposableEffect: Starting background service")
                 val intent = Intent(context, BackgroundLocationService::class.java)
                 context.startService(intent)
                 pathTracker.setRecording(false)
             } catch (e: Exception) {
-                Log.e("MapScreen", "Failed to start background service", e)
+                Timber.e(e, "Failed to start background service")
                 Toast.makeText(context, "Failed to start location service", Toast.LENGTH_SHORT).show()
             }
         }
@@ -582,7 +580,7 @@ fun MapScreen(
             try {
                 context.unregisterReceiver(screenStateReceiver)
             } catch (e: Exception) {
-                Log.e("MapScreen", "Error unregistering receiver", e)
+                Timber.e(e, "Error unregistering receiver")
             }
 
             lifecycle.removeObserver(lifecycleObserver)
@@ -591,10 +589,10 @@ fun MapScreen(
 
             if (!isRecording && !followingState.isFollowing) {
                 try {
-                    Log.d("MapScreen", "onDispose: Stopping background service")
+                    Timber.d("onDispose: Stopping background service")
                     context.stopService(Intent(context, BackgroundLocationService::class.java))
                 } catch (e: Exception) {
-                    Log.e("MapScreen", "Error stopping background service", e)
+                    Timber.e(e, "Error stopping background service")
                 }
             }
         }
@@ -631,7 +629,7 @@ fun MapScreen(
 
                         if (isFollowingLocation) {
                             enableFollowLocation()
-                            Log.d("MapScreen", "Initial enableFollowLocation() called")
+                            Timber.d("Initial enableFollowLocation() called")
                         }
 
                         runOnFirstFix {
@@ -649,10 +647,10 @@ fun MapScreen(
 
                                         Handler(Looper.getMainLooper()).postDelayed({
                                             ignoringScrollEvents = false
-                                            Log.d("MapScreen", "Re-enabled scroll events after GPS fix")
+                                            Timber.d("Re-enabled scroll events after GPS fix")
                                         }, 300)
 
-                                        Log.d("MapScreen", "Map centered on initial GPS fix: $location")
+                                        Timber.d("Map centered on initial GPS fix: $location")
                                     }
                                 }
                             }
@@ -679,7 +677,7 @@ fun MapScreen(
                         when (event.action) {
                             android.view.MotionEvent.ACTION_DOWN -> {
                                 lastTouchTime = System.currentTimeMillis()
-                                Log.d("MapScreen", "Touch detected - potential manual interaction")
+                                Timber.d("Touch detected - potential manual interaction")
                             }
                         }
                         false // Don't consume the event
@@ -690,7 +688,7 @@ fun MapScreen(
                             val currentTime = System.currentTimeMillis()
                             val timeSinceLastTouch = currentTime - lastTouchTime
 
-                            Log.d("MapScreen", "Scroll event: isFollowing=$isFollowingLocation, timeSinceTouch=${timeSinceLastTouch}ms")
+                            Timber.d("Scroll event: isFollowing=$isFollowingLocation, timeSinceTouch=${timeSinceLastTouch}ms")
 
                             // REVOLUTIONARY APPROACH: Only disable auto-follow if there was a recent touch event
                             if (isFollowingLocation && timeSinceLastTouch < 1000) {
@@ -698,10 +696,10 @@ fun MapScreen(
                                 locationOverlayRef.value?.disableFollowLocation()
                                 isFollowingLocation = false
                                 saveAutoFollowState(false)
-                                Log.d("MapScreen", "Touch-based manual scroll detected - disabled auto-follow")
+                                Timber.d("Touch-based manual scroll detected - disabled auto-follow")
                             } else if (isFollowingLocation) {
                                 // Scroll event without recent touch - likely automatic, ignore
-                                Log.d("MapScreen", "Scroll event without recent touch - keeping auto-follow active")
+                                Timber.d("Scroll event without recent touch - keeping auto-follow active")
                             }
 
                             if (showPath && isRecording && !followingState.isFollowing) {
@@ -750,7 +748,7 @@ fun MapScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            Log.d("MapScreen", "My Location button clicked - toggling auto-follow")
+                            Timber.d("My Location button clicked - toggling auto-follow")
 
                             isFollowingLocation = !isFollowingLocation
                             saveAutoFollowState(isFollowingLocation)
@@ -850,7 +848,7 @@ fun MapScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            Log.d("MapScreen", "My Location button clicked - enabling auto-follow")
+                            Timber.d("My Location button clicked - enabling auto-follow")
 
                             isFollowingLocation = true
                             saveAutoFollowState(true)
@@ -1070,11 +1068,11 @@ fun MapScreen(
                     .apply()
 
                 isRecording = true
-                Log.d("MapScreen", "Recording started, set isRecording=true")
+                Timber.d("Recording started, set isRecording=true")
 
                 val stopIntent = Intent(context, BackgroundLocationService::class.java)
                 context.stopService(stopIntent)
-                Log.d("MapScreen", "Stopped BackgroundLocationService")
+                Timber.d("Stopped BackgroundLocationService")
 
                 val intent = Intent(context, ForegroundService::class.java).apply {
                     putExtra("eventName", eventName)
@@ -1087,11 +1085,11 @@ fun MapScreen(
                     heartRateSensor?.let {
                         putExtra("heartRateDeviceAddress", it.address)
                         putExtra("heartRateDeviceName", it.name)
-                        Log.d("MapScreen", "Adding heart rate sensor: ${it.name} (${it.address})")
+                        Timber.d("Adding heart rate sensor: ${it.name} (${it.address})")
                     }
                 }
                 ContextCompat.startForegroundService(context, intent)
-                Log.d("MapScreen", "Started ForegroundService with event details and start_recording=true")
+                Timber.d("Started ForegroundService with event details and start_recording=true")
 
                 showRecordingDialog = false
 
@@ -1102,7 +1100,7 @@ fun MapScreen(
 
                     mapViewRef.value?.let { mapView ->
                         if (newEventId > 0 && pathOption) {
-                            Log.d("MapScreen", "Setting path tracker to new event: $newEventId")
+                            Timber.d("Setting path tracker to new event: $newEventId")
                             pathTracker.setCurrentEventId(newEventId, mapView)
                         }
 
@@ -1116,7 +1114,7 @@ fun MapScreen(
                         saveAutoFollowState(true)
                         triggerMyLocationLogic()
 
-                        Log.d("MapScreen", "Restored map zoom level to $currentZoomLevel after recording started")
+                        Timber.d("Restored map zoom level to $currentZoomLevel after recording started")
                     }
                 }, 800)
             },
