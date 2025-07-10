@@ -89,6 +89,16 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".receiver.PackageUpdateReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.PACKAGE_REPLACED" />
+                <data android:scheme="package" />
+            </intent-filter>
+        </receiver>
         <receiver android:name=".reminder.ReminderBroadcastReceiver" android:enabled="true" android:exported="false" />
         <receiver android:name=".receiver.BootReceiver" android:enabled="true" android:exported="false">
             <intent-filter android:priority="1000">

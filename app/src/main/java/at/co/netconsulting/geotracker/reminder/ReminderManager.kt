@@ -8,7 +8,12 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.PlannedEvent
+import at.co.netconsulting.geotracker.tools.AlarmPermissionHelper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -284,6 +289,86 @@ class ReminderManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e("ReminderManager", "Failed to parse reminder date time to calendar: $reminderDateTime", e)
             null
+        }
+    }
+
+    /**
+     * Check if alarms need to be rescheduled and do so if needed
+     * Call this from your MainActivity onCreate or app startup
+     */
+    fun ensureAlarmsAreScheduled() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val alarmState = context.getSharedPreferences("AlarmState", Context.MODE_PRIVATE)
+                val needsRescheduling = alarmState.getBoolean("needs_rescheduling", false)
+                val lastReschedule = alarmState.getLong("last_reschedule_time", 0)
+                val currentTime = System.currentTimeMillis()
+
+                // If we need rescheduling or it's been more than 24 hours since last check
+                if (needsRescheduling || (currentTime - lastReschedule) > 24 * 60 * 60 * 1000) {
+                    Log.d("ReminderManager", "Ensuring all alarms are properly scheduled")
+                    rescheduleAllActiveReminders()
+                }
+
+            } catch (e: Exception) {
+                Log.e("ReminderManager", "Failed to ensure alarms are scheduled", e)
+            }
+        }
+    }
+
+    /**
+     * Reschedule all active reminders for the current user
+     */
+    private suspend fun rescheduleAllActiveReminders() {
+        try {
+            if (!AlarmPermissionHelper.checkExactAlarmPermission(context)) {
+                Log.w("ReminderManager", "Cannot reschedule - no exact alarm permission")
+                return
+            }
+
+            val database = FitnessTrackerDatabase.getInstance(context)
+            val currentUserId = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                .getInt("current_user_id", 1)
+
+            val plannedEvents = database.plannedEventDao().getPlannedEventsForUser(currentUserId)
+            var successCount = 0
+
+            plannedEvents.forEach { event ->
+                if (event.isReminderActive && event.reminderDateTime.isNotEmpty()) {
+                    try {
+                        scheduleReminder(event)
+                        successCount++
+                    } catch (e: Exception) {
+                        Log.e("ReminderManager", "Failed to reschedule ${event.plannedEventName}", e)
+                    }
+                }
+            }
+
+            // Mark as completed
+            context.getSharedPreferences("AlarmState", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("needs_rescheduling", false)
+                .putLong("last_reschedule_time", System.currentTimeMillis())
+                .putString("last_reschedule_reason", "STARTUP_CHECK")
+                .apply()
+
+            Log.d("ReminderManager", "Successfully rescheduled $successCount active reminders")
+
+        } catch (e: Exception) {
+            Log.e("ReminderManager", "Failed to reschedule all active reminders", e)
+        }
+    }
+
+    /**
+     * Call this when exact alarm permission is granted
+     */
+    fun onExactAlarmPermissionGranted() {
+        val alarmState = context.getSharedPreferences("AlarmState", Context.MODE_PRIVATE)
+        if (alarmState.getBoolean("needs_rescheduling", false)) {
+            Log.d("ReminderManager", "Exact alarm permission granted, rescheduling pending alarms")
+            CoroutineScope(Dispatchers.IO).launch {
+                rescheduleAllActiveReminders()
+            }
         }
     }
 }

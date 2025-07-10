@@ -1,6 +1,8 @@
 package at.co.netconsulting.geotracker
 
 import android.app.Application
+import android.util.Log
+import at.co.netconsulting.geotracker.reminder.ReminderManager
 import timber.log.Timber
 
 class GeoTrackerApplication : Application() {
@@ -10,12 +12,18 @@ class GeoTrackerApplication : Application() {
         val isDebug = applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
 
         if (isDebug) {
-            // Plant a debug tree that shows logs in Logcat during development
             Timber.plant(Timber.DebugTree())
         } else {
-            // Plant a custom tree for release builds (optional)
-            // You can implement crash reporting here (Firebase Crashlytics, etc.)
             Timber.plant(CrashReportingTree())
+        }
+
+        // Ensure alarms are scheduled when app starts
+        // This is a safety net in case broadcasts were missed
+        try {
+            val reminderManager = ReminderManager(this)
+            reminderManager.ensureAlarmsAreScheduled()
+        } catch (e: Exception) {
+            Log.e("GeoTrackerApplication", "Failed to ensure alarms on app start", e)
         }
     }
 }
