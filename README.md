@@ -54,17 +54,22 @@ Visualize your route on an interactive map:
    Open the websocket_server.py, and adapt the IP-ADDRESS.
    Then point to your browser and navigate to:
    ```
-   http://[IP-ADDRESS]:8011
+   https://[IP-ADDRESS]
    ```
 
 ---
 
 ## 📸 Screenshots
-![Screenshot_20250421-210036.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210036.png)
-![Screenshot_20250421-210111.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210111.png)
-![Screenshot_20250421-210045.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210045.png)
-![Screenshot_20250421-210054.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210054.png)
-![Screenshot_20250421-210122.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250421-210122.png)
+![Screenshot_20250711-064735.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064735.png)
+![Screenshot_20250711-064746.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064746.png)
+![Screenshot_20250711-064757.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064757.png)
+![Screenshot_20250711-064837.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064837.png)
+![Screenshot_20250711-064848.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064848.png)
+![Screenshot_20250711-064856.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064856.png)
+![Screenshot_20250711-064923.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064923.png)
+![Screenshot_20250711-064932.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064932.png)
+![Screenshot_20250711-064951.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064951.png)
+![Screenshot_20250711-065019.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-065019.png)
 
 ### Activity Dashboard
 ![Activity Dashboard](path-to-screenshot.png)

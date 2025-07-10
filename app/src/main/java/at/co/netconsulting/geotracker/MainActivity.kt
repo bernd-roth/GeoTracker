@@ -53,6 +53,8 @@
     import at.co.netconsulting.geotracker.composables.StatisticsScreen
     import at.co.netconsulting.geotracker.data.LocationData
     import at.co.netconsulting.geotracker.data.Metrics
+    import at.co.netconsulting.geotracker.reminder.ReminderManager
+    import at.co.netconsulting.geotracker.tools.AlarmPermissionHelper
     import org.greenrobot.eventbus.EventBus
     import org.greenrobot.eventbus.Subscribe
     import org.greenrobot.eventbus.ThreadMode
@@ -110,8 +112,26 @@
                     MainScreen()
                 }
             }
+            ensureAlarmsAreScheduled()
             openedFromReminderNotification()
             checkServiceStateAndUpdateUI()
+        }
+
+        private fun ensureAlarmsAreScheduled() {
+            // Check and ensure all alarms are properly scheduled
+            val reminderManager = ReminderManager(this)
+            reminderManager.ensureAlarmsAreScheduled()
+
+            // Also check exact alarm permission and request if needed
+            if (!AlarmPermissionHelper.checkExactAlarmPermission(this)) {
+                Log.w("MainActivity", "Exact alarm permission not granted")
+                // You might want to show a dialog here explaining why you need this permission
+                // AlarmPermissionHelper.requestExactAlarmPermission(this) { granted ->
+                //     if (granted) {
+                //         reminderManager.onExactAlarmPermissionGranted()
+                //     }
+                // }
+            }
         }
 
         private fun openedFromReminderNotification() {
