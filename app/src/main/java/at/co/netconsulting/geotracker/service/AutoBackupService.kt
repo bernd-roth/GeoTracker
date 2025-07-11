@@ -1,4 +1,3 @@
-// AutoBackupService.kt
 package at.co.netconsulting.geotracker.service
 
 import android.app.Notification
@@ -15,15 +14,14 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.MainActivity
 import at.co.netconsulting.geotracker.R
-import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -51,7 +49,7 @@ class AutoBackupService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "Auto backup service started")
+        Timber.d("Auto backup service started")
 
         // Show notification immediately with proper foreground service type
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
@@ -74,7 +72,7 @@ class AutoBackupService : Service() {
             try {
                 performAutoBackup()
             } catch (e: Exception) {
-                Log.e(TAG, "Error during auto backup", e)
+                Timber.e(e, "Error during auto backup")
             } finally {
                 releaseWakeLock()
                 stopSelf()
@@ -150,7 +148,7 @@ class AutoBackupService : Service() {
             updateNotificationProgress(30)
 
             if (!backupSuccess) {
-                Log.e(TAG, "Database backup failed")
+                Timber.e("Database backup failed")
                 showCompletionNotification(false, "Database backup failed")
                 return
             }
@@ -183,7 +181,7 @@ class AutoBackupService : Service() {
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error during automatic backup", e)
+            Timber.e(e,"Error during automatic backup")
             showCompletionNotification(false, "Backup error: ${e.message}")
         }
     }
@@ -205,10 +203,10 @@ class AutoBackupService : Service() {
             // we're assuming it completes successfully.
             // In a more robust implementation, we could use a BroadcastReceiver to get notified.
 
-            Log.d(TAG, "GPX export service started")
+            Timber.d("GPX export service started")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting GPX export service", e)
+            Timber.e(e, "Error starting GPX export service")
             false
         }
     }
@@ -256,10 +254,10 @@ class AutoBackupService : Service() {
                 }
             }
 
-            Log.d(TAG, "Database backup successful: ${backupFile.absolutePath}")
+            Timber.d("Database backup successful: ${backupFile.absolutePath}")
             true
         } catch (e: Exception) {
-            Log.e(TAG, "Error backing up database", e)
+            Timber.e(e, "Error backing up database")
             false
         }
     }
