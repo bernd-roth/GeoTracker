@@ -1,6 +1,6 @@
 # GeoTracker App
 
-GeoTracker is a powerful and versatile app designed for tracking your sports activities. Whether you're running, cycling, swimming, kayaking, or engaging in other sports, GeoTracker helps you record and analyze your performance. 
+GeoTracker is a powerful and versatile app designed for tracking your sports activities. Whether you're running, cycling, swimming, kayaking, or engaging in other sports, GeoTracker helps you record and analyze your performance.
 Share your activity with others and view their progress in real-time, thanks to its integrated WebSocket server.
 
 ---
@@ -41,7 +41,7 @@ Visualize your route on an interactive map:
 
 1. **Clone the Repository**:
    clone the repository to your machine
-   
+
 3. **Run the App**:
    compile the program in Android Studio and finally run it on your mobile phone
 
