@@ -63,7 +63,14 @@ Visualize your route on an interactive map:
 ![Screenshot_20250711-064735.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064735.png)
 ![Screenshot_20250711-064746.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064746.png)
 ![Screenshot_20250711-064757.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064757.png)
-![Screenshot_20250711-064837.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064837.png)
+![Screenshot_20250711-064837.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145613.png)
+
+![Screenshot_20250714-145347.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145347.png)
+![Screenshot_20250714-145402.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145402.png)
+![Screenshot_20250714-145412.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145412.png)
+![Screenshot_20250714-145424.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145424.png)
+![Screenshot_20250714-145436.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145436.png)
+
 ![Screenshot_20250711-064848.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064848.png)
 ![Screenshot_20250711-064856.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064856.png)
 ![Screenshot_20250711-064923.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064923.png)
