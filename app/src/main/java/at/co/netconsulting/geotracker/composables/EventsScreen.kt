@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -85,6 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
@@ -99,7 +101,8 @@ import java.util.Calendar
 @Composable
 fun EventsScreen(
     onEditEvent: (Int) -> Unit = {},
-    onNavigateToImportGpx: () -> Unit = {}
+    onNavigateToImportGpx: () -> Unit = {},
+    onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit = { _, _ -> } // Added heart rate detail navigation
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -552,7 +555,10 @@ fun EventsScreen(
                                 // Launch the GPX file picker
                                 launchGpxFilePicker()
                             },
-                            isCurrentlyRecording = isRecordingThisEvent
+                            isCurrentlyRecording = isRecordingThisEvent,
+                            onHeartRateClick = {
+                                onNavigateToHeartRateDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
+                            }
                         )
                     }
 
@@ -636,7 +642,8 @@ fun EventCard(
     onDelete: () -> Unit,
     onExport: () -> Unit,
     onImport: () -> Unit,
-    isCurrentlyRecording: Boolean = false
+    isCurrentlyRecording: Boolean = false,
+    onHeartRateClick: () -> Unit = {} // Added heart rate click callback
 ) {
     Card(
         modifier = Modifier
@@ -885,70 +892,112 @@ fun EventCard(
                     )
                 }
 
-                // Heart Rate Details Section
+                // Heart Rate Details Section - Made clickable
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = "Heart Rate Details",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (event.minHeartRate > 0 || event.maxHeartRate > 0) {
+                // Make the heart rate section clickable
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (event.metrics.any { it.heartRate > 0 }) {
+                                Modifier.clickable { onHeartRateClick() }
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(vertical = 4.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            InfoRowWithColor(
-                                label = "Min Heart Rate:",
-                                value = if (event.minHeartRate > 0) "${event.minHeartRate} bpm" else "N/A",
-                                textColor = if (event.minHeartRate > 0) Color.Blue else Color.Gray
-                            )
-                            InfoRowWithColor(
-                                label = "Avg Heart Rate:",
-                                value = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else "N/A",
-                                textColor = if (event.avgHeartRate > 0) MaterialTheme.colorScheme.primary else Color.Gray
+                        Text(
+                            text = "Heart Rate Details",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        // Add a visual indicator that this section is clickable
+                        if (event.metrics.any { it.heartRate > 0 }) {
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "View detailed heart rate analysis",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
+                    }
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            InfoRowWithColor(
-                                label = "Max Heart Rate:",
-                                value = if (event.maxHeartRate > 0) "${event.maxHeartRate} bpm" else "N/A",
-                                textColor = if (event.maxHeartRate > 0) Color.Red else Color.Gray
-                            )
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                            // Show heart rate device if available
-                            if (event.heartRateDevice.isNotEmpty() && event.heartRateDevice != "None") {
-                                InfoRow("Device:", event.heartRateDevice)
+                    if (event.minHeartRate > 0 || event.maxHeartRate > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRowWithColor(
+                                    label = "Min Heart Rate:",
+                                    value = if (event.minHeartRate > 0) "${event.minHeartRate} bpm" else "N/A",
+                                    textColor = if (event.minHeartRate > 0) Color.Blue else Color.Gray
+                                )
+                                InfoRowWithColor(
+                                    label = "Avg Heart Rate:",
+                                    value = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else "N/A",
+                                    textColor = if (event.avgHeartRate > 0) MaterialTheme.colorScheme.primary else Color.Gray
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRowWithColor(
+                                    label = "Max Heart Rate:",
+                                    value = if (event.maxHeartRate > 0) "${event.maxHeartRate} bpm" else "N/A",
+                                    textColor = if (event.maxHeartRate > 0) Color.Red else Color.Gray
+                                )
+
+                                // Show heart rate device if available
+                                if (event.heartRateDevice.isNotEmpty() && event.heartRateDevice != "None") {
+                                    InfoRow("Device:", event.heartRateDevice)
+                                }
                             }
                         }
-                    }
-                    //HeartRateGraph
-                    Spacer(modifier = Modifier.height(8.dp))
+                        //HeartRateGraph
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFF5F5F5))
-                            .padding(8.dp)
-                    ) {
-                        HeartRateGraph(
-                            metrics = event.metrics,
-                            modifier = Modifier.fillMaxSize()
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF5F5F5))
+                                .padding(8.dp)
+                        ) {
+                            HeartRateGraph(
+                                metrics = event.metrics,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        // Add a hint text to indicate it's clickable
+                        if (event.metrics.any { it.heartRate > 0 }) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Tap for detailed heart rate analysis",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontStyle = FontStyle.Italic,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "No heart rate data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
                         )
                     }
-                } else {
-                    Text(
-                        text = "No heart rate data available",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
                 }
 
                 // Weather information

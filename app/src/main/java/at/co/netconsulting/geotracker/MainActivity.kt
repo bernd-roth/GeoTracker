@@ -71,14 +71,19 @@
         private var coveredDistanceState = mutableDoubleStateOf(0.0)
         private val locationEventState = mutableStateOf<Metrics?>(null)
         private lateinit var satelliteInfoManager: SatelliteInfoManager
+        // heart rate
+        private var heartRateEventName by mutableStateOf("")
+        private var heartRateMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
         // Navigation routes
         object Routes {
             const val EVENTS = "events"
             const val EDIT_EVENT = "edit_event/{eventId}"
+            const val HEART_RATE_DETAIL = "heart_rate_detail"
 
             // Create actual navigation path with parameters
             fun editEvent(eventId: Int) = "edit_event/$eventId"
+            fun heartRateDetail() = "heart_rate_detail"
         }
 
         // Permission constants
@@ -463,6 +468,13 @@
                         onEditEvent = { eventId ->
                             Log.d("MainActivity", "Navigating to edit event with ID: $eventId")
                             navController.navigate(Routes.editEvent(eventId))
+                        },
+                        onNavigateToHeartRateDetail = { eventName, metrics ->
+                            Log.d("MainActivity", "Navigating to heart rate detail for event: $eventName")
+                            // Store the data for the heart rate screen
+                            heartRateEventName = eventName
+                            heartRateMetrics = metrics
+                            navController.navigate(Routes.heartRateDetail())
                         }
                     )
                 }
@@ -484,6 +496,24 @@
                         onNavigateBack = {
                             Log.d("MainActivity", "Navigating back from edit event")
                             navController.popBackStack()
+                        }
+                    )
+                }
+
+                // Heart rate detail screen
+                composable(Routes.HEART_RATE_DETAIL) {
+                    Log.d("MainActivity", "Showing heart rate detail screen")
+
+                    // Import the HeartRateDetailScreen here
+                    at.co.netconsulting.geotracker.composables.HeartRateDetailScreen(
+                        eventName = heartRateEventName,
+                        metrics = heartRateMetrics,
+                        onBackClick = {
+                            Log.d("MainActivity", "Navigating back from heart rate detail")
+                            navController.popBackStack()
+                            // Clear the data when navigating back
+                            heartRateEventName = ""
+                            heartRateMetrics = emptyList()
                         }
                     )
                 }

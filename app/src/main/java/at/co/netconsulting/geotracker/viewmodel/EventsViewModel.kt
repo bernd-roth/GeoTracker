@@ -31,8 +31,15 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private var currentPage = 0
-    private val pageSize = 20
+
+    // ADAPTIVE PAGE SIZES
+    private val normalPageSize = 20      // Fast loading for normal browsing
+    private val searchPageSize = 300     // Larger for search coverage
+    private val maxPageSize = 1000       // Maximum for comprehensive search
+
+    private var currentPageSize = normalPageSize
     private var hasMoreEvents = true
+    private var isSearchMode = false
 
     // Date range filter
     private var startDateFilter: String? = null
@@ -41,8 +48,47 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
         currentPage = 0
+
         viewModelScope.launch {
-            updateFilteredEvents()
+            val trimmedQuery = query.trim()
+
+            if (trimmedQuery.isEmpty()) {
+                // Exit search mode - return to normal pagination
+                isSearchMode = false
+                currentPageSize = normalPageSize
+                loadEvents()
+            } else {
+                // Enter search mode - use larger page size
+                isSearchMode = true
+                currentPageSize = searchPageSize
+                loadEventsWithCustomPageSize(searchPageSize)
+            }
+        }
+    }
+
+    private fun loadEventsWithCustomPageSize(customPageSize: Int) {
+        if (_isLoading.value) return
+
+        currentPage = 0
+        hasMoreEvents = true
+        _isLoading.value = true
+
+        viewModelScope.launch {
+            try {
+                val events = loadEventsWithDetails(0, customPageSize)
+                _eventsWithDetails.value = events
+                updateFilteredEvents()
+
+                // Update hasMoreEvents based on results
+                hasMoreEvents = events.size >= customPageSize
+                currentPageSize = customPageSize
+
+                Log.d("EventsViewModel", "Loaded ${events.size} events with page size $customPageSize")
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error loading events with custom page size: ${e.message}")
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
@@ -56,14 +102,15 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
     }
 
     private suspend fun updateFilteredEvents() {
-        val query = _searchQuery.value.lowercase()
+        val query = _searchQuery.value.lowercase().trim()
         val events = _eventsWithDetails.value
 
         val filtered = events.filter { event ->
             val matchesSearch = query.isEmpty() ||
                     event.event.eventName.lowercase().contains(query) ||
                     event.event.artOfSport.lowercase().contains(query) ||
-                    event.event.comment.lowercase().contains(query)
+                    event.event.comment.lowercase().contains(query) ||
+                    event.event.eventDate.contains(query) // Also search by date
 
             val matchesDateRange = if (startDateFilter != null && endDateFilter != null) {
                 isDateInRange(event.event.eventDate, startDateFilter!!, endDateFilter!!)
@@ -75,6 +122,8 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
         }
 
         _filteredEventsWithDetails.value = filtered
+
+        Log.d("EventsViewModel", "Filtered ${filtered.size} events from ${events.size} total (query: '$query')")
     }
 
     private fun isDateInRange(dateStr: String, startDateStr: String, endDateStr: String): Boolean {
@@ -99,10 +148,12 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
         currentPage = 0
         hasMoreEvents = true
         _isLoading.value = true
+        currentPageSize = normalPageSize
+        isSearchMode = false
 
         viewModelScope.launch {
             try {
-                val events = loadEventsWithDetails(0, pageSize)
+                val events = loadEventsWithDetails(0, normalPageSize)
                 _eventsWithDetails.value = events
                 updateFilteredEvents()
             } catch (e: Exception) {
@@ -114,14 +165,15 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
     }
 
     fun loadMoreEvents() {
-        if (_isLoading.value || !hasMoreEvents) return
+        // Don't allow pagination in search mode
+        if (_isLoading.value || !hasMoreEvents || isSearchMode) return
 
         _isLoading.value = true
         currentPage++
 
         viewModelScope.launch {
             try {
-                val newEvents = loadEventsWithDetails(currentPage * pageSize, pageSize)
+                val newEvents = loadEventsWithDetails(currentPage * currentPageSize, currentPageSize)
                 if (newEvents.isEmpty()) {
                     hasMoreEvents = false
                 } else {
@@ -134,6 +186,14 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    // Add a function to expand search if no results found
+    fun expandSearchIfNeeded() {
+        if (isSearchMode && _filteredEventsWithDetails.value.isEmpty() && currentPageSize < maxPageSize) {
+            Log.d("EventsViewModel", "No search results found, expanding to larger page size")
+            loadEventsWithCustomPageSize(maxPageSize)
         }
     }
 
@@ -282,14 +342,32 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                     database.eventDao().deleteEvent(event)
 
                     // Refresh events after deletion
-                    val events = loadEventsWithDetails(0, (currentPage + 1) * pageSize)
+                    val events = loadEventsWithDetails(0, (currentPage + 1) * currentPageSize)
                     _eventsWithDetails.value = events
                     updateFilteredEvents()
                 } else {
-
+                    Log.w("EventsViewModel", "Event with ID $eventId not found for deletion")
                 }
             } catch (e: Exception) {
                 Log.e("EventsViewModel", "Error deleting event: ${e.message}")
+            }
+        }
+    }
+
+    // Debug function to check what's in an imported event
+    fun debugImportedEvent(eventId: Int) {
+        viewModelScope.launch {
+            val event = _eventsWithDetails.value.find { it.event.eventId == eventId }
+            if (event != null) {
+                Log.d("ImportedEventDebug", "=== IMPORTED EVENT DEBUG ===")
+                Log.d("ImportedEventDebug", "Event ID: ${event.event.eventId}")
+                Log.d("ImportedEventDebug", "Event Name: '${event.event.eventName}'")
+                Log.d("ImportedEventDebug", "Art of Sport: '${event.event.artOfSport}'")
+                Log.d("ImportedEventDebug", "Comment: '${event.event.comment}'")
+                Log.d("ImportedEventDebug", "Event Date: '${event.event.eventDate}'")
+                Log.d("ImportedEventDebug", "=== END DEBUG ===")
+            } else {
+                Log.d("ImportedEventDebug", "Event with ID $eventId not found in loaded events")
             }
         }
     }
