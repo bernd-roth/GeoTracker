@@ -965,48 +965,58 @@ fun EventCard(
                 if (event.weather != null && event.weather.temperature > 0f) {
                     // Calculate temperature statistics from metrics if available
                     val temperatures = event.metrics.mapNotNull { it.temperature }.filter { it > 0f }
-                    val maxTemp = temperatures.maxOrNull() ?: event.weather.temperature
-                    val minTemp = temperatures.minOrNull() ?: event.weather.temperature
-                    val avgTemp = if (temperatures.isNotEmpty()) {
-                        temperatures.average().toFloat()
+
+                    if (temperatures.isNotEmpty() && temperatures.size > 1) {
+                        // Show min/max/avg only if we have multiple temperature readings
+                        val maxTemp = temperatures.maxOrNull() ?: event.weather.temperature
+                        val minTemp = temperatures.minOrNull() ?: event.weather.temperature
+                        val avgTemp = temperatures.average().toFloat()
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRowWithColor(
+                                    label = "↑ Max. Temperature:",
+                                    value = String.format("%.1f°C", maxTemp),
+                                    textColor = Color.Red
+                                )
+                                InfoRowWithColor(
+                                    label = "⌀ Avg. Temperature:",
+                                    value = String.format("%.1f°C", avgTemp),
+                                    textColor = MaterialTheme.colorScheme.primary
+                                )
+                                InfoRowWithColor(
+                                    label = "↓ Min. Temperature:",
+                                    value = String.format("%.1f°C", minTemp),
+                                    textColor = Color.Blue
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
+                                InfoRow("Wind Direction:", event.weather.windDirection)
+                                InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
+                            }
+                        }
                     } else {
-                        event.weather.temperature
-                    }
+                        // Show single temperature reading if we only have one value
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRow("Temperature:", String.format("%.1f°C", event.weather.temperature))
+                            }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            InfoRowWithColor(
-                                label = "↑ Max. Temperature:",
-                                value = String.format("%.1f°C", maxTemp),
-                                textColor = Color.Red
-                            )
-                            InfoRowWithColor(
-                                label = "⌀ Avg. Temperature:",
-                                value = String.format("%.1f°C", avgTemp),
-                                textColor = MaterialTheme.colorScheme.primary
-                            )
-                            InfoRowWithColor(
-                                label = "↓ Min. Temperature:",
-                                value = String.format("%.1f°C", minTemp),
-                                textColor = Color.Blue
-                            )
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
-                            InfoRow("Wind Direction:", event.weather.windDirection)
-                            InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
+                                InfoRow("Wind Direction:", event.weather.windDirection)
+                                InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
+                            }
                         }
                     }
-                } else {
-                    Text(
-                        text = "No weather data available",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
                 }
 
                 // Altitude information

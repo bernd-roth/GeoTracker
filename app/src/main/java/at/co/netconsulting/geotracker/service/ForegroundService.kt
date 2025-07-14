@@ -113,6 +113,12 @@ class ForegroundService : Service() {
     //Weather
     private var weatherJob: Job? = null
     private val weatherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var currentTemperature: Double = 0.0
+    private var currentWindSpeed: Double = 0.0
+    private var currentWindDirection: Double = 0.0
+    private var currentRelativeHumidity: Int = 0
+    private var currentWeatherCode: Int = 0
+    private var currentWeatherTime: String = ""
     //sessionId
     private var sessionId: String = ""
 
@@ -246,7 +252,7 @@ class ForegroundService : Service() {
 
     private suspend fun fetchWeatherData(): Boolean {
         try {
-            coroutineContext.ensureActive() // Check if coroutine is still active
+            coroutineContext.ensureActive()
 
             val client = OkHttpClient.Builder()
                 .connectTimeout(10, TimeUnit.SECONDS)
@@ -261,10 +267,10 @@ class ForegroundService : Service() {
                 .build()
 
             withContext(Dispatchers.IO) {
-                coroutineContext.ensureActive() // Check again before network call
+                coroutineContext.ensureActive()
 
                 client.newCall(request).execute().use { response ->
-                    coroutineContext.ensureActive() // Check before processing response
+                    coroutineContext.ensureActive()
 
                     if (!response.isSuccessful) {
                         throw IOException("Unexpected response ${response.code}")
@@ -275,10 +281,9 @@ class ForegroundService : Service() {
                         throw IOException("Empty response body")
                     }
 
-                    Log.d(TAG, "Weather API response: ${responseBody.take(500)}...") // Log the start of the response
+                    Log.d(TAG, "Weather API response: ${responseBody.take(500)}...")
 
                     try {
-                        // Create a custom Gson instance with specific field naming policy
                         val gson = GsonBuilder()
                             .setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
                             .create()
@@ -288,16 +293,22 @@ class ForegroundService : Service() {
                         if (weatherResponse != null) {
                             Log.d(TAG, "Weather response parsed successfully")
 
-                            // Check if currentWeather is available
                             if (weatherResponse.currentWeather != null) {
                                 Log.d(TAG, "Current weather data: ${weatherResponse.currentWeather}")
+
+                                val currentWeather = weatherResponse.currentWeather
+
+                                // ✅ STORE WEATHER DATA IN MEMBER VARIABLES
+                                currentTemperature = currentWeather.temperature
+                                currentWindSpeed = currentWeather.windspeed
+                                currentWindDirection = currentWeather.winddirection
+                                currentWeatherCode = currentWeather.weathercode
+                                currentWeatherTime = currentWeather.time
 
                                 // Directly publish CurrentWeather to EventBus
                                 EventBus.getDefault().post(weatherResponse.currentWeather)
                                 Log.d(TAG, "Weather data published to EventBus: ${weatherResponse.currentWeather}")
 
-                                // Only try to save to DB if we have the required data
-                                val currentWeather = weatherResponse.currentWeather
                                 try {
                                     // Get humidity data if available
                                     var currentHumidity = 0
@@ -322,11 +333,9 @@ class ForegroundService : Service() {
                                         } else {
                                             // Try to find closest time by parsing date/hour parts
                                             try {
-                                                // Extract date and hour from current time (e.g., "2025-03-26T21:00")
                                                 val datePart = currentTime.substringBefore("T")
                                                 val hourPart = currentTime.substringAfter("T").substringBefore(":")
 
-                                                // Find closest matching hour
                                                 val closestIndex = hourlyData.time.indexOfFirst { hourlyTime ->
                                                     hourlyTime.contains(datePart) && hourlyTime.contains("T$hourPart")
                                                 }
@@ -335,13 +344,11 @@ class ForegroundService : Service() {
                                                     currentHumidity = hourlyData.relativeHumidity[closestIndex]
                                                     Log.d(TAG, "Found closest time match, humidity: $currentHumidity")
                                                 } else {
-                                                    // Fallback to first available humidity data
                                                     currentHumidity = hourlyData.relativeHumidity.first()
                                                     Log.d(TAG, "Using fallback humidity data: $currentHumidity")
                                                 }
                                             } catch (e: Exception) {
                                                 Log.e(TAG, "Error processing hourly humidity data", e)
-                                                // Last resort fallback - use a typical value
                                                 currentHumidity = 70  // typical humidity value
                                             }
                                         }
@@ -349,7 +356,10 @@ class ForegroundService : Service() {
                                         Log.d(TAG, "Hourly data is incomplete or null")
                                     }
 
-                                    // NEW: Update CustomLocationListener with humidity data
+                                    // ✅ STORE HUMIDITY IN MEMBER VARIABLE TOO
+                                    currentRelativeHumidity = currentHumidity
+
+                                    // Update CustomLocationListener with humidity data
                                     customLocationListener?.updateWeatherHumidity(currentHumidity)
                                     Log.d(TAG, "Updated CustomLocationListener with humidity: $currentHumidity%")
 
@@ -367,10 +377,9 @@ class ForegroundService : Service() {
                                     Log.d(TAG, "Weather data saved to database: $weather")
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Error saving weather to database", e)
-                                    // Continue anyway, we already published to EventBus
                                 }
 
-                                return@withContext true  // Successfully got and processed weather data
+                                return@withContext true
                             } else {
                                 Log.e(TAG, "Current weather data is null after parsing")
                             }
@@ -387,7 +396,7 @@ class ForegroundService : Service() {
                 }
             }
 
-            return false  // No valid weather data was obtained
+            return false
         } catch (e: CancellationException) {
             Log.d(TAG, "Weather fetch cancelled")
             throw e
@@ -1008,7 +1017,7 @@ class ForegroundService : Service() {
                 }
                 previousElevation = currentElevation
 
-                // Always save metrics data regardless of speed
+                // Always save metrics data regardless of speed - NOW INCLUDING WEATHER DATA
                 val metric = Metric(
                     eventId = eventId,
                     heartRate = currentHeartRate,
@@ -1020,11 +1029,14 @@ class ForegroundService : Service() {
                     timeInMilliseconds = currentTimeMillis(),
                     unity = "metric",
                     elevation = altitude.toFloat(),
-                    elevationGain = elevGain,        // Set the elevation gain for this point
-                    elevationLoss = elevLoss         // Set the elevation loss for this point
+                    elevationGain = elevGain,
+                    elevationLoss = elevLoss,
+
+                    temperature = if (currentTemperature > 0) currentTemperature.toFloat() else null,
+                    accuracy = null // You can add GPS accuracy here if available
                 )
                 database.metricDao().insertMetric(metric)
-                Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds} with heart rate $currentHeartRate")
+                Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds} with heart rate $currentHeartRate and temperature $currentTemperature")
 
                 // Always save location data regardless of speed
                 val location = Location(
