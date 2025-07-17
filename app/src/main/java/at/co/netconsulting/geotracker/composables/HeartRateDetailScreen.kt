@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -51,29 +50,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import at.co.netconsulting.geotracker.data.AltitudeInfo
+import at.co.netconsulting.geotracker.data.DistanceInfo
+import at.co.netconsulting.geotracker.data.TimeInfo
 import at.co.netconsulting.geotracker.domain.Metric
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
-
-// Data classes for info windows
-data class DistanceInfo(
-    val heartRate: Int,
-    val distance: Double,
-    val position: Offset
-)
-
-data class TimeInfo(
-    val heartRate: Int,
-    val timeInMilliseconds: Long,
-    val position: Offset
-)
-
-data class AltitudeInfo(
-    val heartRate: Int,
-    val elevation: Float,
-    val position: Offset
-)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -954,7 +936,7 @@ private fun findClosestTimePoint(
 
         TimeInfo(
             heartRate = metric.heartRate,
-            timeInMilliseconds = metric.timeInMilliseconds,
+            timeInMilliseconds = metric.timeInMilliseconds - minTime, // Calculate elapsed time from start
             position = Offset(x, y)
         )
     }
@@ -1009,8 +991,8 @@ private fun findClosestAltitudePoint(
     }
 }
 
-private fun formatTime(timeInMilliseconds: Long): String {
-    val minutes = (timeInMilliseconds / (1000 * 60)) % 60
-    val seconds = (timeInMilliseconds / 1000) % 60
-    return String.format("%02d:%02d", minutes, seconds)
+private fun formatTime(elapsedTimeInMilliseconds: Long): String {
+    val totalMinutes = (elapsedTimeInMilliseconds / (1000 * 60))
+    val seconds = (elapsedTimeInMilliseconds / 1000) % 60
+    return String.format("%d:%02d", totalMinutes, seconds)
 }
