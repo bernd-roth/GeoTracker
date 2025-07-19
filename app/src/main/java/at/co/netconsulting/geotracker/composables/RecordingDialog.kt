@@ -96,14 +96,21 @@ fun RecordingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(400.dp)
+                    .height(600.dp)
                     .verticalScroll(rememberScrollState())
             ) {
                 // Event name field
                 OutlinedTextField(
                     value = eventName,
                     onValueChange = { eventName = it },
-                    label = { Text("Event Name") },
+                    label = { Text("Event Name *") },
+                    placeholder = { Text("Required field") },
+                    isError = eventName.trim().isEmpty(),
+                    supportingText = {
+                        if (eventName.trim().isEmpty()) {
+                            Text("Event name is required (current date will be used if empty)")
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp)
@@ -245,7 +252,14 @@ fun RecordingDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onSave(eventName, eventDate, artOfSport, comment, clothing, showPath, selectedHeartRateSensor)
+                    // Use current date as event name if eventName is empty or just whitespace
+                    val finalEventName = if (eventName.trim().isEmpty()) {
+                        getCurrentFormattedDate()
+                    } else {
+                        eventName.trim()
+                    }
+
+                    onSave(finalEventName, eventDate, artOfSport, comment, clothing, showPath, selectedHeartRateSensor)
                 }
             ) {
                 Text("Start Recording")
