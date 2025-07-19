@@ -614,20 +614,28 @@ fun InteractiveHeartRateVsAltitudeScatterPlot(
 ) {
     var showInfo by remember { mutableStateOf<AltitudeInfo?>(null) }
 
+    // Filter metrics that have both heart rate and elevation data
+    val validMetrics = remember(metrics) {
+        metrics.filter { it.heartRate > 0 && it.elevation > 0 }
+    }
+
     Box(modifier = modifier) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
-                    detectTapGestures { offset ->
-                        val info = findClosestAltitudePoint(metrics, offset, Size(size.width.toFloat(), size.height.toFloat()))
-                        showInfo = info
+                .then(
+                    if (validMetrics.isNotEmpty()) {
+                        Modifier.pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                val info = findClosestAltitudePoint(validMetrics, offset, Size(size.width.toFloat(), size.height.toFloat()))
+                                showInfo = info
+                            }
+                        }
+                    } else {
+                        Modifier
                     }
-                }
+                )
         ) {
-            // Filter metrics that have both heart rate and elevation data
-            val validMetrics = metrics.filter { it.heartRate > 0 && it.elevation > 0 }
-
             if (validMetrics.isEmpty()) {
                 val paint = Paint().asFrameworkPaint().apply {
                     color = Color.Gray.toArgb()
@@ -943,11 +951,10 @@ private fun findClosestTimePoint(
 }
 
 private fun findClosestAltitudePoint(
-    metrics: List<Metric>,
+    validMetrics: List<Metric>, // Already filtered for heart rate > 0 && elevation > 0
     clickOffset: Offset,
     canvasSize: androidx.compose.ui.geometry.Size
 ): AltitudeInfo? {
-    val validMetrics = metrics.filter { it.heartRate > 0 && it.elevation > 0 }
     if (validMetrics.isEmpty()) return null
 
     val padding = 60 * 3f
