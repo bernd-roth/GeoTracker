@@ -84,18 +84,18 @@ fun SettingsScreen() {
         mutableStateOf(sharedPreferences.getBoolean("darkModeEnabled", false))
     }
 
-    // Added dropdown state for minimum distance
-    var minDistanceMeters by remember {
-        mutableStateOf(sharedPreferences.getInt("minDistanceMeters", 5))
-    }
-
-    var minDistanceExpanded by remember { mutableStateOf(false) }
-
-    // Added dropdown state for minimum time
-    var minTimeSeconds by remember {
-        mutableStateOf(sharedPreferences.getInt("minTimeSeconds", 5))
-    }
-    var minTimeExpanded by remember { mutableStateOf(false) }
+//    // Added dropdown state for minimum distance
+//    var minDistanceMeters by remember {
+//        mutableStateOf(sharedPreferences.getInt("minDistanceMeters", 5))
+//    }
+//
+//    var minDistanceExpanded by remember { mutableStateOf(false) }
+//
+//    // Added dropdown state for minimum time
+//    var minTimeSeconds by remember {
+//        mutableStateOf(sharedPreferences.getInt("minTimeSeconds", 5))
+//    }
+//    var minTimeExpanded by remember { mutableStateOf(false) }
 
     // Voice announcement interval
     var voiceAnnouncementInterval by remember {
@@ -250,18 +250,18 @@ fun SettingsScreen() {
         Spacer(modifier = Modifier.height(16.dp))
 
         // Minimum distance dropdown
-        DistanceDropdown(
-            value = minDistanceMeters,
-            onValueChange = { minDistanceMeters = it },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        TimeDropdown(
-            value = minTimeSeconds,
-            onValueChange = { minTimeSeconds = it },
-            modifier = Modifier.fillMaxWidth()
-        )
+//        DistanceDropdown(
+//            value = minDistanceMeters,
+//            onValueChange = { minDistanceMeters = it },
+//            modifier = Modifier.fillMaxWidth()
+//        )
+//        Spacer(modifier = Modifier.height(16.dp))
+//
+//        TimeDropdown(
+//            value = minTimeSeconds,
+//            onValueChange = { minTimeSeconds = it },
+//            modifier = Modifier.fillMaxWidth()
+//        )
         Spacer(modifier = Modifier.height(16.dp))
 
         // Voice announcement interval
@@ -272,16 +272,16 @@ fun SettingsScreen() {
         )
         Spacer(modifier = Modifier.height(16.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
+//        Spacer(modifier = Modifier.height(16.dp))
 
-        ManualInputOption(
-            distanceValue = minDistanceMeters,
-            timeValue = minTimeSeconds,
-            onDistanceChange = { minDistanceMeters = it },
-            onTimeChange = { minTimeSeconds = it },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(16.dp))
+//        ManualInputOption(
+//            distanceValue = minDistanceMeters,
+//            timeValue = minTimeSeconds,
+//            onDistanceChange = { minDistanceMeters = it },
+//            onTimeChange = { minTimeSeconds = it },
+//            modifier = Modifier.fillMaxWidth()
+//        )
+//        Spacer(modifier = Modifier.height(16.dp))
 
         // Automatic Backup Settings Section
         Card(
@@ -427,10 +427,10 @@ fun SettingsScreen() {
                     autoBackupEnabled,
                     backupHour,
                     backupMinute,
-                    minDistanceMeters,
-                    minTimeSeconds,
+//                    minDistanceMeters,
+//                    minTimeSeconds,
                     voiceAnnouncementInterval,
-                    darkModeEnabled // Add this parameter
+                    darkModeEnabled
                 )
 
                 // If auto backup is enabled, reschedule it with the new time
@@ -483,10 +483,10 @@ fun saveAllSettings(
     autoBackupEnabled: Boolean,
     backupHour: Int,
     backupMinute: Int,
-    minDistanceMeters: Int,
-    minTimeSeconds: Int,
+//    minDistanceMeters: Int,
+//    minTimeSeconds: Int,
     voiceAnnouncementInterval: Int,
-    darkModeEnabled: Boolean // Add this parameter
+    darkModeEnabled: Boolean
 ) {
     sharedPreferences.edit().apply {
         putString("firstname", firstName)
@@ -498,8 +498,8 @@ fun saveAllSettings(
         putBoolean("autoBackupEnabled", autoBackupEnabled)
         putInt("backupHour", backupHour)
         putInt("backupMinute", backupMinute)
-        putInt("minDistanceMeters", minDistanceMeters)
-        putInt("minTimeSeconds", minTimeSeconds)
+//        putInt("minDistanceMeters", minDistanceMeters)
+//        putInt("minTimeSeconds", minTimeSeconds)
         putInt("voiceAnnouncementInterval", voiceAnnouncementInterval)
         putBoolean("darkModeEnabled", darkModeEnabled)
         apply()

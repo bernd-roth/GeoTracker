@@ -338,8 +338,8 @@ class CustomLocationListener: LocationListener {
             // Use the values loaded from SharedPreferences
             locationManager?.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                minTimeBetweenUpdates,
-                minDistanceBetweenUpdates,
+                minTimeBetweenUpdates, // Will always set to 1; leads to faster battery drain, however, Inactivity time does not need to be recalculated
+                minDistanceBetweenUpdates, // Will always set to 1; leads to faster battery drain, however, Inactivity time does not need to be recalculated
                 this
             )
             Log.d(
