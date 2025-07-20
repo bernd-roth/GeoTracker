@@ -215,7 +215,7 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
         return events.map { event ->
             val eventId = event.eventId
 
-            // Calculate heart rate statistics (keep existing code)
+            // Calculate heart rate statistics
             val metrics = database.metricDao().getMetricsForEvent(eventId)
             val heartRates = metrics.filter { it.heartRate > 0 }.map { it.heartRate }
             val minHeartRate = heartRates.minOrNull() ?: 0
@@ -224,21 +224,21 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 heartRates.sum() / heartRates.size
             else 0
 
-            // Keep existing heart rate device name code
+            // Get heart rate device name
             val heartRateDevice = metrics.firstOrNull {
                 it.heartRate > 0 && it.heartRateDevice.isNotEmpty() && it.heartRateDevice != "None"
             }?.heartRateDevice ?: ""
 
-            // Calculate basic metrics (keep existing code)
+            // Calculate basic metrics
             val totalDistance = metrics.maxByOrNull { it.distance }?.distance ?: 0.0
             val avgSpeed = if (metrics.isNotEmpty()) metrics.sumOf { it.speed.toDouble() } / metrics.size else 0.0
 
-            // Get elevation data (keep existing code)
+            // Get elevation data
             val elevations = metrics.map { it.elevation.toDouble() }
             val maxElevation = elevations.maxOrNull() ?: 0.0
             val minElevation = if (elevations.isNotEmpty()) elevations.minOrNull() ?: 0.0 else 0.0
 
-            // Calculate total elevation gain and loss (keep existing code)
+            // Calculate total elevation gain and loss
             var totalElevationGain = 0.0
             var totalElevationLoss = 0.0
 
@@ -257,7 +257,7 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 }
             }
 
-            // MODIFIED: Get maximum elevation gain value - check stored values first, then calculate
+            // Get maximum elevation gain value - check stored values first, then calculate
             val storedMaxElevationGain = metrics.maxByOrNull { it.elevationGain }?.elevationGain?.toDouble() ?: 0.0
 
             // If stored elevation gain is zero but we have elevation data, calculate it
@@ -292,12 +292,30 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 0.0
             }
 
-            // Get time range (keep existing code)
+            // Get time range
             val timeRange = database.metricDao().getEventTimeRange(eventId)
             val startTime = timeRange?.minTime ?: 0
             val endTime = timeRange?.maxTime ?: 0
 
-            // Rest of your existing code...
+            // EFFICIENT SATELLITE CALCULATION: Get all satellite data in one database call
+            val (minSatellites, maxSatellites, avgSatellites) = try {
+                val satelliteCountStrings = database.deviceStatusDao().getSatelliteCountsForEvent(eventId)
+                val satelliteCounts = satelliteCountStrings.mapNotNull { it.toIntOrNull() }.filter { it > 0 }
+
+                if (satelliteCounts.isNotEmpty()) {
+                    val min = satelliteCounts.minOrNull() ?: 0
+                    val max = satelliteCounts.maxOrNull() ?: 0
+                    val avg = (satelliteCounts.sum().toDouble() / satelliteCounts.size).toInt()
+                    Triple(min, max, avg)
+                } else {
+                    Triple(0, 0, 0)
+                }
+            } catch (e: Exception) {
+                Log.w("EventsViewModel", "Could not get satellite data for event $eventId: ${e.message}")
+                Triple(0, 0, 0)
+            }
+
+            // Get weather, locations, and other data
             val weather = database.eventDao().getLatestWeatherForEvent(eventId)
             val locations = database.locationDao().getLocationsForEvent(eventId)
             val geoPoints = locations.map { GeoPoint(it.latitude, it.longitude) }
@@ -306,9 +324,8 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
             } catch (e: Exception) {
                 emptyList<Long>()
             }
-            val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(eventId)
-            val satellites = deviceStatus?.numberOfSatellites?.toIntOrNull() ?: 0
 
+            // Create and return EventWithDetails
             EventWithDetails(
                 event = event,
                 totalDistance = totalDistance,
@@ -323,7 +340,10 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 weather = weather,
                 laps = lapTimes,
                 locationPoints = geoPoints,
-                satellites = satellites,
+                // Updated satellite fields
+                minSatellites = minSatellites,
+                maxSatellites = maxSatellites,
+                avgSatellites = avgSatellites,
                 minHeartRate = minHeartRate,
                 maxHeartRate = maxHeartRate,
                 avgHeartRate = avgHeartRate,

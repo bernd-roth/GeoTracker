@@ -27,4 +27,14 @@ interface DeviceStatusDao {
 
     @Query("SELECT MAX(CAST(numberOfSatellites AS INTEGER)) FROM device_status WHERE eventId = :eventId")
     suspend fun getMaxSatellitesForEvent(eventId: Int): Int?
+
+    @Query("SELECT MIN(CAST(numberOfSatellites AS INTEGER)) FROM device_status WHERE eventId = :eventId AND numberOfSatellites > 0")
+    suspend fun getMinSatellitesForEvent(eventId: Int): Int?
+
+    @Query("SELECT AVG(CAST(numberOfSatellites AS INTEGER)) FROM device_status WHERE eventId = :eventId AND numberOfSatellites > 0")
+    suspend fun getAvgSatellitesForEvent(eventId: Int): Double?
+
+    // Alternative: Get all satellite data in one query (more efficient)
+    @Query("SELECT numberOfSatellites FROM device_status WHERE eventId = :eventId AND numberOfSatellites IS NOT NULL AND numberOfSatellites > '0' ORDER BY deviceStatusId")
+    suspend fun getSatelliteCountsForEvent(eventId: Int): List<String>
 }

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
@@ -62,6 +63,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -93,6 +95,7 @@ import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import java.util.Calendar
@@ -102,7 +105,8 @@ import java.util.Calendar
 fun EventsScreen(
     onEditEvent: (Int) -> Unit = {},
     onNavigateToImportGpx: () -> Unit = {},
-    onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit = { _, _ -> } // Added heart rate detail navigation
+    onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit = { _, _ -> },
+    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {} // New callback for map navigation
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -558,7 +562,12 @@ fun EventsScreen(
                             isCurrentlyRecording = isRecordingThisEvent,
                             onHeartRateClick = {
                                 onNavigateToHeartRateDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
-                            }
+                            },
+                            // Pass the map navigation callback and recording state
+                            onViewOnMap = { locationPoints ->
+                                onNavigateToMapWithRoute(locationPoints)
+                            },
+                            canViewOnMap = !isRecordingThisEvent // Only allow when not recording this event
                         )
                     }
 
@@ -643,7 +652,9 @@ fun EventCard(
     onExport: () -> Unit,
     onImport: () -> Unit,
     isCurrentlyRecording: Boolean = false,
-    onHeartRateClick: () -> Unit = {} // Added heart rate click callback
+    onHeartRateClick: () -> Unit = {},
+    onViewOnMap: (List<GeoPoint>) -> Unit = {}, // New callback for map navigation
+    canViewOnMap: Boolean = true // New parameter to control visibility
 ) {
     Card(
         modifier = Modifier
@@ -881,12 +892,86 @@ fun EventCard(
 
                         Column(modifier = Modifier.weight(1f)) {
                             InfoRow("End:", Tools().formatTimestamp(event.endTime))
-                            InfoRow("Satellites:", "${event.satellites}")
                         }
                     }
                 } else {
                     Text(
                         text = "No time data available",
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                }
+
+                // GPS Signal Quality and Satellite info
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "GPS Signal Quality",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                if (event.maxSatellites > 0) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRowWithColor(
+                                label = "Min Satellites:",
+                                value = "${event.minSatellites}",
+                                textColor = when {
+                                    event.minSatellites >= 8 -> Color.Green
+                                    event.minSatellites >= 4 -> MaterialTheme.colorScheme.primary
+                                    else -> Color.Red
+                                }
+                            )
+                            InfoRowWithColor(
+                                label = "Avg Satellites:",
+                                value = "${event.avgSatellites}",
+                                textColor = when {
+                                    event.avgSatellites >= 8 -> Color.Green
+                                    event.avgSatellites >= 4 -> MaterialTheme.colorScheme.primary
+                                    else -> Color.Red
+                                }
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRowWithColor(
+                                label = "Max Satellites:",
+                                value = "${event.maxSatellites}",
+                                textColor = when {
+                                    event.maxSatellites >= 8 -> Color.Green
+                                    event.maxSatellites >= 4 -> MaterialTheme.colorScheme.primary
+                                    else -> Color.Red
+                                }
+                            )
+
+                            // Signal quality indicator
+                            val signalQuality = when {
+                                event.avgSatellites >= 8 -> "Excellent"
+                                event.avgSatellites >= 6 -> "Good"
+                                event.avgSatellites >= 4 -> "Fair"
+                                else -> "Poor"
+                            }
+
+                            InfoRowWithColor(
+                                label = "Signal Quality:",
+                                value = signalQuality,
+                                textColor = when {
+                                    event.avgSatellites >= 8 -> Color.Green
+                                    event.avgSatellites >= 4 -> MaterialTheme.colorScheme.primary
+                                    else -> Color.Red
+                                }
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "No GPS signal data available",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
@@ -1175,14 +1260,53 @@ fun EventCard(
                     )
                 }
 
-                // Map preview
+                // Map preview section with enhanced header
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = "Route Preview",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                // Enhanced Route Preview header with map navigation option
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Route Preview",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    // "View on Map" button - only show when not recording and has location data
+                    if (canViewOnMap && event.locationPoints.isNotEmpty()) {
+                        Surface(
+                            modifier = Modifier
+                                .clickable {
+                                    onViewOnMap(event.locationPoints)
+                                }
+                                .padding(4.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MyLocation,
+                                    contentDescription = "View on Map",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "View on Map",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -1220,6 +1344,18 @@ fun EventCard(
                                 mapView.invalidate()
                             },
                             modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    // Add a hint for the "View on Map" feature
+                    if (canViewOnMap) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap 'View on Map' to see the full route",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
                 } else {

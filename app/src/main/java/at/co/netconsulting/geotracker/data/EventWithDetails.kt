@@ -17,7 +17,11 @@ data class EventWithDetails(
     val weather: Weather? = null,
     val laps: List<Long> = emptyList(),
     val locationPoints: List<GeoPoint> = emptyList(),
-    val satellites: Int = 0,
+
+    // min/max/avg number of satellites
+    val minSatellites: Int = 0,
+    val maxSatellites: Int = 0,
+    val avgSatellites: Int = 0,
 
     // Heart rate related fields
     val minHeartRate: Int = 0,

@@ -13,12 +13,15 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
@@ -29,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -44,7 +48,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
@@ -73,6 +79,7 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
+import org.osmdroid.views.overlay.Polyline
 import timber.log.Timber
 
 // Dark mode tile source function - works with OSMDroid 6.1.18+
@@ -124,7 +131,9 @@ private fun updateMapStyle(mapView: MapView, isDarkMode: Boolean) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
-    onNavigateToSettings: (() -> Unit)? = null
+    onNavigateToSettings: (() -> Unit)? = null,
+    routeToDisplay: List<GeoPoint>? = null, // New parameter for route display
+    onRouteDisplayed: (() -> Unit)? = null // New callback when route is displayed
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -179,6 +188,13 @@ fun MapScreen(
 
     // Add reference to hold the FollowedUsersOverlay
     val followedUsersOverlayRef = remember { mutableStateOf<FollowedUsersOverlay?>(null) }
+
+    // New state for route display
+    var displayedRoute by remember { mutableStateOf<List<GeoPoint>?>(null) }
+    var showRouteDisplayIndicator by remember { mutableStateOf(false) }
+
+    // Create a reference to hold the route overlay
+    val routeOverlayRef = remember { mutableStateOf<Polyline?>(null) }
 
     // Persist auto-follow state
     var isFollowingLocation by remember {
@@ -251,6 +267,74 @@ fun MapScreen(
                 }
             }
             Timber.d("My Location logic triggered programmatically")
+        }
+    }
+
+    // Handle route display when routeToDisplay changes
+    LaunchedEffect(routeToDisplay) {
+        if (routeToDisplay != null && routeToDisplay.isNotEmpty()) {
+            displayedRoute = routeToDisplay
+            showRouteDisplayIndicator = true
+
+            mapViewRef.value?.let { mapView ->
+                // Remove existing route overlay if present
+                routeOverlayRef.value?.let { existingOverlay ->
+                    mapView.overlays.remove(existingOverlay)
+                }
+
+                // Create new route overlay
+                val routeOverlay = Polyline().apply {
+                    setPoints(routeToDisplay)
+                    color = android.graphics.Color.RED // Use red color to distinguish from recording path
+                    width = 8f
+                    title = "Event Route"
+                }
+
+                // Add the route overlay to the map
+                mapView.overlays.add(routeOverlay)
+                routeOverlayRef.value = routeOverlay
+
+                // Center map on the route
+                if (routeToDisplay.isNotEmpty()) {
+                    // Calculate bounding box of the route
+                    val minLat = routeToDisplay.minOf { it.latitude }
+                    val maxLat = routeToDisplay.maxOf { it.latitude }
+                    val minLon = routeToDisplay.minOf { it.longitude }
+                    val maxLon = routeToDisplay.maxOf { it.longitude }
+
+                    // Center on the route
+                    val centerLat = (minLat + maxLat) / 2
+                    val centerLon = (minLon + maxLon) / 2
+                    val center = GeoPoint(centerLat, centerLon)
+
+                    // Calculate appropriate zoom level
+                    val latDiff = maxLat - minLat
+                    val lonDiff = maxLon - minLon
+                    val maxDiff = maxOf(latDiff, lonDiff)
+
+                    val zoomLevel = when {
+                        maxDiff > 1.0 -> 8.0
+                        maxDiff > 0.1 -> 10.0
+                        maxDiff > 0.01 -> 12.0
+                        maxDiff > 0.001 -> 14.0
+                        else -> 16.0
+                    }
+
+                    mapView.controller.setCenter(center)
+                    mapView.controller.setZoom(zoomLevel)
+
+                    // Disable auto-follow when displaying a route
+                    isFollowingLocation = false
+                    saveAutoFollowState(false)
+
+                    mapView.invalidate()
+
+                    Timber.d("Displayed route with ${routeToDisplay.size} points, centered at $center, zoom $zoomLevel")
+                }
+            }
+
+            // Notify that route has been displayed
+            onRouteDisplayed?.invoke()
         }
     }
 
@@ -634,12 +718,11 @@ fun MapScreen(
 
                         runOnFirstFix {
                             Handler(Looper.getMainLooper()).post {
-                                if (!hasInitializedMapCenter) {
+                                if (!hasInitializedMapCenter && displayedRoute == null) {
                                     val location = myLocation
                                     if (location != null) {
                                         lastKnownLocation.value = location
 
-                                        // Protect the initial GPS fix centering for logging
                                         ignoringScrollEvents = true
                                         controller.setCenter(location)
                                         controller.setZoom(15)
@@ -720,69 +803,79 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize()
         )
 
+        // Route display indicator - shows when displaying a route from events
+        if (showRouteDisplayIndicator && displayedRoute != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 16.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Red.copy(alpha = 0.9f),
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = "Route Display",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Displaying Event Route (${displayedRoute?.size ?: 0} points)",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = {
+                            // Clear the displayed route
+                            mapViewRef.value?.let { mapView ->
+                                routeOverlayRef.value?.let { overlay ->
+                                    mapView.overlays.remove(overlay)
+                                    mapView.invalidate()
+                                }
+                            }
+                            displayedRoute = null
+                            showRouteDisplayIndicator = false
+                            routeOverlayRef.value = null
+
+                            // Re-enable auto-follow if not recording
+                            if (!isRecording) {
+                                isFollowingLocation = true
+                                saveAutoFollowState(true)
+                                triggerMyLocationLogic()
+                            }
+
+                            Timber.d("Cleared displayed route")
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear Route",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // Heart Rate Panel - only show when recording
         if (isRecording && !followingState.isFollowing) {
             HeartRatePanel(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(top = 64.dp, start = 16.dp)
+                    .padding(top = if (showRouteDisplayIndicator) 120.dp else 64.dp, start = 16.dp)
             )
         }
 
-        // My Location button and auto-follow indicator - always visible
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(end = 16.dp, top = if (followingState.isFollowing && !isConnected) 64.dp else 16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            // "My Location" button - always visible
-            Surface(
-                modifier = Modifier.size(48.dp),
-                shape = CircleShape,
-                color = if (isFollowingLocation) Color.Blue else Color.White,
-                shadowElevation = 4.dp,
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable {
-                            Timber.d("My Location button clicked - toggling auto-follow")
 
-                            isFollowingLocation = !isFollowingLocation
-                            saveAutoFollowState(isFollowingLocation)
-
-                            if (isFollowingLocation) {
-                                triggerMyLocationLogic()
-                            }
-                        }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MyLocation,
-                        contentDescription = if (isFollowingLocation) "Disable Auto-Follow" else "Enable Auto-Follow",
-                        tint = if (isFollowingLocation) Color.White else Color.Black
-                    )
-                }
-            }
-
-            // Auto-follow indicator below the button
-            if (isFollowingLocation && hasInitializedMapCenter) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Blue.copy(alpha = 0.8f),
-                    shadowElevation = 2.dp
-                ) {
-                    Text(
-                        text = "Auto-Follow",
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        color = Color.White,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-        }
 
         // Following indicator
         if (followingState.isFollowing) {
@@ -832,38 +925,6 @@ fun MapScreen(
             }
         }
 
-        // "My Location" button - shows when auto-follow is disabled
-        if (!isFollowingLocation) {
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 16.dp, top = if (followingState.isFollowing && !isConnected) 64.dp else 16.dp)
-                    .size(48.dp),
-                shape = CircleShape,
-                color = Color.White,
-                shadowElevation = 4.dp,
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clickable {
-                            Timber.d("My Location button clicked - enabling auto-follow")
-
-                            isFollowingLocation = true
-                            saveAutoFollowState(true)
-                            triggerMyLocationLogic()
-                        }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MyLocation,
-                        contentDescription = "Enable Auto-Follow",
-                        tint = Color.Black
-                    )
-                }
-            }
-        }
-
         // Control buttons column at the bottom
         Column(
             modifier = Modifier
@@ -871,6 +932,55 @@ fun MapScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.End
         ) {
+            // Auto-follow indicator above My Location button
+            if (isFollowingLocation && hasInitializedMapCenter) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Blue.copy(alpha = 0.8f),
+                    shadowElevation = 2.dp
+                ) {
+                    Text(
+                        text = "Auto-Follow",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // My Location button (moved from top right) - always visible
+            Surface(
+                modifier = Modifier.size(56.dp),
+                shape = CircleShape,
+                color = if (isFollowingLocation) Color.Blue else Color.White,
+                shadowElevation = 8.dp,
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable {
+                            Timber.d("My Location button clicked - toggling auto-follow")
+
+                            isFollowingLocation = !isFollowingLocation
+                            saveAutoFollowState(isFollowingLocation)
+
+                            if (isFollowingLocation) {
+                                triggerMyLocationLogic()
+                            }
+                        }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MyLocation,
+                        contentDescription = if (isFollowingLocation) "Disable Auto-Follow" else "Enable Auto-Follow",
+                        tint = if (isFollowingLocation) Color.White else Color.Black
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             // Follow Users button - only show when not recording
             if (!isRecording) {
                 Surface(

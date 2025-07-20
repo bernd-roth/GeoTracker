@@ -10,7 +10,7 @@ plugins {
 
 android {
     namespace = "at.co.netconsulting.geotracker"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "at.co.netconsulting.geotracker"
