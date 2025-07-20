@@ -17,7 +17,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel() {
-
     private val _eventsWithDetails = MutableStateFlow<List<EventWithDetails>>(emptyList())
     val eventsWithDetails: StateFlow<List<EventWithDetails>> = _eventsWithDetails.asStateFlow()
 
@@ -200,7 +199,6 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
     private suspend fun loadEventsWithDetails(offset: Int, limit: Int): List<EventWithDetails> {
         return withContext(Dispatchers.IO) {
             try {
-                // Fixed: use the correct method name getEventsPaged instead of getEventsWithLimit
                 val events = database.eventDao().getEventsPaged(limit, offset)
 
                 processEvents(events)
@@ -231,7 +229,20 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
 
             // Calculate basic metrics
             val totalDistance = metrics.maxByOrNull { it.distance }?.distance ?: 0.0
-            val avgSpeed = if (metrics.isNotEmpty()) metrics.sumOf { it.speed.toDouble() } / metrics.size else 0.0
+
+            // Get time range FIRST - moved this up before avgSpeed calculation
+            val timeRange = database.metricDao().getEventTimeRange(eventId)
+            val startTime = timeRange?.minTime ?: 0
+            val endTime = timeRange?.maxTime ?: 0
+
+            // calculate average speed using the correct formula: total distance / total time
+            val avgSpeed = if (startTime > 0 && endTime > startTime) {
+                val durationSeconds = (endTime - startTime) / 1000.0
+                val avgSpeedMps = totalDistance / durationSeconds
+                avgSpeedMps * 3.6 // Convert m/s to km/h
+            } else {
+                0.0
+            }
 
             // Get elevation data
             val elevations = metrics.map { it.elevation.toDouble() }
@@ -291,11 +302,6 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
             } else {
                 0.0
             }
-
-            // Get time range
-            val timeRange = database.metricDao().getEventTimeRange(eventId)
-            val startTime = timeRange?.minTime ?: 0
-            val endTime = timeRange?.maxTime ?: 0
 
             // EFFICIENT SATELLITE CALCULATION: Get all satellite data in one database call
             val (minSatellites, maxSatellites, avgSatellites) = try {
