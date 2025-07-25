@@ -1161,7 +1161,7 @@ fun MapScreen(
     // Recording dialog
     if (showRecordingDialog) {
         RecordingDialog(
-            onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor ->
+            onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer ->
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
 
@@ -1191,6 +1191,7 @@ fun MapScreen(
                     putExtra("comment", comment)
                     putExtra("clothing", clothing)
                     putExtra("start_recording", true)
+                    putExtra("enableWebSocketTransfer", enableWebSocketTransfer) // NEW: Pass WebSocket setting
 
                     heartRateSensor?.let {
                         putExtra("heartRateDeviceAddress", it.address)
@@ -1199,7 +1200,7 @@ fun MapScreen(
                     }
                 }
                 ContextCompat.startForegroundService(context, intent)
-                Timber.d("Started ForegroundService with event details and start_recording=true")
+                Timber.d("Started ForegroundService with event details, WebSocket transfer: $enableWebSocketTransfer, and start_recording=true")
 
                 showRecordingDialog = false
 

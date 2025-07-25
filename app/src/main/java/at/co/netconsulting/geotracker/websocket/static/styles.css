@@ -519,7 +519,6 @@ html {
     color: white;
 }
 
-/* FIXED: Replace the #chartInfoPopup section in your CSS with this version */
 /* Enhanced popup styling - REMOVED !important from display property */
 #chartInfoPopup {
     position: fixed !important;

@@ -106,7 +106,8 @@ fun EventsScreen(
     onEditEvent: (Int) -> Unit = {},
     onNavigateToImportGpx: () -> Unit = {},
     onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit = { _, _ -> },
-    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {} // New callback for map navigation
+    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {},
+    onNavigateToWeatherDetail: (String, List<Metric>) -> Unit = { _, _ -> } // New callback for weather detail
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -563,6 +564,9 @@ fun EventsScreen(
                             onHeartRateClick = {
                                 onNavigateToHeartRateDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
                             },
+                            onWeatherClick = {
+                                onNavigateToWeatherDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
+                            },
                             // Pass the map navigation callback and recording state
                             onViewOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(locationPoints)
@@ -653,6 +657,7 @@ fun EventCard(
     onImport: () -> Unit,
     isCurrentlyRecording: Boolean = false,
     onHeartRateClick: () -> Unit = {},
+    onWeatherClick: () -> Unit = {}, // New callback for weather analysis
     onViewOnMap: (List<GeoPoint>) -> Unit = {}, // New callback for map navigation
     canViewOnMap: Boolean = true // New parameter to control visibility
 ) {
@@ -1085,71 +1090,123 @@ fun EventCard(
                     }
                 }
 
-                // Weather information
+                // Weather information - Make this section clickable
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = "Weather Conditions",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                // Check if we have temperature data in metrics for consistent behavior
+                val hasTemperatureData = event.metrics.any { it.temperature != null && it.temperature!! > 0f }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (event.weather != null && event.weather.temperature > 0f) {
-                    // Calculate temperature statistics from metrics if available
-                    val temperatures = event.metrics.mapNotNull { it.temperature }.filter { it > 0f }
-
-                    if (temperatures.isNotEmpty() && temperatures.size > 1) {
-                        // Show min/max/avg only if we have multiple temperature readings
-                        val maxTemp = temperatures.maxOrNull() ?: event.weather.temperature
-                        val minTemp = temperatures.minOrNull() ?: event.weather.temperature
-                        val avgTemp = temperatures.average().toFloat()
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                InfoRowWithColor(
-                                    label = "↑ Max. Temperature:",
-                                    value = String.format("%.1f°C", maxTemp),
-                                    textColor = Color.Red
-                                )
-                                InfoRowWithColor(
-                                    label = "⌀ Avg. Temperature:",
-                                    value = String.format("%.1f°C", avgTemp),
-                                    textColor = MaterialTheme.colorScheme.primary
-                                )
-                                InfoRowWithColor(
-                                    label = "↓ Min. Temperature:",
-                                    value = String.format("%.1f°C", minTemp),
-                                    textColor = Color.Blue
-                                )
+                // Make the weather section clickable similar to heart rate
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasTemperatureData) {
+                                Modifier.clickable { onWeatherClick() }
+                            } else {
+                                Modifier
                             }
+                        )
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Weather Conditions",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
-                                InfoRow("Wind Direction:", event.weather.windDirection)
-                                InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
+                        // Add a visual indicator that this section is clickable
+                        if (hasTemperatureData) {
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "View detailed weather analysis",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    if (event.weather != null && event.weather.temperature > 0f) {
+                        // Calculate temperature statistics from metrics if available
+                        val temperatures = event.metrics.mapNotNull { it.temperature }.filter { it > 0f }
+
+                        if (temperatures.isNotEmpty() && temperatures.size > 1) {
+                            // Show min/max/avg only if we have multiple temperature readings
+                            val maxTemp = temperatures.maxOrNull() ?: event.weather.temperature
+                            val minTemp = temperatures.minOrNull() ?: event.weather.temperature
+                            val avgTemp = temperatures.average().toFloat()
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    InfoRowWithColor(
+                                        label = "↑ Max. Temperature:",
+                                        value = String.format("%.1f°C", maxTemp),
+                                        textColor = Color.Red
+                                    )
+                                    InfoRowWithColor(
+                                        label = "⌀ Avg. Temperature:",
+                                        value = String.format("%.1f°C", avgTemp),
+                                        textColor = MaterialTheme.colorScheme.primary
+                                    )
+                                    InfoRowWithColor(
+                                        label = "↓ Min. Temperature:",
+                                        value = String.format("%.1f°C", minTemp),
+                                        textColor = Color.Blue
+                                    )
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
+                                    InfoRow("Wind Direction:", event.weather.windDirection)
+                                    InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
+                                }
+                            }
+                        } else {
+                            // Show single temperature reading if we only have one value
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    InfoRow("Temperature:", String.format("%.1f°C", event.weather.temperature))
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
+                                    InfoRow("Wind Direction:", event.weather.windDirection)
+                                    InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
+                                }
                             }
                         }
                     } else {
-                        // Show single temperature reading if we only have one value
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                InfoRow("Temperature:", String.format("%.1f°C", event.weather.temperature))
-                            }
+                        Text(
+                            text = "No weather data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                InfoRow("Wind Speed:", "${event.weather.windSpeed} Km/h")
-                                InfoRow("Wind Direction:", event.weather.windDirection)
-                                InfoRow("Humidity:", "${event.weather.relativeHumidity}%")
-                            }
-                        }
+                    // Add a hint text to indicate it's clickable - moved outside the weather check
+                    // and use the same condition as the clickable modifier
+                    if (hasTemperatureData) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap for detailed weather conditions analysis",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
 

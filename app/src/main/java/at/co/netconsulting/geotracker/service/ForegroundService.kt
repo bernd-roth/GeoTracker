@@ -144,6 +144,9 @@ class ForegroundService : Service() {
     private var stateConsistencyCheckerJob: Job? = null
     private var isInitialStateRestored = false
 
+    // WebSocket transfer setting
+    private var enableWebSocketTransfer: Boolean = true
+
     // Session data management methods
     private fun saveSessionDataToPreferences(
         eventName: String,
@@ -151,7 +154,8 @@ class ForegroundService : Service() {
         sportType: String,
         comment: String,
         clothing: String,
-        sessionId: String
+        sessionId: String,
+        enableWebSocketTransfer: Boolean
     ) {
         try {
             // Save to SessionPrefs for CustomLocationListener to access
@@ -163,6 +167,13 @@ class ForegroundService : Service() {
                 putString("current_comment", comment)
                 putString("current_clothing", clothing)
                 putString("current_session_id", sessionId)
+                apply()
+            }
+
+            // Save WebSocket setting to UserSettings
+            val userSettings = getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+            userSettings.edit().apply {
+                putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
                 apply()
             }
 
@@ -784,6 +795,7 @@ class ForegroundService : Service() {
                 .putString("artOfSport", artofsport)
                 .putString("comment", comment)
                 .putString("clothing", clothing)
+                .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
                 .apply()
         } catch (e: Exception) {
             Log.e(TAG, "Error updating service state preferences", e)
@@ -1131,6 +1143,8 @@ class ForegroundService : Service() {
                 eventId = prefs.getInt("event_id", -1)
                 sessionId = prefs.getString("session_id", "") ?: ""
 
+                enableWebSocketTransfer = prefs.getBoolean("enable_websocket_transfer", true)
+
                 // Restore position and distance data
                 val lastLat = prefs.getFloat("last_latitude", -999f).toDouble()
                 val lastLng = prefs.getFloat("last_longitude", -999f).toDouble()
@@ -1188,7 +1202,8 @@ class ForegroundService : Service() {
                     sportType = artofsport,
                     comment = comment,
                     clothing = clothing,
-                    sessionId = sessionId
+                    sessionId = sessionId,
+                    enableWebSocketTransfer = enableWebSocketTransfer
                 )
 
                 // Clear restart flag
@@ -1203,6 +1218,7 @@ class ForegroundService : Service() {
                 artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
                 comment = intent?.getStringExtra("comment") ?: "No Comment"
                 clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
+                enableWebSocketTransfer = intent?.getBooleanExtra("enableWebSocketTransfer", true) ?: true
 
                 // Extract heart rate sensor info from intent
                 heartRateDeviceAddress = intent?.getStringExtra("heartRateDeviceAddress")
@@ -1220,7 +1236,8 @@ class ForegroundService : Service() {
                     sportType = artofsport,
                     comment = comment,
                     clothing = clothing,
-                    sessionId = sessionId
+                    sessionId = sessionId,
+                    enableWebSocketTransfer = enableWebSocketTransfer
                 )
             }
 
@@ -1241,7 +1258,7 @@ class ForegroundService : Service() {
                 }
             }
 
-            Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport, comment: $comment, clothing: $clothing")
+            Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport, comment: $comment, clothing: $clothing, websocketTransfer: $enableWebSocketTransfer")
 
             // Debug log to verify session data is saved
             logSessionDataForDebugging()
@@ -1472,6 +1489,7 @@ class ForegroundService : Service() {
                 .putString("artOfSport", artofsport)
                 .putString("comment", comment)
                 .putString("clothing", clothing)
+                .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
                 .apply()
 
             // Force a final state save to the database
@@ -1492,6 +1510,7 @@ class ForegroundService : Service() {
                 putExtra("comment", comment)
                 putExtra("clothing", clothing)
                 putExtra("is_restored_session", true)
+                putExtra("enableWebSocketTransfer", enableWebSocketTransfer)
 
                 // Restore heart rate sensor information
                 heartRateDeviceAddress?.let { putExtra("heartRateDeviceAddress", it) }

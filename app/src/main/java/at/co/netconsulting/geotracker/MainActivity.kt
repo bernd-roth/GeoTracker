@@ -77,6 +77,10 @@ class MainActivity : ComponentActivity() {
     private var heartRateEventName by mutableStateOf("")
     private var heartRateMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
+    // weather data - Add these new state variables
+    private var weatherEventName by mutableStateOf("")
+    private var weatherMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
+
     // Route navigation state
     private val routeToDisplay = mutableStateOf<List<GeoPoint>?>(null)
 
@@ -85,10 +89,12 @@ class MainActivity : ComponentActivity() {
         const val EVENTS = "events"
         const val EDIT_EVENT = "edit_event/{eventId}"
         const val HEART_RATE_DETAIL = "heart_rate_detail"
+        const val WEATHER_DETAIL = "weather_detail" // Add this new route
 
         // Create actual navigation path with parameters
         fun editEvent(eventId: Int) = "edit_event/$eventId"
         fun heartRateDetail() = "heart_rate_detail"
+        fun weatherDetail() = "weather_detail" // Add this new function
     }
 
     // Permission constants
@@ -490,6 +496,13 @@ class MainActivity : ComponentActivity() {
                         heartRateMetrics = metrics
                         navController.navigate(Routes.heartRateDetail())
                     },
+                    onNavigateToWeatherDetail = { eventName, metrics ->
+                        Log.d("MainActivity", "Navigating to weather detail for event: $eventName")
+                        // Store the data for the weather screen
+                        weatherEventName = eventName
+                        weatherMetrics = metrics
+                        navController.navigate(Routes.weatherDetail())
+                    },
                     onNavigateToMapWithRoute = onNavigateToMapWithRoute
                 )
             }
@@ -529,6 +542,24 @@ class MainActivity : ComponentActivity() {
                         // Clear the data when navigating back
                         heartRateEventName = ""
                         heartRateMetrics = emptyList()
+                    }
+                )
+            }
+
+            // Weather detail screen - Add this new composable route
+            composable(Routes.WEATHER_DETAIL) {
+                Log.d("MainActivity", "Showing weather detail screen")
+
+                // Import the WeatherDetailScreen here
+                at.co.netconsulting.geotracker.composables.WeatherDetailScreen(
+                    eventName = weatherEventName,
+                    metrics = weatherMetrics,
+                    onBackClick = {
+                        Log.d("MainActivity", "Navigating back from weather detail")
+                        navController.popBackStack()
+                        // Clear the data when navigating back
+                        weatherEventName = ""
+                        weatherMetrics = emptyList()
                     }
                 )
             }

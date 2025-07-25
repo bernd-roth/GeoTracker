@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
@@ -48,7 +49,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingDialog(
-    onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?) -> Unit,
+    onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -61,6 +62,14 @@ fun RecordingDialog(
     var expanded by remember { mutableStateOf(false) }
     var showHeartRateSensorDialog by remember { mutableStateOf(false) }
     var selectedHeartRateSensor by remember { mutableStateOf<HeartRateSensorDevice?>(null) }
+
+    // WebSocket transfer setting - load from SharedPreferences with default true
+    var enableWebSocketTransfer by remember {
+        mutableStateOf(
+            context.getSharedPreferences("UserSettings", android.content.Context.MODE_PRIVATE)
+                .getBoolean("enable_websocket_transfer", true)
+        )
+    }
 
     // Sport types list
     val sportTypes = listOf("Running", "Cycling", "Swimming", "Walking", "Hiking", "Other")
@@ -96,7 +105,7 @@ fun RecordingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(600.dp)
+                    .height(700.dp) // Increased height to accommodate new checkbox
                     .verticalScroll(rememberScrollState())
             ) {
                 // Event name field
@@ -232,6 +241,40 @@ fun RecordingDialog(
                     }
                 }
 
+                // WebSocket Transfer Setting - NEW
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = "WebSocket Transfer Icon",
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column {
+                            Text(
+                                text = "Send data to server",
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = if (enableWebSocketTransfer) "Send data to server" else "Data will be stored locally",
+                                fontWeight = FontWeight.Normal
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = enableWebSocketTransfer,
+                        onCheckedChange = { enableWebSocketTransfer = it }
+                    )
+                }
+
                 // Show Path option
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -259,7 +302,13 @@ fun RecordingDialog(
                         eventName.trim()
                     }
 
-                    onSave(finalEventName, eventDate, artOfSport, comment, clothing, showPath, selectedHeartRateSensor)
+                    // Save WebSocket transfer setting to SharedPreferences
+                    context.getSharedPreferences("UserSettings", android.content.Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
+                        .apply()
+
+                    onSave(finalEventName, eventDate, artOfSport, comment, clothing, showPath, selectedHeartRateSensor, enableWebSocketTransfer)
                 }
             ) {
                 Text("Start Recording")

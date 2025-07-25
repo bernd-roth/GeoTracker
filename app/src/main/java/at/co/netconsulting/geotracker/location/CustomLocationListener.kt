@@ -281,10 +281,6 @@ class CustomLocationListener: LocationListener {
         weight = sharedPreferences.getFloat("weight", 0f)
         websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
 
-        // Load location update settings from preferences
-        minTimeSeconds = sharedPreferences.getInt("minTimeSeconds", 1)
-        minDistanceMeters = sharedPreferences.getInt("minDistanceMeters", 1)
-
         // Load voice announcement interval
         voiceAnnouncementInterval = sharedPreferences.getInt("voiceAnnouncementInterval", 1)
 
@@ -338,8 +334,8 @@ class CustomLocationListener: LocationListener {
             // Use the values loaded from SharedPreferences
             locationManager?.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                minTimeBetweenUpdates, // Will always set to 1; leads to faster battery drain, however, Inactivity time does not need to be recalculated
-                minDistanceBetweenUpdates, // Will always set to 1; leads to faster battery drain, however, Inactivity time does not need to be recalculated
+                minTimeBetweenUpdates,
+                minDistanceBetweenUpdates,
                 this
             )
             Log.d(
