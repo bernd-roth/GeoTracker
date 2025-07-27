@@ -23,7 +23,7 @@ import at.co.netconsulting.geotracker.repository.*
         WheelSprocket::class,
         Network::class
     ],
-    version = 11, // Increment to 11 for recurring reminder fields
+    version = 12,
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -354,11 +354,21 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                         MIGRATION_7_8,
                         MIGRATION_8_9, // Migration for competitions fields
                         MIGRATION_9_10, // Migration for reminder fields
-                        MIGRATION_10_11 // Migration for recurring reminder fields
+                        MIGRATION_10_11, // Migration for recurring reminder fields
+                        MIGRATION_11_12 // Migration for barometer fields
                     )
                     .fallbackToDestructiveMigration() // Keep as safety net
                     .build()
                     .also { INSTANCE = it }
+            }
+        }
+
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE metrics ADD COLUMN pressure REAL")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN pressureAccuracy INTEGER")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN altitudeFromPressure REAL")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN seaLevelPressure REAL")
             }
         }
     }

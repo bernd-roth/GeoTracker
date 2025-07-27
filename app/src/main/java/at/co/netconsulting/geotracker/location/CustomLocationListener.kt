@@ -45,6 +45,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.os.Build
+import at.co.netconsulting.geotracker.data.BarometerData
 import at.co.netconsulting.geotracker.data.HeartRateData
 
 class CustomLocationListener: LocationListener {
@@ -132,6 +133,12 @@ class CustomLocationListener: LocationListener {
     private var currentRelativeHumidity: Int = 0
     private var currentWeatherCode: Int = 0
     private var currentWeatherTime: String = ""
+
+    // Barometer data fields
+    private var currentPressure: Float = 0f
+    private var currentPressureAccuracy: Int = 0
+    private var currentAltitudeFromPressure: Float = 0f
+    private var currentSeaLevelPressure: Float = 1013.25f
 
     constructor(context: Context) {
         this.context = context
@@ -1196,7 +1203,7 @@ class CustomLocationListener: LocationListener {
         Log.d(TAG_WEBSOCKET, "============================")
     }
 
-    // NEW METHOD: Subscribe to weather data from EventBus
+    // Subscribe to weather data from EventBus
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onWeatherUpdate(currentWeather: CurrentWeather) {
         Log.d(TAG_WEBSOCKET, "Received weather update: temp=${currentWeather.temperature}°C, wind=${currentWeather.windspeed}km/h")
@@ -1211,7 +1218,7 @@ class CustomLocationListener: LocationListener {
         Log.d(TAG_WEBSOCKET, "Weather data updated - will be included in next metrics transmission")
     }
 
-    // NEW METHOD: Update humidity separately (called from ForegroundService)
+    // Update humidity separately (called from ForegroundService)
     fun updateWeatherHumidity(humidity: Int) {
         currentRelativeHumidity = humidity
         Log.d(TAG_WEBSOCKET, "Weather humidity updated: $humidity%")
@@ -1230,6 +1237,18 @@ class CustomLocationListener: LocationListener {
         } else {
             Log.d(TAG_WEBSOCKET, "Received heart rate data but it's not valid: connected=${data.isConnected}, rate=${data.heartRate}")
         }
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onBarometerUpdate(barometerData: BarometerData) {
+        Log.d(TAG_WEBSOCKET, "Received barometer update: pressure=${barometerData.pressure} hPa, altitude=${barometerData.altitudeFromPressure}m")
+
+        currentPressure = barometerData.pressure
+        currentPressureAccuracy = barometerData.accuracy
+        currentAltitudeFromPressure = barometerData.altitudeFromPressure
+        currentSeaLevelPressure = barometerData.seaLevelPressure
+
+        Log.d(TAG_WEBSOCKET, "Barometer data updated - will be included in next metrics transmission")
     }
 
     fun updateHeartRateOnly(heartRate: Int, deviceName: String) {
@@ -1311,7 +1330,7 @@ class CustomLocationListener: LocationListener {
         )
     }
 
-    // UPDATED METHOD: Create metrics object with weather data included
+    // Create metrics object with weather data included
     private fun createMetricsObject(location: Location, currentSpeedKmh: Float): Metrics {
         return Metrics(
             latitude = location.latitude,
@@ -1344,7 +1363,7 @@ class CustomLocationListener: LocationListener {
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
 
-            // Weather data - NEW FIELDS INCLUDED
+            // Weather data
             temperature = currentTemperature,
             windSpeed = currentWindSpeed,
             windDirection = currentWindDirection,
@@ -1352,6 +1371,13 @@ class CustomLocationListener: LocationListener {
             weatherCode = currentWeatherCode,
             weatherTime = currentWeatherTime,
 
+            // Barometer data
+            pressure = currentPressure,
+            pressureAccuracy = currentPressureAccuracy,
+            altitudeFromPressure = currentAltitudeFromPressure,
+            seaLevelPressure = currentSeaLevelPressure,
+
+            // Satellites
             numberOfSatellites = numberOfSatellites,
             usedNumberOfSatellites = usedNumberOfSatellites,
             satellites = if (location.extras != null) location.extras!!.getInt("satellites", 0) else 0
@@ -1377,6 +1403,14 @@ class CustomLocationListener: LocationListener {
                 .remove("${lastAnnouncedDistanceKey}_$sessionId")
                 .apply()
         }
+    }
+
+    fun updateBarometerData(pressure: Float, accuracy: Int, altitudeFromPressure: Float, seaLevelPressure: Float) {
+        currentPressure = pressure
+        currentPressureAccuracy = accuracy
+        currentAltitudeFromPressure = altitudeFromPressure
+        currentSeaLevelPressure = seaLevelPressure
+        Log.d(TAG_WEBSOCKET, "Barometer data updated in CustomLocationListener")
     }
 
     companion object {

@@ -1261,6 +1261,165 @@ fun EventCard(
                     )
                 }
 
+                // Barometer Data section
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Text(
+                    text = "Barometer Data",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+// Calculate pressure statistics from metrics
+                val pressureReadings = event.metrics.mapNotNull { it.pressure }.filter { it > 0f }
+                val pressureAccuracyReadings = event.metrics.mapNotNull { it.pressureAccuracy }
+                val altitudeFromPressureReadings = event.metrics.mapNotNull { it.altitudeFromPressure }.filter { it != 0f }
+                val seaLevelPressureReadings = event.metrics.mapNotNull { it.seaLevelPressure }.filter { it > 0f }
+
+                if (pressureReadings.isNotEmpty()) {
+                    val minPressure = pressureReadings.minOrNull() ?: 0f
+                    val maxPressure = pressureReadings.maxOrNull() ?: 0f
+                    val avgPressure = pressureReadings.average().toFloat()
+
+                    // Get the most common accuracy level
+                    val avgAccuracy = if (pressureAccuracyReadings.isNotEmpty()) {
+                        pressureAccuracyReadings.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: 0
+                    } else 0
+
+                    val avgSeaLevelPressure = if (seaLevelPressureReadings.isNotEmpty()) {
+                        seaLevelPressureReadings.average().toFloat()
+                    } else 1013.25f
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRowWithColor(
+                                label = "↑ Max Pressure:",
+                                value = String.format("%.1f hPa", maxPressure),
+                                textColor = Color.Red
+                            )
+                            InfoRowWithColor(
+                                label = "⌀ Avg Pressure:",
+                                value = String.format("%.1f hPa", avgPressure),
+                                textColor = MaterialTheme.colorScheme.primary
+                            )
+                            InfoRowWithColor(
+                                label = "↓ Min Pressure:",
+                                value = String.format("%.1f hPa", minPressure),
+                                textColor = Color.Blue
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            // Pressure accuracy with color coding
+                            InfoRowWithColor(
+                                label = "Accuracy:",
+                                value = when (avgAccuracy) {
+                                    3 -> "High"
+                                    2 -> "Medium"
+                                    1 -> "Low"
+                                    0 -> "Unreliable"
+                                    else -> "Unknown"
+                                },
+                                textColor = when (avgAccuracy) {
+                                    3 -> Color.Green
+                                    2 -> MaterialTheme.colorScheme.primary
+                                    1 -> Color(0xFFFF9800) // Orange
+                                    else -> Color.Red
+                                }
+                            )
+
+                            InfoRow(
+                                label = "Sea Level Ref:",
+                                value = String.format("%.1f hPa", avgSeaLevelPressure)
+                            )
+
+                            // Show altitude comparison if we have both GPS and pressure altitude
+                            if (altitudeFromPressureReadings.isNotEmpty() && event.maxElevation > 0) {
+                                val avgPressureAltitude = altitudeFromPressureReadings.average().toFloat()
+                                val avgGpsAltitude = (event.maxElevation + event.minElevation) / 2
+                                val altitudeDifference = avgPressureAltitude - avgGpsAltitude
+
+                                InfoRowWithColor(
+                                    label = "Alt. Difference:",
+                                    value = String.format("%.1f m", altitudeDifference),
+                                    textColor = when {
+                                        kotlin.math.abs(altitudeDifference) < 5 -> Color.Green
+                                        kotlin.math.abs(altitudeDifference) < 15 -> MaterialTheme.colorScheme.primary
+                                        else -> Color.Red
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Add pressure trend information if we have enough data points
+                    if (pressureReadings.size > 10) {
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Calculate pressure trend (rising/falling/stable)
+                        val firstHalfAvg = pressureReadings.take(pressureReadings.size / 2).average()
+                        val secondHalfAvg = pressureReadings.drop(pressureReadings.size / 2).average()
+                        val pressureChange = secondHalfAvg - firstHalfAvg
+
+                        val trendText = when {
+                            pressureChange > 1.0 -> "Rising (${String.format("%.1f", pressureChange)} hPa)"
+                            pressureChange < -1.0 -> "Falling (${String.format("%.1f", pressureChange)} hPa)"
+                            else -> "Stable (${String.format("%.1f", pressureChange)} hPa)"
+                        }
+
+                        val trendColor = when {
+                            pressureChange > 1.0 -> Color.Green
+                            pressureChange < -1.0 -> Color.Red
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+
+                        InfoRowWithColor(
+                            label = "Pressure Trend:",
+                            value = trendText,
+                            textColor = trendColor
+                        )
+                    }
+
+                    // Barometric altitude graph (if we have pressure altitude data)
+                    if (altitudeFromPressureReadings.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Barometric Altitude Profile",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Gray
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF5F5F5))
+                                .padding(8.dp)
+                        ) {
+                            BarometricAltitudeGraph(
+                                metrics = event.metrics,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "No barometer data available",
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                }
+
                 // Lap information with highlighting
                 Spacer(modifier = Modifier.height(4.dp))
 

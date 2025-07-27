@@ -2,10 +2,6 @@ package at.co.netconsulting.geotracker.data
 
 import java.time.LocalDateTime
 
-/**
- * Data class representing metrics collected during tracking
- * Enhanced to support both WebSocket server and UI components
- */
 data class Metrics(
     val latitude: Double,
     val longitude: Double,
@@ -21,7 +17,7 @@ data class Metrics(
     val maxSpeed: Double = 0.0,
     val cumulativeElevationGain: Double = 0.0,
 
-    // WebSocket server fields - renamed person to firstname for clarity
+    // WebSocket server fields
     val sessionId: String = "",
     val firstname: String = "",
     val lastname: String = "",
@@ -52,16 +48,22 @@ data class Metrics(
     val weatherCode: Int = 0,
     val weatherTime: String = "",
 
+    // Barometer sensor data
+    val pressure: Float = 0f,
+    val pressureAccuracy: Int = 0,
+    val altitudeFromPressure: Float = 0f,
+    val seaLevelPressure: Float = 1013.25f,         // Standard atmospheric pressure
+
     // Fields for BottomSheet UI
     val numberOfSatellites: Int = 0,
     val usedNumberOfSatellites: Int = 0,
 
-    // Fields derived from existing properties (for WebSocket compatibility)
+    // Fields derived from existing properties
     val distance: Double = coveredDistance,
     val currentSpeed: Double = speed.toDouble(),
     val movingAverageSpeed: Double,
 
-    // Keep person for backward compatibility (can be removed later)
+    // Keep person for backward compatibility
     val person: String = firstname,
 
     // Satellites

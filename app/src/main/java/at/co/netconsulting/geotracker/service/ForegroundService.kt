@@ -22,6 +22,7 @@ import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.WeatherResponse
 import at.co.netconsulting.geotracker.data.HeartRateData
+import at.co.netconsulting.geotracker.data.BarometerData
 import at.co.netconsulting.geotracker.domain.CurrentRecording
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.Event
@@ -32,7 +33,9 @@ import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
+import at.co.netconsulting.geotracker.sensor.BarometerSensorService
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.BarometerUtils
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -106,6 +109,13 @@ class ForegroundService : Service() {
     private var heartRateDeviceName: String? = null
     private var currentHeartRate: Int = 0
     private var isHrRegistered = false
+
+    // NEW: Barometer sensor monitoring
+    private var barometerSensorService: BarometerSensorService? = null
+    private var currentPressure: Float = 0f
+    private var currentPressureAccuracy: Int = 0
+    private var currentAltitudeFromPressure: Float = 0f
+    private var currentSeaLevelPressure: Float = 1013.25f
 
     //reconnection logic
     private var connectionMonitorJob: Job? = null
@@ -476,6 +486,9 @@ class ForegroundService : Service() {
         // Initialize heart rate sensor service
         heartRateSensorService = HeartRateSensorService.getInstance(this)
 
+        // NEW: Initialize barometer sensor service
+        barometerSensorService = BarometerSensorService.getInstance(this)
+
         // Start connection monitoring
         startConnectionMonitoring()
 
@@ -796,7 +809,7 @@ class ForegroundService : Service() {
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
-                .apply()
+                .apply() // Fixed: This should be chained to the editor, not standalone
         } catch (e: Exception) {
             Log.e(TAG, "Error updating service state preferences", e)
         }
@@ -969,14 +982,24 @@ class ForegroundService : Service() {
             ""
         }
 
+        // Add barometer text
+        val barometerText = if (currentPressure > 0) {
+            val pressureInHg = BarometerUtils.hPaToInHg(currentPressure)
+            "\nPressure: ${String.format("%.1f", currentPressure)} hPa (${String.format("%.2f", pressureInHg)} inHg)" +
+                    "\nBarometric Altitude: ${String.format("%.1f", currentAltitudeFromPressure)} m"
+        } else {
+            ""
+        }
+
         updateNotification(
             "Activity: " + movementFormattedTime +
                     "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
-                    "\nAltitude: " + String.format("%.2f", altitude) + " meter" +
+                    "\nGPS Altitude: " + String.format("%.2f", altitude) + " m" +
                     "\nLap: " + String.format("%2d", lap) +
-                    "\nInactivity: " + lazyFormattedTime +
-                    heartRateText
+                    heartRateText +
+                    barometerText +
+                    "\nInactivity: " + lazyFormattedTime
         )
     }
 
@@ -1029,7 +1052,7 @@ class ForegroundService : Service() {
                 }
                 previousElevation = currentElevation
 
-                // Always save metrics data regardless of speed - NOW INCLUDING WEATHER DATA
+                // Always save metrics data with barometer data included
                 val metric = Metric(
                     eventId = eventId,
                     heartRate = currentHeartRate,
@@ -1043,12 +1066,17 @@ class ForegroundService : Service() {
                     elevation = altitude.toFloat(),
                     elevationGain = elevGain,
                     elevationLoss = elevLoss,
-
                     temperature = if (currentTemperature > 0) currentTemperature.toFloat() else null,
-                    accuracy = null // You can add GPS accuracy here if available
+                    accuracy = null,
+
+                    // NEW: Include barometer data
+                    pressure = if (currentPressure > 0) currentPressure else null,
+                    pressureAccuracy = if (currentPressureAccuracy > 0) currentPressureAccuracy else null,
+                    altitudeFromPressure = if (currentAltitudeFromPressure != 0f) currentAltitudeFromPressure else null,
+                    seaLevelPressure = if (currentSeaLevelPressure > 0) currentSeaLevelPressure else null
                 )
                 database.metricDao().insertMetric(metric)
-                Log.d("ForegroundService: ", "Metric saved at ${metric.timeInMilliseconds} with heart rate $currentHeartRate and temperature $currentTemperature")
+                Log.d(TAG, "Metric saved with barometer data: pressure=$currentPressure hPa, barometric altitude=$currentAltitudeFromPressure m")
 
                 // Always save location data regardless of speed
                 val location = Location(
@@ -1118,6 +1146,22 @@ class ForegroundService : Service() {
 
             // Update CustomLocationListener with the latest heart rate (without triggering immediate updates)
             customLocationListener?.updateHeartRateOnly(data.heartRate, data.deviceName)  // Use data.* instead of current*
+        }
+    }
+
+    // NEW: Subscribe to barometer data from EventBus
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onBarometerData(data: BarometerData) {
+        if (data.isAvailable) {
+            currentPressure = data.pressure
+            currentPressureAccuracy = data.accuracy
+            currentAltitudeFromPressure = data.altitudeFromPressure
+            currentSeaLevelPressure = data.seaLevelPressure
+
+            Log.d(TAG, "Barometer data updated: ${data.pressure} hPa, altitude: ${data.altitudeFromPressure}m, accuracy: ${data.accuracy}")
+
+            // Update CustomLocationListener with the latest barometer data
+            customLocationListener?.updateBarometerData(data.pressure, data.accuracy, data.altitudeFromPressure, data.seaLevelPressure)
         }
     }
 
@@ -1258,6 +1302,32 @@ class ForegroundService : Service() {
                 }
             }
 
+            // Start barometer sensor if available
+            barometerSensorService?.let { service ->
+                if (service.isAvailable()) {
+                    val started = service.startListening()
+                    if (started) {
+                        Log.d(TAG, "Barometer sensor started successfully")
+
+                        // Try to calibrate with GPS altitude when we have a good fix
+                        if (altitude > 0 && altitude != -999.0) {
+                            val calibrated = service.calibrateWithGpsAltitude(altitude.toFloat())
+                            if (calibrated) {
+                                Log.d(TAG, "Barometer sensor calibrated with GPS altitude: ${altitude}m")
+                            } else {
+                                Log.w(TAG, "Failed to calibrate barometer sensor with GPS altitude")
+                            }
+                        } else {
+                            Log.d(TAG, "No valid GPS altitude for barometer calibration yet")
+                        }
+                    } else {
+                        Log.w(TAG, "Failed to start barometer sensor")
+                    }
+                } else {
+                    Log.w(TAG, "Barometer sensor not available on this device")
+                }
+            }
+
             Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport, comment: $comment, clothing: $clothing, websocketTransfer: $enableWebSocketTransfer")
 
             // Debug log to verify session data is saved
@@ -1360,6 +1430,13 @@ class ForegroundService : Service() {
             heartRateSensorService?.disconnect()
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting from heart rate sensor", e)
+        }
+
+        // NEW: Stop barometer sensor
+        try {
+            barometerSensorService?.stopListening()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping barometer sensor", e)
         }
 
         if (isStoppingIntentionally) {
@@ -1608,6 +1685,12 @@ class ForegroundService : Service() {
                     if (!heartRateDeviceAddress.isNullOrEmpty() && heartRateSensorService?.isConnected() != true) {
                         Log.d(TAG, "Reconnecting to heart rate sensor: $heartRateDeviceName")
                         heartRateSensorService?.connectToDevice(heartRateDeviceAddress!!)
+                    }
+
+                    // NEW: Check barometer sensor connection if needed
+                    if (barometerSensorService?.isAvailable() == true && !barometerSensorService?.isListening()!!) {
+                        Log.d(TAG, "Restarting barometer sensor")
+                        barometerSensorService?.startListening()
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in connection monitoring", e)
