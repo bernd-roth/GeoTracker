@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.composables
 
+import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -30,8 +31,19 @@ import java.time.LocalDateTime
 fun StatisticsScreen() {
     val context = LocalContext.current
 
-    // Get singleton instance
-    val weatherHandler = remember { WeatherEventBusHandler.getInstance() }
+    // Get singleton instance with context
+    val weatherHandler = remember { WeatherEventBusHandler.getInstance(context) }
+
+    // Initialize with current session ID
+    LaunchedEffect(Unit) {
+        val sessionId = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+            .getString("current_session_id", "") ?: ""
+
+        if (sessionId.isNotEmpty()) {
+            weatherHandler.initializeWithSession(sessionId)
+            Log.d("StatisticsScreen", "Initialized WeatherEventBusHandler with session: $sessionId")
+        }
+    }
 
     // Add DisposableEffect to properly handle EventBus registration
     DisposableEffect(Unit) {
@@ -52,6 +64,7 @@ fun StatisticsScreen() {
     val metrics by weatherHandler.metrics.collectAsState()
     val heartRateData by weatherHandler.heartRate.collectAsState()
     val heartRateHistory by weatherHandler.heartRateHistory.collectAsState()
+    val lapTimes by weatherHandler.lapTimes.collectAsState() // Database-driven lap times
 
     Column(
         modifier = Modifier
@@ -183,52 +196,254 @@ fun StatisticsScreen() {
             }
         )
 
-        // Lap Times Card - Real-time tracking
+        // Enhanced Lap Times Card with Database Integration
         StatisticsCard(
             title = "Lap Times",
             content = {
-                val currentLap = metrics?.lap ?: 0
-                val totalDistance = metrics?.coveredDistance ?: 0.0
-                val distanceKm = totalDistance / 1000.0
+                val currentDistance = metrics?.coveredDistance ?: 0.0
+                val distanceKm = currentDistance / 1000.0
+                val currentLapNumber = weatherHandler.getCurrentLap(currentDistance)
 
                 Column {
-                    if (currentLap > 0) {
-                        // Show current lap info
-                        LapInfoRow(
-                            label = "Current Lap:",
-                            value = "Lap $currentLap",
-                            textColor = Color.Blue
-                        )
+                    if (lapTimes.isNotEmpty()) {
+                        // Display each completed lap with its time
+                        lapTimes.forEach { lapTime ->
+                            val lapDuration = formatLapTime(lapTime.endTime - lapTime.startTime)
+                            val lapPace = calculateLapPace(lapTime.endTime - lapTime.startTime, lapTime.distance)
 
-                        // Show distance in current lap
-                        val currentLapDistance = distanceKm % 1.0 // Assuming 1km laps
-                        LapInfoRow(
-                            label = "Lap Progress:",
-                            value = String.format("%.2f km / 1.00 km", currentLapDistance),
-                            textColor = Color.Gray
-                        )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "${lapTime.lapNumber} km:",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.Gray
+                                )
 
-                        // Show completed laps count
-                        val completedLaps = (distanceKm / 1.0).toInt()
-                        if (completedLaps > 0) {
-                            LapInfoRow(
-                                label = "Completed Laps:",
-                                value = "$completedLaps laps",
-                                textColor = Color.Green
-                            )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = lapDuration,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal,
+                                        color = Color.Green
+                                    )
+                                    Text(
+                                        text = lapPace,
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                }
+                            }
                         }
 
-                        // Show total distance covered
-                        LapInfoRow(
-                            label = "Total Distance:",
-                            value = String.format("%.2f km", distanceKm),
-                            textColor = Color.Unspecified
-                        )
+                        // Show current lap progress if in progress
+                        val completedLaps = lapTimes.size
+                        val currentLapDistance = currentDistance - (completedLaps * 1000)
+
+                        if (currentDistance > completedLaps * 1000) {
+                            val nextLapNumber = completedLaps + 1
+                            val lapProgress = currentLapDistance / 1000.0
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Current lap progress
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Current ($nextLapNumber km):",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.Blue
+                                )
+
+                                Text(
+                                    text = String.format("%.0f m", currentLapDistance),
+                                    fontSize = 14.sp,
+                                    color = Color.Blue
+                                )
+                            }
+
+                            // Progress bar
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .background(Color.LightGray.copy(alpha = 0.3f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(lapProgress.toFloat())
+                                        .background(Color.Blue)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Summary statistics - FIXED CALCULATIONS
+                        if (lapTimes.isNotEmpty()) {
+                            val totalLapTime = lapTimes.sumOf { it.endTime - it.startTime }
+                            val averageLapTime = totalLapTime / lapTimes.size
+                            val bestLap = lapTimes.minByOrNull { it.endTime - it.startTime }
+                            val worstLap = lapTimes.maxByOrNull { it.endTime - it.startTime }
+
+                            Column {
+                                // Divider
+                                Spacer(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                        .background(Color.Gray.copy(alpha = 0.3f))
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Summary stats
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    // Total and Average
+                                    Column(horizontalAlignment = Alignment.Start) {
+                                        Text(
+                                            text = "Total Lap Time",
+                                            fontSize = 12.sp,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = formatLapTime(totalLapTime),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Normal
+                                        )
+
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Text(
+                                            text = "Avg Lap",
+                                            fontSize = 12.sp,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = formatLapTime(averageLapTime),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Normal
+                                        )
+                                    }
+
+                                    // Best and Worst
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        bestLap?.let {
+                                            Text(
+                                                text = "Best (${it.lapNumber} km)",
+                                                fontSize = 12.sp,
+                                                color = Color.Gray
+                                            )
+                                            Text(
+                                                text = formatLapTime(it.endTime - it.startTime),
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                color = Color(0xFF4CAF50)
+                                            )
+                                        }
+
+                                        if (lapTimes.size > 1) {
+                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                            worstLap?.let {
+                                                Text(
+                                                    text = "Slowest (${it.lapNumber} km)",
+                                                    fontSize = 12.sp,
+                                                    color = Color.Gray
+                                                )
+                                                Text(
+                                                    text = formatLapTime(it.endTime - it.startTime),
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Normal,
+                                                    color = Color(0xFFFF9800)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                    } else if (distanceKm > 0) {
+                        // Show current lap progress when no laps completed yet
+                        val currentLapDistanceMeters = currentDistance % 1000
+                        val lapProgress = currentLapDistanceMeters / 1000.0
+
+                        Column {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Current (1 km):",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color.Blue
+                                )
+
+                                Text(
+                                    text = String.format("%.0f / 1000 m", currentLapDistanceMeters),
+                                    fontSize = 14.sp,
+                                    color = Color.Blue
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Progress bar
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .background(
+                                        Color.LightGray.copy(alpha = 0.3f),
+                                        RoundedCornerShape(3.dp)
+                                    )
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(lapProgress.toFloat())
+                                        .background(
+                                            Color.Blue,
+                                            RoundedCornerShape(3.dp)
+                                        )
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = String.format("%.1f%% complete", lapProgress * 100),
+                                fontSize = 12.sp,
+                                color = Color.Gray,
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            )
+                        }
                     } else {
                         Text(
                             text = "Start moving to begin lap tracking",
                             fontSize = 14.sp,
-                            color = Color.Gray
+                            color = Color.Gray,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
                     }
                 }
@@ -513,4 +728,22 @@ private fun getWindDirection(degrees: Double): String {
     val directions = arrayOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
     val index = ((degrees + 22.5) % 360 / 45).toInt()
     return directions[index % 8]
+}
+
+// Helper functions for lap time formatting
+private fun formatLapTime(timeInMilliseconds: Long): String {
+    val totalSeconds = timeInMilliseconds / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format("%02d:%02d", minutes, seconds)
+}
+
+private fun calculateLapPace(timeInMilliseconds: Long, distanceKm: Double): String {
+    if (distanceKm <= 0 || timeInMilliseconds <= 0) return "-- /km"
+
+    val totalSeconds = timeInMilliseconds / 1000.0
+    val paceSecondsPerKm = (totalSeconds / distanceKm).toInt()
+    val paceMinutes = paceSecondsPerKm / 60
+    val paceSeconds = paceSecondsPerKm % 60
+    return String.format("%d:%02d /km", paceMinutes, paceSeconds)
 }

@@ -34,6 +34,7 @@ import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.sensor.BarometerSensorService
+import at.co.netconsulting.geotracker.service.WeatherEventBusHandler
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.BarometerUtils
 import com.google.gson.FieldNamingPolicy
@@ -110,7 +111,7 @@ class ForegroundService : Service() {
     private var currentHeartRate: Int = 0
     private var isHrRegistered = false
 
-    // NEW: Barometer sensor monitoring
+    // Barometer sensor monitoring
     private var barometerSensorService: BarometerSensorService? = null
     private var currentPressure: Float = 0f
     private var currentPressureAccuracy: Int = 0
@@ -667,6 +668,8 @@ class ForegroundService : Service() {
                     } else {
                         startDateTime = LocalDateTime.now()
                         it.startDateTime = startDateTime
+                        // Initialize lap tracking for new session
+                        initializeLapTracking()
                     }
 
                     // Make sure we wait until sessionId is created and saved
@@ -722,6 +725,16 @@ class ForegroundService : Service() {
                 Log.e(TAG, "Error in background coroutine", e)
             }
         }
+    }
+
+    // FIXED: Initialize lap tracking properly for new sessions
+    private fun initializeLapTracking() {
+        // Make sure lap starts at 0 so first completed km becomes lap 1
+        lap = 0
+        lapCounter = 0.0
+        lapStartTime = System.currentTimeMillis()
+
+        Log.d(TAG, "Lap tracking initialized: lap=$lap, lapCounter=$lapCounter, startTime=$lapStartTime")
     }
 
     private fun startPeriodicStateSaving() {
@@ -809,7 +822,7 @@ class ForegroundService : Service() {
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
-                .apply() // Fixed: This should be chained to the editor, not standalone
+                .apply()
         } catch (e: Exception) {
             Log.e(TAG, "Error updating service state preferences", e)
         }
@@ -863,7 +876,7 @@ class ForegroundService : Service() {
         }
     }
 
-    // This function now tracks lap progress and saves lap times to the database
+    // FIXED: This function now tracks lap progress and saves lap times to the database with correct numbering
     private fun checkLapCompletionAndSave(newDistance: Double) {
         val prevLap = lap
         val prevLapCounter = lapCounter
@@ -885,23 +898,38 @@ class ForegroundService : Service() {
                 serviceScope.launch(Dispatchers.IO) {
                     try {
                         for (i in 1..completedLaps) {
+                            // FIXED: Correct lap numbering - should be prevLap + i
                             val newLapNumber = prevLap + i
+
                             val lapTime = LapTime(
                                 sessionId = sessionId,
                                 eventId = eventId,
-                                lapNumber = newLapNumber,
+                                lapNumber = newLapNumber, // This should be 1, 2, 3, etc.
                                 startTime = lapStartTime,
                                 endTime = currentTime,
-                                distance = 1000.0 // Each lap is 1000 meters
+                                distance = 1.0 // 1 km per lap
                             )
 
                             database.lapTimeDao().insertLapTime(lapTime)
                             Log.d(TAG, "Saved lap time for lap $newLapNumber: ${currentTime - lapStartTime}ms")
+
+                            // Debug logging to verify correct lap numbering
+                            Log.d(TAG, "LAP DEBUG: prevLap=$prevLap, newLapNumber=$newLapNumber, total distance=${distance/1000}km")
                         }
 
                         // Update for next lap
                         lastLapCompletionTime = currentTime
                         lapStartTime = currentTime
+
+                        // FIXED: Notify WeatherEventBusHandler to refresh lap times
+                        try {
+                            val weatherHandler = WeatherEventBusHandler.getInstance()
+                            weatherHandler.refreshLapTimes()
+                            Log.d(TAG, "Notified WeatherEventBusHandler to refresh lap times")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Could not notify WeatherEventBusHandler to refresh lap times: ${e.message}")
+                        }
+
                     } catch (e: Exception) {
                         Log.e(TAG, "Error saving lap time: ${e.message}")
                     }
@@ -1149,7 +1177,7 @@ class ForegroundService : Service() {
         }
     }
 
-    // NEW: Subscribe to barometer data from EventBus
+    // Subscribe to barometer data from EventBus
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onBarometerData(data: BarometerData) {
         if (data.isAvailable) {

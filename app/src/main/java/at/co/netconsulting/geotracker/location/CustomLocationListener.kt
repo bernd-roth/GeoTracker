@@ -658,6 +658,9 @@ class CustomLocationListener: LocationListener {
         Log.d(TAG_WEBSOCKET, "Preparing to send data with heart rate: ${metrics.heartRate} from device: ${metrics.heartRateDevice}")
         Log.d(TAG_WEBSOCKET, "Weather data: temp=${metrics.temperature}°C, humidity=${metrics.relativeHumidity}%, wind=${metrics.windSpeed}km/h")
 
+        // NEW: Log barometer data
+        Log.d(TAG_WEBSOCKET, "Barometer data: pressure=${metrics.pressure}hPa, altitude=${metrics.altitudeFromPressure}m, accuracy=${metrics.pressureAccuracy}, sea_level=${metrics.seaLevelPressure}hPa")
+
         // Convert metrics to JSON using a properly configured Gson instance
         val gson = GsonBuilder()
             .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
@@ -676,6 +679,13 @@ class CustomLocationListener: LocationListener {
             Log.d(TAG_WEBSOCKET, "Weather data confirmed in JSON message")
         } else {
             Log.w(TAG_WEBSOCKET, "WARNING: Weather data not found in JSON message!")
+        }
+
+        // Check if barometer data is included in the JSON
+        if (jsonData.contains("\"pressure\":") && jsonData.contains("\"altitudeFromPressure\":")) {
+            Log.d(TAG_WEBSOCKET, "Barometer data confirmed in JSON message")
+        } else {
+            Log.w(TAG_WEBSOCKET, "WARNING: Barometer data not found in JSON message!")
         }
 
         Log.d(TAG_WEBSOCKET, "Sending data: ${jsonData.take(500)}...")
