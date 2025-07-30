@@ -632,11 +632,13 @@ function showInfoPopup(event, point, sessionId, chartType) {
             `;
         }
 
-        // NEW: Extract and format weather data
+        // Extract weather and barometer data
         const weatherData = extractWeatherData(point);
+        const barometerData = extractBarometerData(point);
+
         let weatherSection = '';
 
-        if (weatherData.hasData) {
+        if (weatherData.hasData || barometerData.hasData) {
             const weatherDescription = getWeatherDescription(weatherData.weatherCode || 0);
             const weatherEmoji = getWeatherEmoji(weatherData.weatherCode || 0);
             const windDirectionText = getWindDirectionText(weatherData.windDirection || 0);
@@ -645,7 +647,7 @@ function showInfoPopup(event, point, sessionId, chartType) {
             weatherSection = `
                 <div class="weather-section" style="background-color: #f8f9fa; border-radius: 4px; padding: 8px; margin: 8px 0; border-left: 3px solid #FF5722;">
                     <div class="weather-header" style="font-weight: bold; color: #FF5722; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                        ${weatherEmoji} Weather Conditions
+                        ${weatherEmoji} Weather & Atmospheric Conditions
                     </div>
                     <div class="weather-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px;">
                         <div class="weather-item" style="text-align: center;">
@@ -671,7 +673,38 @@ function showInfoPopup(event, point, sessionId, chartType) {
                             <div class="weather-value wind" style="color: #795548; font-weight: bold; font-size: 11px;">
                                 ${windDirectionText}
                             </div>
+                        </div>`;
+
+            // add Barometer data rows
+            if (barometerData.hasData) {
+                weatherSection += `
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #9C27B0;">Pressure</div>
+                            <div class="weather-value pressure" style="color: #9C27B0; font-weight: bold; font-size: 11px;">
+                                ${barometerData.pressure ? barometerData.pressure.toFixed(1) + ' hPa' : 'N/A'}
+                            </div>
                         </div>
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #9C27B0;">Sea Level</div>
+                            <div class="weather-value pressure" style="color: #9C27B0; font-weight: bold; font-size: 11px;">
+                                ${barometerData.seaLevelPressure ? barometerData.seaLevelPressure.toFixed(1) + ' hPa' : 'N/A'}
+                            </div>
+                        </div>
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #607D8B;">Baro Alt</div>
+                            <div class="weather-value barometer" style="color: #607D8B; font-weight: bold; font-size: 11px;">
+                                ${barometerData.altitudeFromPressure ? barometerData.altitudeFromPressure.toFixed(1) + ' m' : 'N/A'}
+                            </div>
+                        </div>
+                        <div class="weather-item" style="text-align: center;">
+                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #607D8B;">Accuracy</div>
+                            <div class="weather-value barometer" style="color: #607D8B; font-weight: bold; font-size: 11px;">
+                                ${barometerData.pressureAccuracy ? barometerData.pressureAccuracy + ' Pa' : 'N/A'}
+                            </div>
+                        </div>`;
+            }
+
+            weatherSection += `
                     </div>
                     ${weatherDescription !== 'Code 0' ? `
                         <div class="weather-footer" style="margin-top: 6px; font-size: 9px; color: #666; font-style: italic; text-align: center;">
@@ -681,20 +714,20 @@ function showInfoPopup(event, point, sessionId, chartType) {
                 </div>
             `;
         } else {
-            // Show "No weather data" message
+            // Show "No data" message
             weatherSection = `
                 <div class="weather-section" style="background-color: #f8f9fa; border-radius: 4px; padding: 8px; margin: 8px 0; border-left: 3px solid #999;">
                     <div class="weather-header" style="font-weight: bold; color: #999; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                        🌤️ Weather Conditions
+                        🌤️ Weather & Atmospheric Conditions
                     </div>
                     <div style="text-align: center; color: #999; font-style: italic; font-size: 10px; padding: 6px;">
-                        No weather data available for this point
+                        No weather or barometer data available for this point
                     </div>
                 </div>
             `;
         }
 
-        // Create popup content with weather data inserted where you wanted it
+        // Create popup content with weather and barometer data
         const content = `
             <div style="font-weight: bold; color: ${isGPXTrack ? 'red' : getColorForUser(sessionId)}; margin-bottom: 8px;">
                 ${displayId}
@@ -731,7 +764,7 @@ function showInfoPopup(event, point, sessionId, chartType) {
 
         infoPopup.innerHTML = content;
 
-        // Get mouse position
+        // Get mouse position and display popup
         let x, y;
         if (event.native) {
             x = event.native.pageX || event.native.clientX + window.scrollX || 0;
@@ -741,19 +774,17 @@ function showInfoPopup(event, point, sessionId, chartType) {
             y = event.pageY || event.clientY + window.scrollY || 0;
         }
 
-        console.log('🖱️ Mouse position:', { x, y });
-
         // Position popup
         const finalX = Math.max(10, Math.min(x + 15, window.innerWidth - 420));
-        const finalY = Math.max(10, Math.min(y - 10, window.innerHeight - 300)); // Increased height allowance for weather data
+        const finalY = Math.max(10, Math.min(y - 10, window.innerHeight - 350)); // Increased height allowance for barometer data
 
         infoPopup.style.left = finalX + 'px';
         infoPopup.style.top = finalY + 'px';
         infoPopup.style.display = 'block';
         infoPopup.classList.add('popup-visible');
 
-        console.log('✅ Popup with weather data displayed at:', finalX, finalY);
-        addDebugMessage(`Info popup with weather shown at coordinates: ${finalX}, ${finalY}`, 'interaction');
+        console.log('✅ Popup with weather and barometer data displayed at:', finalX, finalY);
+        addDebugMessage(`Info popup with weather and barometer data shown at coordinates: ${finalX}, ${finalY}`, 'interaction');
 
         // Adjust position if popup goes off screen
         setTimeout(() => {
@@ -800,6 +831,21 @@ function extractWeatherData(point) {
         humidity: hasHumidity ? point.relativeHumidity : null,
         weatherCode: hasWeatherCode ? point.weatherCode : null,
         weatherTime: point.weatherTime || ""
+    };
+}
+
+function extractBarometerData(point) {
+    const hasPressure = point.pressure !== undefined && point.pressure !== null && point.pressure > 0;
+    const hasAltitudeFromPressure = point.altitudeFromPressure !== undefined && point.altitudeFromPressure !== null;
+    const hasSeaLevelPressure = point.seaLevelPressure !== undefined && point.seaLevelPressure !== null && point.seaLevelPressure > 0;
+    const hasPressureAccuracy = point.pressureAccuracy !== undefined && point.pressureAccuracy !== null;
+
+    return {
+        hasData: hasPressure || hasAltitudeFromPressure || hasSeaLevelPressure || hasPressureAccuracy,
+        pressure: hasPressure ? point.pressure : null,
+        altitudeFromPressure: hasAltitudeFromPressure ? point.altitudeFromPressure : null,
+        seaLevelPressure: hasSeaLevelPressure ? point.seaLevelPressure : null,
+        pressureAccuracy: hasPressureAccuracy ? point.pressureAccuracy : null
     };
 }
 
@@ -1136,7 +1182,7 @@ function handleHistoryBatch(points) {
             trackPoints[sessionId] = [];
         }
 
-        // Convert data types and add to trackPoints - WITH FIXED WEATHER DATA
+        // Convert data types and add to trackPoints - WITH WEATHER AND BAROMETER DATA
         const processedPoint = {
             lat: parseFloat(point.latitude),
             lng: parseFloat(point.longitude),
@@ -1149,20 +1195,27 @@ function handleHistoryBatch(points) {
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
             personName: personName,
 
-            // FIXED: Extract weather data with correct field names
+            // Weather data
             temperature: parseFloat(point.temperature || 0),
             windSpeed: parseFloat(point.windSpeed || 0),
             windDirection: parseFloat(point.windDirection || 0),
-            relativeHumidity: parseInt(point.relativeHumidity || point.humidity || 0), // Support both field names
+            relativeHumidity: parseInt(point.relativeHumidity || point.humidity || 0),
             weatherCode: parseInt(point.weatherCode || 0),
-            weatherTime: point.weatherTime || ""
+            weatherTime: point.weatherTime || "",
+
+            // Barometer data
+            pressure: parseFloat(point.pressure || 0),
+            altitudeFromPressure: parseFloat(point.altitudeFromPressure || 0),
+            seaLevelPressure: parseFloat(point.seaLevelPressure || 0),
+            pressureAccuracy: parseInt(point.pressureAccuracy || 0)
         };
 
-        console.log('🌤️ Processed point weather data:', {
+        console.log('🌤️ Processed point weather & barometer data:', {
             sessionId,
             temperature: processedPoint.temperature,
             windSpeed: processedPoint.windSpeed,
-            relativeHumidity: processedPoint.relativeHumidity
+            pressure: processedPoint.pressure,
+            altitudeFromPressure: processedPoint.altitudeFromPressure
         });
 
         // Validate and track weather data
@@ -1217,15 +1270,11 @@ function handlePoint(data) {
     if (!data || isProcessingBatch) return;
 
     const sessionId = data.sessionId || "default";
-    // Extract the person's name from the data
     const personName = data.person || "";
 
     if (personName) {
         sessionPersonNames[sessionId] = personName;
     }
-
-    // Create a display ID using our helper function
-    const displayId = createDisplayId(sessionId, personName);
 
     const processedPoint = {
         lat: parseFloat(data.latitude),
@@ -1239,16 +1288,21 @@ function handlePoint(data) {
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
         heartRate: parseInt(data.heartRate || 0),
         timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
-        // Store the person's name for use in display
         personName: personName,
 
-        // NEW: Extract weather data from the incoming message
+        // Weather data
         temperature: parseFloat(data.temperature || 0),
         windSpeed: parseFloat(data.windSpeed || 0),
         windDirection: parseFloat(data.windDirection || 0),
         relativeHumidity: parseInt(data.relativeHumidity || 0),
         weatherCode: parseInt(data.weatherCode || 0),
-        weatherTime: data.weatherTime || ""
+        weatherTime: data.weatherTime || "",
+
+        // BAROMETER DATA - ADDED
+        pressure: parseFloat(data.pressure || 0),
+        altitudeFromPressure: parseFloat(data.altitudeFromPressure || 0),
+        seaLevelPressure: parseFloat(data.seaLevelPressure || 0),
+        pressureAccuracy: parseInt(data.pressureAccuracy || 0)
     };
 
     // Validate and track weather data
@@ -1273,7 +1327,7 @@ function handlePoint(data) {
             heartRate: processedPoint.heartRate,
             distance: processedPoint.distance,
             personName: processedPoint.personName,
-            // Pass weather data to display function
+            // Pass weather AND barometer data to display function
             weather: {
                 temperature: processedPoint.temperature,
                 windSpeed: processedPoint.windSpeed,
@@ -1281,6 +1335,13 @@ function handlePoint(data) {
                 relativeHumidity: processedPoint.relativeHumidity,
                 weatherCode: processedPoint.weatherCode,
                 weatherTime: processedPoint.weatherTime
+            },
+            // Barometer data
+            barometer: {
+                pressure: processedPoint.pressure,
+                altitudeFromPressure: processedPoint.altitudeFromPressure,
+                seaLevelPressure: processedPoint.seaLevelPressure,
+                pressureAccuracy: processedPoint.pressureAccuracy
             }
         });
     });

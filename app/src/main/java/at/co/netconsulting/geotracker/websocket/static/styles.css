@@ -519,7 +519,7 @@ html {
     color: white;
 }
 
-/* Enhanced popup styling - REMOVED !important from display property */
+/* Enhanced popup styling with barometer data support */
 #chartInfoPopup {
     position: fixed !important;
     background: white !important;
@@ -529,28 +529,28 @@ html {
     font-family: Arial, sans-serif !important;
     font-size: 12px !important;
     box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
-    z-index: 9999 !important;  /* Increased z-index */
-    display: none;  /* REMOVED !important - this was blocking JavaScript */
+    z-index: 9999 !important;
+    display: none;  /* JavaScript controls visibility */
     pointer-events: none !important;
-    max-width: 320px !important;
+    max-width: 380px !important;  /* Increased width for barometer data */
     line-height: 1.4 !important;
-    visibility: visible !important;  /* Ensure visibility */
-    opacity: 1 !important;  /* Ensure opacity */
+    visibility: visible !important;
+    opacity: 1 !important;
 }
 
-/* ADDED: Specific class for when popup should be visible */
+/* Specific class for when popup should be visible */
 #chartInfoPopup.popup-visible {
     display: block !important;
     visibility: visible !important;
     opacity: 1 !important;
 }
 
-/* Weather info popup styling */
+/* Weather & Barometer info popup styling */
 #chartInfoPopup .weather-section {
     background-color: #f8f9fa;
     border-radius: 4px;
     padding: 8px;
-    margin: 6px 0;
+    margin: 8px 0;
     border-left: 3px solid #FF5722;
 }
 
@@ -561,6 +561,7 @@ html {
     display: flex;
     align-items: center;
     gap: 4px;
+    font-size: 11px;
 }
 
 #chartInfoPopup .weather-grid {
@@ -604,7 +605,7 @@ html {
     margin-right: 4px;
 }
 
-/* Make weather values stand out */
+/* Weather values styling */
 .weather-value.temperature {
     color: #FF5722;
     font-weight: bold;
@@ -618,6 +619,39 @@ html {
 .weather-value.wind {
     color: #795548;
     font-weight: bold;
+}
+
+/* Barometer data styling */
+.weather-value.pressure {
+    color: #9C27B0;
+    font-weight: bold;
+}
+
+.weather-value.barometer {
+    color: #607D8B;
+    font-weight: bold;
+}
+
+/* Barometer-specific color classes */
+.pressure-color { color: #9C27B0; }
+.barometer-color { color: #607D8B; }
+
+/* Additional styling for better barometer data visibility */
+.barometer-section {
+    background-color: #f0f4ff;
+    border-left: 3px solid #9C27B0;
+    margin-top: 4px;
+}
+
+.barometer-label {
+    color: #9C27B0;
+    font-weight: bold;
+}
+
+.altitude-diff {
+    font-size: 9px;
+    color: #666;
+    font-style: italic;
 }
 
 /* Add subtle animation for weather section */
@@ -639,7 +673,7 @@ html {
 /* Responsive adjustments for smaller screens */
 @media (max-width: 768px) {
     #chartInfoPopup {
-        max-width: 280px !important;
+        max-width: 320px !important;
         font-size: 11px !important;
     }
 
@@ -649,5 +683,14 @@ html {
 
     #chartInfoPopup .weather-value {
         font-size: 10px;
+    }
+
+    #speedDisplay {
+        width: 240px;
+        max-height: 400px;
+    }
+
+    .control-panel {
+        width: 240px;
     }
 }

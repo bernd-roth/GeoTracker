@@ -225,7 +225,7 @@ class TrackingServer:
                 )
             """)
 
-            # Create gps_tracking_points table with weather columns
+            # Create gps_tracking_points table with weather and barometer columns
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS gps_tracking_points (
                     id SERIAL PRIMARY KEY,
@@ -252,10 +252,14 @@ class TrackingServer:
                     lap INTEGER DEFAULT 0,
                     temperature NUMERIC(5, 2),
                     wind_speed NUMERIC(6, 2),
-                    wind_direction VARCHAR(3),
+                    wind_direction NUMERIC(5, 1),
                     humidity INTEGER,
                     weather_timestamp BIGINT,
                     weather_code INTEGER,
+                    pressure NUMERIC(8, 2),
+                    pressure_accuracy INTEGER,
+                    altitude_from_pressure NUMERIC(10, 4),
+                    sea_level_pressure NUMERIC(8, 2),
                     received_at TIMESTAMPTZ DEFAULT NOW(),
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
@@ -269,6 +273,8 @@ class TrackingServer:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_users_name ON users(firstname, lastname)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_temperature ON gps_tracking_points(temperature) WHERE temperature IS NOT NULL")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_wind_speed ON gps_tracking_points(wind_speed) WHERE wind_speed IS NOT NULL")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_pressure ON gps_tracking_points(pressure) WHERE pressure IS NOT NULL")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_altitude_from_pressure ON gps_tracking_points(altitude_from_pressure) WHERE altitude_from_pressure IS NOT NULL")
 
             logging.info("Normalized database tables created successfully")
 
@@ -374,7 +380,7 @@ class TrackingServer:
         logging.info(f"Created session: {session_id} for user: {user_id}")
 
     async def save_tracking_data_to_db(self, message_data: Dict[str, Any]) -> bool:
-        """Save tracking data to normalized PostgreSQL database with weather data in gps_tracking_points."""
+        """Save tracking data to normalized PostgreSQL database with weather and barometer data in gps_tracking_points."""
         if not self.db_pool:
             logging.error("Database pool not initialized")
             return False
@@ -407,7 +413,7 @@ class TrackingServer:
                     # Extract weather data
                     temperature = None
                     wind_speed = None
-                    wind_direction = None  # This will be numeric now
+                    wind_direction = None
                     humidity = None
                     weather_timestamp = None
                     weather_code = None
@@ -417,7 +423,6 @@ class TrackingServer:
                     if message_data.get('windSpeed') is not None:
                         wind_speed = float(message_data.get('windSpeed'))
                     if message_data.get('windDirection') is not None:
-                        # Store as numeric degrees instead of string
                         wind_direction = float(message_data.get('windDirection'))
                     if message_data.get('humidity') is not None:
                         humidity = int(message_data.get('humidity'))
@@ -426,11 +431,29 @@ class TrackingServer:
                     if message_data.get('weatherCode') is not None:
                         weather_code = int(message_data.get('weatherCode'))
 
-                    # Log weather data for debugging
+                    # Extract barometer data
+                    pressure = None
+                    pressure_accuracy = None
+                    altitude_from_pressure = None
+                    sea_level_pressure = None
+
+                    if message_data.get('pressure') is not None:
+                        pressure = float(message_data.get('pressure'))
+                    if message_data.get('pressureAccuracy') is not None:
+                        pressure_accuracy = int(message_data.get('pressureAccuracy'))
+                    if message_data.get('altitudeFromPressure') is not None:
+                        altitude_from_pressure = float(message_data.get('altitudeFromPressure'))
+                    if message_data.get('seaLevelPressure') is not None:
+                        sea_level_pressure = float(message_data.get('seaLevelPressure'))
+
+                    # Log weather and barometer data for debugging
                     if temperature is not None or wind_speed is not None:
                         logging.info(f"Weather data received: temp={temperature}°C, wind={wind_speed}km/h {wind_direction}°, humidity={humidity}%, code={weather_code}")
 
-                    # Insert GPS tracking point with weather data
+                    if pressure is not None or altitude_from_pressure is not None:
+                        logging.info(f"Barometer data received: pressure={pressure}hPa, altitude={altitude_from_pressure}m, accuracy={pressure_accuracy}, sea_level={sea_level_pressure}hPa")
+
+                    # Insert GPS tracking point with weather and barometer data
                     await conn.execute("""
                         INSERT INTO gps_tracking_points (
                             session_id, latitude, longitude, altitude, horizontal_accuracy,
@@ -439,10 +462,12 @@ class TrackingServer:
                             moving_average_speed, speed, speed_accuracy_meters_per_second,
                             distance, covered_distance, cumulative_elevation_gain, heart_rate,
                             heart_rate_device_id, lap, temperature, wind_speed, wind_direction,
-                            humidity, weather_timestamp, weather_code
+                            humidity, weather_timestamp, weather_code,
+                            pressure, pressure_accuracy, altitude_from_pressure, sea_level_pressure
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
+                            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
+                            $28, $29, $30, $31
                         )
                     """,
                                        session_id,
@@ -471,10 +496,14 @@ class TrackingServer:
                                        wind_direction,
                                        humidity,
                                        weather_timestamp,
-                                       weather_code
+                                       weather_code,
+                                       pressure,
+                                       pressure_accuracy,
+                                       altitude_from_pressure,
+                                       sea_level_pressure
                                        )
 
-            logging.info(f"Successfully saved normalized tracking data for session {session_id}")
+            logging.info(f"Successfully saved normalized tracking data with barometer data for session {session_id}")
             return True
 
         except Exception as e:
@@ -503,6 +532,7 @@ class TrackingServer:
                     gtp.distance, gtp.heart_rate, hrd.device_name as heart_rate_device,
                     gtp.temperature, gtp.wind_speed, gtp.wind_direction,
                     gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
+                    gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
                     gtp.received_at
                 FROM gps_tracking_points gtp
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
@@ -559,12 +589,10 @@ class TrackingServer:
                 if row['wind_speed'] is not None:
                     tracking_point["windSpeed"] = float(row['wind_speed'])
                 if row['wind_direction'] is not None:
-                    # Handle both numeric and string wind directions for backward compatibility
                     wind_dir = row['wind_direction']
                     if isinstance(wind_dir, (int, float)):
                         tracking_point["windDirection"] = float(wind_dir)
                     else:
-                        # Convert string direction to numeric if needed
                         tracking_point["windDirection"] = float(wind_dir) if str(wind_dir).replace('.', '').isdigit() else 0
                 if row['humidity'] is not None:
                     tracking_point["relativeHumidity"] = int(row['humidity'])
@@ -572,6 +600,16 @@ class TrackingServer:
                     tracking_point["weatherTimestamp"] = int(row['weather_timestamp'])
                 if row['weather_code'] is not None:
                     tracking_point["weatherCode"] = int(row['weather_code'])
+
+                # Add barometer data if available
+                if row['pressure'] is not None:
+                    tracking_point["pressure"] = float(row['pressure'])
+                if row['pressure_accuracy'] is not None:
+                    tracking_point["pressureAccuracy"] = int(row['pressure_accuracy'])
+                if row['altitude_from_pressure'] is not None:
+                    tracking_point["altitudeFromPressure"] = float(row['altitude_from_pressure'])
+                if row['sea_level_pressure'] is not None:
+                    tracking_point["seaLevelPressure"] = float(row['sea_level_pressure'])
 
                 self.tracking_history[row['session_id']].append(tracking_point)
 
@@ -605,7 +643,7 @@ class TrackingServer:
                         "longitude": float(row['longitude']),
                         "temperature": float(row['temperature']) if row['temperature'] is not None else None,
                         "windSpeed": float(row['wind_speed']) if row['wind_speed'] is not None else None,
-                        "windDirection": float(row['wind_direction']) if row['wind_direction'] is not None else None,  # Now numeric
+                        "windDirection": float(row['wind_direction']) if row['wind_direction'] is not None else None,
                         "humidity": int(row['humidity']) if row['humidity'] is not None else None,
                         "weatherCode": int(row['weather_code']) if row['weather_code'] is not None else None,
                         "weatherTimestamp": int(row['weather_timestamp']) if row['weather_timestamp'] is not None else None,
@@ -660,6 +698,89 @@ class TrackingServer:
 
         except Exception as e:
             logging.error(f"Error getting weather summary for session {session_id}: {str(e)}")
+            return {"sessionId": session_id, "error": str(e)}
+
+    async def get_barometer_data_for_session(self, session_id: str) -> List[Dict[str, Any]]:
+        """Retrieve barometer data from GPS tracking points for a specific session."""
+        if not self.db_pool:
+            return []
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT 
+                        id, latitude, longitude, pressure, pressure_accuracy, 
+                        altitude_from_pressure, sea_level_pressure, altitude, received_at
+                    FROM gps_tracking_points 
+                    WHERE session_id = $1 
+                    AND (pressure IS NOT NULL OR altitude_from_pressure IS NOT NULL)
+                    ORDER BY received_at ASC
+                """, session_id)
+
+                barometer_data = []
+                for row in rows:
+                    barometer_point = {
+                        "id": row['id'],
+                        "latitude": float(row['latitude']),
+                        "longitude": float(row['longitude']),
+                        "pressure": float(row['pressure']) if row['pressure'] is not None else None,
+                        "pressureAccuracy": int(row['pressure_accuracy']) if row['pressure_accuracy'] is not None else None,
+                        "altitudeFromPressure": float(row['altitude_from_pressure']) if row['altitude_from_pressure'] is not None else None,
+                        "seaLevelPressure": float(row['sea_level_pressure']) if row['sea_level_pressure'] is not None else None,
+                        "gpsAltitude": float(row['altitude']) if row['altitude'] is not None else None,
+                        "receivedAt": row['received_at'].isoformat() if row['received_at'] else None
+                    }
+                    barometer_data.append(barometer_point)
+
+                return barometer_data
+
+        except Exception as e:
+            logging.error(f"Error retrieving barometer data for session {session_id}: {str(e)}")
+            return []
+
+    async def get_barometer_summary_for_session(self, session_id: str) -> Dict[str, Any]:
+        """Get barometer summary statistics for a session."""
+        if not self.db_pool:
+            return {}
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                row = await conn.fetchrow("""
+                    SELECT 
+                        COUNT(*) as barometer_point_count,
+                        AVG(pressure) as avg_pressure,
+                        MIN(pressure) as min_pressure,
+                        MAX(pressure) as max_pressure,
+                        AVG(altitude_from_pressure) as avg_barometric_altitude,
+                        MIN(altitude_from_pressure) as min_barometric_altitude,
+                        MAX(altitude_from_pressure) as max_barometric_altitude,
+                        AVG(sea_level_pressure) as avg_sea_level_pressure,
+                        MIN(received_at) as first_barometer_reading,
+                        MAX(received_at) as last_barometer_reading
+                    FROM gps_tracking_points
+                    WHERE session_id = $1
+                    AND (pressure IS NOT NULL OR altitude_from_pressure IS NOT NULL)
+                """, session_id)
+
+                if row and row['barometer_point_count'] > 0:
+                    return {
+                        "sessionId": session_id,
+                        "barometerPointCount": int(row['barometer_point_count']),
+                        "avgPressure": float(row['avg_pressure']) if row['avg_pressure'] is not None else None,
+                        "minPressure": float(row['min_pressure']) if row['min_pressure'] is not None else None,
+                        "maxPressure": float(row['max_pressure']) if row['max_pressure'] is not None else None,
+                        "avgBarometricAltitude": float(row['avg_barometric_altitude']) if row['avg_barometric_altitude'] is not None else None,
+                        "minBarometricAltitude": float(row['min_barometric_altitude']) if row['min_barometric_altitude'] is not None else None,
+                        "maxBarometricAltitude": float(row['max_barometric_altitude']) if row['max_barometric_altitude'] is not None else None,
+                        "avgSeaLevelPressure": float(row['avg_sea_level_pressure']) if row['avg_sea_level_pressure'] is not None else None,
+                        "firstBarometerTime": row['first_barometer_reading'].isoformat() if row['first_barometer_reading'] else None,
+                        "lastBarometerTime": row['last_barometer_reading'].isoformat() if row['last_barometer_reading'] else None
+                    }
+                else:
+                    return {"sessionId": session_id, "barometerPointCount": 0}
+
+        except Exception as e:
+            logging.error(f"Error getting barometer summary for session {session_id}: {str(e)}")
             return {"sessionId": session_id, "error": str(e)}
 
     async def broadcast_update(self, message: Dict[str, Any]) -> None:
@@ -951,7 +1072,7 @@ class TrackingServer:
             if not was_active:
                 logging.info(f"Session {session_id} became ACTIVE - total active: {len(self.active_sessions)}")
 
-        # Create base tracking point with all fields including weather
+        # Create base tracking point with all fields including weather and barometer
         tracking_point = {
             "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
             **message_data,
@@ -993,6 +1114,19 @@ class TrackingServer:
 
         if "weatherCode" in message_data:
             tracking_point["weatherCode"] = int(message_data["weatherCode"])
+
+        # Add barometer data if available
+        if "pressure" in message_data:
+            tracking_point["pressure"] = float(message_data["pressure"])
+
+        if "pressureAccuracy" in message_data:
+            tracking_point["pressureAccuracy"] = int(message_data["pressureAccuracy"])
+
+        if "altitudeFromPressure" in message_data:
+            tracking_point["altitudeFromPressure"] = float(message_data["altitudeFromPressure"])
+
+        if "seaLevelPressure" in message_data:
+            tracking_point["seaLevelPressure"] = float(message_data["seaLevelPressure"])
 
         return tracking_point
 
@@ -1149,6 +1283,57 @@ class TrackingServer:
                         else:
                             await websocket.send(json.dumps({
                                 'type': 'weather_summary',
+                                'error': 'sessionId is required'
+                            }))
+                        continue
+
+                    # Handle get_barometer request
+                    if message_data.get('type') == 'get_barometer':
+                        session_id = message_data.get('sessionId')
+                        if session_id:
+                            try:
+                                barometer_data = await self.get_barometer_data_for_session(session_id)
+                                await websocket.send(json.dumps({
+                                    'type': 'barometer_data',
+                                    'sessionId': session_id,
+                                    'barometer': barometer_data
+                                }))
+                                logging.info(f"Sent barometer data for session {session_id}: {len(barometer_data)} barometer points")
+                            except Exception as e:
+                                logging.error(f"Error handling barometer data request: {str(e)}")
+                                await websocket.send(json.dumps({
+                                    'type': 'barometer_data',
+                                    'sessionId': session_id,
+                                    'barometer': [],
+                                    'error': str(e)
+                                }))
+                        else:
+                            await websocket.send(json.dumps({
+                                'type': 'barometer_data',
+                                'error': 'sessionId is required'
+                            }))
+                        continue
+
+                    # Handle get_barometer_summary request
+                    if message_data.get('type') == 'get_barometer_summary':
+                        session_id = message_data.get('sessionId')
+                        if session_id:
+                            try:
+                                summary = await self.get_barometer_summary_for_session(session_id)
+                                await websocket.send(json.dumps({
+                                    'type': 'barometer_summary',
+                                    'summary': summary
+                                }))
+                                logging.info(f"Sent barometer summary for session {session_id}")
+                            except Exception as e:
+                                logging.error(f"Error handling barometer summary request: {str(e)}")
+                                await websocket.send(json.dumps({
+                                    'type': 'barometer_summary',
+                                    'error': str(e)
+                                }))
+                        else:
+                            await websocket.send(json.dumps({
+                                'type': 'barometer_summary',
                                 'error': 'sessionId is required'
                             }))
                         continue
