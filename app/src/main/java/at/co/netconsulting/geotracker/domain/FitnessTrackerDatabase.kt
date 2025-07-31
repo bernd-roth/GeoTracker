@@ -23,7 +23,7 @@ import at.co.netconsulting.geotracker.repository.*
         WheelSprocket::class,
         Network::class
     ],
-    version = 12,
+    version = 13,
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -46,7 +46,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: FitnessTrackerDatabase? = null
 
-        // Your existing migrations (1-7)
+        // ✅ ALL MIGRATIONS DEFINED FIRST, BEFORE getInstance()
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
@@ -338,6 +338,50 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        // MIGRATION 11->12: Add barometer fields to metrics table
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE metrics ADD COLUMN pressure REAL")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN pressureAccuracy INTEGER")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN altitudeFromPressure REAL")
+                database.execSQL("ALTER TABLE metrics ADD COLUMN seaLevelPressure REAL")
+            }
+        }
+
+        // ✅ NEW MIGRATION 12->13: Fix Event table userId data type consistency
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Fix Event table userId data type from Long to Int
+                database.execSQL("""
+                    CREATE TABLE events_new (
+                        eventId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        userId INTEGER NOT NULL,
+                        eventName TEXT NOT NULL,
+                        eventDate TEXT NOT NULL,
+                        artOfSport TEXT NOT NULL,
+                        comment TEXT NOT NULL,
+                        FOREIGN KEY (userId) REFERENCES User(userId) ON DELETE CASCADE
+                    )
+                """)
+
+                // Copy data (cast Long to Int if events table exists and has data)
+                try {
+                    database.execSQL("""
+                        INSERT INTO events_new (eventId, userId, eventName, eventDate, artOfSport, comment)
+                        SELECT eventId, CAST(userId AS INTEGER), eventName, eventDate, artOfSport, comment
+                        FROM events
+                    """)
+                } catch (e: Exception) {
+                    // If events table doesn't exist or is empty, that's okay
+                }
+
+                database.execSQL("DROP TABLE IF EXISTS events")
+                database.execSQL("ALTER TABLE events_new RENAME TO events")
+                // ✅ REMOVED: Don't create index since Event entity has no @Index annotations
+                // Room expects indices=[] for this table
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
@@ -352,23 +396,15 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
-                        MIGRATION_8_9, // Migration for competitions fields
-                        MIGRATION_9_10, // Migration for reminder fields
-                        MIGRATION_10_11, // Migration for recurring reminder fields
-                        MIGRATION_11_12 // Migration for barometer fields
+                        MIGRATION_8_9,
+                        MIGRATION_9_10,
+                        MIGRATION_10_11,
+                        MIGRATION_11_12,
+                        MIGRATION_12_13 // ✅ New migration for data type fix
                     )
                     .fallbackToDestructiveMigration() // Keep as safety net
                     .build()
                     .also { INSTANCE = it }
-            }
-        }
-
-        private val MIGRATION_11_12 = object : Migration(11, 12) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE metrics ADD COLUMN pressure REAL")
-                database.execSQL("ALTER TABLE metrics ADD COLUMN pressureAccuracy INTEGER")
-                database.execSQL("ALTER TABLE metrics ADD COLUMN altitudeFromPressure REAL")
-                database.execSQL("ALTER TABLE metrics ADD COLUMN seaLevelPressure REAL")
             }
         }
     }

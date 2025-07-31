@@ -265,6 +265,48 @@ class TrackingServer:
                 )
             """)
 
+            # Create planned_events table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS planned_events (
+                    planned_event_id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    planned_event_name VARCHAR(255) NOT NULL,
+                    planned_event_date DATE NOT NULL,
+                    planned_event_type VARCHAR(100),
+                    planned_event_country VARCHAR(100) NOT NULL,
+                    planned_event_city VARCHAR(100) NOT NULL,
+                    planned_latitude NUMERIC(10, 8),
+                    planned_longitude NUMERIC(11, 8),
+                    is_entered_and_finished BOOLEAN DEFAULT FALSE,
+                    website VARCHAR(500),
+                    comment TEXT,
+                    reminder_date_time TIMESTAMPTZ,
+                    is_reminder_active BOOLEAN DEFAULT FALSE,
+                    is_recurring BOOLEAN DEFAULT FALSE,
+                    recurring_type VARCHAR(20),
+                    recurring_interval INTEGER DEFAULT 1,
+                    recurring_end_date DATE,
+                    recurring_days_of_week VARCHAR(20),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    created_by_user_id INTEGER NOT NULL,
+                    is_public BOOLEAN DEFAULT TRUE,
+                    
+                    CONSTRAINT fk_planned_events_user_id 
+                        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    CONSTRAINT fk_planned_events_created_by 
+                        FOREIGN KEY (created_by_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+                    CONSTRAINT chk_recurring_type 
+                        CHECK (recurring_type IN ('daily', 'weekly', 'monthly', 'yearly') OR recurring_type IS NULL),
+                    CONSTRAINT chk_recurring_interval 
+                        CHECK (recurring_interval > 0),
+                    CONSTRAINT chk_latitude_range 
+                        CHECK (planned_latitude >= -90 AND planned_latitude <= 90),
+                    CONSTRAINT chk_longitude_range 
+                        CHECK (planned_longitude >= -180 AND planned_longitude <= 180)
+                )
+            """)
+
             # Create indexes for performance
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_session_id ON gps_tracking_points(session_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_received_at ON gps_tracking_points(received_at)")
@@ -275,6 +317,22 @@ class TrackingServer:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_wind_speed ON gps_tracking_points(wind_speed) WHERE wind_speed IS NOT NULL")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_pressure ON gps_tracking_points(pressure) WHERE pressure IS NOT NULL")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_gps_altitude_from_pressure ON gps_tracking_points(altitude_from_pressure) WHERE altitude_from_pressure IS NOT NULL")
+
+            # Planned events indexes
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_user_id ON planned_events(user_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_date ON planned_events(planned_event_date)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_country_city ON planned_events(planned_event_country, planned_event_city)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_type ON planned_events(planned_event_type)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_public ON planned_events(is_public) WHERE is_public = true")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_created_by ON planned_events(created_by_user_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_created_at ON planned_events(created_at)")
+
+            # Unique constraint for duplicate prevention
+            await conn.execute("""
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_planned_events_unique_event 
+                ON planned_events(planned_event_name, planned_event_date, planned_event_country, planned_event_city)
+                WHERE is_public = true
+            """)
 
             logging.info("Normalized database tables created successfully")
 
@@ -617,6 +675,204 @@ class TrackingServer:
 
         except Exception as e:
             logging.error(f"Error loading tracking history from normalized database: {str(e)}")
+
+    async def upload_planned_events(self, events_data: List[Dict[str, Any]], user_firstname: str, user_lastname: str = None, user_birthdate: str = None) -> Dict[str, Any]:
+        """Upload planned events to the database."""
+        if not self.db_pool:
+            return {"success": False, "error": "Database not available"}
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                async with conn.transaction():
+                    # Get or create user
+                    user_id = await self.get_or_create_user(
+                        conn, user_firstname, user_lastname, user_birthdate
+                    )
+
+                    uploaded_count = 0
+                    duplicate_count = 0
+                    error_count = 0
+                    errors = []
+
+                    for event_data in events_data:
+                        try:
+                            # Parse dates
+                            event_date = None
+                            if event_data.get('plannedEventDate'):
+                                try:
+                                    event_date = parser.parse(event_data['plannedEventDate']).date()
+                                except Exception:
+                                    event_date = None
+
+                            reminder_datetime = None
+                            if event_data.get('reminderDateTime'):
+                                try:
+                                    reminder_datetime = parser.parse(event_data['reminderDateTime'])
+                                except Exception:
+                                    reminder_datetime = None
+
+                            recurring_end_date = None
+                            if event_data.get('recurringEndDate'):
+                                try:
+                                    recurring_end_date = parser.parse(event_data['recurringEndDate']).date()
+                                except Exception:
+                                    recurring_end_date = None
+
+                            # Check for duplicates using the unique constraint fields
+                            existing_event = await conn.fetchrow("""
+                                SELECT planned_event_id FROM planned_events 
+                                WHERE planned_event_name = $1 
+                                AND planned_event_date = $2 
+                                AND planned_event_country = $3 
+                                AND planned_event_city = $4
+                                AND is_public = true
+                            """,
+                                                                 event_data.get('plannedEventName', ''),
+                                                                 event_date,
+                                                                 event_data.get('plannedEventCountry', ''),
+                                                                 event_data.get('plannedEventCity', ''))
+
+                            if existing_event:
+                                duplicate_count += 1
+                                continue
+
+                            # Insert the event
+                            await conn.execute("""
+                                INSERT INTO planned_events (
+                                    user_id, planned_event_name, planned_event_date, planned_event_type,
+                                    planned_event_country, planned_event_city, planned_latitude, planned_longitude,
+                                    is_entered_and_finished, website, comment, reminder_date_time,
+                                    is_reminder_active, is_recurring, recurring_type, recurring_interval,
+                                    recurring_end_date, recurring_days_of_week, created_by_user_id, is_public
+                                ) VALUES (
+                                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20
+                                )
+                            """,
+                                               user_id,
+                                               event_data.get('plannedEventName', ''),
+                                               event_date,
+                                               event_data.get('plannedEventType', ''),
+                                               event_data.get('plannedEventCountry', ''),
+                                               event_data.get('plannedEventCity', ''),
+                                               float(event_data.get('plannedLatitude', 0)) if event_data.get('plannedLatitude') else None,
+                                               float(event_data.get('plannedLongitude', 0)) if event_data.get('plannedLongitude') else None,
+                                               bool(event_data.get('isEnteredAndFinished', False)),
+                                               event_data.get('website', ''),
+                                               event_data.get('comment', ''),
+                                               reminder_datetime,
+                                               bool(event_data.get('isReminderActive', False)),
+                                               bool(event_data.get('isRecurring', False)),
+                                               event_data.get('recurringType', ''),
+                                               int(event_data.get('recurringInterval', 1)),
+                                               recurring_end_date,
+                                               event_data.get('recurringDaysOfWeek', ''),
+                                               user_id,  # created_by_user_id
+                                               True  # is_public
+                                               )
+
+                            uploaded_count += 1
+
+                        except Exception as e:
+                            error_count += 1
+                            errors.append(f"Event '{event_data.get('plannedEventName', 'Unknown')}': {str(e)}")
+                            logging.error(f"Error uploading event {event_data.get('plannedEventName', 'Unknown')}: {str(e)}")
+
+                    logging.info(f"Planned events upload completed: {uploaded_count} uploaded, {duplicate_count} duplicates, {error_count} errors")
+
+                    return {
+                        "success": True,
+                        "uploaded_count": uploaded_count,
+                        "duplicate_count": duplicate_count,
+                        "error_count": error_count,
+                        "errors": errors
+                    }
+
+        except Exception as e:
+            logging.error(f"Error uploading planned events: {str(e)}")
+            return {"success": False, "error": str(e)}
+
+    async def download_planned_events(self, requesting_user_firstname: str, requesting_user_lastname: str = None, requesting_user_birthdate: str = None, exclude_user_events: bool = True) -> Dict[str, Any]:
+        """Download public planned events from the database, optionally excluding requesting user's own events."""
+        if not self.db_pool:
+            return {"success": False, "error": "Database not available"}
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                # Get requesting user ID if we need to exclude their events
+                requesting_user_id = None
+                if exclude_user_events:
+                    requesting_user_id = await conn.fetchval("""
+                        SELECT user_id FROM users
+                        WHERE firstname = $1 AND COALESCE(lastname, '') = COALESCE($2, '')
+                        AND COALESCE(birthdate, '') = COALESCE($3, '')
+                    """, requesting_user_firstname, requesting_user_lastname or '', requesting_user_birthdate or '')
+
+                # Build query to exclude requesting user's events if needed
+                query = """
+                    SELECT 
+                        pe.planned_event_id, pe.user_id, pe.planned_event_name, pe.planned_event_date,
+                        pe.planned_event_type, pe.planned_event_country, pe.planned_event_city,
+                        pe.planned_latitude, pe.planned_longitude, pe.is_entered_and_finished,
+                        pe.website, pe.comment, pe.reminder_date_time, pe.is_reminder_active,
+                        pe.is_recurring, pe.recurring_type, pe.recurring_interval,
+                        pe.recurring_end_date, pe.recurring_days_of_week, pe.created_at,
+                        u.firstname, u.lastname, u.birthdate
+                    FROM planned_events pe
+                    JOIN users u ON pe.created_by_user_id = u.user_id
+                    WHERE pe.is_public = true
+                """
+
+                params = []
+                if requesting_user_id:
+                    query += " AND pe.created_by_user_id != $1"
+                    params.append(requesting_user_id)
+
+                query += " ORDER BY pe.planned_event_date, pe.created_at"
+
+                rows = await conn.fetch(query, *params)
+
+                events = []
+                for row in rows:
+                    event = {
+                        "plannedEventId": row['planned_event_id'],
+                        "userId": row['user_id'],
+                        "plannedEventName": row['planned_event_name'],
+                        "plannedEventDate": row['planned_event_date'].isoformat() if row['planned_event_date'] else '',
+                        "plannedEventType": row['planned_event_type'] or '',
+                        "plannedEventCountry": row['planned_event_country'] or '',
+                        "plannedEventCity": row['planned_event_city'] or '',
+                        "plannedLatitude": float(row['planned_latitude']) if row['planned_latitude'] else None,
+                        "plannedLongitude": float(row['planned_longitude']) if row['planned_longitude'] else None,
+                        "isEnteredAndFinished": bool(row['is_entered_and_finished']),
+                        "website": row['website'] or '',
+                        "comment": row['comment'] or '',
+                        "reminderDateTime": row['reminder_date_time'].isoformat() if row['reminder_date_time'] else '',
+                        "isReminderActive": bool(row['is_reminder_active']),
+                        "isRecurring": bool(row['is_recurring']),
+                        "recurringType": row['recurring_type'] or '',
+                        "recurringInterval": int(row['recurring_interval']) if row['recurring_interval'] else 1,
+                        "recurringEndDate": row['recurring_end_date'].isoformat() if row['recurring_end_date'] else '',
+                        "recurringDaysOfWeek": row['recurring_days_of_week'] or '',
+                        "createdAt": row['created_at'].isoformat() if row['created_at'] else '',
+                        "createdBy": {
+                            "firstname": row['firstname'],
+                            "lastname": row['lastname'] or '',
+                            "birthdate": row['birthdate'] or ''
+                        }
+                    }
+                    events.append(event)
+
+                logging.info(f"Downloaded {len(events)} planned events for user {requesting_user_firstname}")
+
+                return {
+                    "success": True,
+                    "events": events,
+                    "count": len(events)
+                }
+
+        except Exception as e:
+            logging.error(f"Error downloading planned events: {str(e)}")
+            return {"success": False, "error": str(e)}
 
     async def get_weather_data_for_session(self, session_id: str) -> List[Dict[str, Any]]:
         """Retrieve weather data from GPS tracking points for a specific session."""
@@ -1210,6 +1466,15 @@ class TrackingServer:
                     logging.info(f"Received message: {message}")
                     message_data = json.loads(message)
 
+                    # Handle ping messages for connection testing
+                    if message_data.get('type') == 'ping':
+                        await websocket.send(json.dumps({
+                            'type': 'pong',
+                            'message': 'Connection successful',
+                            'timestamp': datetime.datetime.now().isoformat()
+                        }))
+                        continue
+
                     # Handle memory cleanup request
                     if message_data.get('type') == 'cleanup_memory':
                         result = await self.manual_cleanup_memory()
@@ -1234,6 +1499,72 @@ class TrackingServer:
                     # Handle unfollow_users request
                     if message_data.get('type') == 'unfollow_users':
                         await self.handle_unfollow_users_request(websocket)
+                        continue
+
+                    # Handle upload_planned_events request
+                    if message_data.get('type') == 'upload_planned_events':
+                        events_data = message_data.get('events', [])
+                        user_firstname = message_data.get('userFirstname', '')
+                        user_lastname = message_data.get('userLastname', '')
+                        user_birthdate = message_data.get('userBirthdate', '')
+
+                        if events_data and user_firstname:
+                            try:
+                                result = await self.upload_planned_events(events_data, user_firstname, user_lastname, user_birthdate)
+                                await websocket.send(json.dumps({
+                                    'type': 'upload_planned_events_response',
+                                    'success': result['success'],
+                                    'uploaded_count': result.get('uploaded_count', 0),
+                                    'duplicate_count': result.get('duplicate_count', 0),
+                                    'error_count': result.get('error_count', 0),
+                                    'errors': result.get('errors', []),
+                                    'message': result.get('error', 'Upload completed successfully')
+                                }))
+                            except Exception as e:
+                                logging.error(f"Error handling upload planned events request: {str(e)}")
+                                await websocket.send(json.dumps({
+                                    'type': 'upload_planned_events_response',
+                                    'success': False,
+                                    'error': str(e)
+                                }))
+                        else:
+                            await websocket.send(json.dumps({
+                                'type': 'upload_planned_events_response',
+                                'success': False,
+                                'error': 'Missing required fields: events and userFirstname'
+                            }))
+                        continue
+
+                    # Handle download_planned_events request
+                    if message_data.get('type') == 'download_planned_events':
+                        user_firstname = message_data.get('userFirstname', '')
+                        user_lastname = message_data.get('userLastname', '')
+                        user_birthdate = message_data.get('userBirthdate', '')
+                        exclude_user_events = message_data.get('excludeUserEvents', True)
+
+                        if user_firstname:
+                            try:
+                                result = await self.download_planned_events(user_firstname, user_lastname, user_birthdate, exclude_user_events)
+                                await websocket.send(json.dumps({
+                                    'type': 'download_planned_events_response',
+                                    'success': result['success'],
+                                    'events': result.get('events', []),
+                                    'count': result.get('count', 0),
+                                    'message': result.get('error', f'Downloaded {result.get("count", 0)} events')
+                                }))
+                            except Exception as e:
+                                logging.error(f"Error handling download planned events request: {str(e)}")
+                                await websocket.send(json.dumps({
+                                    'type': 'download_planned_events_response',
+                                    'success': False,
+                                    'error': str(e)
+                                }))
+                        else:
+                            await websocket.send(json.dumps({
+                                'type': 'download_planned_events_response',
+                                'success': False,
+                                'error': 'Missing required field: userFirstname'
+                            }))
                         continue
 
                     # Handle get_weather request
