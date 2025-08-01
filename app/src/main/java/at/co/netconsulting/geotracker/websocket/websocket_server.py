@@ -1,6 +1,7 @@
 #!/usr/bin/python
 import asyncio
 import datetime
+import time
 import websockets
 import json
 import logging
@@ -16,6 +17,90 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
+class SessionResetDetector:
+    """Helper class to detect when sessions should be reset due to Android app restarts"""
+
+    def __init__(self):
+        self.session_last_coords = {}  # session_id -> (lat, lng)
+        self.session_last_distance = {}  # session_id -> distance
+        self.session_last_seen = {}  # session_id -> timestamp
+        self.coordinate_jump_threshold = 0.045  # ~5km in degrees
+        self.distance_reset_threshold = 0.5  # If new distance < 50% of old distance
+        self.time_gap_threshold = 300  # 5 minutes in seconds
+
+    def should_reset_session(self, session_id: str, new_data: Dict[str, Any]) -> bool:
+        """Determine if this session should be reset due to app restart detection"""
+
+        # Extract new data
+        new_lat = float(new_data.get('latitude', -999))
+        new_lng = float(new_data.get('longitude', -999))
+        new_distance = float(new_data.get('distance', 0))
+        current_time = datetime.datetime.now()
+
+        # If coordinates are invalid, don't reset but also don't process
+        if new_lat == -999.0 or new_lng == -999.0:
+            return False
+
+        # If session doesn't exist in our tracking, it's new
+        if session_id not in self.session_last_coords:
+            return False
+
+        # Check time gap
+        if session_id in self.session_last_seen:
+            time_diff = (current_time - self.session_last_seen[session_id]).total_seconds()
+            if time_diff > self.time_gap_threshold:
+                logging.info(f"Session {session_id}: Time gap detected ({time_diff:.0f}s > {self.time_gap_threshold}s)")
+                return True
+
+        # Check coordinate jump
+        old_lat, old_lng = self.session_last_coords[session_id]
+        lat_diff = abs(new_lat - old_lat)
+        lng_diff = abs(new_lng - old_lng)
+        distance_deg = (lat_diff**2 + lng_diff**2)**0.5
+
+        if distance_deg > self.coordinate_jump_threshold:
+            logging.info(f"Session {session_id}: Large coordinate jump detected ({distance_deg:.6f} degrees)")
+            return True
+
+        # Check distance counter reset
+        if session_id in self.session_last_distance:
+            old_distance = self.session_last_distance[session_id]
+            if new_distance > 0 and old_distance > 0 and new_distance < old_distance * self.distance_reset_threshold:
+                logging.info(f"Session {session_id}: Distance counter reset detected ({new_distance:.2f}m < {old_distance * self.distance_reset_threshold:.2f}m)")
+                return True
+
+        return False
+
+    def update_session_data(self, session_id: str, data: Dict[str, Any]):
+        """Update tracking data for session"""
+        lat = float(data.get('latitude', -999))
+        lng = float(data.get('longitude', -999))
+        distance = float(data.get('distance', 0))
+
+        if lat != -999.0 and lng != -999.0:
+            self.session_last_coords[session_id] = (lat, lng)
+
+        if distance > 0:
+            self.session_last_distance[session_id] = distance
+
+        self.session_last_seen[session_id] = datetime.datetime.now()
+
+    def reset_session_tracking(self, session_id: str):
+        """Reset tracking data for a session"""
+        if session_id in self.session_last_coords:
+            del self.session_last_coords[session_id]
+        if session_id in self.session_last_distance:
+            del self.session_last_distance[session_id]
+        if session_id in self.session_last_seen:
+            del self.session_last_seen[session_id]
+
+    def create_new_session_id(self, original_id: str) -> str:
+        """Create a new unique session ID"""
+        timestamp = int(time.time() * 1000)
+        new_id = f"{original_id}_reset_{timestamp}"
+        logging.info(f"🔄 Session reset: {original_id} -> {new_id}")
+        return new_id
+
 class TrackingServer:
     def __init__(self):
         self.connected_clients: Set[websockets.WebSocketServerProtocol] = set()
@@ -26,9 +111,12 @@ class TrackingServer:
         self.timestamp_format = '%d-%m-%Y %H:%M:%S'
         self.batch_size = 100
 
+        # Add session reset detector
+        self.session_detector = SessionResetDetector()
+
         # CONFIGURABLE CLEANUP SETTINGS
         # Data retention period in hours - configurable via environment variable or script modification
-        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '48'))  # Default: 48 hours
+        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '24'))  # Default: 24 hours
 
         # Cleanup interval in seconds - how often to run cleanup
         self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '3600'))  # Default: 1 hour
@@ -53,6 +141,31 @@ class TrackingServer:
         }
 
         logging.info(f"Memory cleanup configuration: retention={self.data_retention_hours}h, interval={self.cleanup_interval_seconds}s, auto_cleanup={self.enable_automatic_cleanup}")
+
+    def validate_gps_coordinates(self, latitude: float, longitude: float) -> tuple:
+        """Validate GPS coordinates and return (is_valid, reason)"""
+        try:
+            lat = float(latitude)
+            lng = float(longitude)
+
+            # Check for error/placeholder values
+            if lat == -999.0 or lng == -999.0:
+                return False, "Placeholder coordinates (-999)"
+
+            if lat == 0.0 and lng == 0.0:
+                return False, "Zero coordinates (likely GPS error)"
+
+            # Check valid GPS ranges
+            if not (-90 <= lat <= 90):
+                return False, f"Invalid latitude: {lat}"
+
+            if not (-180 <= lng <= 180):
+                return False, f"Invalid longitude: {lng}"
+
+            return True, "Valid coordinates"
+
+        except (ValueError, TypeError):
+            return False, "Invalid coordinate format"
 
     async def cleanup_old_data_from_memory(self) -> None:
         """Remove tracking data older than retention period from memory ONLY (database is untouched)."""
@@ -1317,21 +1430,69 @@ class TrackingServer:
         )
 
     def create_tracking_point(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a tracking point with current timestamp."""
-        session_id = message_data.get('sessionId')
-        if session_id:
-            was_active = session_id in self.active_sessions
-            # Mark this session as active
-            self.active_sessions.add(session_id)
-            self.last_activity[session_id] = datetime.datetime.now()
+        """Create a tracking point with current timestamp and smart session management."""
 
-            if not was_active:
-                logging.info(f"Session {session_id} became ACTIVE - total active: {len(self.active_sessions)}")
+        original_session_id = message_data.get('sessionId')
+        if not original_session_id:
+            logging.error("No sessionId provided in message")
+            return None
+
+        # Validate coordinates first
+        latitude = float(message_data.get('latitude', -999))
+        longitude = float(message_data.get('longitude', -999))
+
+        is_valid, reason = self.validate_gps_coordinates(latitude, longitude)
+        if not is_valid:
+            logging.warning(f"Skipping invalid coordinates for session {original_session_id}: {reason}")
+            return None
+
+        # Check if session should be reset
+        should_reset = self.session_detector.should_reset_session(original_session_id, message_data)
+
+        # Determine actual session ID to use
+        if should_reset:
+            # Create new session ID
+            actual_session_id = self.session_detector.create_new_session_id(original_session_id)
+
+            # Clean up old session data in memory
+            if original_session_id in self.tracking_history:
+                logging.info(f"Moving {len(self.tracking_history[original_session_id])} points from {original_session_id} to archive")
+                # Keep old data but under a different key for reference
+                archive_key = f"{original_session_id}_archived_{int(time.time())}"
+                self.tracking_history[archive_key] = self.tracking_history[original_session_id].copy()
+                self.tracking_history[original_session_id] = []
+
+            # Reset session tracking
+            self.session_detector.reset_session_tracking(original_session_id)
+
+            # Remove from active sessions
+            if original_session_id in self.active_sessions:
+                self.active_sessions.remove(original_session_id)
+
+            # Update the message data with new session ID
+            message_data = message_data.copy()  # Don't modify original
+            message_data['sessionId'] = actual_session_id
+
+            logging.info(f"SESSION RESET APPLIED: {original_session_id} -> {actual_session_id}")
+
+        else:
+            actual_session_id = original_session_id
+
+        # Update session tracking data
+        self.session_detector.update_session_data(actual_session_id, message_data)
+
+        # Mark session as active
+        was_active = actual_session_id in self.active_sessions
+        self.active_sessions.add(actual_session_id)
+        self.last_activity[actual_session_id] = datetime.datetime.now()
+
+        if not was_active:
+            logging.info(f"Session {actual_session_id} became ACTIVE - total active: {len(self.active_sessions)}")
 
         # Create base tracking point with all fields including weather and barometer
         tracking_point = {
             "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
-            **message_data,
+            **message_data,  # This now contains the actual_session_id
             "currentSpeed": float(message_data["currentSpeed"]),
             "maxSpeed": float(message_data["maxSpeed"]),
             "movingAverageSpeed": float(message_data["movingAverageSpeed"]),
@@ -1351,8 +1512,7 @@ class TrackingServer:
         if "heartRateDevice" in message_data:
             tracking_point["heartRateDevice"] = message_data["heartRateDevice"]
 
-        # Add weather data if available (already included in **message_data)
-        # Just ensure proper types for weather fields
+        # Add weather data if available
         if "temperature" in message_data:
             tracking_point["temperature"] = float(message_data["temperature"])
 
@@ -1699,7 +1859,7 @@ class TrackingServer:
                         }))
                         continue
 
-                    # Handle tracking data
+                    # Handle tracking data with enhanced session management
                     if not self.validate_tracking_point(message_data):
                         missing_fields = [
                             field for field in ["sessionId", "latitude", "longitude", "distance", "currentSpeed", "averageSpeed"]
@@ -1711,20 +1871,28 @@ class TrackingServer:
                         logging.error(f"Missing required fields: {missing_fields}")
                         continue
 
-                    # Save to database
-                    db_success = await self.save_tracking_data_to_db(message_data)
+                    # Create and validate tracking point (this now handles session reset detection)
+                    old_active_sessions = self.active_sessions.copy()
+                    tracking_point = self.create_tracking_point(message_data)
+
+                    # Skip if coordinates were invalid
+                    if tracking_point is None:
+                        continue
+
+                    # Get the actual session ID (might be different if reset occurred)
+                    actual_session_id = tracking_point['sessionId']
+
+                    # Save to database with the actual session ID
+                    db_success = await self.save_tracking_data_to_db(tracking_point)
                     if not db_success:
                         logging.warning("Failed to save to database, but continuing with in-memory storage")
 
-                    # Create and store tracking point
-                    old_active_sessions = self.active_sessions.copy()
-                    tracking_point = self.create_tracking_point(message_data)
-                    session_id = message_data['sessionId']
-                    self.tracking_history[session_id].append(tracking_point)
+                    # Store tracking point
+                    self.tracking_history[actual_session_id].append(tracking_point)
 
                     # Check if we have new active sessions
-                    if session_id not in old_active_sessions:
-                        logging.info(f"New active session detected: {session_id}")
+                    if actual_session_id not in old_active_sessions:
+                        logging.info(f"New active session detected: {actual_session_id}")
                         # Broadcast active users update when new session becomes active
                         await self.broadcast_active_users_update()
                         last_active_users_broadcast = datetime.datetime.now()
@@ -1736,11 +1904,11 @@ class TrackingServer:
                     })
 
                     # Send specific followed_user_update to followers of this session
-                    if session_id in self.session_followers:
+                    if actual_session_id in self.session_followers:
                         follower_update = {
                             'type': 'followed_user_update',
                             'point': {
-                                'sessionId': session_id,
+                                'sessionId': actual_session_id,
                                 'person': tracking_point.get("firstname", tracking_point.get("person", "")),
                                 'latitude': tracking_point.get("latitude", 0.0),
                                 'longitude': tracking_point.get("longitude", 0.0),
@@ -1752,8 +1920,8 @@ class TrackingServer:
                             }
                         }
 
-                        await self.broadcast_to_followers(session_id, follower_update)
-                        logging.info(f"Sent followed_user_update for session {session_id} to {len(self.session_followers[session_id])} followers")
+                        await self.broadcast_to_followers(actual_session_id, follower_update)
+                        logging.info(f"Sent followed_user_update for session {actual_session_id} to {len(self.session_followers[actual_session_id])} followers")
 
                     # Periodically broadcast active users list
                     now = datetime.datetime.now()
@@ -1803,6 +1971,7 @@ async def main():
 
     try:
         async with websockets.serve(server.handle_client, "0.0.0.0", 6789):
+            logging.info("server listening on 0.0.0.0:6789")
             try:
                 await asyncio.Future()  # run forever
             except asyncio.CancelledError:
