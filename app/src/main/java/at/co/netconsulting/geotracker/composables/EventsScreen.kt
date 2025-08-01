@@ -107,7 +107,7 @@ fun EventsScreen(
     onNavigateToImportGpx: () -> Unit = {},
     onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit = { _, _ -> },
     onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {},
-    onNavigateToWeatherDetail: (String, List<Metric>) -> Unit = { _, _ -> } // New callback for weather detail
+    onNavigateToWeatherDetail: (String, List<Metric>) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }

@@ -241,7 +241,7 @@ fun RecordingDialog(
                     }
                 }
 
-                // WebSocket Transfer Setting - NEW
+                // WebSocket Transfer Setting
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,

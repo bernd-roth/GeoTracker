@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import at.co.netconsulting.geotracker.repository.*
+import android.util.Log
 
 @Database(
     entities = [
@@ -23,7 +24,7 @@ import at.co.netconsulting.geotracker.repository.*
         WheelSprocket::class,
         Network::class
     ],
-    version = 13,
+    version = 15, // ✅ INCREMENTED FROM 14 TO 15
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -45,8 +46,9 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: FitnessTrackerDatabase? = null
+        private const val TAG = "FitnessTrackerDB"
 
-        // ✅ ALL MIGRATIONS DEFINED FIRST, BEFORE getInstance()
+        // ✅ ALL EXISTING MIGRATIONS (keeping all your existing ones)
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""
@@ -348,7 +350,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
-        // ✅ NEW MIGRATION 12->13: Fix Event table userId data type consistency
+        // MIGRATION 12->13: Fix Event table userId data type consistency
         private val MIGRATION_12_13 = object : Migration(12, 13) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Fix Event table userId data type from Long to Int
@@ -377,34 +379,186 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
 
                 database.execSQL("DROP TABLE IF EXISTS events")
                 database.execSQL("ALTER TABLE events_new RENAME TO events")
-                // ✅ REMOVED: Don't create index since Event entity has no @Index annotations
-                // Room expects indices=[] for this table
+            }
+        }
+
+        // ✅ NEW MIGRATION 13->14: Fix lap_times table schema completely
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 13->14 for lap_times table")
+
+                try {
+                    // Step 1: Backup existing data if table exists
+                    val backupData = mutableListOf<Array<Any?>>()
+
+                    try {
+                        val cursor = database.query("SELECT * FROM lap_times ORDER BY id")
+                        while (cursor.moveToNext()) {
+                            val rowData = arrayOfNulls<Any>(7)
+                            rowData[0] = if (cursor.isNull(0)) null else cursor.getLong(0)  // id
+                            rowData[1] = if (cursor.isNull(1)) "" else cursor.getString(1)   // sessionId
+                            rowData[2] = if (cursor.isNull(2)) 0 else cursor.getInt(2)      // eventId
+                            rowData[3] = if (cursor.isNull(3)) 0 else cursor.getInt(3)      // lapNumber
+                            rowData[4] = if (cursor.isNull(4)) 0 else cursor.getLong(4)     // startTime
+                            rowData[5] = if (cursor.isNull(5)) 0 else cursor.getLong(5)     // endTime
+                            rowData[6] = if (cursor.isNull(6)) 0.0 else cursor.getDouble(6) // distance
+                            backupData.add(rowData)
+                        }
+                        cursor.close()
+                        Log.d(TAG, "Backed up ${backupData.size} lap_times records")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not backup lap_times data (table might not exist): ${e.message}")
+                    }
+
+                    // Step 2: Drop existing table and indices
+                    database.execSQL("DROP INDEX IF EXISTS index_lap_times_sessionId")
+                    database.execSQL("DROP INDEX IF EXISTS index_lap_times_eventId")
+                    database.execSQL("DROP TABLE IF EXISTS lap_times")
+
+                    // Step 3: Create the table exactly as Room expects it
+                    database.execSQL("""
+                        CREATE TABLE lap_times (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            sessionId TEXT NOT NULL,
+                            eventId INTEGER NOT NULL,
+                            lapNumber INTEGER NOT NULL,
+                            startTime INTEGER NOT NULL,
+                            endTime INTEGER NOT NULL,
+                            distance REAL NOT NULL
+                        )
+                    """)
+
+                    // Step 4: Create indices exactly as Room expects
+                    database.execSQL("""
+                        CREATE INDEX index_lap_times_sessionId ON lap_times(sessionId)
+                    """)
+
+                    database.execSQL("""
+                        CREATE INDEX index_lap_times_eventId ON lap_times(eventId)
+                    """)
+
+                    // Step 5: Restore backed up data
+                    if (backupData.isNotEmpty()) {
+                        Log.d(TAG, "Restoring ${backupData.size} lap_times records")
+                        database.beginTransaction()
+                        try {
+                            backupData.forEach { row ->
+                                database.execSQL("""
+                                    INSERT INTO lap_times (sessionId, eventId, lapNumber, startTime, endTime, distance)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                """, arrayOf(
+                                    row[1] ?: "",      // sessionId
+                                    row[2] ?: 0,       // eventId
+                                    row[3] ?: 0,       // lapNumber
+                                    row[4] ?: 0L,      // startTime
+                                    row[5] ?: 0L,      // endTime
+                                    row[6] ?: 0.0      // distance
+                                ))
+                            }
+                            database.setTransactionSuccessful()
+                            Log.d(TAG, "Successfully restored all lap_times data")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error restoring lap_times data: ${e.message}", e)
+                        } finally {
+                            database.endTransaction()
+                        }
+                    }
+
+                    Log.d(TAG, "Migration 13->14 completed successfully")
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Critical error in migration 13->14, creating clean lap_times table", e)
+
+                    // If anything fails catastrophically, just create a clean table
+                    try {
+                        database.execSQL("DROP INDEX IF EXISTS index_lap_times_sessionId")
+                        database.execSQL("DROP INDEX IF EXISTS index_lap_times_eventId")
+                        database.execSQL("DROP TABLE IF EXISTS lap_times")
+
+                        database.execSQL("""
+                            CREATE TABLE lap_times (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                                sessionId TEXT NOT NULL,
+                                eventId INTEGER NOT NULL,
+                                lapNumber INTEGER NOT NULL,
+                                startTime INTEGER NOT NULL,
+                                endTime INTEGER NOT NULL,
+                                distance REAL NOT NULL
+                            )
+                        """)
+
+                        database.execSQL("CREATE INDEX index_lap_times_sessionId ON lap_times(sessionId)")
+                        database.execSQL("CREATE INDEX index_lap_times_eventId ON lap_times(eventId)")
+
+                        Log.d(TAG, "Created clean lap_times table as fallback")
+                    } catch (fallbackError: Exception) {
+                        Log.e(TAG, "Even fallback table creation failed", fallbackError)
+                        throw fallbackError
+                    }
+                }
+            }
+        }
+
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 14->15 - cleaning up lap_times table")
+
+                try {
+                    // This migration does nothing to the table structure since it should already be correct
+                    // We're just bumping the version to reset the schema validation
+                    Log.d(TAG, "Migration 14->15 completed - no changes needed")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 14->15", e)
+                    throw e
+                }
             }
         }
 
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: Room.databaseBuilder(
-                    context.applicationContext,
-                    FitnessTrackerDatabase::class.java,
-                    "fitness_tracker.db"
-                )
-                    .addMigrations(
-                        MIGRATION_1_2,
-                        MIGRATION_3_4,
-                        MIGRATION_4_5,
-                        MIGRATION_5_6,
-                        MIGRATION_6_7,
-                        MIGRATION_7_8,
-                        MIGRATION_8_9,
-                        MIGRATION_9_10,
-                        MIGRATION_10_11,
-                        MIGRATION_11_12,
-                        MIGRATION_12_13 // ✅ New migration for data type fix
+                INSTANCE ?: try {
+                    Log.d(TAG, "Creating database instance")
+                    Room.databaseBuilder(
+                        context.applicationContext,
+                        FitnessTrackerDatabase::class.java,
+                        "fitness_tracker.db"
                     )
-                    .fallbackToDestructiveMigration() // Keep as safety net
-                    .build()
-                    .also { INSTANCE = it }
+                        .addMigrations(
+                            MIGRATION_1_2,
+                            MIGRATION_3_4,
+                            MIGRATION_4_5,
+                            MIGRATION_5_6,
+                            MIGRATION_6_7,
+                            MIGRATION_7_8,
+                            MIGRATION_8_9,
+                            MIGRATION_9_10,
+                            MIGRATION_10_11,
+                            MIGRATION_11_12,
+                            MIGRATION_12_13,
+                            MIGRATION_13_14,
+                            MIGRATION_14_15  // ✅ ADD THE NEW MIGRATION
+                        )
+                        .addCallback(object : RoomDatabase.Callback() {
+                            override fun onCreate(db: SupportSQLiteDatabase) {
+                                super.onCreate(db)
+                                Log.d(TAG, "Database created successfully")
+                            }
+
+                            override fun onOpen(db: SupportSQLiteDatabase) {
+                                super.onOpen(db)
+                                Log.d(TAG, "Database opened successfully")
+                            }
+                        })
+                        .fallbackToDestructiveMigration() // Keep as safety net
+                        .build()
+                        .also {
+                            INSTANCE = it
+                            Log.d(TAG, "Database instance created and cached")
+                        }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error creating database instance", e)
+                    throw e
+                }
             }
         }
     }

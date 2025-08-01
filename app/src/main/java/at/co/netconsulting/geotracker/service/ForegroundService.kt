@@ -487,7 +487,7 @@ class ForegroundService : Service() {
         // Initialize heart rate sensor service
         heartRateSensorService = HeartRateSensorService.getInstance(this)
 
-        // NEW: Initialize barometer sensor service
+        // Initialize barometer sensor service
         barometerSensorService = BarometerSensorService.getInstance(this)
 
         // Start connection monitoring

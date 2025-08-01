@@ -11,6 +11,8 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -83,19 +85,6 @@ fun SettingsScreen() {
     var darkModeEnabled by remember {
         mutableStateOf(sharedPreferences.getBoolean("darkModeEnabled", false))
     }
-
-//    // Added dropdown state for minimum distance
-//    var minDistanceMeters by remember {
-//        mutableStateOf(sharedPreferences.getInt("minDistanceMeters", 5))
-//    }
-//
-//    var minDistanceExpanded by remember { mutableStateOf(false) }
-//
-//    // Added dropdown state for minimum time
-//    var minTimeSeconds by remember {
-//        mutableStateOf(sharedPreferences.getInt("minTimeSeconds", 5))
-//    }
-//    var minTimeExpanded by remember { mutableStateOf(false) }
 
     // Voice announcement interval
     var voiceAnnouncementInterval by remember {
@@ -193,7 +182,6 @@ fun SettingsScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(8.dp))
-
         OutlinedTextField(
             value = websocketserver,
             onValueChange = { websocketserver = it },
@@ -202,68 +190,14 @@ fun SettingsScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(16.dp))
-
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            ) {
-                Text(
-                    text = "Map Appearance",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Dark Mode Map",
-                        modifier = Modifier.weight(1f)
-                    )
-                    Switch(
-                        checked = darkModeEnabled,
-                        onCheckedChange = { isEnabled ->
-                            darkModeEnabled = isEnabled
-                            // Save immediately when toggled
-                            sharedPreferences.edit()
-                                .putBoolean("darkModeEnabled", isEnabled)
-                                .apply()
-                        }
-                    )
-                }
-
-                Text(
-                    text = "Enable dark map tiles for better viewing at night. App interface remains in light mode.",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-        }
-
+        OutlinedTextField(
+            value = websocketserver,
+            onValueChange = { websocketserver = it },
+            label = { Text("Voice announcement every ... kilometer") },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
+            modifier = Modifier.fillMaxWidth()
+        )
         Spacer(modifier = Modifier.height(16.dp))
-
-        // Minimum distance dropdown
-//        DistanceDropdown(
-//            value = minDistanceMeters,
-//            onValueChange = { minDistanceMeters = it },
-//            modifier = Modifier.fillMaxWidth()
-//        )
-//        Spacer(modifier = Modifier.height(16.dp))
-//
-//        TimeDropdown(
-//            value = minTimeSeconds,
-//            onValueChange = { minTimeSeconds = it },
-//            modifier = Modifier.fillMaxWidth()
-//        )
-        Spacer(modifier = Modifier.height(16.dp))
-
         // Voice announcement interval
         VoiceAnnouncementDropdown(
             value = voiceAnnouncementInterval,
@@ -271,32 +205,30 @@ fun SettingsScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(16.dp))
-
-//        Spacer(modifier = Modifier.height(16.dp))
-
-//        ManualInputOption(
-//            distanceValue = minDistanceMeters,
-//            timeValue = minTimeSeconds,
-//            onDistanceChange = { minDistanceMeters = it },
-//            onTimeChange = { minTimeSeconds = it },
-//            modifier = Modifier.fillMaxWidth()
-//        )
-//        Spacer(modifier = Modifier.height(16.dp))
-
-        // Automatic Backup Settings Section
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
+                .background(
+                    color = Color.Transparent,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
+                // Label positioned like OutlinedTextField label
                 Text(
                     text = "Automatic Backup",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
 
@@ -328,7 +260,6 @@ fun SettingsScreen() {
                         }
                     )
                 }
-
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Time picker
@@ -388,31 +319,70 @@ fun SettingsScreen() {
                 }
             }
         }
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .background(
+                    color = Color.Transparent,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                // Label positioned like OutlinedTextField label
+                Text(
+                    text = "Battery Optimization",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
 
-        Text(
-            text = "Battery Optimization",
-            style = MaterialTheme.typography.bodyLarge,
-            modifier = Modifier.padding(top = 16.dp)
-        )
-        Switch(
-            checked = isBatteryOptimizationIgnoredState,
-            onCheckedChange = { isChecked ->
-                isBatteryOptimizationIgnoredState = isChecked
-                sharedPreferences.edit()
-                    .putBoolean("batteryOptimizationState", isChecked)
-                    .apply()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Ignore battery optimization",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = isBatteryOptimizationIgnoredState,
+                        onCheckedChange = { isChecked ->
+                            isBatteryOptimizationIgnoredState = isChecked
+                            sharedPreferences.edit()
+                                .putBoolean("batteryOptimizationState", isChecked)
+                                .apply()
 
-                if (isChecked) {
-                    requestIgnoreBatteryOptimizations(context)
-                } else {
-                    Toast.makeText(
-                        context,
-                        "Background usage might still be enabled. Please disable manually.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                            if (isChecked) {
+                                requestIgnoreBatteryOptimizations(context)
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Background usage might still be enabled. Please disable manually.",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        }
+                    )
                 }
+
+                Text(
+                    text = "Allow the app to run in the background without battery restrictions for accurate location tracking.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
-        )
+        }
         Spacer(modifier = Modifier.height(16.dp))
         Button(
             onClick = {

@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker.composables
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import android.database.sqlite.SQLiteException
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
@@ -138,13 +139,57 @@ fun CompetitionsScreen() {
         if (showCompetitionsList) {
             try {
                 Log.d("CompetitionsScreen", "Loading competitions for user: $currentUserId")
+
+                // Test database schema validation before proceeding
+                try {
+                    // This will trigger Room's schema validation
+                    val testQuery = database.plannedEventDao().getAllPlannedEventsForUser(currentUserId)
+                    Log.d("CompetitionsScreen", "Database schema validation passed")
+                } catch (dbError: Exception) {
+                    Log.e("CompetitionsScreen", "Database schema validation failed", dbError)
+
+                    when {
+                        dbError.message?.contains("Migration didn't properly handle") == true -> {
+                            errorMessage = "Database schema mismatch detected. Please restart the app to apply updates."
+                            return@LaunchedEffect
+                        }
+                        dbError.message?.contains("no such table") == true -> {
+                            errorMessage = "Database table missing. Please restart the app to recreate tables."
+                            return@LaunchedEffect
+                        }
+                        dbError.message?.contains("lap_times") == true -> {
+                            errorMessage = "Lap times table schema issue detected. App update required - please restart the app."
+                            return@LaunchedEffect
+                        }
+                        dbError is SQLiteException -> {
+                            errorMessage = "Database error: ${dbError.message}. Please restart the app."
+                            return@LaunchedEffect
+                        }
+                        else -> {
+                            Log.e("CompetitionsScreen", "Unknown database error", dbError)
+                            errorMessage = "Database initialization failed. Please restart the app."
+                            return@LaunchedEffect
+                        }
+                    }
+                }
+
+                // If we get here, database is working properly
                 loadCompetitions(database, currentUserId, searchQuery) { loadedCompetitions ->
                     competitions = loadedCompetitions
                     Log.d("CompetitionsScreen", "Loaded ${loadedCompetitions.size} competitions")
                 }
+
             } catch (e: Exception) {
                 Log.e("CompetitionsScreen", "Error in LaunchedEffect loading competitions", e)
-                errorMessage = "Failed to load competitions: ${e.message}"
+                errorMessage = when {
+                    e.message?.contains("Migration") == true ->
+                        "Database migration error. Please restart the app to complete the update."
+                    e.message?.contains("no such table") == true ->
+                        "Database table error. Please restart the app to recreate the database."
+                    e.message?.contains("FOREIGN KEY constraint failed") == true ->
+                        "Database constraint error. Some data may be corrupted."
+                    else -> "Failed to load competitions: ${e.message}"
+                }
                 competitions = emptyList()
             }
         }
@@ -169,7 +214,17 @@ fun CompetitionsScreen() {
                 }
             } catch (e: Exception) {
                 Log.e("CompetitionsScreen", "Error in search LaunchedEffect", e)
-                errorMessage = "Search error: ${e.message}"
+                when {
+                    e.message?.contains("Migration") == true -> {
+                        errorMessage = "Database needs updating. Please restart the app."
+                    }
+                    e.message?.contains("lap_times") == true -> {
+                        errorMessage = "Database schema issue detected. Please restart the app to fix."
+                    }
+                    else -> {
+                        errorMessage = "Search error: ${e.message}"
+                    }
+                }
                 competitions = emptyList()
             }
         }

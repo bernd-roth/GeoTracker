@@ -89,12 +89,12 @@ class MainActivity : ComponentActivity() {
         const val EVENTS = "events"
         const val EDIT_EVENT = "edit_event/{eventId}"
         const val HEART_RATE_DETAIL = "heart_rate_detail"
-        const val WEATHER_DETAIL = "weather_detail" // Add this new route
+        const val WEATHER_DETAIL = "weather_detail"
 
         // Create actual navigation path with parameters
         fun editEvent(eventId: Int) = "edit_event/$eventId"
         fun heartRateDetail() = "heart_rate_detail"
-        fun weatherDetail() = "weather_detail" // Add this new function
+        fun weatherDetail() = "weather_detail"
     }
 
     // Permission constants
@@ -546,7 +546,7 @@ class MainActivity : ComponentActivity() {
                 )
             }
 
-            // Weather detail screen - Add this new composable route
+            // Weather detail screen
             composable(Routes.WEATHER_DETAIL) {
                 Log.d("MainActivity", "Showing weather detail screen")
 
