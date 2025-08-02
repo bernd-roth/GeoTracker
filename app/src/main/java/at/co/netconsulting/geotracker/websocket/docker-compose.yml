@@ -1,11 +1,32 @@
 version: '3.8'
 services:
+  postgres-geotracker:
+    image: postgres:15
+    container_name: postgres-geotracker
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: geotracker
+      POSTGRES_USER: geotracker
+      POSTGRES_PASSWORD: 3Jkris67zhnnhz76zhn
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "8021:5432"
+    volumes:
+      - /home/bernd/docker-container/postgres-geotracker/data:/var/lib/postgresql/data
+      - /home/bernd/docker-container/postgres-geotracker/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geotracker -d geotracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - geotracker-network
   nginx:
     restart: always
     image: arm64v8/nginx:alpine
     ports:
-      - "80:80"    # Standard HTTP port
-      - "443:443"  # Standard HTTPS port
+      - "80:80"
+      - "443:443"
     volumes:
       - ./static:/usr/share/nginx/html
       - ./nginx.conf:/etc/nginx/nginx.conf
@@ -16,7 +37,6 @@ services:
       - websocket-server
     networks:
       - app-network
-
   websocket-server:
     restart: always
     image: arm64v8/python:3.9-slim
@@ -35,21 +55,24 @@ services:
       - POSTGRES_DB=geotracker
       - POSTGRES_USER=geotracker
       - POSTGRES_PASSWORD=3Jkris67zhnnhz76zhn
+    depends_on:
+      postgres-geotracker:
+        condition: service_healthy
     networks:
       - app-network
       - geotracker-network
-
   certbot:
     image: certbot/certbot
+    container_name: certbot-geotracker
     volumes:
       - ./ssl:/etc/letsencrypt
       - ./certbot-webroot:/var/www/certbot
-    profiles:
-      - tools
-
+    networks:
+      - app-network
 networks:
   app-network:
     name: geotracker_app-network
     driver: bridge
   geotracker-network:
-    external: true
+    name: geotracker-network
+    driver: bridge

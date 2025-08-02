@@ -1,0 +1,221 @@
+import websocket
+import json
+import time
+import math
+import random
+from datetime import datetime
+import hashlib
+
+def generate_route(start_lat, start_lon, num_points=100):
+    """Generate a more realistic running route with varied terrain."""
+    points = []
+    
+    # Create a route that goes in a rough oval/loop
+    for i in range(num_points):
+        # Create an oval-shaped route
+        angle = (i / num_points) * 2 * math.pi
+        
+        # Oval parameters
+        a = 0.003  # Semi-major axis (roughly 300m)
+        b = 0.002  # Semi-minor axis (roughly 200m)
+        
+        # Add some randomness to make it more realistic
+        noise_factor = 0.0001
+        noise_lat = random.uniform(-noise_factor, noise_factor)
+        noise_lon = random.uniform(-noise_factor, noise_factor)
+        
+        lat = start_lat + a * math.cos(angle) + noise_lat
+        lon = start_lon + b * math.sin(angle) + noise_lon
+        
+        points.append((lat, lon))
+    
+    return points
+
+def calculate_distance(lat1, lon1, lat2, lon2):
+    """Calculate distance between two points in meters using Haversine formula."""
+    R = 6371000  # Earth's radius in meters
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    a = math.sin(delta_phi/2) * math.sin(delta_phi/2) + \
+        math.cos(phi1) * math.cos(phi2) * \
+        math.sin(delta_lambda/2) * math.sin(delta_lambda/2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return R * c
+
+def generate_session_id(person_name):
+    """Generate a session ID similar to the Android app format."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S%f")[:-3]  # Remove last 3 digits of microseconds
+    random_hex = hashlib.md5(f"{person_name}{time.time()}".encode()).hexdigest()[:16]
+    random_suffix = random.randint(100000, 999999)
+    return f"{person_name}_{timestamp}_{random_hex}_{random_suffix}"
+
+def calculate_elevation_gain(current_altitude, starting_altitude):
+    """Calculate cumulative elevation gain."""
+    return max(0, current_altitude - starting_altitude)
+
+def simulate_run(person_name="TestRunner", server_url="wss://geotracker.duckdns.org/geotracker"):
+    """Simulate a running session with realistic data."""
+    
+    print(f"Connecting to {server_url}")
+    ws = websocket.create_connection(server_url)
+    
+    # Starting point (Vienna, Austria - same as your app)
+    start_lat, start_lon = 48.1818798, 16.3607528
+    route = generate_route(start_lat, start_lon)
+
+    # Initialize session
+    session_id = generate_session_id(person_name)
+    start_time = time.time()
+    start_datetime = datetime.now().isoformat()
+    
+    # Tracking variables
+    total_distance = 0.0
+    last_lat, last_lon = route[0]
+    max_speed_recorded = 0.0
+    speed_queue = []  # For moving average (last 5 speeds)
+    starting_altitude = 200 + random.uniform(-20, 20)  # Random starting altitude
+    current_elevation_gain = 0.0
+    lap = 0
+    
+    print(f"Starting simulation for {person_name}")
+    print(f"Session ID: {session_id}")
+    print(f"Route has {len(route)} points")
+    print("Press Ctrl+C to stop\n")
+
+    try:
+        for i, (lat, lon) in enumerate(route):
+            # Calculate distance increment
+            if i > 0:
+                distance_increment = calculate_distance(last_lat, last_lon, lat, lon)
+                total_distance += distance_increment
+                
+                # Update lap counter (every 1000m = 1 lap)
+                lap = int(total_distance // 1000)
+            else:
+                distance_increment = 0
+
+            # Simulate realistic running speed (8-15 km/h with variations)
+            base_speed = 10.0 + math.sin(i / 10) * 2  # Vary speed over time
+            speed_variation = random.uniform(-1.5, 1.5)
+            current_speed = max(5.0, base_speed + speed_variation)  # Minimum 5 km/h
+
+            # Update max speed
+            max_speed_recorded = max(max_speed_recorded, current_speed)
+
+            # Calculate moving average (last 5 speeds)
+            speed_queue.append(current_speed)
+            if len(speed_queue) > 5:
+                speed_queue.pop(0)
+            moving_average_speed = sum(speed_queue) / len(speed_queue)
+
+            # Calculate average speed since start
+            elapsed_time_hours = (time.time() - start_time) / 3600
+            average_speed = (total_distance / 1000) / elapsed_time_hours if elapsed_time_hours > 0 else 0
+
+            # Simulate altitude changes
+            altitude_base = starting_altitude + math.sin(i / 15) * 15  # Gentle hills
+            altitude_noise = random.uniform(-2, 2)
+            current_altitude = altitude_base + altitude_noise
+            
+            # Calculate elevation gain
+            current_elevation_gain = calculate_elevation_gain(current_altitude, starting_altitude)
+
+            # Simulate satellite data
+            satellites = random.randint(12, 20)
+            used_satellites = int(satellites * random.uniform(0.6, 0.8))
+
+            # Create the message in the exact format your Android app uses
+            message = {
+                "type": "location_update",
+                "point": {
+                    "altitude": current_altitude,
+                    "averageSpeed": average_speed,
+                    "coveredDistance": total_distance,
+                    "cumulativeElevationGain": current_elevation_gain,
+                    "currentSpeed": current_speed,
+                    "distance": total_distance,
+                    "heartRate": random.randint(120, 160) if random.random() > 0.1 else 0,  # Simulate heart rate occasionally
+                    "heartRateDevice": "SimulatedHR" if random.random() > 0.1 else "",
+                    "horizontalAccuracy": random.uniform(2.0, 8.0),
+                    "lap": lap,
+                    "latitude": lat,
+                    "longitude": lon,
+                    "maxSpeed": max_speed_recorded,
+                    "movingAverageSpeed": moving_average_speed,
+                    "numberOfSatellites": satellites,
+                    "person": person_name,
+                    "satellites": satellites,
+                    "sessionId": session_id,
+                    "speed": current_speed,
+                    "speedAccuracyMetersPerSecond": random.uniform(0.2, 0.8),
+                    "startDateTime": start_datetime,
+                    "usedNumberOfSatellites": used_satellites,
+                    "verticalAccuracyMeters": random.uniform(3.0, 6.0)
+                }
+            }
+
+            # Send the message (without spaces to match Android format)
+            ws.send(json.dumps(message, separators=(',', ':')))
+            
+            # Progress output
+            distance_km = total_distance / 1000
+            print(f"Point {i+1:3d}/{len(route)}: {distance_km:.3f}km, "
+                  f"{current_speed:.1f} km/h, {satellites} sats, "
+                  f"alt: {current_altitude:.1f}m")
+
+            last_lat, last_lon = lat, lon
+            
+            # Send updates every 1-2 seconds (realistic GPS update rate)
+            time.sleep(random.uniform(1.0, 2.0))
+
+    except KeyboardInterrupt:
+        print(f"\nStopping simulation for {person_name}...")
+        print(f"Total distance: {total_distance/1000:.2f} km")
+        print(f"Max speed: {max_speed_recorded:.1f} km/h")
+        print(f"Average speed: {average_speed:.1f} km/h")
+    except Exception as e:
+        print(f"Error during simulation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        try:
+            ws.close()
+            print("WebSocket connection closed")
+        except:
+            pass
+
+def simulate_multiple_runners(num_runners=2):
+    """Simulate multiple runners for testing."""
+    import threading
+    
+    threads = []
+    for i in range(num_runners):
+        runner_name = f"TestRunner{i+1}"
+        thread = threading.Thread(target=simulate_run, args=(runner_name,))
+        threads.append(thread)
+        thread.start()
+        
+        # Stagger the start times
+        time.sleep(2)
+    
+    # Wait for all threads to complete
+    for thread in threads:
+        thread.join()
+
+if __name__ == "__main__":
+    import sys
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "multi":
+            num_runners = int(sys.argv[2]) if len(sys.argv) > 2 else 2
+            print(f"Starting simulation with {num_runners} runners")
+            simulate_multiple_runners(num_runners)
+        else:
+            person_name = sys.argv[1]
+            simulate_run(person_name)
+    else:
+        # Default single runner
+        simulate_run("TestRunner")

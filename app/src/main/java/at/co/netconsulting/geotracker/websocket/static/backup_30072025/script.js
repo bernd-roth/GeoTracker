@@ -632,13 +632,11 @@ function showInfoPopup(event, point, sessionId, chartType) {
             `;
         }
 
-        // Extract weather and barometer data
+        // NEW: Extract and format weather data
         const weatherData = extractWeatherData(point);
-        const barometerData = extractBarometerData(point);
-
         let weatherSection = '';
 
-        if (weatherData.hasData || barometerData.hasData) {
+        if (weatherData.hasData) {
             const weatherDescription = getWeatherDescription(weatherData.weatherCode || 0);
             const weatherEmoji = getWeatherEmoji(weatherData.weatherCode || 0);
             const windDirectionText = getWindDirectionText(weatherData.windDirection || 0);
@@ -647,7 +645,7 @@ function showInfoPopup(event, point, sessionId, chartType) {
             weatherSection = `
                 <div class="weather-section" style="background-color: #f8f9fa; border-radius: 4px; padding: 8px; margin: 8px 0; border-left: 3px solid #FF5722;">
                     <div class="weather-header" style="font-weight: bold; color: #FF5722; margin-bottom: 6px; display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                        ${weatherEmoji} Weather & Atmospheric Conditions
+                        ${weatherEmoji} Weather Conditions
                     </div>
                     <div class="weather-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10px;">
                         <div class="weather-item" style="text-align: center;">
@@ -673,38 +671,7 @@ function showInfoPopup(event, point, sessionId, chartType) {
                             <div class="weather-value wind" style="color: #795548; font-weight: bold; font-size: 11px;">
                                 ${windDirectionText}
                             </div>
-                        </div>`;
-
-            // add Barometer data rows
-            if (barometerData.hasData) {
-                weatherSection += `
-                        <div class="weather-item" style="text-align: center;">
-                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #9C27B0;">Pressure</div>
-                            <div class="weather-value pressure" style="color: #9C27B0; font-weight: bold; font-size: 11px;">
-                                ${barometerData.pressure ? barometerData.pressure.toFixed(1) + ' hPa' : 'N/A'}
-                            </div>
                         </div>
-                        <div class="weather-item" style="text-align: center;">
-                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #9C27B0;">Sea Level</div>
-                            <div class="weather-value pressure" style="color: #9C27B0; font-weight: bold; font-size: 11px;">
-                                ${barometerData.seaLevelPressure ? barometerData.seaLevelPressure.toFixed(1) + ' hPa' : 'N/A'}
-                            </div>
-                        </div>
-                        <div class="weather-item" style="text-align: center;">
-                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #607D8B;">Baro Alt</div>
-                            <div class="weather-value barometer" style="color: #607D8B; font-weight: bold; font-size: 11px;">
-                                ${barometerData.altitudeFromPressure ? barometerData.altitudeFromPressure.toFixed(1) + ' m' : 'N/A'}
-                            </div>
-                        </div>
-                        <div class="weather-item" style="text-align: center;">
-                            <div class="weather-label" style="font-weight: bold; margin-bottom: 2px; color: #607D8B;">Accuracy</div>
-                            <div class="weather-value barometer" style="color: #607D8B; font-weight: bold; font-size: 11px;">
-                                ${barometerData.pressureAccuracy ? barometerData.pressureAccuracy + ' Pa' : 'N/A'}
-                            </div>
-                        </div>`;
-            }
-
-            weatherSection += `
                     </div>
                     ${weatherDescription !== 'Code 0' ? `
                         <div class="weather-footer" style="margin-top: 6px; font-size: 9px; color: #666; font-style: italic; text-align: center;">
@@ -714,20 +681,20 @@ function showInfoPopup(event, point, sessionId, chartType) {
                 </div>
             `;
         } else {
-            // Show "No data" message
+            // Show "No weather data" message
             weatherSection = `
                 <div class="weather-section" style="background-color: #f8f9fa; border-radius: 4px; padding: 8px; margin: 8px 0; border-left: 3px solid #999;">
                     <div class="weather-header" style="font-weight: bold; color: #999; margin-bottom: 4px; display: flex; align-items: center; gap: 4px; font-size: 11px;">
-                        🌤️ Weather & Atmospheric Conditions
+                        🌤️ Weather Conditions
                     </div>
                     <div style="text-align: center; color: #999; font-style: italic; font-size: 10px; padding: 6px;">
-                        No weather or barometer data available for this point
+                        No weather data available for this point
                     </div>
                 </div>
             `;
         }
 
-        // Create popup content with weather and barometer data
+        // Create popup content with weather data inserted where you wanted it
         const content = `
             <div style="font-weight: bold; color: ${isGPXTrack ? 'red' : getColorForUser(sessionId)}; margin-bottom: 8px;">
                 ${displayId}
@@ -764,7 +731,7 @@ function showInfoPopup(event, point, sessionId, chartType) {
 
         infoPopup.innerHTML = content;
 
-        // Get mouse position and display popup
+        // Get mouse position
         let x, y;
         if (event.native) {
             x = event.native.pageX || event.native.clientX + window.scrollX || 0;
@@ -774,17 +741,19 @@ function showInfoPopup(event, point, sessionId, chartType) {
             y = event.pageY || event.clientY + window.scrollY || 0;
         }
 
+        console.log('🖱️ Mouse position:', { x, y });
+
         // Position popup
         const finalX = Math.max(10, Math.min(x + 15, window.innerWidth - 420));
-        const finalY = Math.max(10, Math.min(y - 10, window.innerHeight - 350)); // Increased height allowance for barometer data
+        const finalY = Math.max(10, Math.min(y - 10, window.innerHeight - 300)); // Increased height allowance for weather data
 
         infoPopup.style.left = finalX + 'px';
         infoPopup.style.top = finalY + 'px';
         infoPopup.style.display = 'block';
         infoPopup.classList.add('popup-visible');
 
-        console.log('✅ Popup with weather and barometer data displayed at:', finalX, finalY);
-        addDebugMessage(`Info popup with weather and barometer data shown at coordinates: ${finalX}, ${finalY}`, 'interaction');
+        console.log('✅ Popup with weather data displayed at:', finalX, finalY);
+        addDebugMessage(`Info popup with weather shown at coordinates: ${finalX}, ${finalY}`, 'interaction');
 
         // Adjust position if popup goes off screen
         setTimeout(() => {
@@ -831,21 +800,6 @@ function extractWeatherData(point) {
         humidity: hasHumidity ? point.relativeHumidity : null,
         weatherCode: hasWeatherCode ? point.weatherCode : null,
         weatherTime: point.weatherTime || ""
-    };
-}
-
-function extractBarometerData(point) {
-    const hasPressure = point.pressure !== undefined && point.pressure !== null && point.pressure > 0;
-    const hasAltitudeFromPressure = point.altitudeFromPressure !== undefined && point.altitudeFromPressure !== null;
-    const hasSeaLevelPressure = point.seaLevelPressure !== undefined && point.seaLevelPressure !== null && point.seaLevelPressure > 0;
-    const hasPressureAccuracy = point.pressureAccuracy !== undefined && point.pressureAccuracy !== null;
-
-    return {
-        hasData: hasPressure || hasAltitudeFromPressure || hasSeaLevelPressure || hasPressureAccuracy,
-        pressure: hasPressure ? point.pressure : null,
-        altitudeFromPressure: hasAltitudeFromPressure ? point.altitudeFromPressure : null,
-        seaLevelPressure: hasSeaLevelPressure ? point.seaLevelPressure : null,
-        pressureAccuracy: hasPressureAccuracy ? point.pressureAccuracy : null
     };
 }
 
@@ -1131,9 +1085,6 @@ function connectToWebSocket() {
             case 'update':
                 handlePoint(message.point);
                 break;
-            case 'invalid_coordinates':
-                handleInvalidCoordinates(message);
-                break;
             case 'session_list':
                 handleSessionList(message.sessions);
                 break;
@@ -1165,112 +1116,6 @@ function connectToWebSocket() {
     };
 }
 
-function handleInvalidCoordinates(message) {
-    const sessionId = message.sessionId;
-    const reason = message.reason || 'Invalid GPS coordinates';
-    const otherData = message.otherData || {};
-    
-    addDebugMessage(`Invalid coordinates for session ${sessionId}: ${reason}`, 'warning');
-    
-    // Update speed display with non-GPS data if available
-    if (otherData.currentSpeed !== undefined) {
-        const speedContainer = document.getElementById(`speed-container-${sessionId}`);
-        if (speedContainer) {
-            // Update speed even with invalid coordinates
-            const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
-            if (currentSpeedElement) {
-                currentSpeedElement.textContent = parseFloat(otherData.currentSpeed || 0).toFixed(1);
-                currentSpeedElement.style.color = getSpeedColor(parseFloat(otherData.currentSpeed || 0));
-            }
-            
-            // Update heart rate if available
-            if (otherData.heartRate !== undefined) {
-                const heartRateElement = document.getElementById(`heartRate-${sessionId}`);
-                if (heartRateElement) {
-                    heartRateElement.textContent = otherData.heartRate;
-                    heartRateElement.style.color = getHeartRateColor(otherData.heartRate);
-                }
-            }
-            
-            // Add visual indicator for invalid GPS
-            let gpsIndicator = speedContainer.querySelector('.gps-status');
-            if (!gpsIndicator) {
-                gpsIndicator = document.createElement('div');
-                gpsIndicator.className = 'gps-status';
-                gpsIndicator.style.cssText = `
-                    position: absolute;
-                    top: 5px;
-                    right: 5px;
-                    width: 12px;
-                    height: 12px;
-                    border-radius: 50%;
-                    background-color: #ff4444;
-                    border: 2px solid white;
-                    box-shadow: 0 0 4px rgba(0,0,0,0.3);
-                    animation: blink 1s infinite;
-                `;
-                speedContainer.style.position = 'relative';
-                speedContainer.appendChild(gpsIndicator);
-                
-                // Add CSS animation for blinking
-                if (!document.getElementById('gps-blink-style')) {
-                    const style = document.createElement('style');
-                    style.id = 'gps-blink-style';
-                    style.textContent = `
-                        @keyframes blink {
-                            0%, 50% { opacity: 1; }
-                            51%, 100% { opacity: 0.3; }
-                        }
-                    `;
-                    document.head.appendChild(style);
-                }
-            }
-            
-            gpsIndicator.title = `GPS Error: ${reason}`;
-            gpsIndicator.style.backgroundColor = '#ff4444'; // Red for invalid
-            
-            // Remove the indicator after 5 seconds if coordinates become valid again
-            setTimeout(() => {
-                if (gpsIndicator && gpsIndicator.parentNode) {
-                    gpsIndicator.style.backgroundColor = '#44ff44'; // Green for recovered
-                    setTimeout(() => {
-                        if (gpsIndicator && gpsIndicator.parentNode) {
-                            gpsIndicator.remove();
-                        }
-                    }, 2000);
-                }
-            }, 5000);
-        }
-    }
-    
-    // Show a temporary notification
-    showNotification(`GPS signal lost for ${sessionPersonNames[sessionId] || sessionId}: ${reason}`, 'warning');
-    
-    // Keep session active in the UI
-    const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
-    if (sessionItem && !sessionItem.classList.contains('active')) {
-        sessionItem.classList.add('active');
-        
-        // Add a GPS warning indicator to the session item
-        const sessionName = sessionItem.querySelector('.session-item-name');
-        if (sessionName && !sessionName.querySelector('.gps-warning')) {
-            const gpsWarning = document.createElement('span');
-            gpsWarning.className = 'gps-warning';
-            gpsWarning.innerHTML = ' 📡❌';
-            gpsWarning.title = 'GPS signal issues';
-            gpsWarning.style.color = '#ff4444';
-            sessionName.appendChild(gpsWarning);
-            
-            // Remove warning after 10 seconds
-            setTimeout(() => {
-                if (gpsWarning && gpsWarning.parentNode) {
-                    gpsWarning.remove();
-                }
-            }, 10000);
-        }
-    }
-}
-
 function handleHistoryBatch(points) {
     if (!points || points.length === 0) return;
 
@@ -1291,7 +1136,7 @@ function handleHistoryBatch(points) {
             trackPoints[sessionId] = [];
         }
 
-        // Convert data types and add to trackPoints - WITH WEATHER AND BAROMETER DATA
+        // Convert data types and add to trackPoints - WITH FIXED WEATHER DATA
         const processedPoint = {
             lat: parseFloat(point.latitude),
             lng: parseFloat(point.longitude),
@@ -1304,27 +1149,20 @@ function handleHistoryBatch(points) {
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
             personName: personName,
 
-            // Weather data
+            // FIXED: Extract weather data with correct field names
             temperature: parseFloat(point.temperature || 0),
             windSpeed: parseFloat(point.windSpeed || 0),
             windDirection: parseFloat(point.windDirection || 0),
-            relativeHumidity: parseInt(point.relativeHumidity || point.humidity || 0),
+            relativeHumidity: parseInt(point.relativeHumidity || point.humidity || 0), // Support both field names
             weatherCode: parseInt(point.weatherCode || 0),
-            weatherTime: point.weatherTime || "",
-
-            // Barometer data
-            pressure: parseFloat(point.pressure || 0),
-            altitudeFromPressure: parseFloat(point.altitudeFromPressure || 0),
-            seaLevelPressure: parseFloat(point.seaLevelPressure || 0),
-            pressureAccuracy: parseInt(point.pressureAccuracy || 0)
+            weatherTime: point.weatherTime || ""
         };
 
-        console.log('🌤️ Processed point weather & barometer data:', {
+        console.log('🌤️ Processed point weather data:', {
             sessionId,
             temperature: processedPoint.temperature,
             windSpeed: processedPoint.windSpeed,
-            pressure: processedPoint.pressure,
-            altitudeFromPressure: processedPoint.altitudeFromPressure
+            relativeHumidity: processedPoint.relativeHumidity
         });
 
         // Validate and track weather data
@@ -1343,36 +1181,32 @@ function finalizeBatchProcessing() {
         trackPoints[sessionId].sort((a, b) => a.timestamp - b.timestamp);
     });
 
-    // Update visualizations only for sessions that should be displayed
+    // Update visualizations for all sessions
     requestAnimationFrame(() => {
         Object.keys(trackPoints).forEach(sessionId => {
-            if (shouldDisplaySession(sessionId)) {
-                updateMapTrack(sessionId);
-                updateCharts(sessionId);
+            updateMapTrack(sessionId);
+            updateCharts(sessionId);
 
-                // Update speed display with the latest point
-                const latestPoint = trackPoints[sessionId][trackPoints[sessionId].length - 1];
-                if (latestPoint) {
-                    updateSpeedDisplay(sessionId, latestPoint.speed, {
-                        averageSpeed: latestPoint.averageSpeed,
-                        cumulativeElevationGain: latestPoint.cumulativeElevationGain,
-                        heartRate: latestPoint.heartRate,
-                        distance: latestPoint.distance,
-                        personName: latestPoint.personName ||
-                            (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || "",
-                        // Pass weather data to display function
-                        weather: {
-                            temperature: latestPoint.temperature,
-                            windSpeed: latestPoint.windSpeed,
-                            windDirection: latestPoint.windDirection,
-                            relativeHumidity: latestPoint.relativeHumidity,
-                            weatherCode: latestPoint.weatherCode,
-                            weatherTime: latestPoint.weatherTime
-                        }
-                    });
-                }
-            } else {
-                addDebugMessage(`Skipping visualization update for filtered session: ${sessionId}`, 'system');
+            // Update speed display with the latest point
+            const latestPoint = trackPoints[sessionId][trackPoints[sessionId].length - 1];
+            if (latestPoint) {
+                updateSpeedDisplay(sessionId, latestPoint.speed, {
+                    averageSpeed: latestPoint.averageSpeed,
+                    cumulativeElevationGain: latestPoint.cumulativeElevationGain,
+                    heartRate: latestPoint.heartRate,
+                    distance: latestPoint.distance,
+                    personName: latestPoint.personName ||
+                        (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || "",
+                    // Pass weather data to display function
+                    weather: {
+                        temperature: latestPoint.temperature,
+                        windSpeed: latestPoint.windSpeed,
+                        windDirection: latestPoint.windDirection,
+                        relativeHumidity: latestPoint.relativeHumidity,
+                        weatherCode: latestPoint.weatherCode,
+                        weatherTime: latestPoint.weatherTime
+                    }
+                });
             }
         });
         isProcessingBatch = false;
@@ -1383,11 +1217,15 @@ function handlePoint(data) {
     if (!data || isProcessingBatch) return;
 
     const sessionId = data.sessionId || "default";
+    // Extract the person's name from the data
     const personName = data.person || "";
 
     if (personName) {
         sessionPersonNames[sessionId] = personName;
     }
+
+    // Create a display ID using our helper function
+    const displayId = createDisplayId(sessionId, personName);
 
     const processedPoint = {
         lat: parseFloat(data.latitude),
@@ -1401,21 +1239,16 @@ function handlePoint(data) {
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
         heartRate: parseInt(data.heartRate || 0),
         timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+        // Store the person's name for use in display
         personName: personName,
 
-        // Weather data
+        // NEW: Extract weather data from the incoming message
         temperature: parseFloat(data.temperature || 0),
         windSpeed: parseFloat(data.windSpeed || 0),
         windDirection: parseFloat(data.windDirection || 0),
         relativeHumidity: parseInt(data.relativeHumidity || 0),
         weatherCode: parseInt(data.weatherCode || 0),
-        weatherTime: data.weatherTime || "",
-
-        // BAROMETER DATA - ADDED
-        pressure: parseFloat(data.pressure || 0),
-        altitudeFromPressure: parseFloat(data.altitudeFromPressure || 0),
-        seaLevelPressure: parseFloat(data.seaLevelPressure || 0),
-        pressureAccuracy: parseInt(data.pressureAccuracy || 0)
+        weatherTime: data.weatherTime || ""
     };
 
     // Validate and track weather data
@@ -1427,9 +1260,6 @@ function handlePoint(data) {
     }
 
     trackPoints[sessionId].push(processedPoint);
-
-    // Clear GPS warning indicators since we received valid coordinates
-    clearGPSWarnings(sessionId);
 
     // Use requestAnimationFrame for smooth updates
     requestAnimationFrame(() => {
@@ -1443,7 +1273,7 @@ function handlePoint(data) {
             heartRate: processedPoint.heartRate,
             distance: processedPoint.distance,
             personName: processedPoint.personName,
-            // Pass weather AND barometer data to display function
+            // Pass weather data to display function
             weather: {
                 temperature: processedPoint.temperature,
                 windSpeed: processedPoint.windSpeed,
@@ -1451,43 +1281,9 @@ function handlePoint(data) {
                 relativeHumidity: processedPoint.relativeHumidity,
                 weatherCode: processedPoint.weatherCode,
                 weatherTime: processedPoint.weatherTime
-            },
-            // Barometer data
-            barometer: {
-                pressure: processedPoint.pressure,
-                altitudeFromPressure: processedPoint.altitudeFromPressure,
-                seaLevelPressure: processedPoint.seaLevelPressure,
-                pressureAccuracy: processedPoint.pressureAccuracy
             }
         });
     });
-}
-
-// Add this new helper function
-function clearGPSWarnings(sessionId) {
-    // Remove GPS status indicator from speed container
-    const speedContainer = document.getElementById(`speed-container-${sessionId}`);
-    if (speedContainer) {
-        const gpsIndicator = speedContainer.querySelector('.gps-status');
-        if (gpsIndicator) {
-            gpsIndicator.style.backgroundColor = '#44ff44'; // Green for good
-            gpsIndicator.title = 'GPS signal restored';
-            setTimeout(() => {
-                if (gpsIndicator && gpsIndicator.parentNode) {
-                    gpsIndicator.remove();
-                }
-            }, 2000);
-        }
-    }
-    
-    // Remove GPS warning from session item
-    const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
-    if (sessionItem) {
-        const gpsWarning = sessionItem.querySelector('.gps-warning');
-        if (gpsWarning) {
-            gpsWarning.remove();
-        }
-    }
 }
 
 function updateMapTrack(sessionId) {
@@ -1525,12 +1321,6 @@ function updateMapTrack(sessionId) {
 }
 
 function updateCharts(sessionId) {
-    // Don't update charts for reset or archived sessions
-    if (!shouldDisplaySession(sessionId)) {
-        addDebugMessage(`Skipping chart update for filtered session: ${sessionId}`, 'system');
-        return;
-    }
-
     const points = trackPoints[sessionId];
     if (!points || points.length === 0) return;
 
@@ -1619,12 +1409,6 @@ function getHeartRateColor(heartRate) {
 }
 
 function updateSpeedDisplay(sessionId, speed, data) {
-    // Don't create speed displays for reset or archived sessions
-    if (!shouldDisplaySession(sessionId)) {
-        addDebugMessage(`Skipping speed display update for filtered session: ${sessionId}`, 'system');
-        return;
-    }
-
     // Get the person name from the data or from our saved mapping
     const personName = data.personName || sessionPersonNames[sessionId] || "";
 
@@ -1764,9 +1548,6 @@ function updateSpeedDisplay(sessionId, speed, data) {
         }
     }
 
-    // Rest of the function remains the same for updating values...
-    // [Previous updateSpeedDisplay implementation continues here]
-    
     // Update current speed
     const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
     if (currentSpeedElement) {
@@ -1833,21 +1614,14 @@ function getDistanceColor(distance) {
 function cleanupOldSessions() {
     const now = new Date();
     for (const sessionId in speedHistory) {
-        // Clean up both old sessions and reset/archived sessions
         const timeDiff = now - speedHistory[sessionId].lastUpdate;
-        const shouldCleanup = timeDiff > 300000 || !shouldDisplaySession(sessionId); // 5 minutes timeout OR reset/archived session
-        
-        if (shouldCleanup) {
+        if (timeDiff > 300000) { // 5 minutes timeout
             // Remove the container instead of just the element
             const container = document.getElementById(`speed-container-${sessionId}`);
             if (container) {
                 container.remove();
             }
             delete speedHistory[sessionId];
-            
-            if (!shouldDisplaySession(sessionId)) {
-                addDebugMessage(`Cleaned up filtered session from speed display: ${sessionId}`, 'system');
-            }
         }
     }
 }
@@ -1924,7 +1698,7 @@ function resetMap() {
             }, 500);
         }
 
-        // Clear all data structures (including filtered sessions)
+        // Clear all data structures
         trackPoints = {};
         speedHistory = {};
         sessionPersonNames = {}; // Also clear session person names
@@ -2061,7 +1835,7 @@ function resetMap() {
             fileInput.value = '';
         }
 
-        addDebugMessage('Map reset completed successfully with session filtering', 'system');
+        addDebugMessage('Map reset completed successfully', 'system');
     } catch (error) {
         console.error('Error during map reset:', error);
         addDebugMessage(`Error during map reset: ${error.message}`, 'error');
@@ -2644,21 +2418,9 @@ function updateSessionList() {
         return;
     }
 
-    // Filter out reset and archived sessions
-    const filteredSessions = availableSessions.filter(session => {
-        const sessionId = session.sessionId;
-        // Exclude sessions that contain "_reset_" or "_archived_" in their ID
-        return !sessionId.includes('_reset_') && !sessionId.includes('_archived_');
-    });
-
-    if (filteredSessions.length === 0) {
-        sessionsList.innerHTML = '<p class="no-sessions">No primary sessions found.</p>';
-        return;
-    }
-
     let html = '';
 
-    filteredSessions.forEach(session => {
+    availableSessions.forEach(session => {
         const sessionId = session.sessionId;
         const isActive = session.isActive;
 
@@ -2693,9 +2455,6 @@ function updateSessionList() {
     });
 
     sessionsList.innerHTML = html;
-
-    // Log the filtering results for debugging
-    addDebugMessage(`Session list updated: ${filteredSessions.length} primary sessions displayed (${availableSessions.length - filteredSessions.length} reset/archived sessions filtered out)`, 'system');
 }
 
 // Show confirmation dialog before deleting a session
@@ -2980,9 +2739,3 @@ document.addEventListener('DOMContentLoaded', () => {
         alert("There was an error initializing the application. Please check the console for details.");
     }
 });
-
-// Helper function to check if a session should be displayed (not reset or archived)
-function shouldDisplaySession(sessionId) {
-    return !sessionId.includes('_reset_') && !sessionId.includes('_archived_');
-}
-

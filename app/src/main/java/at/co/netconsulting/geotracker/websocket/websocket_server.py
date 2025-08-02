@@ -19,7 +19,7 @@ logging.basicConfig(
 
 class SessionResetDetector:
     """Helper class to detect when sessions should be reset due to Android app restarts"""
-
+    
     def __init__(self):
         self.session_last_coords = {}  # session_id -> (lat, lng)
         self.session_last_distance = {}  # session_id -> distance
@@ -27,64 +27,64 @@ class SessionResetDetector:
         self.coordinate_jump_threshold = 0.045  # ~5km in degrees
         self.distance_reset_threshold = 0.5  # If new distance < 50% of old distance
         self.time_gap_threshold = 300  # 5 minutes in seconds
-
+        
     def should_reset_session(self, session_id: str, new_data: Dict[str, Any]) -> bool:
         """Determine if this session should be reset due to app restart detection"""
-
+        
         # Extract new data
         new_lat = float(new_data.get('latitude', -999))
         new_lng = float(new_data.get('longitude', -999))
         new_distance = float(new_data.get('distance', 0))
         current_time = datetime.datetime.now()
-
+        
         # If coordinates are invalid, don't reset but also don't process
         if new_lat == -999.0 or new_lng == -999.0:
             return False
-
+            
         # If session doesn't exist in our tracking, it's new
         if session_id not in self.session_last_coords:
             return False
-
+            
         # Check time gap
         if session_id in self.session_last_seen:
             time_diff = (current_time - self.session_last_seen[session_id]).total_seconds()
             if time_diff > self.time_gap_threshold:
                 logging.info(f"Session {session_id}: Time gap detected ({time_diff:.0f}s > {self.time_gap_threshold}s)")
                 return True
-
+        
         # Check coordinate jump
         old_lat, old_lng = self.session_last_coords[session_id]
         lat_diff = abs(new_lat - old_lat)
         lng_diff = abs(new_lng - old_lng)
         distance_deg = (lat_diff**2 + lng_diff**2)**0.5
-
+        
         if distance_deg > self.coordinate_jump_threshold:
             logging.info(f"Session {session_id}: Large coordinate jump detected ({distance_deg:.6f} degrees)")
             return True
-
+            
         # Check distance counter reset
         if session_id in self.session_last_distance:
             old_distance = self.session_last_distance[session_id]
             if new_distance > 0 and old_distance > 0 and new_distance < old_distance * self.distance_reset_threshold:
                 logging.info(f"Session {session_id}: Distance counter reset detected ({new_distance:.2f}m < {old_distance * self.distance_reset_threshold:.2f}m)")
                 return True
-
+                
         return False
-
+        
     def update_session_data(self, session_id: str, data: Dict[str, Any]):
         """Update tracking data for session"""
         lat = float(data.get('latitude', -999))
         lng = float(data.get('longitude', -999))
         distance = float(data.get('distance', 0))
-
+        
         if lat != -999.0 and lng != -999.0:
             self.session_last_coords[session_id] = (lat, lng)
-
+            
         if distance > 0:
             self.session_last_distance[session_id] = distance
-
+            
         self.session_last_seen[session_id] = datetime.datetime.now()
-
+        
     def reset_session_tracking(self, session_id: str):
         """Reset tracking data for a session"""
         if session_id in self.session_last_coords:
@@ -93,7 +93,7 @@ class SessionResetDetector:
             del self.session_last_distance[session_id]
         if session_id in self.session_last_seen:
             del self.session_last_seen[session_id]
-
+            
     def create_new_session_id(self, original_id: str) -> str:
         """Create a new unique session ID"""
         timestamp = int(time.time() * 1000)
@@ -116,7 +116,7 @@ class TrackingServer:
 
         # CONFIGURABLE CLEANUP SETTINGS
         # Data retention period in hours - configurable via environment variable or script modification
-        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '48'))  # Default: 48 hours
+        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '24'))  # Default: 24 hours
 
         # Cleanup interval in seconds - how often to run cleanup
         self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '3600'))  # Default: 1 hour
@@ -147,23 +147,23 @@ class TrackingServer:
         try:
             lat = float(latitude)
             lng = float(longitude)
-
+            
             # Check for error/placeholder values
             if lat == -999.0 or lng == -999.0:
                 return False, "Placeholder coordinates (-999)"
-
+            
             if lat == 0.0 and lng == 0.0:
                 return False, "Zero coordinates (likely GPS error)"
-
+                
             # Check valid GPS ranges
             if not (-90 <= lat <= 90):
                 return False, f"Invalid latitude: {lat}"
-
+                
             if not (-180 <= lng <= 180):
                 return False, f"Invalid longitude: {lng}"
-
+                
             return True, "Valid coordinates"
-
+            
         except (ValueError, TypeError):
             return False, "Invalid coordinate format"
 
@@ -1431,33 +1431,33 @@ class TrackingServer:
 
     def create_tracking_point(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a tracking point with current timestamp and smart session management."""
-
+        
         original_session_id = message_data.get('sessionId')
         if not original_session_id:
             logging.error("No sessionId provided in message")
             return None
-
+            
         # Validate coordinates first
         latitude = float(message_data.get('latitude', -999))
         longitude = float(message_data.get('longitude', -999))
-
+        
         is_valid, reason = self.validate_gps_coordinates(latitude, longitude)
         if not is_valid:
             logging.warning(f"Invalid coordinates for session {original_session_id}: {reason}")
-
+            
             # IMPORTANT: For invalid coordinates, we still want to:
             # 1. Update session activity (so it doesn't timeout)
             # 2. Process other valid data (speed, heart rate, etc.)
             # 3. But we DON'T create a map point or update session detection
-
+            
             # Mark session as active to prevent timeout
             was_active = original_session_id in self.active_sessions
             self.active_sessions.add(original_session_id)
             self.last_activity[original_session_id] = datetime.datetime.now()
-
+            
             if not was_active:
                 logging.info(f"Session {original_session_id} kept ACTIVE despite invalid coordinates")
-
+            
             # Return a special "invalid coordinates" marker that frontend can handle
             return {
                 "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
@@ -1466,15 +1466,15 @@ class TrackingServer:
                 "reason": reason,
                 **message_data  # Include all other data (speed, heart rate, etc.)
             }
-
+        
         # Check if session should be reset (only for valid coordinates)
         should_reset = self.session_detector.should_reset_session(original_session_id, message_data)
-
+        
         # Determine actual session ID to use
         if should_reset:
             # Create new session ID
             actual_session_id = self.session_detector.create_new_session_id(original_session_id)
-
+            
             # Clean up old session data in memory
             if original_session_id in self.tracking_history:
                 logging.info(f"Moving {len(self.tracking_history[original_session_id])} points from {original_session_id} to archive")
@@ -1482,26 +1482,26 @@ class TrackingServer:
                 archive_key = f"{original_session_id}_archived_{int(time.time())}"
                 self.tracking_history[archive_key] = self.tracking_history[original_session_id].copy()
                 self.tracking_history[original_session_id] = []
-
+                
             # Reset session tracking
             self.session_detector.reset_session_tracking(original_session_id)
-
+            
             # Remove from active sessions
             if original_session_id in self.active_sessions:
                 self.active_sessions.remove(original_session_id)
-
+                
             # Update the message data with new session ID
             message_data = message_data.copy()  # Don't modify original
             message_data['sessionId'] = actual_session_id
-
+            
             logging.info(f"SESSION RESET APPLIED: {original_session_id} -> {actual_session_id}")
-
+            
         else:
             actual_session_id = original_session_id
-
+        
         # Update session tracking data (only for valid coordinates)
         self.session_detector.update_session_data(actual_session_id, message_data)
-
+        
         # Mark session as active
         was_active = actual_session_id in self.active_sessions
         self.active_sessions.add(actual_session_id)
@@ -1906,13 +1906,13 @@ class TrackingServer:
                     # Handle invalid coordinates case
                     if tracking_point.get('invalidCoordinates', False):
                         logging.info(f"Received invalid coordinates for session {actual_session_id}: {tracking_point.get('reason', 'Unknown')}")
-
+                        
                         # Still try to save to database (for non-GPS data like heart rate, speed, etc.)
                         # But don't add to tracking history or update map
                         db_success = await self.save_tracking_data_to_db(tracking_point)
                         if not db_success:
                             logging.warning("Failed to save invalid coordinate data to database")
-
+                        
                         # Send a special update to frontend indicating invalid coordinates
                         await self.broadcast_update({
                             'type': 'invalid_coordinates',
@@ -1924,7 +1924,7 @@ class TrackingServer:
                                 'timestamp': tracking_point.get('timestamp')
                             }
                         })
-
+                        
                         # Continue processing other messages, don't break the loop
                         continue
 

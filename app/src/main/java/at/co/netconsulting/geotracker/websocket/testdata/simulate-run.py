@@ -66,19 +66,19 @@ def create_websocket_connection(server_url, timeout=10):
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
-
+        
         print(f"Attempting to connect to {server_url}")
-
+        
         # Create connection with longer timeout and SSL context
         ws = websocket.create_connection(
-            server_url,
+            server_url, 
             timeout=timeout,
             sslopt={"context": ssl_context}
         )
-
+        
         print("✓ WebSocket connection established")
         return ws
-
+        
     except Exception as e:
         print(f"✗ Failed to connect to WebSocket: {str(e)}")
         return None
@@ -101,7 +101,7 @@ def send_message_with_retry(ws, message, max_retries=3):
 
 def simulate_run(person_name="TestRunner", server_url="wss://geotracker.duckdns.org/geotracker"):
     """Simulate a running session with realistic data and robust error handling."""
-
+    
     # Create WebSocket connection
     ws = create_websocket_connection(server_url)
     if not ws:
@@ -126,7 +126,7 @@ def simulate_run(person_name="TestRunner", server_url="wss://geotracker.duckdns.
         starting_altitude = 200 + random.uniform(-20, 20)
         current_elevation_gain = 0.0
         lap = 0
-
+        
         # Connection monitoring
         last_ping_time = time.time()
         ping_interval = 30  # Send ping every 30 seconds
@@ -149,14 +149,14 @@ def simulate_run(person_name="TestRunner", server_url="wss://geotracker.duckdns.
                 except Exception as e:
                     print(f"⚠ Connection health check failed: {str(e)}")
                     connection_failures += 1
-
+                    
                     if connection_failures >= max_failures:
                         print("⚠ Too many connection failures. Attempting to reconnect...")
                         try:
                             ws.close()
                         except:
                             pass
-
+                        
                         ws = create_websocket_connection(server_url)
                         if not ws:
                             print("Failed to reconnect. Stopping simulation.")
@@ -238,12 +238,12 @@ def simulate_run(person_name="TestRunner", server_url="wss://geotracker.duckdns.
                     ws.close()
                 except:
                     pass
-
+                
                 ws = create_websocket_connection(server_url)
                 if not ws:
                     print("Failed to reconnect. Stopping simulation.")
                     break
-
+                
                 # Try sending the message again with the new connection
                 if not send_message_with_retry(ws, message):
                     print("Failed to send message even after reconnect. Skipping this point.")
@@ -281,7 +281,7 @@ def simulate_run(person_name="TestRunner", server_url="wss://geotracker.duckdns.
 def simulate_multiple_runners(num_runners=2):
     """Simulate multiple runners for testing."""
     print(f"🏃 Starting simulation with {num_runners} runners")
-
+    
     threads = []
     for i in range(num_runners):
         runner_name = f"TestRunner{i+1}"
@@ -293,7 +293,7 @@ def simulate_multiple_runners(num_runners=2):
         time.sleep(5)
 
     print(f"All {num_runners} runners started. Press Ctrl+C to stop all simulations.")
-
+    
     # Wait for all threads to complete
     try:
         for thread in threads:
@@ -304,7 +304,7 @@ def simulate_multiple_runners(num_runners=2):
 if __name__ == "__main__":
     print("🎯 GPS Tracking Simulator")
     print("=" * 40)
-
+    
     if len(sys.argv) > 1:
         if sys.argv[1] == "multi":
             num_runners = int(sys.argv[2]) if len(sys.argv) > 2 else 2
