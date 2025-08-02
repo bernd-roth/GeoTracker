@@ -1,5 +1,3 @@
-// Enhanced FollowingService.kt to handle automatic active users updates
-
 package at.co.netconsulting.geotracker.service
 
 import android.content.Context
@@ -35,6 +33,9 @@ class FollowingService private constructor(private val context: Context) {
     private var periodicRefreshJob: Job? = null
     private var isConnected = false
 
+    // Configurable trail precision
+    private var trailPrecisionMode = TrailPrecisionMode.HIGH_PRECISION
+
     // State flows for UI
     private val _activeUsers = MutableStateFlow<List<ActiveUser>>(emptyList())
     val activeUsers: StateFlow<List<ActiveUser>> = _activeUsers.asStateFlow()
@@ -48,11 +49,20 @@ class FollowingService private constructor(private val context: Context) {
     private val _connectionState = MutableStateFlow(false)
     val connectionState: StateFlow<Boolean> = _connectionState.asStateFlow()
 
+    enum class TrailPrecisionMode(val description: String, val minDistance: Double) {
+        EVERY_POINT("Show every GPS point", 0.0),
+        HIGH_PRECISION("High precision (1m)", 1.0),
+        MEDIUM_PRECISION("Medium precision (2m)", 2.0),
+        LOW_PRECISION("Low precision (5m)", 5.0),
+        VERY_LOW_PRECISION("Very low precision (10m)", 10.0)
+    }
+
     companion object {
         private const val TAG = "FollowingService"
         private const val RECONNECT_DELAY = 5000L
         private const val MAX_RECONNECT_ATTEMPTS = 10
         private const val PERIODIC_REFRESH_INTERVAL = 60000L // 60 seconds
+        private const val MAX_TRAIL_POINTS = 200000000
 
         @Volatile
         private var INSTANCE: FollowingService? = null
@@ -63,6 +73,19 @@ class FollowingService private constructor(private val context: Context) {
             }
         }
     }
+
+    /**
+     * Set the trail precision mode
+     */
+    fun setTrailPrecision(mode: TrailPrecisionMode) {
+        trailPrecisionMode = mode
+        Log.d(TAG, "Trail precision set to: ${mode.description}")
+    }
+
+    /**
+     * Get current trail precision mode
+     */
+    fun getTrailPrecision(): TrailPrecisionMode = trailPrecisionMode
 
     private val webSocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -330,7 +353,7 @@ class FollowingService private constructor(private val context: Context) {
     private fun handleFollowedUserUpdate(json: JSONObject) {
         try {
             val pointJson = json.getJSONObject("point")
-            val point = FollowedUserPoint(
+            val newPoint = FollowedUserPoint(
                 sessionId = pointJson.getString("sessionId"),
                 person = pointJson.getString("person"),
                 latitude = pointJson.getDouble("latitude"),
@@ -342,16 +365,73 @@ class FollowingService private constructor(private val context: Context) {
                 timestamp = pointJson.optString("timestamp", "")
             )
 
-            // Update following state with new point
+            // Update following state by adding the new point to the trail
             val currentState = _followingState.value
-            val updatedData = currentState.followedUserData.toMutableMap()
-            updatedData[point.sessionId] = point
+            val updatedTrails = currentState.followedUserTrails.toMutableMap()
 
-            _followingState.value = currentState.copy(
-                followedUserData = updatedData
-            )
+            val existingTrail = updatedTrails[newPoint.sessionId] ?: emptyList()
 
-            Log.d(TAG, "Updated location for followed user: ${point.person}")
+            // Check if we should add this point based on current precision mode
+            val shouldAddPoint = if (existingTrail.isEmpty()) {
+                Log.d(TAG, "First point for ${newPoint.person} - adding to trail")
+                true // Always add the first point
+            } else if (trailPrecisionMode == TrailPrecisionMode.EVERY_POINT) {
+                Log.d(TAG, "EVERY_POINT mode - adding point for ${newPoint.person}")
+                true // Add every point when in EVERY_POINT mode
+            } else {
+                val lastPoint = existingTrail.last()
+                val distance = calculateDistance(
+                    lastPoint.latitude, lastPoint.longitude,
+                    newPoint.latitude, newPoint.longitude
+                )
+                val shouldAdd = distance >= trailPrecisionMode.minDistance
+
+                if (shouldAdd) {
+                    Log.d(TAG, "Distance check passed (${String.format("%.2f", distance)}m >= ${trailPrecisionMode.minDistance}m) - adding point for ${newPoint.person}")
+                } else {
+                    Log.d(TAG, "Distance check failed (${String.format("%.2f", distance)}m < ${trailPrecisionMode.minDistance}m) - updating existing point for ${newPoint.person}")
+                }
+
+                shouldAdd
+            }
+
+            if (shouldAddPoint) {
+                val updatedTrail = existingTrail + newPoint
+
+                // Limit trail size to prevent memory issues
+                val trimmedTrail = if (updatedTrail.size > MAX_TRAIL_POINTS) {
+                    updatedTrail.takeLast(MAX_TRAIL_POINTS)
+                } else {
+                    updatedTrail
+                }
+
+                updatedTrails[newPoint.sessionId] = trimmedTrail
+
+                _followingState.value = currentState.copy(
+                    followedUserTrails = updatedTrails
+                )
+
+                Log.d(TAG, "✅ Added point to trail for ${newPoint.person}. Trail now has ${trimmedTrail.size} points (mode: ${trailPrecisionMode.description})")
+            } else {
+                // Update just the latest point's data (speed, heart rate, etc.) without adding to trail
+                if (existingTrail.isNotEmpty()) {
+                    val updatedTrail = existingTrail.dropLast(1) + newPoint
+                    updatedTrails[newPoint.sessionId] = updatedTrail
+
+                    _followingState.value = currentState.copy(
+                        followedUserTrails = updatedTrails
+                    )
+
+                    Log.d(TAG, "⚠️ Updated latest point data for ${newPoint.person} (trail size: ${updatedTrail.size})")
+                } else {
+                    // This shouldn't happen, but let's handle it
+                    updatedTrails[newPoint.sessionId] = listOf(newPoint)
+                    _followingState.value = currentState.copy(
+                        followedUserTrails = updatedTrails
+                    )
+                    Log.d(TAG, "🆕 Created new trail for ${newPoint.person} with first point")
+                }
+            }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing followed user update", e)
@@ -372,6 +452,7 @@ class FollowingService private constructor(private val context: Context) {
                 _followingState.value = _followingState.value.copy(
                     isFollowing = followedUsers.isNotEmpty(),
                     followedUsers = followedUsers
+                    // Note: Keep existing trails when starting to follow
                 )
 
                 Log.d(TAG, "Successfully started following ${followedUsers.size} users")
@@ -395,6 +476,49 @@ class FollowingService private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing unfollow response", e)
         }
+    }
+
+    /**
+     * Calculate distance between two points in meters using Haversine formula
+     */
+    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val earthRadius = 6371000.0 // Earth radius in meters
+
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+        return earthRadius * c
+    }
+
+    /**
+     * Clear trail for a specific user
+     */
+    fun clearUserTrail(sessionId: String) {
+        val currentState = _followingState.value
+        val updatedTrails = currentState.followedUserTrails.toMutableMap()
+        updatedTrails.remove(sessionId)
+
+        _followingState.value = currentState.copy(
+            followedUserTrails = updatedTrails
+        )
+
+        Log.d(TAG, "Cleared trail for user: $sessionId")
+    }
+
+    /**
+     * Clear all trails
+     */
+    fun clearAllTrails() {
+        _followingState.value = _followingState.value.copy(
+            followedUserTrails = emptyMap()
+        )
+        Log.d(TAG, "Cleared all user trails")
     }
 
     fun cleanup() {

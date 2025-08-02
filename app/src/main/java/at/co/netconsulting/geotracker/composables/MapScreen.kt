@@ -56,6 +56,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import at.co.netconsulting.geotracker.data.FollowedUserPoint
 import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
@@ -503,8 +504,8 @@ fun MapScreen(
     }
 
     // Update followed users overlay when following state changes
-    LaunchedEffect(followingState.followedUserData) {
-        followedUsersOverlayRef.value?.updateFollowedUsers(followingState.followedUserData)
+    LaunchedEffect(followingState.followedUserTrails) {
+        followedUsersOverlayRef.value?.updateFollowedUsersWithTrails(followingState.followedUserTrails)
     }
 
     // Connect to following service only when not recording
@@ -1111,6 +1112,7 @@ fun MapScreen(
             activeUsers = activeUsers,
             currentlyFollowing = followingState.followedUsers,
             isLoading = isFollowingLoading,
+            currentPrecisionMode = followingService.getTrailPrecision(),
             onFollowUsers = { selectedSessionIds ->
                 followingService.followUsers(selectedSessionIds)
             },
@@ -1119,6 +1121,16 @@ fun MapScreen(
             },
             onRefreshUsers = {
                 followingService.requestActiveUsers()
+            },
+            onPrecisionModeChanged = { mode ->
+                followingService.setTrailPrecision(mode)
+
+                // Optional: Show toast to confirm change
+                Toast.makeText(
+                    context,
+                    "Trail precision: ${mode.description}",
+                    Toast.LENGTH_SHORT
+                ).show()
             },
             onDismiss = {
                 showUserSelectionDialog = false
