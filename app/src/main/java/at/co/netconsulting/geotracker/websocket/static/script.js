@@ -1131,6 +1131,9 @@ function connectToWebSocket() {
             case 'update':
                 handlePoint(message.point);
                 break;
+            case 'invalid_coordinates':
+                handleInvalidCoordinates(message);
+                break;
             case 'session_list':
                 handleSessionList(message.sessions);
                 break;
@@ -1160,6 +1163,112 @@ function connectToWebSocket() {
         console.error('WebSocket error:', error);
         addDebugMessage('WebSocket error: ' + error, 'error');
     };
+}
+
+function handleInvalidCoordinates(message) {
+    const sessionId = message.sessionId;
+    const reason = message.reason || 'Invalid GPS coordinates';
+    const otherData = message.otherData || {};
+
+    addDebugMessage(`Invalid coordinates for session ${sessionId}: ${reason}`, 'warning');
+
+    // Update speed display with non-GPS data if available
+    if (otherData.currentSpeed !== undefined) {
+        const speedContainer = document.getElementById(`speed-container-${sessionId}`);
+        if (speedContainer) {
+            // Update speed even with invalid coordinates
+            const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
+            if (currentSpeedElement) {
+                currentSpeedElement.textContent = parseFloat(otherData.currentSpeed || 0).toFixed(1);
+                currentSpeedElement.style.color = getSpeedColor(parseFloat(otherData.currentSpeed || 0));
+            }
+
+            // Update heart rate if available
+            if (otherData.heartRate !== undefined) {
+                const heartRateElement = document.getElementById(`heartRate-${sessionId}`);
+                if (heartRateElement) {
+                    heartRateElement.textContent = otherData.heartRate;
+                    heartRateElement.style.color = getHeartRateColor(otherData.heartRate);
+                }
+            }
+
+            // Add visual indicator for invalid GPS
+            let gpsIndicator = speedContainer.querySelector('.gps-status');
+            if (!gpsIndicator) {
+                gpsIndicator = document.createElement('div');
+                gpsIndicator.className = 'gps-status';
+                gpsIndicator.style.cssText = `
+                    position: absolute;
+                    top: 5px;
+                    right: 5px;
+                    width: 12px;
+                    height: 12px;
+                    border-radius: 50%;
+                    background-color: #ff4444;
+                    border: 2px solid white;
+                    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+                    animation: blink 1s infinite;
+                `;
+                speedContainer.style.position = 'relative';
+                speedContainer.appendChild(gpsIndicator);
+
+                // Add CSS animation for blinking
+                if (!document.getElementById('gps-blink-style')) {
+                    const style = document.createElement('style');
+                    style.id = 'gps-blink-style';
+                    style.textContent = `
+                        @keyframes blink {
+                            0%, 50% { opacity: 1; }
+                            51%, 100% { opacity: 0.3; }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+            }
+
+            gpsIndicator.title = `GPS Error: ${reason}`;
+            gpsIndicator.style.backgroundColor = '#ff4444'; // Red for invalid
+
+            // Remove the indicator after 5 seconds if coordinates become valid again
+            setTimeout(() => {
+                if (gpsIndicator && gpsIndicator.parentNode) {
+                    gpsIndicator.style.backgroundColor = '#44ff44'; // Green for recovered
+                    setTimeout(() => {
+                        if (gpsIndicator && gpsIndicator.parentNode) {
+                            gpsIndicator.remove();
+                        }
+                    }, 2000);
+                }
+            }, 5000);
+        }
+    }
+
+    // Show a temporary notification
+    showNotification(`GPS signal lost for ${sessionPersonNames[sessionId] || sessionId}: ${reason}`, 'warning');
+
+    // Keep session active in the UI
+    const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
+    if (sessionItem && !sessionItem.classList.contains('active')) {
+        sessionItem.classList.add('active');
+
+        // Add a GPS warning indicator to the session item
+        const sessionName = sessionItem.querySelector('.session-item-name');
+        if (sessionName && !sessionName.querySelector('.gps-warning')) {
+            const gpsWarning = document.createElement('span');
+            gpsWarning.className = 'gps-warning';
+            gpsWarning.innerHTML = ' 📡❌';
+            gpsWarning.title = 'GPS signal issues';
+            gpsWarning.style.color = '#ff4444';
+            sessionName.appendChild(gpsWarning);
+
+            // Remove warning after 10 seconds
+            setTimeout(() => {
+                if (gpsWarning && gpsWarning.parentNode) {
+                    gpsWarning.remove();
+                }
+            }, 10000);
+        }
+    }
 }
 
 function handleHistoryBatch(points) {
@@ -1315,6 +1424,9 @@ function handlePoint(data) {
 
     trackPoints[sessionId].push(processedPoint);
 
+    // Clear GPS warning indicators since we received valid coordinates
+    clearGPSWarnings(sessionId);
+
     // Use requestAnimationFrame for smooth updates
     requestAnimationFrame(() => {
         updateMapTrack(sessionId);
@@ -1345,6 +1457,33 @@ function handlePoint(data) {
             }
         });
     });
+}
+
+// Add this new helper function
+function clearGPSWarnings(sessionId) {
+    // Remove GPS status indicator from speed container
+    const speedContainer = document.getElementById(`speed-container-${sessionId}`);
+    if (speedContainer) {
+        const gpsIndicator = speedContainer.querySelector('.gps-status');
+        if (gpsIndicator) {
+            gpsIndicator.style.backgroundColor = '#44ff44'; // Green for good
+            gpsIndicator.title = 'GPS signal restored';
+            setTimeout(() => {
+                if (gpsIndicator && gpsIndicator.parentNode) {
+                    gpsIndicator.remove();
+                }
+            }, 2000);
+        }
+    }
+
+    // Remove GPS warning from session item
+    const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
+    if (sessionItem) {
+        const gpsWarning = sessionItem.querySelector('.gps-warning');
+        if (gpsWarning) {
+            gpsWarning.remove();
+        }
+    }
 }
 
 function updateMapTrack(sessionId) {

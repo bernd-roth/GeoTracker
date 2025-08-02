@@ -116,7 +116,7 @@ class TrackingServer:
 
         # CONFIGURABLE CLEANUP SETTINGS
         # Data retention period in hours - configurable via environment variable or script modification
-        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '24'))  # Default: 24 hours
+        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '48'))  # Default: 48 hours
 
         # Cleanup interval in seconds - how often to run cleanup
         self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '3600'))  # Default: 1 hour
@@ -1443,10 +1443,31 @@ class TrackingServer:
 
         is_valid, reason = self.validate_gps_coordinates(latitude, longitude)
         if not is_valid:
-            logging.warning(f"Skipping invalid coordinates for session {original_session_id}: {reason}")
-            return None
+            logging.warning(f"Invalid coordinates for session {original_session_id}: {reason}")
 
-        # Check if session should be reset
+            # IMPORTANT: For invalid coordinates, we still want to:
+            # 1. Update session activity (so it doesn't timeout)
+            # 2. Process other valid data (speed, heart rate, etc.)
+            # 3. But we DON'T create a map point or update session detection
+
+            # Mark session as active to prevent timeout
+            was_active = original_session_id in self.active_sessions
+            self.active_sessions.add(original_session_id)
+            self.last_activity[original_session_id] = datetime.datetime.now()
+
+            if not was_active:
+                logging.info(f"Session {original_session_id} kept ACTIVE despite invalid coordinates")
+
+            # Return a special "invalid coordinates" marker that frontend can handle
+            return {
+                "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
+                "sessionId": original_session_id,
+                "invalidCoordinates": True,
+                "reason": reason,
+                **message_data  # Include all other data (speed, heart rate, etc.)
+            }
+
+        # Check if session should be reset (only for valid coordinates)
         should_reset = self.session_detector.should_reset_session(original_session_id, message_data)
 
         # Determine actual session ID to use
@@ -1478,7 +1499,7 @@ class TrackingServer:
         else:
             actual_session_id = original_session_id
 
-        # Update session tracking data
+        # Update session tracking data (only for valid coordinates)
         self.session_detector.update_session_data(actual_session_id, message_data)
 
         # Mark session as active
@@ -1875,19 +1896,44 @@ class TrackingServer:
                     old_active_sessions = self.active_sessions.copy()
                     tracking_point = self.create_tracking_point(message_data)
 
-                    # Skip if coordinates were invalid
+                    # Skip if critical error (no sessionId, etc.)
                     if tracking_point is None:
                         continue
 
                     # Get the actual session ID (might be different if reset occurred)
                     actual_session_id = tracking_point['sessionId']
 
-                    # Save to database with the actual session ID
+                    # Handle invalid coordinates case
+                    if tracking_point.get('invalidCoordinates', False):
+                        logging.info(f"Received invalid coordinates for session {actual_session_id}: {tracking_point.get('reason', 'Unknown')}")
+
+                        # Still try to save to database (for non-GPS data like heart rate, speed, etc.)
+                        # But don't add to tracking history or update map
+                        db_success = await self.save_tracking_data_to_db(tracking_point)
+                        if not db_success:
+                            logging.warning("Failed to save invalid coordinate data to database")
+
+                        # Send a special update to frontend indicating invalid coordinates
+                        await self.broadcast_update({
+                            'type': 'invalid_coordinates',
+                            'sessionId': actual_session_id,
+                            'reason': tracking_point.get('reason', 'Invalid GPS coordinates'),
+                            'otherData': {
+                                'heartRate': tracking_point.get('heartRate'),
+                                'currentSpeed': tracking_point.get('currentSpeed'),
+                                'timestamp': tracking_point.get('timestamp')
+                            }
+                        })
+
+                        # Continue processing other messages, don't break the loop
+                        continue
+
+                    # Save to database with the actual session ID (only for valid coordinates)
                     db_success = await self.save_tracking_data_to_db(tracking_point)
                     if not db_success:
                         logging.warning("Failed to save to database, but continuing with in-memory storage")
 
-                    # Store tracking point
+                    # Store tracking point (only valid coordinates)
                     self.tracking_history[actual_session_id].append(tracking_point)
 
                     # Check if we have new active sessions
@@ -1897,7 +1943,7 @@ class TrackingServer:
                         await self.broadcast_active_users_update()
                         last_active_users_broadcast = datetime.datetime.now()
 
-                    # Broadcast general tracking update to all clients
+                    # Broadcast general tracking update to all clients (only for valid coordinates)
                     await self.broadcast_update({
                         'type': 'update',
                         'point': tracking_point
