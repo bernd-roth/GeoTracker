@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import org.osmdroid.util.GeoPoint
 
 /**
  * Main navigation component for the app
@@ -25,8 +26,25 @@ fun AppNavigation() {
                 onEditEvent = { eventId ->
                     navController.navigate("editEvent/$eventId")
                 },
-                onNavigateToImportGpx = {
-                    navController.navigate("importGpx")
+                onNavigateToHeartRateDetail = { eventName, metrics ->
+                    // Handle heart rate navigation - you might need to store this data
+                    // and navigate to a heart rate detail route
+                },
+                onNavigateToWeatherDetail = { eventName, metrics ->
+                    // Handle weather navigation - you might need to store this data
+                    // and navigate to a weather detail route
+                },
+                onNavigateToBarometerDetail = { eventName, metrics ->
+                    // Handle barometer navigation - you might need to store this data
+                    // and navigate to a barometer detail route
+                },
+                onNavigateToAltitudeDetail = { eventName, metrics ->
+                    // Handle altitude navigation - you might need to store this data
+                    // and navigate to an altitude detail route
+                },
+                onNavigateToMapWithRoute = { locationPoints ->
+                    // Handle map navigation - you might need to store this data
+                    // and navigate to a map route
                 }
             )
         }
@@ -49,23 +67,20 @@ fun AppNavigation() {
             )
         }
 
-        // GPX import screen
-        composable("importGpx") {
-            GpxImportScreen(
-                onNavigateBack = {
-                    navController.popBackStack()
-                },
-                onImportSuccess = { eventId ->
-                    // Navigate back to events screen after successful import
-                    navController.popBackStack()
-
-                    // Optionally, navigate to edit the newly imported event
-                    if (eventId > 0) {
-                        navController.navigate("editEvent/$eventId")
-                    }
-                }
-            )
-        }
+        // If you need GPX import functionality, add it here
+        // composable("importGpx") {
+        //     GpxImportScreen(
+        //         onNavigateBack = {
+        //             navController.popBackStack()
+        //         },
+        //         onImportSuccess = { eventId ->
+        //             navController.popBackStack()
+        //             if (eventId > 0) {
+        //                 navController.navigate("editEvent/$eventId")
+        //             }
+        //         }
+        //     )
+        // }
     }
 }
 

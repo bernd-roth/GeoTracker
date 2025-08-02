@@ -87,6 +87,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import at.co.netconsulting.geotracker.data.AltitudeSpeedInfo
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.tools.GpxImporter
@@ -103,12 +104,12 @@ import java.util.Calendar
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EventsScreen(
-    onEditEvent: (Int) -> Unit = {},
-    onNavigateToImportGpx: () -> Unit = {},
-    onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit = { _, _ -> },
-    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {},
-    onNavigateToWeatherDetail: (String, List<Metric>) -> Unit = { _, _ -> },
-    onNavigateToBarometerDetail: (String, List<Metric>) -> Unit = { _, _ -> } // Add barometer callback
+    onEditEvent: (Int) -> Unit,
+    onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit,
+    onNavigateToWeatherDetail: (String, List<Metric>) -> Unit,
+    onNavigateToBarometerDetail: (String, List<Metric>) -> Unit,
+    onNavigateToAltitudeDetail: (String, List<Metric>) -> Unit,
+    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -568,8 +569,11 @@ fun EventsScreen(
                             onWeatherClick = {
                                 onNavigateToWeatherDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
                             },
-                            onBarometerClick = { // Add barometer callback
+                            onBarometerClick = {
                                 onNavigateToBarometerDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
+                            },
+                            onAltitudeClick = {
+                                onNavigateToAltitudeDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
                             },
                             // Pass the map navigation callback and recording state
                             onViewOnMap = { locationPoints ->
@@ -662,7 +666,8 @@ fun EventCard(
     isCurrentlyRecording: Boolean = false,
     onHeartRateClick: () -> Unit = {},
     onWeatherClick: () -> Unit = {},
-    onBarometerClick: () -> Unit = {}, // Add barometer callback
+    onBarometerClick: () -> Unit = {},
+    onAltitudeClick: () -> Unit = {},
     onViewOnMap: (List<GeoPoint>) -> Unit = {},
     canViewOnMap: Boolean = true
 ) {
@@ -1406,7 +1411,6 @@ fun EventCard(
                         )
                     }
 
-                    // Add a hint text to indicate it's clickable - similar to weather section
                     if (hasPressureData) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -1422,52 +1426,96 @@ fun EventCard(
                 // Altitude information
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = "Altitude",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                // Check if we have elevation data
+                val hasElevationData = event.metrics.any { it.elevation > 0 }
 
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (event.maxElevation > 0 || event.minElevation > 0) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasElevationData) {
+                                Modifier.clickable { onAltitudeClick() }
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(vertical = 4.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            InfoRow("Max. Altitude:", String.format("%.1f m", event.maxElevation))
-                            InfoRow("Min. Altitude:", String.format("%.1f m", event.minElevation))
-                        }
+                        Text(
+                            text = "Altitude",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            InfoRow("Acc. Elevation Gain:", String.format("%.1f m", event.elevationGain))
-                            InfoRow("Acc. Elevation Loss:", String.format("%.1f m", event.elevationLoss))
+                        // Add a visual indicator that this section is clickable
+                        if (hasElevationData) {
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "View detailed altitude analysis",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
 
-                    // Altitude graph
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFF5F5F5))
-                            .padding(8.dp)
-                    ) {
-                        AltitudeGraph(
-                            metrics = event.metrics,
-                            modifier = Modifier.fillMaxSize()
+                    if (event.maxElevation > 0 || event.minElevation > 0) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRow("Max. Altitude:", String.format("%.1f m", event.maxElevation))
+                                InfoRow("Min. Altitude:", String.format("%.1f m", event.minElevation))
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRow("Acc. Elevation Gain:", String.format("%.1f m", event.elevationGain))
+                                InfoRow("Acc. Elevation Loss:", String.format("%.1f m", event.elevationLoss))
+                            }
+                        }
+
+                        // Altitude graph
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF5F5F5))
+                                .padding(8.dp)
+                        ) {
+                            AltitudeGraph(
+                                metrics = event.metrics,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        // Add a hint text to indicate it's clickable
+                        if (hasElevationData) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Tap for detailed altitude analysis",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontStyle = FontStyle.Italic,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else {
+                        Text(
+                            text = "No altitude data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
                         )
                     }
-                } else {
-                    Text(
-                        text = "No altitude data available",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
                 }
 
                 // Lap information with highlighting

@@ -83,9 +83,13 @@ class MainActivity : ComponentActivity() {
     private var weatherEventName by mutableStateOf("")
     private var weatherMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
-    // barometer data - Add these new state variables
+    // barometer data
     private var barometerEventName by mutableStateOf("")
     private var barometerMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
+
+    // altitude data
+    private var altitudeEventName by mutableStateOf("")
+    private var altitudeMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
     // Route navigation state
     private val routeToDisplay = mutableStateOf<List<GeoPoint>?>(null)
@@ -96,13 +100,15 @@ class MainActivity : ComponentActivity() {
         const val EDIT_EVENT = "edit_event/{eventId}"
         const val HEART_RATE_DETAIL = "heart_rate_detail"
         const val WEATHER_DETAIL = "weather_detail"
-        const val BAROMETER_DETAIL = "barometer_detail" // Add barometer route
+        const val BAROMETER_DETAIL = "barometer_detail"
+        const val ALTITUDE_DETAIL = "altitude_detail"
 
         // Create actual navigation path with parameters
         fun editEvent(eventId: Int) = "edit_event/$eventId"
         fun heartRateDetail() = "heart_rate_detail"
         fun weatherDetail() = "weather_detail"
-        fun barometerDetail() = "barometer_detail" // Add barometer navigation function
+        fun barometerDetail() = "barometer_detail"
+        fun altitudeDetail() = "altitude_detail"
     }
 
     // Permission constants
@@ -531,12 +537,19 @@ class MainActivity : ComponentActivity() {
                         weatherMetrics = metrics
                         navController.navigate(Routes.weatherDetail())
                     },
-                    onNavigateToBarometerDetail = { eventName, metrics -> // Add barometer callback
+                    onNavigateToBarometerDetail = { eventName, metrics ->
                         Log.d("MainActivity", "Navigating to barometer detail for event: $eventName")
                         // Store the data for the barometer screen
                         barometerEventName = eventName
                         barometerMetrics = metrics
                         navController.navigate(Routes.barometerDetail())
+                    },
+                    onNavigateToAltitudeDetail = { eventName, metrics ->
+                        Log.d("MainActivity", "Navigating to altitude detail for event: $eventName")
+                        // Store the data for the altitude screen
+                        altitudeEventName = eventName
+                        altitudeMetrics = metrics
+                        navController.navigate(Routes.altitudeDetail())
                     },
                     onNavigateToMapWithRoute = onNavigateToMapWithRoute
                 )
@@ -613,6 +626,23 @@ class MainActivity : ComponentActivity() {
                         // Clear the data when navigating back
                         barometerEventName = ""
                         barometerMetrics = emptyList()
+                    }
+                )
+            }
+
+            composable(Routes.ALTITUDE_DETAIL) {
+                Log.d("MainActivity", "Showing altitude detail screen")
+
+                // Import the AltitudeDetailScreen here
+                at.co.netconsulting.geotracker.composables.AltitudeDetailScreen(
+                    eventName = altitudeEventName,
+                    metrics = altitudeMetrics,
+                    onBackClick = {
+                        Log.d("MainActivity", "Navigating back from altitude detail")
+                        navController.popBackStack()
+                        // Clear the data when navigating back
+                        altitudeEventName = ""
+                        altitudeMetrics = emptyList()
                     }
                 )
             }
