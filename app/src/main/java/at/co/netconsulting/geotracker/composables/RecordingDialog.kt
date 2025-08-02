@@ -1,7 +1,6 @@
 package at.co.netconsulting.geotracker.composables
 
 import android.app.DatePickerDialog
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,12 +15,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.GpsFixed
+import androidx.compose.material.icons.filled.GpsNotFixed
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,10 +41,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.HeartRateSensorDevice
+import at.co.netconsulting.geotracker.enums.GpsFixStatus
+import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -49,6 +57,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingDialog(
+    gpsStatus: GpsStatus,
     onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -105,9 +114,68 @@ fun RecordingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(700.dp) // Increased height to accommodate new checkbox
+                    .height(750.dp) // Increased height to accommodate GPS status
                     .verticalScroll(rememberScrollState())
             ) {
+                // GPS Status Card
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = when (gpsStatus.status) {
+                            GpsFixStatus.GOOD_FIX -> Color(0xFFE8F5E8)
+                            GpsFixStatus.NO_LOCATION -> Color(0xFFFFF3E0)
+                            GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFFFF3E0)
+                            GpsFixStatus.POOR_ACCURACY -> Color(0xFFFFEBEE)
+                            else -> Color(0xFFF5F5F5) // Default light gray
+                        }
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (gpsStatus.isReadyToRecord) Icons.Default.GpsFixed else Icons.Default.GpsNotFixed,
+                            contentDescription = "GPS Status",
+                            tint = when (gpsStatus.status) {
+                                GpsFixStatus.GOOD_FIX -> Color(0xFF4CAF50)
+                                GpsFixStatus.NO_LOCATION -> Color(0xFFFF9800)
+                                GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFFF9800)
+                                GpsFixStatus.POOR_ACCURACY -> Color(0xFFE91E63)
+                                else -> Color.Gray // Default gray
+                            },
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = GpsStatusEvaluator.getDetailedStatusMessage(gpsStatus),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = when (gpsStatus.status) {
+                                    GpsFixStatus.GOOD_FIX -> Color(0xFF2E7D32)
+                                    GpsFixStatus.NO_LOCATION -> Color(0xFFE65100)
+                                    GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFE65100)
+                                    GpsFixStatus.POOR_ACCURACY -> Color(0xFFC62828)
+                                    else -> Color.DarkGray // Default dark gray
+                                }
+                            )
+                            if (!gpsStatus.isReadyToRecord) {
+                                Text(
+                                    text = "Recording will start when GPS fix is acquired",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Event name field
                 OutlinedTextField(
                     value = eventName,
@@ -294,6 +362,7 @@ fun RecordingDialog(
         },
         confirmButton = {
             Button(
+                enabled = gpsStatus.isReadyToRecord, // Enable only when GPS is ready
                 onClick = {
                     // Use current date as event name if eventName is empty or just whitespace
                     val finalEventName = if (eventName.trim().isEmpty()) {
@@ -311,7 +380,10 @@ fun RecordingDialog(
                     onSave(finalEventName, eventDate, artOfSport, comment, clothing, showPath, selectedHeartRateSensor, enableWebSocketTransfer)
                 }
             ) {
-                Text("Start Recording")
+                Text(
+                    text = if (gpsStatus.isReadyToRecord) "Start Recording" else "Waiting for GPS...",
+                    color = if (gpsStatus.isReadyToRecord) Color.White else Color.Gray
+                )
             }
         },
         dismissButton = {

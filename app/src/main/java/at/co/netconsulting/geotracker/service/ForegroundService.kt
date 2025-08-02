@@ -727,7 +727,7 @@ class ForegroundService : Service() {
         }
     }
 
-    // FIXED: Initialize lap tracking properly for new sessions
+    // Initialize lap tracking properly for new sessions
     private fun initializeLapTracking() {
         // Make sure lap starts at 0 so first completed km becomes lap 1
         lap = 0
@@ -876,7 +876,7 @@ class ForegroundService : Service() {
         }
     }
 
-    // FIXED: This function now tracks lap progress and saves lap times to the database with correct numbering
+    // This function now tracks lap progress and saves lap times to the database with correct numbering
     private fun checkLapCompletionAndSave(newDistance: Double) {
         val prevLap = lap
         val prevLapCounter = lapCounter
@@ -898,7 +898,7 @@ class ForegroundService : Service() {
                 serviceScope.launch(Dispatchers.IO) {
                     try {
                         for (i in 1..completedLaps) {
-                            // FIXED: Correct lap numbering - should be prevLap + i
+                            // Correct lap numbering - should be prevLap + i
                             val newLapNumber = prevLap + i
 
                             val lapTime = LapTime(
@@ -921,7 +921,7 @@ class ForegroundService : Service() {
                         lastLapCompletionTime = currentTime
                         lapStartTime = currentTime
 
-                        // FIXED: Notify WeatherEventBusHandler to refresh lap times
+                        // Notify WeatherEventBusHandler to refresh lap times
                         try {
                             val weatherHandler = WeatherEventBusHandler.getInstance()
                             weatherHandler.refreshLapTimes()

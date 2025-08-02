@@ -190,14 +190,6 @@ fun SettingsScreen() {
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(modifier = Modifier.height(16.dp))
-        OutlinedTextField(
-            value = websocketserver,
-            onValueChange = { websocketserver = it },
-            label = { Text("Voice announcement every ... kilometer") },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(modifier = Modifier.height(16.dp))
         // Voice announcement interval
         VoiceAnnouncementDropdown(
             value = voiceAnnouncementInterval,

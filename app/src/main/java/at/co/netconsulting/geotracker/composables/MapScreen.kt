@@ -56,6 +56,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
@@ -131,9 +132,10 @@ private fun updateMapStyle(mapView: MapView, isDarkMode: Boolean) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
-    onNavigateToSettings: (() -> Unit)? = null,
-    routeToDisplay: List<GeoPoint>? = null, // New parameter for route display
-    onRouteDisplayed: (() -> Unit)? = null // New callback when route is displayed
+    onNavigateToSettings: () -> Unit,
+    routeToDisplay: List<GeoPoint>?,
+    onRouteDisplayed: () -> Unit,
+    getCurrentGpsStatus: () -> GpsStatus
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -1161,6 +1163,7 @@ fun MapScreen(
     // Recording dialog
     if (showRecordingDialog) {
         RecordingDialog(
+            gpsStatus = getCurrentGpsStatus(),
             onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer ->
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter

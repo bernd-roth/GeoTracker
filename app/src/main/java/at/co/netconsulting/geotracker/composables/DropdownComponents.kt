@@ -115,7 +115,7 @@ fun VoiceAnnouncementDropdown(
 
     Column(modifier = modifier) {
         Text(
-            text = "Enter a value to get a voice message every ... kilometer",
+            text = "Enter a value to get a voice message every ... kilometer (0 means no voice message at all)",
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(modifier = Modifier.height(4.dp))
@@ -128,15 +128,14 @@ fun VoiceAnnouncementDropdown(
 
                 // Then try to parse the number
                 val newValue = input.toIntOrNull()
-                if (newValue != null && newValue in 1..100) {
+                if (newValue != null && newValue in 0..100) {
                     onValueChange(newValue)
                 }
             },
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                 keyboardType = KeyboardType.Number
-            ),
-            supportingText = { Text("Enter a value between 1-100 kilometers") }
+            )
         )
     }
 }

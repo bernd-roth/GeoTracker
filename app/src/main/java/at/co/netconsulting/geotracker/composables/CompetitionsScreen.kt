@@ -469,7 +469,7 @@ fun CompetitionsScreen() {
         }
     }
 
-    // ✅ FIXED: Use LazyColumn with items instead of nested scrolling
+    // ✅ Use LazyColumn with items instead of nested scrolling
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()

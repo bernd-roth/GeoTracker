@@ -291,7 +291,7 @@ fun StatisticsScreen() {
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Summary statistics - FIXED CALCULATIONS
+                        // Summary statistics
                         if (lapTimes.isNotEmpty()) {
                             val totalLapTime = lapTimes.sumOf { it.endTime - it.startTime }
                             val averageLapTime = totalLapTime / lapTimes.size

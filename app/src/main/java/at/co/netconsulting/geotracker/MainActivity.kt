@@ -53,6 +53,8 @@ import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
 import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.data.GpsStatus
+import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
 import at.co.netconsulting.geotracker.reminder.ReminderManager
 import at.co.netconsulting.geotracker.tools.AlarmPermissionHelper
 import org.greenrobot.eventbus.EventBus
@@ -131,6 +133,22 @@ class MainActivity : ComponentActivity() {
         ensureAlarmsAreScheduled()
         openedFromReminderNotification()
         checkServiceStateAndUpdateUI()
+    }
+
+    // Add GPS Status evaluation method
+    @Composable
+    fun getCurrentGpsStatus(): GpsStatus {
+        val satelliteInfo by satelliteInfoManager.currentSatelliteInfo.collectAsState()
+
+        return GpsStatusEvaluator.evaluateGpsStatus(
+            latitude = latitudeState.value,
+            longitude = longitudeState.value,
+            horizontalAccuracy = horizontalAccuracyInMetersState.value,
+            verticalAccuracy = verticalAccuracyInMetersState.value,
+            speedAccuracy = speedAccuracyInMetersState.value,
+            satelliteCount = satelliteInfo.totalSatellites,
+            usedSatelliteCount = satelliteInfo.visibleSatellites
+        )
     }
 
     private fun ensureAlarmsAreScheduled() {
@@ -371,6 +389,9 @@ class MainActivity : ComponentActivity() {
         // Satellite info
         val satelliteInfo by satelliteInfoManager.currentSatelliteInfo.collectAsState()
 
+        // Get current GPS status
+        val currentGpsStatus = getCurrentGpsStatus()
+
         // Check for navigation from notification
         LaunchedEffect(Unit) {
             val navigationPrefs = getSharedPreferences("Navigation", Context.MODE_PRIVATE)
@@ -452,7 +473,8 @@ class MainActivity : ComponentActivity() {
                                 onRouteDisplayed = {
                                     // Clear the route after it's been displayed
                                     routeToDisplay.value = null
-                                }
+                                },
+                                getCurrentGpsStatus = { currentGpsStatus } // Pass GPS status function
                             )
                             1 -> StatisticsScreen()
                             2 -> AppNavHost(
