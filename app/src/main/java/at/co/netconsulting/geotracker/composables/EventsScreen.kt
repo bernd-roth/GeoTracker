@@ -107,7 +107,8 @@ fun EventsScreen(
     onNavigateToImportGpx: () -> Unit = {},
     onNavigateToHeartRateDetail: (String, List<Metric>) -> Unit = { _, _ -> },
     onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {},
-    onNavigateToWeatherDetail: (String, List<Metric>) -> Unit = { _, _ -> }
+    onNavigateToWeatherDetail: (String, List<Metric>) -> Unit = { _, _ -> },
+    onNavigateToBarometerDetail: (String, List<Metric>) -> Unit = { _, _ -> } // Add barometer callback
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -567,6 +568,9 @@ fun EventsScreen(
                             onWeatherClick = {
                                 onNavigateToWeatherDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
                             },
+                            onBarometerClick = { // Add barometer callback
+                                onNavigateToBarometerDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
+                            },
                             // Pass the map navigation callback and recording state
                             onViewOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(locationPoints)
@@ -657,9 +661,10 @@ fun EventCard(
     onImport: () -> Unit,
     isCurrentlyRecording: Boolean = false,
     onHeartRateClick: () -> Unit = {},
-    onWeatherClick: () -> Unit = {}, // New callback for weather analysis
-    onViewOnMap: (List<GeoPoint>) -> Unit = {}, // New callback for map navigation
-    canViewOnMap: Boolean = true // New parameter to control visibility
+    onWeatherClick: () -> Unit = {},
+    onBarometerClick: () -> Unit = {}, // Add barometer callback
+    onViewOnMap: (List<GeoPoint>) -> Unit = {},
+    canViewOnMap: Boolean = true
 ) {
     Card(
         modifier = Modifier
@@ -1210,6 +1215,210 @@ fun EventCard(
                     }
                 }
 
+                // Barometer Data section - Make this section clickable
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Check if we have pressure data in metrics for consistent behavior
+                val hasPressureData = event.metrics.any { it.pressure != null && it.pressure!! > 0f }
+
+                // Make the barometer section clickable similar to heart rate and weather
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasPressureData) {
+                                Modifier.clickable { onBarometerClick() }
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Barometer Data",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        // Add a visual indicator that this section is clickable
+                        if (hasPressureData) {
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "View detailed barometer analysis",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Calculate pressure statistics from metrics
+                    val pressureReadings = event.metrics.mapNotNull { it.pressure }.filter { it > 0f }
+                    val pressureAccuracyReadings = event.metrics.mapNotNull { it.pressureAccuracy }
+                    val altitudeFromPressureReadings = event.metrics.mapNotNull { it.altitudeFromPressure }.filter { it != 0f }
+                    val seaLevelPressureReadings = event.metrics.mapNotNull { it.seaLevelPressure }.filter { it > 0f }
+
+                    if (pressureReadings.isNotEmpty()) {
+                        val minPressure = pressureReadings.minOrNull() ?: 0f
+                        val maxPressure = pressureReadings.maxOrNull() ?: 0f
+                        val avgPressure = pressureReadings.average().toFloat()
+
+                        // Get the most common accuracy level
+                        val avgAccuracy = if (pressureAccuracyReadings.isNotEmpty()) {
+                            pressureAccuracyReadings.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: 0
+                        } else 0
+
+                        val avgSeaLevelPressure = if (seaLevelPressureReadings.isNotEmpty()) {
+                            seaLevelPressureReadings.average().toFloat()
+                        } else 1013.25f
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                InfoRowWithColor(
+                                    label = "↑ Max Pressure:",
+                                    value = String.format("%.1f hPa", maxPressure),
+                                    textColor = Color.Red
+                                )
+                                InfoRowWithColor(
+                                    label = "⌀ Avg Pressure:",
+                                    value = String.format("%.1f hPa", avgPressure),
+                                    textColor = MaterialTheme.colorScheme.primary
+                                )
+                                InfoRowWithColor(
+                                    label = "↓ Min Pressure:",
+                                    value = String.format("%.1f hPa", minPressure),
+                                    textColor = Color.Blue
+                                )
+                            }
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Pressure accuracy with color coding
+                                InfoRowWithColor(
+                                    label = "Accuracy:",
+                                    value = when (avgAccuracy) {
+                                        3 -> "High"
+                                        2 -> "Medium"
+                                        1 -> "Low"
+                                        0 -> "Unreliable"
+                                        else -> "Unknown"
+                                    },
+                                    textColor = when (avgAccuracy) {
+                                        3 -> Color.Green
+                                        2 -> MaterialTheme.colorScheme.primary
+                                        1 -> Color(0xFFFF9800) // Orange
+                                        else -> Color.Red
+                                    }
+                                )
+
+                                InfoRow(
+                                    label = "Sea Level Ref:",
+                                    value = String.format("%.1f hPa", avgSeaLevelPressure)
+                                )
+
+                                // Show altitude comparison if we have both GPS and pressure altitude
+                                if (altitudeFromPressureReadings.isNotEmpty() && event.maxElevation > 0) {
+                                    val avgPressureAltitude = altitudeFromPressureReadings.average().toFloat()
+                                    val avgGpsAltitude = (event.maxElevation + event.minElevation) / 2
+                                    val altitudeDifference = avgPressureAltitude - avgGpsAltitude
+
+                                    InfoRowWithColor(
+                                        label = "Alt. Difference:",
+                                        value = String.format("%.1f m", altitudeDifference),
+                                        textColor = when {
+                                            kotlin.math.abs(altitudeDifference) < 5 -> Color.Green
+                                            kotlin.math.abs(altitudeDifference) < 15 -> MaterialTheme.colorScheme.primary
+                                            else -> Color.Red
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Add pressure trend information if we have enough data points
+                        if (pressureReadings.size > 10) {
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Calculate pressure trend (rising/falling/stable)
+                            val firstHalfAvg = pressureReadings.take(pressureReadings.size / 2).average()
+                            val secondHalfAvg = pressureReadings.drop(pressureReadings.size / 2).average()
+                            val pressureChange = secondHalfAvg - firstHalfAvg
+
+                            val trendText = when {
+                                pressureChange > 1.0 -> "Rising (${String.format("%.1f", pressureChange)} hPa)"
+                                pressureChange < -1.0 -> "Falling (${String.format("%.1f", pressureChange)} hPa)"
+                                else -> "Stable (${String.format("%.1f", pressureChange)} hPa)"
+                            }
+
+                            val trendColor = when {
+                                pressureChange > 1.0 -> Color.Green
+                                pressureChange < -1.0 -> Color.Red
+                                else -> MaterialTheme.colorScheme.primary
+                            }
+
+                            InfoRowWithColor(
+                                label = "Pressure Trend:",
+                                value = trendText,
+                                textColor = trendColor
+                            )
+                        }
+
+                        // Barometric altitude graph (if we have pressure altitude data)
+                        if (altitudeFromPressureReadings.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "Barometric Altitude Profile",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Gray
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(120.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFF5F5F5))
+                                    .padding(8.dp)
+                            ) {
+                                BarometricAltitudeGraph(
+                                    metrics = event.metrics,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "No barometer data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
+
+                    // Add a hint text to indicate it's clickable - similar to weather section
+                    if (hasPressureData) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap for detailed barometer analysis",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
                 // Altitude information
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -1256,165 +1465,6 @@ fun EventCard(
                 } else {
                     Text(
                         text = "No altitude data available",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
-                }
-
-                // Barometer Data section
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "Barometer Data",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-// Calculate pressure statistics from metrics
-                val pressureReadings = event.metrics.mapNotNull { it.pressure }.filter { it > 0f }
-                val pressureAccuracyReadings = event.metrics.mapNotNull { it.pressureAccuracy }
-                val altitudeFromPressureReadings = event.metrics.mapNotNull { it.altitudeFromPressure }.filter { it != 0f }
-                val seaLevelPressureReadings = event.metrics.mapNotNull { it.seaLevelPressure }.filter { it > 0f }
-
-                if (pressureReadings.isNotEmpty()) {
-                    val minPressure = pressureReadings.minOrNull() ?: 0f
-                    val maxPressure = pressureReadings.maxOrNull() ?: 0f
-                    val avgPressure = pressureReadings.average().toFloat()
-
-                    // Get the most common accuracy level
-                    val avgAccuracy = if (pressureAccuracyReadings.isNotEmpty()) {
-                        pressureAccuracyReadings.groupingBy { it }.eachCount().maxByOrNull { it.value }?.key ?: 0
-                    } else 0
-
-                    val avgSeaLevelPressure = if (seaLevelPressureReadings.isNotEmpty()) {
-                        seaLevelPressureReadings.average().toFloat()
-                    } else 1013.25f
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            InfoRowWithColor(
-                                label = "↑ Max Pressure:",
-                                value = String.format("%.1f hPa", maxPressure),
-                                textColor = Color.Red
-                            )
-                            InfoRowWithColor(
-                                label = "⌀ Avg Pressure:",
-                                value = String.format("%.1f hPa", avgPressure),
-                                textColor = MaterialTheme.colorScheme.primary
-                            )
-                            InfoRowWithColor(
-                                label = "↓ Min Pressure:",
-                                value = String.format("%.1f hPa", minPressure),
-                                textColor = Color.Blue
-                            )
-                        }
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            // Pressure accuracy with color coding
-                            InfoRowWithColor(
-                                label = "Accuracy:",
-                                value = when (avgAccuracy) {
-                                    3 -> "High"
-                                    2 -> "Medium"
-                                    1 -> "Low"
-                                    0 -> "Unreliable"
-                                    else -> "Unknown"
-                                },
-                                textColor = when (avgAccuracy) {
-                                    3 -> Color.Green
-                                    2 -> MaterialTheme.colorScheme.primary
-                                    1 -> Color(0xFFFF9800) // Orange
-                                    else -> Color.Red
-                                }
-                            )
-
-                            InfoRow(
-                                label = "Sea Level Ref:",
-                                value = String.format("%.1f hPa", avgSeaLevelPressure)
-                            )
-
-                            // Show altitude comparison if we have both GPS and pressure altitude
-                            if (altitudeFromPressureReadings.isNotEmpty() && event.maxElevation > 0) {
-                                val avgPressureAltitude = altitudeFromPressureReadings.average().toFloat()
-                                val avgGpsAltitude = (event.maxElevation + event.minElevation) / 2
-                                val altitudeDifference = avgPressureAltitude - avgGpsAltitude
-
-                                InfoRowWithColor(
-                                    label = "Alt. Difference:",
-                                    value = String.format("%.1f m", altitudeDifference),
-                                    textColor = when {
-                                        kotlin.math.abs(altitudeDifference) < 5 -> Color.Green
-                                        kotlin.math.abs(altitudeDifference) < 15 -> MaterialTheme.colorScheme.primary
-                                        else -> Color.Red
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Add pressure trend information if we have enough data points
-                    if (pressureReadings.size > 10) {
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        // Calculate pressure trend (rising/falling/stable)
-                        val firstHalfAvg = pressureReadings.take(pressureReadings.size / 2).average()
-                        val secondHalfAvg = pressureReadings.drop(pressureReadings.size / 2).average()
-                        val pressureChange = secondHalfAvg - firstHalfAvg
-
-                        val trendText = when {
-                            pressureChange > 1.0 -> "Rising (${String.format("%.1f", pressureChange)} hPa)"
-                            pressureChange < -1.0 -> "Falling (${String.format("%.1f", pressureChange)} hPa)"
-                            else -> "Stable (${String.format("%.1f", pressureChange)} hPa)"
-                        }
-
-                        val trendColor = when {
-                            pressureChange > 1.0 -> Color.Green
-                            pressureChange < -1.0 -> Color.Red
-                            else -> MaterialTheme.colorScheme.primary
-                        }
-
-                        InfoRowWithColor(
-                            label = "Pressure Trend:",
-                            value = trendText,
-                            textColor = trendColor
-                        )
-                    }
-
-                    // Barometric altitude graph (if we have pressure altitude data)
-                    if (altitudeFromPressureReadings.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "Barometric Altitude Profile",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color.Gray
-                        )
-
-                        Spacer(modifier = Modifier.height(4.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFFF5F5F5))
-                                .padding(8.dp)
-                        ) {
-                            BarometricAltitudeGraph(
-                                metrics = event.metrics,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
-                    }
-                } else {
-                    Text(
-                        text = "No barometer data available",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )

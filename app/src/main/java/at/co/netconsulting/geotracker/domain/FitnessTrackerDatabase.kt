@@ -37,7 +37,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     abstract fun currentRecordingDao(): CurrentRecordingDao
     abstract fun lapTimeDao(): LapTimeDao
 
-    // Add DAOs for additional entities
+    // DAOs for additional entities
     abstract fun plannedEventDao(): PlannedEventDao
     abstract fun clothingDao(): ClothingDao
     abstract fun wheelSprocketDao(): WheelSprocketDao
