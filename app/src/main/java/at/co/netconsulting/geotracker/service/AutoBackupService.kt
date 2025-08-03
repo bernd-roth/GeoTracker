@@ -12,19 +12,24 @@ import android.os.Build
 import android.os.Environment
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.MainActivity
 import at.co.netconsulting.geotracker.R
+import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.gpx.saveGpxFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
@@ -53,14 +58,12 @@ class AutoBackupService : Service() {
 
         // Show notification immediately with proper foreground service type
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            // For Android 14+ (API 34+), specify the foreground service type
             startForeground(
                 NOTIFICATION_ID,
                 createProgressNotification(0),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             )
         } else {
-            // For older Android versions
             startForeground(NOTIFICATION_ID, createProgressNotification(0))
         }
 
@@ -153,12 +156,9 @@ class AutoBackupService : Service() {
                 return
             }
 
-            // Step 2: Export all runs to GPX (70% of progress)
-            // Instead of our own implementation, use the existing GpxExportService
+            // Step 2: Export all runs to GPX files. We are using the same logic as we do for the manual export
             updateNotificationProgress(50)
-
-            // Start the existing GPX export service and wait for completion
-            val gpxExportSuccess = exportAllGpxFiles()
+            val gpxExportSuccess = exportAllEventsToGpx()
             updateNotificationProgress(100)
 
             // Final notification
@@ -186,28 +186,234 @@ class AutoBackupService : Service() {
         }
     }
 
-    private suspend fun exportAllGpxFiles(): Boolean {
+    /**
+     * Export all events to GPX files using the SAME comprehensive logic as manual export
+     * This includes ALL custom extensions: atemp, heart rate, speed, cadence, etc.
+     */
+    private suspend fun exportAllEventsToGpx(): Boolean {
+        val database = FitnessTrackerDatabase.getInstance(applicationContext)
         return try {
-            // Start the existing GPX export service
-            val intent = Intent(applicationContext, GpxExportService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(intent)
-            } else {
-                startService(intent)
+            withContext(Dispatchers.IO) {
+                // Get all events from the database - collect from Flow
+                val allEvents = database.eventDao().getAllEvents().first()
+
+                if (allEvents.isEmpty()) {
+                    Timber.i("No events to export")
+                    return@withContext true // Not an error, just no data
+                }
+
+                var successCount = 0
+                var failureCount = 0
+
+                // Export each event using the same logic as manual export
+                for (event in allEvents) {
+                    try {
+                        val locations = database.locationDao().getLocationsByEventId(event.eventId)
+                        val metrics = database.metricDao().getMetricsByEventId(event.eventId)
+                        val weather = database.weatherDao().getWeatherForEvent(event.eventId)
+                        val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(event.eventId)
+
+                        // Skip events with no location data
+                        if (locations.isEmpty()) {
+                            continue
+                        }
+
+                        // Map sport type to GPX activity type (same as manual export)
+                        val activityType = when (event.artOfSport?.lowercase()) {
+                            "running", "jogging", "marathon" -> "run"
+                            "cycling", "bicycle", "bike", "biking" -> "bike"
+                            "hiking", "walking", "trekking" -> "hike"
+                            else -> event.artOfSport?.lowercase() ?: "unknown"
+                        }
+
+                        // Create GPX content with ALL the same extensions as manual export
+                        val gpxBuilder = StringBuilder()
+                        gpxBuilder.append("""<?xml version="1.0" encoding="UTF-8"?>
+                                |<gpx version="1.1" 
+                                |    creator="GeoTracker"
+                                |    xmlns="http://www.topografix.com/GPX/1/1"
+                                |    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                                |    xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+                                |    xmlns:custom="http://geotracker.netconsulting.at/xmlschemas/CustomExtension/v1"
+                                |    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd
+                                |                        http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd">
+                                |  <metadata>
+                                |    <name>${event.eventName}</name>
+                                |    <time>${event.eventDate}T00:00:00Z</time>
+                                |  </metadata>
+                                |  <trk>
+                                |    <name>${event.eventName}</name>
+                                |    <type>${activityType}</type>
+                                |    <trkseg>
+                            """.trimMargin())
+
+                        locations.forEachIndexed { index, location ->
+                            val metric = metrics.getOrNull(index)
+                            val weatherInfo = weather.firstOrNull()
+                            val deviceInfo = deviceStatus
+
+                            // Only create a trackpoint if there's a valid metric with a valid timestamp
+                            if (metric != null && metric.timeInMilliseconds > 0) {
+                                val timestamp = Instant.ofEpochMilli(metric.timeInMilliseconds)
+                                    .atZone(ZoneId.systemDefault())
+                                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+                                gpxBuilder.append("""
+        |      <trkpt lat="${location.latitude}" lon="${location.longitude}">
+        |        <ele>${location.altitude}</ele>
+        |        <time>${timestamp}</time>
+        |        <extensions>
+        |          <custom:distance>${metric.distance}</custom:distance>""")
+
+                                // Add heart rate if available
+                                if (metric.heartRate > 0) {
+                                    gpxBuilder.append("""
+        |          <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>""")
+                                }
+
+                                // Add air temperature if available (from weather data or metric)
+                                val temperature = weatherInfo?.temperature ?: getMetricTemperature(metric)
+                                temperature?.let { temp ->
+                                    gpxBuilder.append("""
+        |          <gpxtpx:atemp>${temp}</gpxtpx:atemp>""")
+                                }
+
+                                // Add lap number
+                                gpxBuilder.append("""
+        |          <custom:lap>${metric.lap}</custom:lap>""")
+
+                                // Add activity type
+                                gpxBuilder.append("""
+        |          <custom:type>${activityType}</custom:type>""")
+
+                                // Add satellite count if available
+                                deviceInfo?.let { device ->
+                                    if (device.numberOfSatellites.isNotEmpty()) {
+                                        gpxBuilder.append("""
+        |          <custom:sat>${device.numberOfSatellites}</custom:sat>""")
+                                    }
+                                }
+
+                                // Add speed
+                                if (metric.speed > 0) {
+                                    gpxBuilder.append("""
+        |          <custom:speed>${metric.speed}</custom:speed>""")
+                                }
+
+                                // Add cadence if available
+                                metric.cadence?.let { cadence ->
+                                    if (cadence > 0) {
+                                        gpxBuilder.append("""
+        |          <custom:cadence>${cadence}</custom:cadence>""")
+                                    }
+                                }
+
+                                // Add GPS accuracy if available
+                                getMetricAccuracy(metric)?.let { accuracy ->
+                                    if (accuracy > 0) {
+                                        gpxBuilder.append("""
+        |          <custom:accuracy>${accuracy}</custom:accuracy>""")
+                                    }
+                                }
+
+                                // Add steps if available
+                                getMetricSteps(metric)?.let { steps ->
+                                    if (steps > 0) {
+                                        gpxBuilder.append("""
+        |          <custom:steps>${steps}</custom:steps>""")
+                                    }
+                                }
+
+                                // Add stride length if available
+                                getMetricStrideLength(metric)?.let { strideLength ->
+                                    if (strideLength > 0) {
+                                        gpxBuilder.append("""
+        |          <custom:stride_length>${strideLength}</custom:stride_length>""")
+                                    }
+                                }
+
+                                gpxBuilder.append("""
+        |        </extensions>
+        |      </trkpt>
+        """.trimMargin())
+                            }
+                        }
+
+                        gpxBuilder.append("""
+                            |    </trkseg>
+                            |  </trk>
+                            |</gpx>
+                        """.trimMargin())
+
+                        val filename = "${event.eventName}_${event.eventDate}.gpx"
+                            .replace(" ", "_")
+                            .replace(":", "-")
+                            .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+
+                        // Save file using the same storage approach as manual export
+                        val success = saveGpxFile(applicationContext, filename, gpxBuilder.toString())
+
+                        if (success) {
+                            successCount++
+                            Timber.d("Exported GPX for event: ${event.eventName}")
+                        } else {
+                            failureCount++
+                            Timber.e("Failed to export GPX for event: ${event.eventName}")
+                        }
+
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error exporting event ${event.eventId}")
+                        failureCount++
+                    }
+                }
+
+                Timber.i("GPX Export completed: $successCount succeeded, $failureCount failed")
+                return@withContext failureCount == 0
             }
-
-            // Wait a bit to let the export start
-            delay(1000)
-
-            // Since we don't have direct communication with the GPX export service,
-            // we're assuming it completes successfully.
-            // In a more robust implementation, we could use a BroadcastReceiver to get notified.
-
-            Timber.d("GPX export service started")
-            true
         } catch (e: Exception) {
-            Timber.e(e, "Error starting GPX export service")
+            Timber.e(e, "Error during automatic GPX export")
             false
+        }
+    }
+
+    // Helper functions to safely access new fields using reflection (same as manual export)
+    private fun getMetricTemperature(metric: at.co.netconsulting.geotracker.domain.Metric): Float? {
+        return try {
+            val field = metric::class.java.getDeclaredField("temperature")
+            field.isAccessible = true
+            field.get(metric) as? Float
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getMetricAccuracy(metric: at.co.netconsulting.geotracker.domain.Metric): Float? {
+        return try {
+            val field = metric::class.java.getDeclaredField("accuracy")
+            field.isAccessible = true
+            field.get(metric) as? Float
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getMetricSteps(metric: at.co.netconsulting.geotracker.domain.Metric): Int? {
+        return try {
+            val field = metric::class.java.getDeclaredField("steps")
+            field.isAccessible = true
+            field.get(metric) as? Int
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun getMetricStrideLength(metric: at.co.netconsulting.geotracker.domain.Metric): Float? {
+        return try {
+            val field = metric::class.java.getDeclaredField("strideLength")
+            field.isAccessible = true
+            field.get(metric) as? Float
+        } catch (e: Exception) {
+            null
         }
     }
 

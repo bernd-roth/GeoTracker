@@ -202,7 +202,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
  * Save GPX file using modern storage approaches
  * Works with both older Android versions and Android 10+ scoped storage
  */
-private fun saveGpxFile(context: Context, filename: String, content: String): Boolean {
+fun saveGpxFile(context: Context, filename: String, content: String): Boolean {
     return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // Android 10+ (API 29+) - Use scoped storage
