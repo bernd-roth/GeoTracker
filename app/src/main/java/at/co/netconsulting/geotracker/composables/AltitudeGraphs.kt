@@ -503,7 +503,7 @@ fun InteractiveSpeedVsAltitudeGraph(
 
                 val speedValue = maxSpeed - (speedRange * i / 5)
                 drawContext.canvas.nativeCanvas.drawText(
-                    String.format("%.1f", speedValue * 3.6),
+                    String.format("%.1f", speedValue),
                     padding - 10.dp.toPx(),
                     y + 4.dp.toPx(),
                     paint
@@ -590,7 +590,7 @@ fun InteractiveSpeedVsAltitudeGraph(
                     modifier = Modifier.padding(8.dp)
                 ) {
                     Text(
-                        text = "Speed: ${String.format("%.1f", info.speed * 3.6)} km/h",
+                        text = "Speed: ${String.format("%.1f", info.speed)} km/h",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )

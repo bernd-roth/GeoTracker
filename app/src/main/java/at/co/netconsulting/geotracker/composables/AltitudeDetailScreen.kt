@@ -49,7 +49,7 @@ fun AltitudeDetailScreen(
             TopAppBar(
                 title = {
                     Text(
-                        text = "Altitude Analysis",
+                        text = "Altitude analysis",
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold
                     )
