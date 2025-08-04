@@ -60,23 +60,36 @@ Visualize your route on an interactive map:
 ---
 
 ## 📸 Screenshots
-![Screenshot_20250711-064735.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064735.png)
-![Screenshot_20250711-064746.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064746.png)
-![Screenshot_20250711-064757.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064757.png)
-![Screenshot_20250711-064837.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145613.png)
+![165101.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165101.png)
+![165114.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165114.png)
+![165126.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165126.png)
+![165137.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165137.png)
 
-![Screenshot_20250714-145347.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145347.png)
-![Screenshot_20250714-145402.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145402.png)
-![Screenshot_20250714-145412.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145412.png)
-![Screenshot_20250714-145424.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145424.png)
-![Screenshot_20250714-145436.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250714-145436.png)
+![165450.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165450.png)
+![165458.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165458.png)
+![165538.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165538.png)
+![165613.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165613.png)
+![165637.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165637.png)
 
-![Screenshot_20250711-064848.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064848.png)
-![Screenshot_20250711-064856.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064856.png)
-![Screenshot_20250711-064923.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064923.png)
-![Screenshot_20250711-064932.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064932.png)
-![Screenshot_20250711-064951.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-064951.png)
-![Screenshot_20250711-065019.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/Screenshot_20250711-065019.png)
+![165645.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165645.png)
+![165659.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165659.png)
+
+![165717.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165717.png)
+![165726.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165726.png)
+![165741.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165741.png)
+![165749.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165749.png)
+![165803.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165803.png)
+![165823.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165823.png)
+![165842.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165842.png)
+![165850.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165850.png)
+![165927.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165927.png)
+![165935.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165935.png)
+
+![165948.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165948.png)
+![165956.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/165956.png)
+![170010.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/170010.png)
+![170018.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/170018.png)
+![170040.png](app/src/main/java/at/co/netconsulting/geotracker/screenshots/170040.png)
 
 ### Activity Dashboard
 ![Activity Dashboard](path-to-screenshot.png)
