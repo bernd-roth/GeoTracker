@@ -32,7 +32,6 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Service that performs automatic database backup and GPX export
@@ -41,7 +40,6 @@ class AutoBackupService : Service() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var wakeLock: PowerManager.WakeLock? = null
     private val NOTIFICATION_ID = 9876
-    private val progress = AtomicInteger(0)
     private val CHANNEL_ID = "auto_backup_channel"
 
     companion object {
