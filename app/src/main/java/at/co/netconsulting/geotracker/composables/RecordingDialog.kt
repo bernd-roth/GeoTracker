@@ -1,6 +1,11 @@
 package at.co.netconsulting.geotracker.composables
 
 import android.app.DatePickerDialog
+import android.content.Intent
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +23,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.GpsNotFixed
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -30,6 +36,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -47,18 +55,124 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.data.GpsStatus
+import at.co.netconsulting.geotracker.data.GpxImportProgress
 import at.co.netconsulting.geotracker.data.HeartRateSensorDevice
+import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.enums.GpsFixStatus
 import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
+import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
+import org.osmdroid.util.GeoPoint
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import kotlinx.coroutines.*
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+import java.io.InputStream
+import java.io.BufferedInputStream
+
+private suspend fun parseGpxFileStreaming(
+    inputStream: InputStream,
+    filename: String,
+    onProgress: (GpxImportProgress) -> Unit
+): ImportedGpxTrack = withContext(Dispatchers.IO) {
+
+    val points = mutableListOf<GeoPoint>()
+    var pointsProcessed = 0
+    val updateInterval = 1000 // Update progress every 1000 points
+
+    try {
+        onProgress(GpxImportProgress(
+            isImporting = true,
+            status = "Initializing parser..."
+        ))
+
+        val factory = XmlPullParserFactory.newInstance()
+        val parser = factory.newPullParser()
+
+        // Use BufferedInputStream for better performance
+        val bufferedStream = BufferedInputStream(inputStream, 8192)
+        parser.setInput(bufferedStream, null)
+
+        var eventType = parser.eventType
+        var currentLat: String? = null
+        var currentLon: String? = null
+
+        onProgress(GpxImportProgress(
+            isImporting = true,
+            status = "Parsing GPX data..."
+        ))
+
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            when (eventType) {
+                XmlPullParser.START_TAG -> {
+                    when (parser.name) {
+                        "trkpt", "wpt" -> {
+                            currentLat = parser.getAttributeValue(null, "lat")
+                            currentLon = parser.getAttributeValue(null, "lon")
+
+                            if (currentLat != null && currentLon != null) {
+                                try {
+                                    val lat = currentLat.toDouble()
+                                    val lon = currentLon.toDouble()
+
+                                    // Validate coordinates
+                                    if (lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0) {
+                                        points.add(GeoPoint(lat, lon))
+                                        pointsProcessed++
+
+                                        // Update progress periodically
+                                        if (pointsProcessed % updateInterval == 0) {
+                                            onProgress(GpxImportProgress(
+                                                isImporting = true,
+                                                pointsProcessed = pointsProcessed,
+                                                status = "Processed $pointsProcessed points..."
+                                            ))
+
+                                            // Allow other coroutines to run
+                                            yield()
+                                        }
+                                    }
+                                } catch (e: NumberFormatException) {
+                                    // Skip invalid coordinates
+                                    android.util.Log.w("GPX", "Invalid coordinates: lat=$currentLat, lon=$currentLon")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            eventType = parser.next()
+        }
+
+        bufferedStream.close()
+
+    } catch (e: Exception) {
+        onProgress(GpxImportProgress(
+            isImporting = false,
+            status = "Error: ${e.message}"
+        ))
+        throw Exception("Failed to parse GPX file: ${e.message}")
+    }
+
+    if (points.isEmpty()) {
+        throw Exception("No valid GPS coordinates found in GPX file")
+    }
+
+    onProgress(GpxImportProgress(
+        isImporting = false,
+        pointsProcessed = points.size,
+        status = "Import completed"
+    ))
+
+    ImportedGpxTrack(filename, points)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingDialog(
     gpsStatus: GpsStatus,
-    onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean) -> Unit,
+    onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -71,6 +185,11 @@ fun RecordingDialog(
     var expanded by remember { mutableStateOf(false) }
     var showHeartRateSensorDialog by remember { mutableStateOf(false) }
     var selectedHeartRateSensor by remember { mutableStateOf<HeartRateSensorDevice?>(null) }
+    var importedGpxTrack by remember { mutableStateOf<ImportedGpxTrack?>(null) }
+
+    // GPX import progress state
+    var gpxImportProgress by remember { mutableStateOf(GpxImportProgress()) }
+    var showGpxImportDialog by remember { mutableStateOf(false) }
 
     // WebSocket transfer setting - load from SharedPreferences with default true
     var enableWebSocketTransfer by remember {
@@ -78,6 +197,55 @@ fun RecordingDialog(
             context.getSharedPreferences("UserSettings", android.content.Context.MODE_PRIVATE)
                 .getBoolean("enable_websocket_transfer", true)
         )
+    }
+
+    // GPX file picker launcher
+    val gpxFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            // Show import dialog and start processing
+            showGpxImportDialog = true
+            gpxImportProgress = GpxImportProgress(isImporting = true)
+
+            // Launch coroutine for background processing
+            CoroutineScope(Dispatchers.Main).launch {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(it)
+                    inputStream?.let { stream ->
+                        val filename = getFileNameFromUri(context, uri)
+
+                        val parsedTrack = parseGpxFileStreaming(
+                            inputStream = stream,
+                            filename = filename,
+                            onProgress = { progress ->
+                                gpxImportProgress = progress
+                            }
+                        )
+
+                        importedGpxTrack = parsedTrack
+                        showGpxImportDialog = false
+
+                        android.widget.Toast.makeText(
+                            context,
+                            "GPX imported: ${parsedTrack.points.size} points",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+
+                        stream.close()
+                    }
+                } catch (e: Exception) {
+                    showGpxImportDialog = false
+                    gpxImportProgress = GpxImportProgress()
+
+                    android.widget.Toast.makeText(
+                        context,
+                        "Error importing GPX: ${e.message}",
+                        android.widget.Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }
     }
 
     // Sport types list
@@ -107,6 +275,48 @@ fun RecordingDialog(
         )
     }
 
+    // GPX Import Progress Dialog
+    if (showGpxImportDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!gpxImportProgress.isImporting) {
+                    showGpxImportDialog = false
+                }
+            },
+            title = { Text("Importing GPX File") },
+            text = {
+                Column {
+                    if (gpxImportProgress.isImporting) {
+                        LinearProgressIndicator(
+                            modifier = Modifier.fillMaxWidth(),
+                            progress = if (gpxImportProgress.totalEstimated > 0) {
+                                gpxImportProgress.pointsProcessed.toFloat() / gpxImportProgress.totalEstimated
+                            } else {
+                                0f
+                            }
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    Text(gpxImportProgress.status)
+
+                    if (gpxImportProgress.pointsProcessed > 0) {
+                        Text("Points processed: ${gpxImportProgress.pointsProcessed}")
+                    }
+                }
+            },
+            confirmButton = {
+                if (!gpxImportProgress.isImporting) {
+                    Button(
+                        onClick = { showGpxImportDialog = false }
+                    ) {
+                        Text("OK")
+                    }
+                }
+            }
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("New Activity") },
@@ -114,7 +324,7 @@ fun RecordingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(750.dp) // Increased height to accommodate GPS status
+                    .height(800.dp) // Increased height to accommodate GPX import
                     .verticalScroll(rememberScrollState())
             ) {
                 // GPS Status Card
@@ -170,6 +380,75 @@ fun RecordingDialog(
                                     fontSize = 12.sp,
                                     color = Color.Gray,
                                     modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // GPX Import Card
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (importedGpxTrack != null) Color(0xFFE8F5E8) else Color(0xFFF5F5F5)
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileOpen,
+                                contentDescription = "GPX Import",
+                                tint = if (importedGpxTrack != null) Color(0xFF4CAF50) else Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Import GPX Track",
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = importedGpxTrack?.let {
+                                        "${it.filename} (${it.points.size} points)"
+                                    } ?: "Supports large files",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            if (importedGpxTrack != null) {
+                                OutlinedButton(
+                                    onClick = { importedGpxTrack = null },
+                                    modifier = Modifier.height(36.dp)
+                                ) {
+                                    Text("Remove", fontSize = 12.sp)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+                            Button(
+                                onClick = {
+                                    gpxFilePicker.launch("application/gpx+xml")
+                                },
+                                enabled = !gpxImportProgress.isImporting,
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(
+                                    text = if (importedGpxTrack == null) "Choose File" else "Replace",
+                                    fontSize = 12.sp
                                 )
                             }
                         }
@@ -362,7 +641,7 @@ fun RecordingDialog(
         },
         confirmButton = {
             Button(
-                enabled = gpsStatus.isReadyToRecord, // Enable only when GPS is ready
+                enabled = gpsStatus.isReadyToRecord && !gpxImportProgress.isImporting,
                 onClick = {
                     // Use current date as event name if eventName is empty or just whitespace
                     val finalEventName = if (eventName.trim().isEmpty()) {
@@ -377,18 +656,43 @@ fun RecordingDialog(
                         .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
                         .apply()
 
-                    onSave(finalEventName, eventDate, artOfSport, comment, clothing, showPath, selectedHeartRateSensor, enableWebSocketTransfer)
+                    // Save imported GPX track to persistent storage before starting recording
+                    if (importedGpxTrack != null) {
+                        GpxPersistenceUtil.saveImportedGpxTrack(context, importedGpxTrack)
+                        android.util.Log.d("RecordingDialog", "Saved GPX track to persistence: ${importedGpxTrack!!.filename}")
+                    }
+
+                    onSave(
+                        finalEventName,
+                        eventDate,
+                        artOfSport,
+                        comment,
+                        clothing,
+                        showPath,
+                        selectedHeartRateSensor,
+                        enableWebSocketTransfer,
+                        importedGpxTrack
+                    )
                 }
             ) {
                 Text(
-                    text = if (gpsStatus.isReadyToRecord) "Start Recording" else "Waiting for GPS...",
-                    color = if (gpsStatus.isReadyToRecord) Color.White else Color.Gray
+                    text = when {
+                        gpxImportProgress.isImporting -> "Importing GPX..."
+                        !gpsStatus.isReadyToRecord -> "Waiting for GPS..."
+                        else -> "Start Recording"
+                    },
+                    color = when {
+                        gpxImportProgress.isImporting -> Color.Gray
+                        gpsStatus.isReadyToRecord -> Color.White
+                        else -> Color.Gray
+                    }
                 )
             }
         },
         dismissButton = {
             TextButton(
-                onClick = onDismiss
+                onClick = onDismiss,
+                enabled = !gpxImportProgress.isImporting
             ) {
                 Text("Cancel")
             }
@@ -399,4 +703,19 @@ fun RecordingDialog(
 private fun getCurrentFormattedDate(): String {
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     return sdf.format(Calendar.getInstance().time)
+}
+
+// Helper function to get filename from URI
+private fun getFileNameFromUri(context: android.content.Context, uri: Uri): String {
+    var filename = "imported_track.gpx"
+
+    context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+        if (cursor.moveToFirst()) {
+            val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (nameIndex != -1) {
+                filename = cursor.getString(nameIndex) ?: filename
+            }
+        }
+    }
+    return filename
 }

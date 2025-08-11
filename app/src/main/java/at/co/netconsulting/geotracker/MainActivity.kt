@@ -48,6 +48,7 @@ import at.co.netconsulting.geotracker.composables.BottomSheetContent
 import at.co.netconsulting.geotracker.composables.CompetitionsScreen
 import at.co.netconsulting.geotracker.composables.EditEventScreen
 import at.co.netconsulting.geotracker.composables.EventsScreen
+import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.composables.MapScreen
 import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
@@ -57,6 +58,7 @@ import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
 import at.co.netconsulting.geotracker.reminder.ReminderManager
 import at.co.netconsulting.geotracker.tools.AlarmPermissionHelper
+import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -115,6 +117,9 @@ class MainActivity : ComponentActivity() {
     private val backgroundLocationPermission = Manifest.permission.ACCESS_BACKGROUND_LOCATION
     private val FOREGROUND_PERMISSION_REQUEST_CODE = 1001
     private val BACKGROUND_PERMISSION_REQUEST_CODE = 1002
+
+    // import GPX track in RecordingDialog, used as overlay
+    private val importedGpxTrackState = mutableStateOf<ImportedGpxTrack?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -486,7 +491,13 @@ class MainActivity : ComponentActivity() {
                                     // Clear the route after it's been displayed
                                     routeToDisplay.value = null
                                 },
-                                getCurrentGpsStatus = { currentGpsStatus } // Pass GPS status function
+                                getCurrentGpsStatus = { currentGpsStatus }, // Pass GPS status function
+                                importedGpxTrack = importedGpxTrackState.value,
+                                onGpxTrackDisplayed = {
+                                    // DON'T clear the imported GPX track here anymore - let persistence handle it
+                                    // Only clear the state to prevent re-processing
+                                    importedGpxTrackState.value = null
+                                }
                             )
                             1 -> StatisticsScreen()
                             2 -> AppNavHost(
@@ -729,5 +740,13 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         EventBus.getDefault().unregister(this)
+
+        // Optional: Clean up GPX persistence if app is destroyed while not recording
+        val isRecording = getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+            .getBoolean("is_recording", false)
+
+        if (!isRecording) {
+            GpxPersistenceUtil.clearImportedGpxTrack(this)
+        }
     }
 }
