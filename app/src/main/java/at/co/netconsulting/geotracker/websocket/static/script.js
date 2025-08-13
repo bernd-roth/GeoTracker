@@ -1111,7 +1111,7 @@ function connectToWebSocket() {
         // Add to debug log first
         addDebugMessage(JSON.stringify(message, null, 2), message.type);
 
-        // NEW: Log weather data if present in the message
+        // Log weather data if present in the message
         if (message.type === 'update' && message.point) {
             logWeatherData(message.point);
         } else if (message.type === 'history_batch' && message.points) {

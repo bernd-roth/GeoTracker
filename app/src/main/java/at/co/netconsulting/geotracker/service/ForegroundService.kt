@@ -1097,7 +1097,7 @@ class ForegroundService : Service() {
                     temperature = if (currentTemperature > 0) currentTemperature.toFloat() else null,
                     accuracy = null,
 
-                    // NEW: Include barometer data
+                    // Include barometer data
                     pressure = if (currentPressure > 0) currentPressure else null,
                     pressureAccuracy = if (currentPressureAccuracy > 0) currentPressureAccuracy else null,
                     altitudeFromPressure = if (currentAltitudeFromPressure != 0f) currentAltitudeFromPressure else null,
@@ -1460,7 +1460,7 @@ class ForegroundService : Service() {
             Log.e(TAG, "Error disconnecting from heart rate sensor", e)
         }
 
-        // NEW: Stop barometer sensor
+        // Stop barometer sensor
         try {
             barometerSensorService?.stopListening()
         } catch (e: Exception) {
@@ -1715,7 +1715,7 @@ class ForegroundService : Service() {
                         heartRateSensorService?.connectToDevice(heartRateDeviceAddress!!)
                     }
 
-                    // NEW: Check barometer sensor connection if needed
+                    // Check barometer sensor connection if needed
                     if (barometerSensorService?.isAvailable() == true && !barometerSensorService?.isListening()!!) {
                         Log.d(TAG, "Restarting barometer sensor")
                         barometerSensorService?.startListening()

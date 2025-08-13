@@ -632,7 +632,7 @@ function showInfoPopup(event, point, sessionId, chartType) {
             `;
         }
 
-        // NEW: Extract and format weather data
+        // Extract and format weather data
         const weatherData = extractWeatherData(point);
         let weatherSection = '';
 
@@ -1065,7 +1065,7 @@ function connectToWebSocket() {
         // Add to debug log first
         addDebugMessage(JSON.stringify(message, null, 2), message.type);
 
-        // NEW: Log weather data if present in the message
+        // Log weather data if present in the message
         if (message.type === 'update' && message.point) {
             logWeatherData(message.point);
         } else if (message.type === 'history_batch' && message.points) {
@@ -1242,7 +1242,7 @@ function handlePoint(data) {
         // Store the person's name for use in display
         personName: personName,
 
-        // NEW: Extract weather data from the incoming message
+        // Extract weather data from the incoming message
         temperature: parseFloat(data.temperature || 0),
         windSpeed: parseFloat(data.windSpeed || 0),
         windDirection: parseFloat(data.windDirection || 0),
