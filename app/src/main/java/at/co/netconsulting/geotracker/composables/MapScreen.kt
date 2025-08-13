@@ -67,6 +67,7 @@ import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.FollowingService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
 import kotlinx.coroutines.delay
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
@@ -138,8 +139,8 @@ fun MapScreen(
     routeToDisplay: List<GeoPoint>?,
     onRouteDisplayed: () -> Unit,
     getCurrentGpsStatus: () -> GpsStatus,
-    importedGpxTrack: ImportedGpxTrack? = null, // New parameter
-    onGpxTrackDisplayed: () -> Unit = {} // New callback
+    importedGpxTrack: ImportedGpxTrack? = null,
+    onGpxTrackDisplayed: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -202,9 +203,12 @@ fun MapScreen(
     // Create a reference to hold the route overlay
     val routeOverlayRef = remember { mutableStateOf<Polyline?>(null) }
 
-    // NEW: Create a reference to hold the imported GPX track overlay
+    // Track overlay references and state
     val gpxTrackOverlayRef = remember { mutableStateOf<Polyline?>(null) }
     var currentImportedTrack by remember { mutableStateOf<ImportedGpxTrack?>(null) }
+
+    // Flag to track when map is fully initialized
+    var isMapInitialized by remember { mutableStateOf(false) }
 
     // Persist auto-follow state
     var isFollowingLocation by remember {
@@ -239,6 +243,9 @@ fun MapScreen(
 
     // Remember EventBus registration state
     var isEventBusRegistered by remember { mutableStateOf(false) }
+
+    // Track the last known timestamp for efficient change detection
+    val lastTrackTimestamp = remember { mutableStateOf(0L) }
 
     // Function to save auto-follow state
     fun saveAutoFollowState(enabled: Boolean) {
@@ -280,74 +287,141 @@ fun MapScreen(
         }
     }
 
-    // Handle imported GPX track display from both parameter and internal state
-    LaunchedEffect(importedGpxTrack, currentImportedTrack) {
-        val gpxTrack = importedGpxTrack ?: currentImportedTrack
-        gpxTrack?.let { track ->
-            Timber.d("Processing imported GPX track: ${track.filename} with ${track.points.size} points")
-
-            mapViewRef.value?.let { mapView ->
-                // Remove existing GPX track overlay if present
-                gpxTrackOverlayRef.value?.let { existingOverlay ->
-                    mapView.overlays.remove(existingOverlay)
-                    Timber.d("Removed existing GPX track overlay")
-                }
-
-                // Create new GPX track overlay in BLACK
-                val gpxOverlay = Polyline().apply {
-                    setPoints(track.points)
-                    color = android.graphics.Color.BLACK // BLACK for imported track
-                    width = 8f
-                    title = "Imported: ${track.filename}"
-                    // Make it slightly transparent to distinguish from live track
-                    paint.alpha = 200
-                }
-
-                // Add the GPX overlay to the map (add it first so live track appears on top)
-                mapView.overlays.add(0, gpxOverlay) // Add at index 0 to be underneath other overlays
-                gpxTrackOverlayRef.value = gpxOverlay
-                currentImportedTrack = track
-
-                // Center map on the imported GPX track
-                if (track.points.isNotEmpty()) {
-                    val minLat = track.points.minOf { it.latitude }
-                    val maxLat = track.points.maxOf { it.latitude }
-                    val minLon = track.points.minOf { it.longitude }
-                    val maxLon = track.points.maxOf { it.longitude }
-
-                    val centerLat = (minLat + maxLat) / 2
-                    val centerLon = (minLon + maxLon) / 2
-                    val center = GeoPoint(centerLat, centerLon)
-
-                    // Calculate appropriate zoom level
-                    val latDiff = maxLat - minLat
-                    val lonDiff = maxLon - minLon
-                    val maxDiff = maxOf(latDiff, lonDiff)
-
-                    val zoomLevel = when {
-                        maxDiff > 1.0 -> 8.0
-                        maxDiff > 0.1 -> 10.0
-                        maxDiff > 0.01 -> 12.0
-                        maxDiff > 0.001 -> 14.0
-                        else -> 16.0
-                    }
-
-                    mapView.controller.setCenter(center)
-                    mapView.controller.setZoom(zoomLevel)
-
-                    // Disable auto-follow when displaying imported GPX
-                    isFollowingLocation = false
-                    saveAutoFollowState(false)
-
-                    Timber.d("Displayed imported GPX track, centered at $center, zoom $zoomLevel")
-                }
-
-                mapView.invalidate()
+    // Function to display track on map
+    fun displayTrackOnMap(track: ImportedGpxTrack) {
+        mapViewRef.value?.let { mapView ->
+            // Remove existing GPX track overlay if present
+            gpxTrackOverlayRef.value?.let { existingOverlay ->
+                mapView.overlays.remove(existingOverlay)
+                Timber.d("Removed existing GPX track overlay")
             }
 
-            // Notify that GPX track has been displayed (only if it came from parameter)
-            if (importedGpxTrack != null) {
-                onGpxTrackDisplayed()
+            // Create new GPX track overlay in BLACK
+            val gpxOverlay = Polyline().apply {
+                setPoints(track.points)
+                color = android.graphics.Color.BLACK
+                width = 8f
+                title = "Track: ${track.filename}"
+                paint.alpha = 200
+            }
+
+            // Add the GPX overlay to the map (add it first so live track appears on top)
+            mapView.overlays.add(0, gpxOverlay)
+            gpxTrackOverlayRef.value = gpxOverlay
+            currentImportedTrack = track
+
+            // Center map on the imported track only if not recording or if it's a new track
+            if (track.points.isNotEmpty() && (!isRecording || currentImportedTrack?.filename != track.filename)) {
+                val minLat = track.points.minOf { it.latitude }
+                val maxLat = track.points.maxOf { it.latitude }
+                val minLon = track.points.minOf { it.longitude }
+                val maxLon = track.points.maxOf { it.longitude }
+
+                val centerLat = (minLat + maxLat) / 2
+                val centerLon = (minLon + maxLon) / 2
+                val center = GeoPoint(centerLat, centerLon)
+
+                // Calculate appropriate zoom level
+                val latDiff = maxLat - minLat
+                val lonDiff = maxLon - minLon
+                val maxDiff = maxOf(latDiff, lonDiff)
+
+                val zoomLevel = when {
+                    maxDiff > 1.0 -> 8.0
+                    maxDiff > 0.1 -> 10.0
+                    maxDiff > 0.01 -> 12.0
+                    maxDiff > 0.001 -> 14.0
+                    else -> 16.0
+                }
+
+                mapView.controller.setCenter(center)
+                mapView.controller.setZoom(zoomLevel)
+
+                // Disable auto-follow when displaying imported track (unless recording)
+                if (!isRecording) {
+                    isFollowingLocation = false
+                    saveAutoFollowState(false)
+                }
+
+                Timber.d("Displayed track, centered at $center, zoom $zoomLevel")
+            }
+
+            mapView.invalidate()
+        }
+    }
+
+    // Function to clear all tracks from map
+    fun clearAllTracksFromMap() {
+        mapViewRef.value?.let { mapView ->
+            // Clear GPX track overlay
+            gpxTrackOverlayRef.value?.let { overlay ->
+                mapView.overlays.remove(overlay)
+                Timber.d("Removed GPX track overlay")
+            }
+            gpxTrackOverlayRef.value = null
+            currentImportedTrack = null
+
+            // Clear live recording path
+            pathTracker.clearPath(mapView)
+
+            mapView.invalidate()
+            Timber.d("Cleared all tracks from map")
+        }
+
+        // Clear persistence
+        GpxPersistenceUtil.clearImportedGpxTrack(context)
+    }
+
+    // UPDATED: Efficient track monitoring using timestamp
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (isMapInitialized) {
+                val currentTimestamp = GpxPersistenceUtil.getTrackTimestamp(context)
+
+                // Only check for changes if timestamp has changed
+                if (currentTimestamp != lastTrackTimestamp.value) {
+                    lastTrackTimestamp.value = currentTimestamp
+
+                    val persistedTrack = GpxPersistenceUtil.loadImportedGpxTrack(context)
+
+                    when {
+                        persistedTrack == null && currentImportedTrack != null -> {
+                            // Track was cleared, remove it from map
+                            Timber.d("Persisted track cleared, removing from map")
+                            mapViewRef.value?.let { mapView ->
+                                gpxTrackOverlayRef.value?.let { overlay ->
+                                    mapView.overlays.remove(overlay)
+                                }
+                                mapView.invalidate()
+                            }
+                            gpxTrackOverlayRef.value = null
+                            currentImportedTrack = null
+                        }
+                        persistedTrack != null &&
+                                (currentImportedTrack == null ||
+                                        persistedTrack.filename != currentImportedTrack!!.filename) -> {
+                            // New or different track, load it
+                            Timber.d("Loading/updating track: ${persistedTrack.filename}")
+                            displayTrackOnMap(persistedTrack)
+                        }
+                    }
+                }
+            }
+            delay(500) // Check every 500ms for more responsive updates
+        }
+    }
+
+    // UPDATED: Simplified initial loading
+    LaunchedEffect(isMapInitialized) {
+        if (isMapInitialized) {
+            // Initialize the timestamp tracking
+            lastTrackTimestamp.value = GpxPersistenceUtil.getTrackTimestamp(context)
+
+            val persistedTrack = GpxPersistenceUtil.loadImportedGpxTrack(context)
+            if (persistedTrack != null && currentImportedTrack == null) {
+                Timber.d("Loading persisted track on initialization: ${persistedTrack.filename}")
+                delay(200)
+                displayTrackOnMap(persistedTrack)
             }
         }
     }
@@ -367,7 +441,7 @@ fun MapScreen(
                 // Create new route overlay
                 val routeOverlay = Polyline().apply {
                     setPoints(routeToDisplay)
-                    color = android.graphics.Color.RED // Use red color to distinguish from recording path and GPX
+                    color = android.graphics.Color.RED
                     width = 8f
                     title = "Event Route"
                 }
@@ -378,18 +452,15 @@ fun MapScreen(
 
                 // Center map on the route
                 if (routeToDisplay.isNotEmpty()) {
-                    // Calculate bounding box of the route
                     val minLat = routeToDisplay.minOf { it.latitude }
                     val maxLat = routeToDisplay.maxOf { it.latitude }
                     val minLon = routeToDisplay.minOf { it.longitude }
                     val maxLon = routeToDisplay.maxOf { it.longitude }
 
-                    // Center on the route
                     val centerLat = (minLat + maxLat) / 2
                     val centerLon = (minLon + maxLon) / 2
                     val center = GeoPoint(centerLat, centerLon)
 
-                    // Calculate appropriate zoom level
                     val latDiff = maxLat - minLat
                     val lonDiff = maxLon - minLon
                     val maxDiff = maxOf(latDiff, lonDiff)
@@ -411,12 +482,12 @@ fun MapScreen(
 
                     mapView.invalidate()
 
-                    Timber.d("Displayed route with ${routeToDisplay.size} points, centered at $center, zoom $zoomLevel")
+                    Timber.d("Displayed route with ${routeToDisplay.size} points")
                 }
             }
 
             // Notify that route has been displayed
-            onRouteDisplayed?.invoke()
+            onRouteDisplayed()
         }
     }
 
@@ -437,7 +508,6 @@ fun MapScreen(
                     mapViewRef.value?.let { mapView ->
                         val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
 
-                        // Set ignoring flag BEFORE any programmatic movement for logging
                         ignoringScrollEvents = true
 
                         if (hasInitializedMapCenter) {
@@ -450,7 +520,6 @@ fun MapScreen(
                             Timber.d("Auto-follow: initial center at $newLocation")
                         }
 
-                        // Ensure overlay is also following
                         locationOverlayRef.value?.let { overlay ->
                             if (!overlay.isFollowLocationEnabled) {
                                 overlay.enableFollowLocation()
@@ -458,15 +527,14 @@ fun MapScreen(
                             }
                         }
 
-                        // Reset ignoring flag after a delay
                         Handler(Looper.getMainLooper()).postDelayed({
                             ignoringScrollEvents = false
                             Timber.d("Re-enabled scroll event handling after location update")
-                        }, 300) // Reduced delay since we're not using this for protection anymore
+                        }, 300)
                     }
                 }
 
-                // Handle path updates when recording (not when following others)
+                // Handle path updates when recording
                 if (showPath && currentEventId.value > 0 && isRecording && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
                         pathTracker.updatePathForViewport(mapView)
@@ -630,7 +698,7 @@ fun MapScreen(
         }
     }
 
-    // Monitor recording state changes
+    // Monitor recording state changes - with track cleanup when recording stops
     LaunchedEffect(Unit) {
         while (true) {
             val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
@@ -644,6 +712,13 @@ fun MapScreen(
 
             if (isRecording != newIsRecording) {
                 Timber.d("Recording state changed from $isRecording to $newIsRecording")
+
+                // If recording stopped, clear all tracks
+                if (isRecording && !newIsRecording) {
+                    Timber.d("Recording stopped - clearing all tracks")
+                    clearAllTracksFromMap()
+                }
+
                 isRecording = newIsRecording
                 pathTracker.setRecording(newIsRecording)
             }
@@ -800,7 +875,7 @@ fun MapScreen(
 
                         runOnFirstFix {
                             Handler(Looper.getMainLooper()).post {
-                                if (!hasInitializedMapCenter && displayedRoute == null && importedGpxTrack == null) {
+                                if (!hasInitializedMapCenter && displayedRoute == null && currentImportedTrack == null) {
                                     val location = myLocation
                                     if (location != null) {
                                         lastKnownLocation.value = location
@@ -837,7 +912,6 @@ fun MapScreen(
                     }
 
                     // Touch-based scroll detection for auto-follow
-                    // Set up touch listener to detect user interaction
                     setOnTouchListener { _, event ->
                         when (event.action) {
                             android.view.MotionEvent.ACTION_DOWN -> {
@@ -845,7 +919,7 @@ fun MapScreen(
                                 Timber.d("Touch detected - potential manual interaction")
                             }
                         }
-                        false // Don't consume the event
+                        false
                     }
 
                     addMapListener(object : MapListener {
@@ -855,15 +929,12 @@ fun MapScreen(
 
                             Timber.d("Scroll event: isFollowing=$isFollowingLocation, timeSinceTouch=${timeSinceLastTouch}ms")
 
-                            // REVOLUTIONARY APPROACH: Only disable auto-follow if there was a recent touch event
                             if (isFollowingLocation && timeSinceLastTouch < 1000) {
-                                // Only disable if user touched the screen within the last second
                                 locationOverlayRef.value?.disableFollowLocation()
                                 isFollowingLocation = false
                                 saveAutoFollowState(false)
                                 Timber.d("Touch-based manual scroll detected - disabled auto-follow")
                             } else if (isFollowingLocation) {
-                                // Scroll event without recent touch - likely automatic, ignore
                                 Timber.d("Scroll event without recent touch - keeping auto-follow active")
                             }
 
@@ -880,12 +951,28 @@ fun MapScreen(
                             return true
                         }
                     })
+
+                    // Mark map as initialized after a short delay to ensure everything is set up
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        isMapInitialized = true
+                        Timber.d("Map initialization completed")
+
+                        // If we have a current track, redisplay it after map is initialized
+                        currentImportedTrack?.let { track ->
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                if (gpxTrackOverlayRef.value == null) {
+                                    Timber.d("Redisplaying existing track after map reinitialization")
+                                    displayTrackOnMap(track)
+                                }
+                            }, 100)
+                        }
+                    }, 300)
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // NEW: GPX Track Display Indicator
+        // Track Display Indicator
         if (currentImportedTrack != null) {
             Surface(
                 modifier = Modifier
@@ -901,39 +988,35 @@ fun MapScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.MyLocation,
-                        contentDescription = "GPX Track",
+                        contentDescription = "Track Overlay",
                         tint = Color.White,
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "GPX: ${currentImportedTrack?.filename} (${currentImportedTrack?.points?.size ?: 0} pts)",
+                        text = "Track: ${currentImportedTrack?.filename} (${currentImportedTrack?.points?.size ?: 0} pts)",
                         color = Color.White,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = {
-                            // Clear the imported GPX track
-                            mapViewRef.value?.let { mapView ->
-                                gpxTrackOverlayRef.value?.let { overlay ->
-                                    mapView.overlays.remove(overlay)
-                                    mapView.invalidate()
-                                }
-                            }
-                            currentImportedTrack = null
-                            gpxTrackOverlayRef.value = null
-                            Timber.d("Cleared imported GPX track")
-                        },
-                        modifier = Modifier.size(24.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = "Clear GPX Track",
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp)
-                        )
+                    // Only show close button when not recording
+                    if (!isRecording) {
+                        IconButton(
+                            onClick = {
+                                // Clear all tracks
+                                clearAllTracksFromMap()
+                                Timber.d("Manually cleared all tracks")
+                            },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear Track",
+                                tint = Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -944,7 +1027,7 @@ fun MapScreen(
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = if (currentImportedTrack != null) 80.dp else 16.dp), // Adjust position if GPX indicator is shown
+                    .padding(top = if (currentImportedTrack != null) 80.dp else 16.dp),
                 shape = RoundedCornerShape(20.dp),
                 color = Color.Red.copy(alpha = 0.9f),
                 shadowElevation = 4.dp
@@ -1095,7 +1178,7 @@ fun MapScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
-            // My Location button (moved from top right) - always visible
+            // My Location button
             Surface(
                 modifier = Modifier.size(56.dp),
                 shape = CircleShape,
@@ -1130,8 +1213,7 @@ fun MapScreen(
             // Follow Users button - only show when not recording
             if (!isRecording) {
                 Surface(
-                    modifier = Modifier
-                        .size(56.dp),
+                    modifier = Modifier.size(56.dp),
                     shape = CircleShape,
                     color = if (followingState.isFollowing) Color.Blue else Color.Gray,
                     shadowElevation = 8.dp,
@@ -1163,8 +1245,7 @@ fun MapScreen(
             // Recording controls
             if (!isRecording && !followingState.isFollowing) {
                 Surface(
-                    modifier = Modifier
-                        .size(56.dp),
+                    modifier = Modifier.size(56.dp),
                     shape = CircleShape,
                     color = Color.Red,
                     shadowElevation = 8.dp,
@@ -1192,8 +1273,7 @@ fun MapScreen(
                 }
             } else if (isRecording && !followingState.isFollowing) {
                 Surface(
-                    modifier = Modifier
-                        .size(56.dp),
+                    modifier = Modifier.size(56.dp),
                     shape = CircleShape,
                     color = Color.Gray,
                     shadowElevation = 8.dp,
@@ -1220,8 +1300,7 @@ fun MapScreen(
                                     .putBoolean("is_recording", false)
                                     .apply()
 
-                                isRecording = false
-
+                                // Stop the service
                                 val stopIntent = Intent(context, ForegroundService::class.java)
                                 stopIntent.putExtra("stopping_intentionally", true)
                                 context.stopService(stopIntent)
@@ -1231,11 +1310,16 @@ fun MapScreen(
                                     .putBoolean("was_running", false)
                                     .apply()
 
+                                // Clear all tracks immediately
+                                clearAllTracksFromMap()
+
+                                // Update local state
+                                isRecording = false
+
                                 val intent = Intent(context, BackgroundLocationService::class.java)
                                 context.startService(intent)
 
-                                Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT)
-                                    .show()
+                                Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT).show()
                             }
                     ) {
                         Icon(
@@ -1268,7 +1352,6 @@ fun MapScreen(
             onPrecisionModeChanged = { mode ->
                 followingService.setTrailPrecision(mode)
 
-                // Optional: Show toast to confirm change
                 Toast.makeText(
                     context,
                     "Trail precision: ${mode.description}",
@@ -1299,7 +1382,7 @@ fun MapScreen(
                 Button(
                     onClick = {
                         showSettingsValidationDialog = false
-                        onNavigateToSettings?.invoke()
+                        onNavigateToSettings()
                     }
                 ) {
                     Text("Go to Settings")
@@ -1315,7 +1398,7 @@ fun MapScreen(
         )
     }
 
-    // Recording dialog - UPDATED to handle GPX import
+    // Recording dialog
     if (showRecordingDialog) {
         RecordingDialog(
             gpsStatus = getCurrentGpsStatus(),
@@ -1323,10 +1406,10 @@ fun MapScreen(
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
 
-                // Handle imported GPX track
+                // Handle imported track
                 importedGpx?.let { gpxTrack ->
-                    currentImportedTrack = gpxTrack
-                    Timber.d("Recording started with imported GPX track: ${gpxTrack.filename}")
+                    GpxPersistenceUtil.saveImportedGpxTrack(context, gpxTrack)
+                    Timber.d("Recording started with track: ${gpxTrack.filename}")
                 }
 
                 context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
@@ -1357,13 +1440,10 @@ fun MapScreen(
                     putExtra("start_recording", true)
                     putExtra("enableWebSocketTransfer", enableWebSocketTransfer)
 
-                    // NEW: Add GPX track information
                     importedGpx?.let { gpxTrack ->
                         putExtra("hasImportedGpx", true)
                         putExtra("gpxFilename", gpxTrack.filename)
                         putExtra("gpxPointCount", gpxTrack.points.size)
-                        // Note: For full implementation, you might want to serialize the points
-                        // or save them to a temporary file/database
                     }
 
                     heartRateSensor?.let {
@@ -1373,11 +1453,11 @@ fun MapScreen(
                     }
                 }
                 ContextCompat.startForegroundService(context, intent)
-                Timber.d("Started ForegroundService with event details, WebSocket transfer: $enableWebSocketTransfer, GPX: ${importedGpx?.filename}, and start_recording=true")
+                Timber.d("Started ForegroundService with event details")
 
                 showRecordingDialog = false
 
-                // Recording dialog completion handler
+                // Post-recording setup
                 Handler(Looper.getMainLooper()).postDelayed({
                     val newEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .getInt("active_event_id", -1)
@@ -1388,7 +1468,7 @@ fun MapScreen(
                             pathTracker.setCurrentEventId(newEventId, mapView)
                         }
 
-                        // Restore zoom and center only if no GPX track is imported
+                        // Restore map position if no track is imported
                         if (importedGpx == null) {
                             mapView.controller.setZoom(currentZoomLevel)
                             currentCenter?.let { center ->

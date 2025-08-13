@@ -1,9 +1,7 @@
 package at.co.netconsulting.geotracker.composables
 
 import android.app.DatePickerDialog
-import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +25,7 @@ import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.GpsNotFixed
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -61,15 +60,19 @@ import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.enums.GpsFixStatus
 import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
 import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.yield
 import org.osmdroid.util.GeoPoint
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+import java.io.BufferedInputStream
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
-import kotlinx.coroutines.*
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserFactory
-import java.io.InputStream
-import java.io.BufferedInputStream
 
 private suspend fun parseGpxFileStreaming(
     inputStream: InputStream,
@@ -191,6 +194,9 @@ fun RecordingDialog(
     var gpxImportProgress by remember { mutableStateOf(GpxImportProgress()) }
     var showGpxImportDialog by remember { mutableStateOf(false) }
 
+    // Track selection dialog state
+    var showTrackSelectionDialog by remember { mutableStateOf(false) }
+
     // WebSocket transfer setting - load from SharedPreferences with default true
     var enableWebSocketTransfer by remember {
         mutableStateOf(
@@ -275,6 +281,24 @@ fun RecordingDialog(
         )
     }
 
+    // Track Selection Dialog
+    if (showTrackSelectionDialog) {
+        TrackSelectionDialog(
+            onTrackSelected = { track ->
+                importedGpxTrack = track
+                showTrackSelectionDialog = false
+                android.widget.Toast.makeText(
+                    context,
+                    "Track selected: ${track.filename}",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            },
+            onDismiss = {
+                showTrackSelectionDialog = false
+            }
+        )
+    }
+
     // GPX Import Progress Dialog
     if (showGpxImportDialog) {
         AlertDialog(
@@ -324,7 +348,7 @@ fun RecordingDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(800.dp) // Increased height to accommodate GPX import
+                    .height(800.dp) // Increased height to accommodate track selection
                     .verticalScroll(rememberScrollState())
             ) {
                 // GPS Status Card
@@ -386,7 +410,7 @@ fun RecordingDialog(
                     }
                 }
 
-                // GPX Import Card
+                // Track Import/Selection Card - UPDATED
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -395,61 +419,83 @@ fun RecordingDialog(
                         containerColor = if (importedGpxTrack != null) Color(0xFFE8F5E8) else Color(0xFFF5F5F5)
                     )
                 ) {
-                    Row(
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(12.dp)
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.FileOpen,
-                                contentDescription = "GPX Import",
+                                imageVector = if (importedGpxTrack != null) Icons.Default.MyLocation else Icons.Default.FileOpen,
+                                contentDescription = "Track Import",
                                 tint = if (importedGpxTrack != null) Color(0xFF4CAF50) else Color.Gray,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Import GPX Track",
+                                    text = "Track Overlay",
                                     fontWeight = FontWeight.Medium
                                 )
                                 Text(
                                     text = importedGpxTrack?.let {
                                         "${it.filename} (${it.points.size} points)"
-                                    } ?: "Supports large files",
+                                    } ?: "Import GPX file or select existing track",
                                     fontSize = 12.sp,
                                     color = Color.Gray
                                 )
                             }
                         }
-                        Column(
-                            horizontalAlignment = Alignment.End
-                        ) {
-                            if (importedGpxTrack != null) {
-                                OutlinedButton(
-                                    onClick = { importedGpxTrack = null },
-                                    modifier = Modifier.height(36.dp)
-                                ) {
-                                    Text("Remove", fontSize = 12.sp)
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                            }
-                            Button(
-                                onClick = {
-                                    gpxFilePicker.launch("application/gpx+xml")
-                                },
-                                enabled = !gpxImportProgress.isImporting,
-                                modifier = Modifier.height(36.dp)
+
+                        if (importedGpxTrack != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { importedGpxTrack = null },
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = if (importedGpxTrack == null) "Choose File" else "Replace",
-                                    fontSize = 12.sp
-                                )
+                                Text("Remove Track", fontSize = 14.sp)
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Two buttons for import options
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        gpxFilePicker.launch("application/gpx+xml")
+                                    },
+                                    enabled = !gpxImportProgress.isImporting,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FileOpen,
+                                        contentDescription = "Import GPX",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Import GPX", fontSize = 12.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        showTrackSelectionDialog = true
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MyLocation,
+                                        contentDescription = "Select Track",
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Select Track", fontSize = 12.sp)
+                                }
                             }
                         }
                     }
@@ -659,7 +705,7 @@ fun RecordingDialog(
                     // Save imported GPX track to persistent storage before starting recording
                     if (importedGpxTrack != null) {
                         GpxPersistenceUtil.saveImportedGpxTrack(context, importedGpxTrack)
-                        android.util.Log.d("RecordingDialog", "Saved GPX track to persistence: ${importedGpxTrack!!.filename}")
+                        android.util.Log.d("RecordingDialog", "Saved track to persistence: ${importedGpxTrack!!.filename}")
                     }
 
                     onSave(

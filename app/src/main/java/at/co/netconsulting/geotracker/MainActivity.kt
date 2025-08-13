@@ -48,7 +48,6 @@ import at.co.netconsulting.geotracker.composables.BottomSheetContent
 import at.co.netconsulting.geotracker.composables.CompetitionsScreen
 import at.co.netconsulting.geotracker.composables.EditEventScreen
 import at.co.netconsulting.geotracker.composables.EventsScreen
-import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.composables.MapScreen
 import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
@@ -117,9 +116,6 @@ class MainActivity : ComponentActivity() {
     private val backgroundLocationPermission = Manifest.permission.ACCESS_BACKGROUND_LOCATION
     private val FOREGROUND_PERMISSION_REQUEST_CODE = 1001
     private val BACKGROUND_PERMISSION_REQUEST_CODE = 1002
-
-    // import GPX track in RecordingDialog, used as overlay
-    private val importedGpxTrackState = mutableStateOf<ImportedGpxTrack?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -492,11 +488,9 @@ class MainActivity : ComponentActivity() {
                                     routeToDisplay.value = null
                                 },
                                 getCurrentGpsStatus = { currentGpsStatus }, // Pass GPS status function
-                                importedGpxTrack = importedGpxTrackState.value,
+                                // REMOVED: No longer pass importedGpxTrack parameter since using persistence
                                 onGpxTrackDisplayed = {
-                                    // DON'T clear the imported GPX track here anymore - let persistence handle it
-                                    // Only clear the state to prevent re-processing
-                                    importedGpxTrackState.value = null
+                                    // No longer needed since tracks are persisted
                                 }
                             )
                             1 -> StatisticsScreen()
@@ -741,12 +735,18 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         EventBus.getDefault().unregister(this)
 
-        // Optional: Clean up GPX persistence if app is destroyed while not recording
+        // UPDATED: Only clear track persistence if recording is not active
+        // This ensures tracks persist properly when switching tabs or closing app during recording
         val isRecording = getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
             .getBoolean("is_recording", false)
 
         if (!isRecording) {
+            // Only clear persisted track if not recording
             GpxPersistenceUtil.clearImportedGpxTrack(this)
+            Log.d("MainActivity", "Cleared track persistence - not recording")
+        } else {
+            // Preserve track during recording
+            Log.d("MainActivity", "Preserving track persistence - recording active")
         }
     }
 }
