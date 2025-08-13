@@ -140,6 +140,9 @@ class CustomLocationListener: LocationListener {
     private var currentAltitudeFromPressure: Float = 0f
     private var currentSeaLevelPressure: Float = 1013.25f
 
+    // websocket server transfer
+    private var enableWebSocketTransfer: Boolean = true
+
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -305,6 +308,10 @@ class CustomLocationListener: LocationListener {
         minTimeBetweenUpdates = minTimeSeconds * 1000L
         minDistanceBetweenUpdates = minDistanceMeters.toFloat()
 
+        // enable websocket server transfer
+        enableWebSocketTransfer = sharedPreferences.getBoolean("enable_websocket_transfer", true)
+
+        Log.d(TAG_WEBSOCKET, "WebSocket transfer enabled: $enableWebSocketTransfer")
         Log.d(
             TAG_WEBSOCKET,
             "Loaded location update settings: minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m"
@@ -655,10 +662,16 @@ class CustomLocationListener: LocationListener {
             return
         }
 
+        // Check if WebSocket transfer is disabled
+        if (!enableWebSocketTransfer) {
+            Log.d(TAG_WEBSOCKET, "WebSocket transfer disabled by user - not sending data")
+            return
+        }
+
         Log.d(TAG_WEBSOCKET, "Preparing to send data with heart rate: ${metrics.heartRate} from device: ${metrics.heartRateDevice}")
         Log.d(TAG_WEBSOCKET, "Weather data: temp=${metrics.temperature}°C, humidity=${metrics.relativeHumidity}%, wind=${metrics.windSpeed}km/h")
 
-        // NEW: Log barometer data
+        // Log barometer data
         Log.d(TAG_WEBSOCKET, "Barometer data: pressure=${metrics.pressure}hPa, altitude=${metrics.altitudeFromPressure}m, accuracy=${metrics.pressureAccuracy}, sea_level=${metrics.seaLevelPressure}hPa")
 
         // Convert metrics to JSON using a properly configured Gson instance
