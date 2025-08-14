@@ -1291,6 +1291,30 @@ function handleHistoryBatch(points) {
             trackPoints[sessionId] = [];
         }
 
+        // Enhanced timestamp parsing to handle multiple formats
+        let timestamp;
+        try {
+            if (point.timestamp.includes('T')) {
+                // ISO format from Android device (e.g., "2025-08-13T19:02:27.822717")
+                timestamp = new Date(point.timestamp);
+            } else if (point.timestamp.includes('-') && point.timestamp.match(/\d{2}-\d{2}-\d{4}/)) {
+                // DD-MM-YYYY HH:mm:ss format from server
+                timestamp = new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'));
+            } else {
+                // Try parsing as-is (fallback)
+                timestamp = new Date(point.timestamp);
+            }
+
+            // Validate the parsed timestamp
+            if (isNaN(timestamp.getTime())) {
+                throw new Error('Invalid timestamp');
+            }
+        } catch (e) {
+            console.warn('Error parsing timestamp:', point.timestamp, e);
+            timestamp = new Date(); // Fallback to current time
+            addDebugMessage(`Failed to parse timestamp: ${point.timestamp}, using current time`, 'warning');
+        }
+
         // Convert data types and add to trackPoints - WITH WEATHER AND BAROMETER DATA
         const processedPoint = {
             lat: parseFloat(point.latitude),
@@ -1301,7 +1325,7 @@ function handleHistoryBatch(points) {
             averageSpeed: parseFloat(point.averageSpeed || 0),
             cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
             heartRate: parseInt(point.heartRate || 0),
-            timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+            timestamp: timestamp,
             personName: personName,
 
             // Weather data
@@ -1324,7 +1348,8 @@ function handleHistoryBatch(points) {
             temperature: processedPoint.temperature,
             windSpeed: processedPoint.windSpeed,
             pressure: processedPoint.pressure,
-            altitudeFromPressure: processedPoint.altitudeFromPressure
+            altitudeFromPressure: processedPoint.altitudeFromPressure,
+            timestamp: processedPoint.timestamp.toISOString()
         });
 
         // Validate and track weather data
@@ -1389,6 +1414,30 @@ function handlePoint(data) {
         sessionPersonNames[sessionId] = personName;
     }
 
+    // Enhanced timestamp parsing to handle multiple formats
+    let timestamp;
+    try {
+        if (data.timestamp.includes('T')) {
+            // ISO format from Android device (e.g., "2025-08-13T19:02:27.822717")
+            timestamp = new Date(data.timestamp);
+        } else if (data.timestamp.includes('-') && data.timestamp.match(/\d{2}-\d{2}-\d{4}/)) {
+            // DD-MM-YYYY HH:mm:ss format from server
+            timestamp = new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1'));
+        } else {
+            // Try parsing as-is (fallback)
+            timestamp = new Date(data.timestamp);
+        }
+
+        // Validate the parsed timestamp
+        if (isNaN(timestamp.getTime())) {
+            throw new Error('Invalid timestamp');
+        }
+    } catch (e) {
+        console.warn('Error parsing timestamp:', data.timestamp, e);
+        timestamp = new Date(); // Fallback to current time
+        addDebugMessage(`Failed to parse timestamp: ${data.timestamp}, using current time`, 'warning');
+    }
+
     const processedPoint = {
         lat: parseFloat(data.latitude),
         lng: parseFloat(data.longitude),
@@ -1400,7 +1449,7 @@ function handlePoint(data) {
         movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
         heartRate: parseInt(data.heartRate || 0),
-        timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+        timestamp: timestamp,
         personName: personName,
 
         // Weather data
@@ -1411,12 +1460,19 @@ function handlePoint(data) {
         weatherCode: parseInt(data.weatherCode || 0),
         weatherTime: data.weatherTime || "",
 
-        // BAROMETER DATA - ADDED
+        // Barometer data
         pressure: parseFloat(data.pressure || 0),
         altitudeFromPressure: parseFloat(data.altitudeFromPressure || 0),
         seaLevelPressure: parseFloat(data.seaLevelPressure || 0),
         pressureAccuracy: parseInt(data.pressureAccuracy || 0)
     };
+
+    console.log('🕐 Processed timestamp:', {
+        original: data.timestamp,
+        parsed: processedPoint.timestamp.toISOString(),
+        displayTime: processedPoint.timestamp.toLocaleTimeString(),
+        displayDate: processedPoint.timestamp.toLocaleDateString()
+    });
 
     // Validate and track weather data
     validateWeatherData(processedPoint);

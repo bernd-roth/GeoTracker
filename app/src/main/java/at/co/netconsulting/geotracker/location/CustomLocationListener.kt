@@ -1309,7 +1309,7 @@ class CustomLocationListener: LocationListener {
         return oldLatitude != -999.0 && oldLongitude != -999.0
     }
 
-    // UPDATED METHOD: Create metrics with current weather data for immediate updates
+    // Create metrics with current weather data for immediate updates
     private fun createMetricsWithCurrentData(): Metrics {
         return Metrics(
             latitude = oldLatitude,
@@ -1319,6 +1319,7 @@ class CustomLocationListener: LocationListener {
             coveredDistance = coveredDistance,
             lap = lap,
             startDateTime = startDateTime,
+            currentDateTime = LocalDateTime.now(),
             averageSpeed = averageSpeed,
             maxSpeed = maxSpeed,
             movingAverageSpeed = movingAverageSpeed,
@@ -1366,6 +1367,7 @@ class CustomLocationListener: LocationListener {
             coveredDistance = coveredDistance,
             lap = lap,
             startDateTime = startDateTime,
+            currentDateTime = LocalDateTime.now(),
             averageSpeed = averageSpeed,
             maxSpeed = maxSpeed,
             movingAverageSpeed = movingAverageSpeed,

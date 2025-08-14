@@ -1430,51 +1430,48 @@ class TrackingServer:
         )
 
     def create_tracking_point(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Create a tracking point with current timestamp and smart session management."""
-        
+        """Create a tracking point with timestamp from Android device and smart session management."""
+
         original_session_id = message_data.get('sessionId')
         if not original_session_id:
             logging.error("No sessionId provided in message")
             return None
-            
+
         # Validate coordinates first
         latitude = float(message_data.get('latitude', -999))
         longitude = float(message_data.get('longitude', -999))
-        
+
         is_valid, reason = self.validate_gps_coordinates(latitude, longitude)
         if not is_valid:
             logging.warning(f"Invalid coordinates for session {original_session_id}: {reason}")
-            
-            # IMPORTANT: For invalid coordinates, we still want to:
-            # 1. Update session activity (so it doesn't timeout)
-            # 2. Process other valid data (speed, heart rate, etc.)
-            # 3. But we DON'T create a map point or update session detection
-            
+
             # Mark session as active to prevent timeout
             was_active = original_session_id in self.active_sessions
             self.active_sessions.add(original_session_id)
             self.last_activity[original_session_id] = datetime.datetime.now()
-            
+
             if not was_active:
                 logging.info(f"Session {original_session_id} kept ACTIVE despite invalid coordinates")
-            
-            # Return a special "invalid coordinates" marker that frontend can handle
+
+            # Get timestamp from Android device or use current time as fallback
+            android_timestamp = self.parse_android_timestamp(message_data)
+
             return {
-                "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
+                "timestamp": android_timestamp.strftime(self.timestamp_format),
                 "sessionId": original_session_id,
                 "invalidCoordinates": True,
                 "reason": reason,
-                **message_data  # Include all other data (speed, heart rate, etc.)
+                **message_data  # Include all other data
             }
-        
+
         # Check if session should be reset (only for valid coordinates)
         should_reset = self.session_detector.should_reset_session(original_session_id, message_data)
-        
+
         # Determine actual session ID to use
         if should_reset:
             # Create new session ID
             actual_session_id = self.session_detector.create_new_session_id(original_session_id)
-            
+
             # Clean up old session data in memory
             if original_session_id in self.tracking_history:
                 logging.info(f"Moving {len(self.tracking_history[original_session_id])} points from {original_session_id} to archive")
@@ -1482,26 +1479,26 @@ class TrackingServer:
                 archive_key = f"{original_session_id}_archived_{int(time.time())}"
                 self.tracking_history[archive_key] = self.tracking_history[original_session_id].copy()
                 self.tracking_history[original_session_id] = []
-                
+
             # Reset session tracking
             self.session_detector.reset_session_tracking(original_session_id)
-            
+
             # Remove from active sessions
             if original_session_id in self.active_sessions:
                 self.active_sessions.remove(original_session_id)
-                
+
             # Update the message data with new session ID
             message_data = message_data.copy()  # Don't modify original
             message_data['sessionId'] = actual_session_id
-            
+
             logging.info(f"SESSION RESET APPLIED: {original_session_id} -> {actual_session_id}")
-            
+
         else:
             actual_session_id = original_session_id
-        
+
         # Update session tracking data (only for valid coordinates)
         self.session_detector.update_session_data(actual_session_id, message_data)
-        
+
         # Mark session as active
         was_active = actual_session_id in self.active_sessions
         self.active_sessions.add(actual_session_id)
@@ -1510,9 +1507,12 @@ class TrackingServer:
         if not was_active:
             logging.info(f"Session {actual_session_id} became ACTIVE - total active: {len(self.active_sessions)}")
 
-        # Create base tracking point with all fields including weather and barometer
+        # Get timestamp from Android device
+        android_timestamp = self.parse_android_timestamp(message_data)
+
+        # Create base tracking point with Android timestamp
         tracking_point = {
-            "timestamp": datetime.datetime.now().strftime(self.timestamp_format),
+            "timestamp": android_timestamp.strftime(self.timestamp_format),
             **message_data,  # This now contains the actual_session_id
             "currentSpeed": float(message_data["currentSpeed"]),
             "maxSpeed": float(message_data["maxSpeed"]),
@@ -1566,6 +1566,39 @@ class TrackingServer:
             tracking_point["seaLevelPressure"] = float(message_data["seaLevelPressure"])
 
         return tracking_point
+
+    def parse_android_timestamp(self, message_data: Dict[str, Any]) -> datetime.datetime:
+        """Parse timestamp from Android device, with fallback to current time."""
+        try:
+            # Try to get currentDateTime first (new field)
+            if 'currentDateTime' in message_data:
+                timestamp_str = message_data['currentDateTime']
+                # Handle ISO format from Android LocalDateTime
+                if 'T' in timestamp_str:
+                    return datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                else:
+                    # Handle custom format if needed
+                    return datetime.datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+
+            # Fallback to formatted timestamp if available
+            if 'formattedTimestamp' in message_data:
+                timestamp_str = message_data['formattedTimestamp']
+                return datetime.datetime.strptime(timestamp_str, '%d-%m-%Y %H:%M:%S')
+
+            # Fallback to startDateTime if available
+            if 'startDateTime' in message_data:
+                timestamp_str = message_data['startDateTime']
+                if 'T' in timestamp_str:
+                    return datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+
+            # Last resort: use current server time
+            logging.warning("No valid timestamp found in message data, using server time")
+            return datetime.datetime.now()
+
+        except Exception as e:
+            logging.error(f"Error parsing Android timestamp: {e}")
+            # Fallback to current server time
+            return datetime.datetime.now()
 
     def update_active_sessions(self) -> None:
         """Update the list of active sessions based on recent activity."""

@@ -1,6 +1,8 @@
 package at.co.netconsulting.geotracker.data
 
 import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 data class Metrics(
     val latitude: Double,
@@ -16,6 +18,12 @@ data class Metrics(
     val averageSpeed: Double = 0.0,
     val maxSpeed: Double = 0.0,
     val cumulativeElevationGain: Double = 0.0,
+
+    // Current timestamp for this data point
+    val currentDateTime: LocalDateTime = LocalDateTime.now(),
+
+    // Timezone offset in hours (e.g., +2 for CEST, +10 for AEST)
+    val timezoneOffsetHours: Int = ZoneOffset.systemDefault().rules.getOffset(LocalDateTime.now()).totalSeconds / 3600,
 
     // WebSocket server fields
     val sessionId: String = "",
@@ -68,4 +76,17 @@ data class Metrics(
 
     // Satellites
     val satellites: Int? = null
-)
+) {
+
+    // Helper function to format timestamp for server (dd-MM-yyyy HH:mm:ss)
+    fun getFormattedTimestamp(): String {
+        val formatter = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")
+        return currentDateTime.format(formatter)
+    }
+
+    // Helper function to get timezone info
+    fun getTimezoneInfo(): String {
+        val offset = if (timezoneOffsetHours >= 0) "+$timezoneOffsetHours" else "$timezoneOffsetHours"
+        return "UTC$offset"
+    }
+}

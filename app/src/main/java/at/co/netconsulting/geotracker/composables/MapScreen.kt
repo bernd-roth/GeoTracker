@@ -411,7 +411,7 @@ fun MapScreen(
         }
     }
 
-    // UPDATED: Simplified initial loading
+    // Simplified initial loading
     LaunchedEffect(isMapInitialized) {
         if (isMapInitialized) {
             // Initialize the timestamp tracking
