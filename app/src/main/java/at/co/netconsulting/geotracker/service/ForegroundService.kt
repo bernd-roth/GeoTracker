@@ -938,16 +938,6 @@ class ForegroundService : Service() {
         }
     }
 
-    private fun checkLatitudeLongitudeDuplicates(): Boolean {
-        val isLatitudeSame = latitude.compareTo(oldLatitude) == 0
-        val isLongitudeSame = longitude.compareTo(oldLongitude) == 0
-
-        oldLatitude = latitude
-        oldLongitude = longitude
-
-        return !isLatitudeSame || !isLongitudeSame
-    }
-
     private fun checkLatitudeLongitude(): Boolean {
         return latitude != -999.0 && longitude != -999.0
     }
@@ -1725,13 +1715,6 @@ class ForegroundService : Service() {
                 }
             }
         }
-    }
-
-    private fun updateLocationListenerHeartRate() {
-        // Make sure to update CustomLocationListener with the latest heart rate data
-        customLocationListener?.updateHeartRate(currentHeartRate, heartRateDeviceName ?: "")
-
-        Log.d(TAG, "Updated CustomLocationListener with heart rate: $currentHeartRate from device: $heartRateDeviceName")
     }
 
     companion object {
