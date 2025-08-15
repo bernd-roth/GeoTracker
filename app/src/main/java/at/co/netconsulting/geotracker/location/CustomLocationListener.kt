@@ -728,25 +728,6 @@ class CustomLocationListener: LocationListener {
         }
     }
 
-    private fun calculateDistance(location: Location): Pair<Double, Double> {
-        val distanceIncrement: Double
-        if (oldLatitude != -999.0 && oldLongitude != -999.0) {
-            distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
-                oldLatitude,
-                oldLongitude,
-                location.latitude,
-                location.longitude
-            )
-            coveredDistance += distanceIncrement
-        } else {
-            distanceIncrement = 0.0
-        }
-        oldLatitude = location.latitude
-        oldLongitude = location.longitude
-        Log.d("CustomLocationListener", "Distance Increment: $distanceIncrement")
-        return Pair(coveredDistance, distanceIncrement)
-    }
-
     private fun calculateLap(distanceIncrement: Double): Int {
         lapCounter += distanceIncrement
         val lapsToAdd = (lapCounter / 1000).toInt()
@@ -771,106 +752,6 @@ class CustomLocationListener: LocationListener {
         )
         Log.d("CustomLocationListener", "Distance Increment: ${result[0]}")
         return result[0].toDouble()
-    }
-
-    private fun checkSpeed(speed: Float): Boolean {
-        Log.d("CustomLocationListener", "Speed: $speed m/s")
-        val thresholdInMetersPerSecond = MIN_SPEED_THRESHOLD / 3.6
-
-        return speed >= thresholdInMetersPerSecond
-    }
-
-    fun sendTestDataToWebSocketServer(context: Context) {
-        val websocketserver = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-            .getString("websocketserver", "0.0.0.0") ?: "0.0.0.0"
-
-        if (websocketserver == "0.0.0.0") {
-            Log.e("WebSocketTest", "WebSocket server not configured")
-            Toast.makeText(context, "WebSocket server not configured", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        Log.d("WebSocketTest", "Attempting to connect to: ws://$websocketserver:8011/geotracker")
-
-        // Create test metrics data
-        val testMetrics = Metrics(
-            latitude = 48.4855,
-            longitude = 18.3738,
-            speed = 11.5f,
-            speedAccuracyMetersPerSecond = 0.5f,
-            altitude = 170.0,
-            horizontalAccuracy = 3.0f,
-            verticalAccuracyMeters = 5.0f,
-            coveredDistance = 1500.0,
-            lap = 1,
-            startDateTime = LocalDateTime.now(),
-            averageSpeed = 9.8,
-            maxSpeed = 12.5,
-            movingAverageSpeed = 10.0,
-            cumulativeElevationGain = 25.0,
-            sessionId = "test_session_${System.currentTimeMillis()}",
-            person = "Test_User"
-        )
-
-        // Create OkHttp client
-        val client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .build()
-
-        // Create request
-        val request = Request.Builder()
-            .url("ws://$websocketserver:8011/geotracker")
-            .build()
-
-        // Connect to WebSocket and send data
-        val testWebSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d("WebSocketTest", "WebSocket connection opened")
-
-                // Send the test data as JSON
-                val gson = GsonBuilder()
-                    .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
-                    .create()
-                val jsonData = gson.toJson(testMetrics)
-
-                val sent = webSocket.send(jsonData)
-                if (sent) {
-                    Log.d("WebSocketTest", "Test data sent successfully: $jsonData")
-
-                    // Show success toast on main thread
-                    Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(context, "Test data sent to server", Toast.LENGTH_SHORT)
-                            .show()
-                    }
-                } else {
-                    Log.e("WebSocketTest", "Failed to send test data")
-
-                    // Show error toast on main thread
-                    Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(context, "Failed to send test data", Toast.LENGTH_SHORT)
-                            .show()
-                    }
-                }
-
-                // Close the WebSocket after sending data
-                webSocket.close(1000, "Test completed")
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e("WebSocketTest", "WebSocket error: ${t.message}")
-
-                // Show error toast on main thread
-                Handler(Looper.getMainLooper()).post {
-                    Toast.makeText(
-                        context,
-                        "WebSocket connection error: ${t.message}",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
-        })
     }
 
     //moving average speed calculation
@@ -1067,33 +948,6 @@ class CustomLocationListener: LocationListener {
     }
 
     /**
-     * Test the voice announcement system
-     * This can be called from outside to verify that TTS is working
-     */
-    fun testVoiceAnnouncement() {
-        if (!isTtsInitialized) {
-            // Try to initialize if not already done
-            initTextToSpeech()
-            Handler(Looper.getMainLooper()).post {
-                Toast.makeText(context, "Initializing Text-to-Speech...", Toast.LENGTH_SHORT).show()
-            }
-
-            // Wait a moment for initialization
-            Handler(Looper.getMainLooper()).postDelayed({
-                if (isTtsInitialized) {
-                    announceMessage("Voice announcement system is working. You'll receive updates every $voiceAnnouncementInterval kilometers.")
-                } else {
-                    Handler(Looper.getMainLooper()).post {
-                        Toast.makeText(context, "Text-to-Speech initialization failed", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }, 1000)
-        } else {
-            announceMessage("Voice announcement system is working. You'll receive updates every $voiceAnnouncementInterval kilometers.")
-        }
-    }
-
-    /**
      * Resume tracking from a saved state (after service restart)
      * @param savedDistance The previously covered distance
      * @param lastPosition The last known position (latitude, longitude)
@@ -1278,30 +1132,6 @@ class CustomLocationListener: LocationListener {
         currentHeartRate = heartRate
         heartRateDeviceName = deviceName
         Log.d(TAG_WEBSOCKET, "Heart rate updated to $heartRate bpm from device $deviceName")
-    }
-
-    fun updateHeartRate(heartRate: Int, deviceName: String) {
-        currentHeartRate = heartRate
-        heartRateDeviceName = deviceName
-        Log.d(TAG_WEBSOCKET, "Heart rate directly updated to $heartRate bpm from device $deviceName")
-    }
-
-    private fun updateImmediateWebSocketData() {
-        val locationManager = this.context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-
-        if (locationManager != null && checkLatitudeLongitude()) {
-            // Create Metrics object with all current data including heart rate and weather
-            val metrics = createMetricsWithCurrentData()
-
-            // Send immediate update to websocket
-            sendDataToWebsocketServer(metrics)
-            Log.d(TAG_WEBSOCKET, "Sent immediate update to WebSocket with heart rate: $currentHeartRate and weather data")
-
-            // Also post to EventBus for UI updates
-            EventBus.getDefault().post(metrics)
-        } else {
-            Log.d(TAG_WEBSOCKET, "Cannot send immediate update - invalid location data")
-        }
     }
 
     // Helper function to check if we have valid coordinates
