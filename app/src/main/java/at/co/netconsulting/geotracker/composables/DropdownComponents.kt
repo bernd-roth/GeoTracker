@@ -135,7 +135,8 @@ fun VoiceAnnouncementDropdown(
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                 keyboardType = KeyboardType.Number
-            )
+            ),
+            singleLine = true
         )
     }
 }
