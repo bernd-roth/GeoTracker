@@ -1575,6 +1575,8 @@ class TrackingServer:
                 timestamp_str = message_data['currentDateTime']
                 # Handle ISO format from Android LocalDateTime
                 if 'T' in timestamp_str:
+                    # Fix microseconds padding issue
+                    timestamp_str = self.normalize_iso_timestamp(timestamp_str)
                     return datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
                 else:
                     # Handle custom format if needed
@@ -1589,6 +1591,7 @@ class TrackingServer:
             if 'startDateTime' in message_data:
                 timestamp_str = message_data['startDateTime']
                 if 'T' in timestamp_str:
+                    timestamp_str = self.normalize_iso_timestamp(timestamp_str)
                     return datetime.datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
 
             # Last resort: use current server time
@@ -1599,6 +1602,33 @@ class TrackingServer:
             logging.error(f"Error parsing Android timestamp: {e}")
             # Fallback to current server time
             return datetime.datetime.now()
+
+    def normalize_iso_timestamp(self, timestamp_str: str) -> str:
+        """Normalize ISO timestamp to ensure proper microsecond formatting."""
+        try:
+            # Remove timezone info for processing
+            clean_timestamp = timestamp_str.replace('Z', '').replace('+00:00', '')
+
+            if '.' in clean_timestamp:
+                # Split into date/time and microseconds
+                datetime_part, microseconds_part = clean_timestamp.split('.')
+
+                # Pad or truncate microseconds to exactly 6 digits
+                if len(microseconds_part) < 6:
+                    microseconds_part = microseconds_part.ljust(6, '0')
+                elif len(microseconds_part) > 6:
+                    microseconds_part = microseconds_part[:6]
+
+                # Reconstruct the timestamp
+                return f"{datetime_part}.{microseconds_part}"
+            else:
+                # No microseconds, return as-is
+                return clean_timestamp
+
+        except Exception as e:
+            logging.warning(f"Error normalizing timestamp {timestamp_str}: {e}")
+            # Return original if normalization fails
+            return timestamp_str.replace('Z', '').replace('+00:00', '')
 
     def update_active_sessions(self) -> None:
         """Update the list of active sessions based on recent activity."""
