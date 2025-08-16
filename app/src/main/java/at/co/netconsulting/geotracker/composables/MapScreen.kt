@@ -372,7 +372,7 @@ fun MapScreen(
         GpxPersistenceUtil.clearImportedGpxTrack(context)
     }
 
-    // UPDATED: Efficient track monitoring using timestamp
+    // Efficient track monitoring using timestamp
     LaunchedEffect(Unit) {
         while (true) {
             if (isMapInitialized) {
