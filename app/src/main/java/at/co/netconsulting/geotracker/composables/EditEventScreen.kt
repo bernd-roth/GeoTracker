@@ -171,7 +171,8 @@ fun EditEventScreen(
                                 value = eventState.eventName,
                                 onValueChange = { editEventViewModel.updateEventField("name", it) },
                                 label = { Text("Event Name") },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
                             )
 
                             // Event Date with picker button
@@ -193,7 +194,8 @@ fun EditEventScreen(
                                 value = eventState.artOfSport,
                                 onValueChange = { editEventViewModel.updateEventField("sport", it) },
                                 label = { Text("Sport Type") },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
                             )
                         }
                     }

@@ -515,7 +515,8 @@ fun RecordingDialog(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 8.dp),
+                    singleLine = true
                 )
 
                 // Event date field with date picker
@@ -587,7 +588,8 @@ fun RecordingDialog(
                     label = { Text("Comment") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 8.dp),
+                    singleLine = true
                 )
 
                 // Clothing field
@@ -597,7 +599,8 @@ fun RecordingDialog(
                     label = { Text("Clothing") },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 8.dp),
+                    singleLine = true
                 )
 
                 // Heart Rate Sensor Selection

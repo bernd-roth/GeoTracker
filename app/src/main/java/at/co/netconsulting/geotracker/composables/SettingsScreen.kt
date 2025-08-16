@@ -141,7 +141,8 @@ fun SettingsScreen() {
             value = firstName,
             onValueChange = { firstName = it },
             label = { Text("Firstname") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -149,7 +150,8 @@ fun SettingsScreen() {
             value = lastName,
             onValueChange = { lastName = it },
             label = { Text("Lastname") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -157,7 +159,8 @@ fun SettingsScreen() {
             value = birthDate,
             onValueChange = { birthDate = it },
             label = { Text("Birthdate (YYYY-MM-DD)") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -187,7 +190,8 @@ fun SettingsScreen() {
             onValueChange = { websocketserver = it },
             label = { Text("Websocket ip address") },
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
         )
         Spacer(modifier = Modifier.height(16.dp))
         // Voice announcement interval
