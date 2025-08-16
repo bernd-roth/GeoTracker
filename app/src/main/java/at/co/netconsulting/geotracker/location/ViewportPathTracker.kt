@@ -55,22 +55,22 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
 
     // Sample rates by zoom level (zoom level -> sample rate)
     private val zoomSampleRates = mapOf(
-//        0.0 to 100,   // World view - extremely simplified (1 per 100 points)
-//        5.0 to 50,    // Continent view - very simplified
-//        10.0 to 20,   // Country view - simplified
-//        12.0 to 10,   // Region view - moderately simplified
-//        14.0 to 5,    // City view - lightly simplified
-//        16.0 to 2,    // Neighborhood view - slightly simplified
-//        18.0 to 1,    // Street view - full detail
-//        22.0 to 1     // Building view - full detail
-        0.0 to 50,
-        5.0 to 25,
-        10.0 to 10,
-        12.0 to 5,
-        14.0 to 2,
-        16.0 to 1,
-        18.0 to 1,
-        22.0 to 1
+        0.0 to 100,   // World view - extremely simplified (1 per 100 points)
+        5.0 to 50,    // Continent view - very simplified
+        10.0 to 20,   // Country view - simplified
+        12.0 to 10,   // Region view - moderately simplified
+        14.0 to 5,    // City view - lightly simplified
+        16.0 to 2,    // Neighborhood view - slightly simplified
+        18.0 to 1,    // Street view - full detail
+        22.0 to 1     // Building view - full detail
+//        0.0 to 50,
+//        5.0 to 25,
+//        10.0 to 10,
+//        12.0 to 5,
+//        14.0 to 2,
+//        16.0 to 1,
+//        18.0 to 1,
+//        22.0 to 1
     )
 
     // Colors for different path segments
@@ -180,15 +180,22 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
         val viewport = mapView.boundingBox
         val zoomLevel = mapView.zoomLevelDouble
 
-        // If the viewport or zoom hasn't changed significantly, and we're not forcing an update, skip
-        if (!forceUpdate && isViewportSimilar(viewport, currentViewport) && isSameZoomLevel(zoomLevel, currentZoomLevel)) {
+        // Always force updates during recording
+        val shouldForceUpdate = forceUpdate || isRecording.value
+
+        // If not forcing update and viewport hasn't changed much, skip (but NOT during recording)
+        if (!shouldForceUpdate &&
+            isViewportSimilar(viewport, currentViewport) &&
+            isSameZoomLevel(zoomLevel, currentZoomLevel)) {
             return
         }
 
-        // Debounce viewport updates to avoid excessive database queries
+        // Debounce viewport updates, but use much shorter delay during recording
         viewportUpdateJob?.cancel()
         viewportUpdateJob = trackerScope.launch {
-            delay(100) // Small delay to prevent multiple close updates
+            // REDUCED debounce delay during recording: 50ms vs 100ms
+            val debounceDelay = if (isRecording.value) 50L else 100L
+            delay(debounceDelay)
 
             // Store current viewport and zoom
             currentViewport = viewport
@@ -197,8 +204,12 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
             isLoading.value = true
 
             try {
-                // Get the sample rate for this zoom level
-                val sampleRate = getSampleRateForZoom(zoomLevel)
+                // Use sample rate 1 during recording for immediate display
+                val sampleRate = if (isRecording.value) {
+                    1 // Show every point during recording
+                } else {
+                    getSampleRateForZoom(zoomLevel)
+                }
 
                 // Convert OSMDroid BoundingBox to our PathBounds with buffer
                 val expandedBounds = viewport.toPathBounds().expand(viewportBufferPercent)
@@ -226,7 +237,7 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
                     pathPolyline?.setPoints(pointCache)
                     mapView.invalidate()
 
-                    Log.d(TAG, "Updated path with ${pointCache.size} points at zoom $zoomLevel (sample rate: $sampleRate)")
+                    Log.d(TAG, "Updated path with ${pointCache.size} points at zoom $zoomLevel (sample rate: $sampleRate, recording: ${isRecording.value})")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating path for viewport", e)

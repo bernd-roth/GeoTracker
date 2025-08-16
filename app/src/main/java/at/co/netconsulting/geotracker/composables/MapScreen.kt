@@ -69,6 +69,7 @@ import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -491,7 +492,7 @@ fun MapScreen(
         }
     }
 
-    // Single location listener that handles both path updates and auto-follow
+    // ENHANCED: Single location listener with forced updates during recording
     val locationObserver = remember {
         object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
@@ -534,11 +535,32 @@ fun MapScreen(
                     }
                 }
 
-                // Handle path updates when recording
+                // ENHANCED: Force path updates when recording - ignore viewport restrictions
                 if (showPath && currentEventId.value > 0 && isRecording && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
-                        pathTracker.updatePathForViewport(mapView)
+                        // ALWAYS force update during recording - bypass all similarity checks
+                        pathTracker.updatePathForViewport(mapView, forceUpdate = true)
+
+                        // Additional immediate refresh for good measure
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            pathTracker.refreshPath(mapView)
+                            Timber.d("Additional path refresh after location update")
+                        }, 100)
                     }
+                }
+            }
+        }
+    }
+
+    // Periodic path updates during recording to ensure path always appears
+    LaunchedEffect(isRecording, showPath, currentEventId.value) {
+        if (isRecording && showPath && currentEventId.value > 0 && !followingState.isFollowing) {
+            while (isRecording && showPath && currentEventId.value > 0 && !followingState.isFollowing) {
+                delay(2000) // Update every 2 seconds during recording
+
+                mapViewRef.value?.let { mapView ->
+                    Timber.d("Periodic path refresh during recording")
+                    pathTracker.updatePathForViewport(mapView, forceUpdate = true)
                 }
             }
         }
@@ -680,16 +702,27 @@ fun MapScreen(
         }
     }
 
-    // Initialize or clean up path tracker based on recording and following state
+    // ENHANCED: Initialize or clean up path tracker with immediate updates
     LaunchedEffect(showPath, currentEventId.value, isRecording, followingState.isFollowing) {
         if (showPath && isRecording && !followingState.isFollowing) {
             mapViewRef.value?.let { mapView ->
                 pathTracker.initialize(mapView)
                 pathTracker.setCurrentEventId(currentEventId.value, mapView)
                 pathTracker.setRecording(isRecording)
+
+                // Force immediate update when initializing
                 pathTracker.updatePathForViewport(mapView, forceUpdate = true)
+
+                // Schedule additional immediate updates for the first few seconds
+                repeat(5) { attempt ->
+                    delay(1000L * (attempt + 1)) // 1s, 2s, 3s, 4s, 5s
+                    if (isActive && isRecording && showPath && !followingState.isFollowing) {
+                        pathTracker.updatePathForViewport(mapView, forceUpdate = true)
+                        Timber.d("Scheduled path update ${attempt + 1}")
+                    }
+                }
             }
-            Timber.d("Path tracker initialized for event: ${currentEventId.value}")
+            Timber.d("Path tracker initialized with immediate updates for event: ${currentEventId.value}")
         } else {
             mapViewRef.value?.let { mapView ->
                 pathTracker.clearPath(mapView)
@@ -772,13 +805,13 @@ fun MapScreen(
     DisposableEffect(locationObserver) {
         if (!EventBus.getDefault().isRegistered(locationObserver)) {
             EventBus.getDefault().register(locationObserver)
-            Timber.d("Registered consolidated location listener with EventBus")
+            Timber.d("Registered enhanced location listener with EventBus")
         }
 
         onDispose {
             if (EventBus.getDefault().isRegistered(locationObserver)) {
                 EventBus.getDefault().unregister(locationObserver)
-                Timber.d("Unregistered consolidated location listener from EventBus")
+                Timber.d("Unregistered enhanced location listener from EventBus")
             }
         }
     }
@@ -938,15 +971,17 @@ fun MapScreen(
                                 Timber.d("Scroll event without recent touch - keeping auto-follow active")
                             }
 
+                            // ENHANCED: Force path updates during recording on scroll
                             if (showPath && isRecording && !followingState.isFollowing) {
-                                pathTracker.updatePathForViewport(this@apply)
+                                pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
                             return true
                         }
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
+                            // ENHANCED: Force path updates during recording on zoom
                             if (showPath && isRecording && !followingState.isFollowing) {
-                                pathTracker.updatePathForViewport(this@apply)
+                                pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
                             return true
                         }
@@ -1457,7 +1492,7 @@ fun MapScreen(
 
                 showRecordingDialog = false
 
-                // Post-recording setup
+                // ENHANCED: Post-recording setup with immediate path display
                 Handler(Looper.getMainLooper()).postDelayed({
                     val newEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .getInt("active_event_id", -1)
@@ -1466,6 +1501,22 @@ fun MapScreen(
                         if (newEventId > 0 && pathOption) {
                             Timber.d("Setting path tracker to new event: $newEventId")
                             pathTracker.setCurrentEventId(newEventId, mapView)
+
+                            // Force immediate path display multiple times
+                            pathTracker.updatePathForViewport(mapView, forceUpdate = true)
+
+                            // Schedule immediate displays
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                pathTracker.updatePathForViewport(mapView, forceUpdate = true)
+                            }, 500)
+
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                pathTracker.refreshPath(mapView)
+                            }, 1500)
+
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                pathTracker.refreshPath(mapView)
+                            }, 3000)
                         }
 
                         // Restore map position if no track is imported
@@ -1480,7 +1531,7 @@ fun MapScreen(
                         saveAutoFollowState(true)
                         triggerMyLocationLogic()
 
-                        Timber.d("Restored map state after recording started")
+                        Timber.d("Enhanced setup completed with immediate path display")
                     }
                 }, 800)
             },
