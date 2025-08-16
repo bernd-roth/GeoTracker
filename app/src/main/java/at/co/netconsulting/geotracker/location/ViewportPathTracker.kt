@@ -55,14 +55,22 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
 
     // Sample rates by zoom level (zoom level -> sample rate)
     private val zoomSampleRates = mapOf(
-        0.0 to 100,   // World view - extremely simplified (1 per 100 points)
-        5.0 to 50,    // Continent view - very simplified
-        10.0 to 20,   // Country view - simplified
-        12.0 to 10,   // Region view - moderately simplified
-        14.0 to 5,    // City view - lightly simplified
-        16.0 to 2,    // Neighborhood view - slightly simplified
-        18.0 to 1,    // Street view - full detail
-        22.0 to 1     // Building view - full detail
+//        0.0 to 100,   // World view - extremely simplified (1 per 100 points)
+//        5.0 to 50,    // Continent view - very simplified
+//        10.0 to 20,   // Country view - simplified
+//        12.0 to 10,   // Region view - moderately simplified
+//        14.0 to 5,    // City view - lightly simplified
+//        16.0 to 2,    // Neighborhood view - slightly simplified
+//        18.0 to 1,    // Street view - full detail
+//        22.0 to 1     // Building view - full detail
+        0.0 to 50,
+        5.0 to 25,
+        10.0 to 10,
+        12.0 to 5,
+        14.0 to 2,
+        16.0 to 1,
+        18.0 to 1,
+        22.0 to 1
     )
 
     // Colors for different path segments
