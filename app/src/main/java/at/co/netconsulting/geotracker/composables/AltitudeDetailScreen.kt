@@ -107,7 +107,7 @@ fun AltitudeDetailScreen(
 
                 // Distance vs Altitude Graph
                 AltitudeGraphCard(
-                    title = "Distance vs Altitude",
+                    title = "Distance vs Elevation",
                     description = "Tap on the graph to see elevation at any distance"
                 ) {
                     InteractiveDistanceVsAltitudeGraph(
@@ -120,7 +120,7 @@ fun AltitudeDetailScreen(
 
                 // Speed vs Altitude Graph
                 AltitudeGraphCard(
-                    title = "Speed vs Altitude",
+                    title = "Elevation vs Speed",
                     description = "Tap on the graph to see speed at different elevations"
                 ) {
                     InteractiveSpeedVsAltitudeGraph(
