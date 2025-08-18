@@ -220,6 +220,59 @@ fun SettingsScreen() {
                     .fillMaxWidth()
                     .padding(16.dp)
             ) {
+                Text(
+                    text = "Map Appearance",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Dark Mode Map",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Switch(
+                        checked = darkModeEnabled,
+                        onCheckedChange = { isEnabled ->
+                            darkModeEnabled = isEnabled
+                            // Save immediately when toggled
+                            sharedPreferences.edit()
+                                .putBoolean("darkModeEnabled", isEnabled)
+                                .apply()
+                        }
+                    )
+                }
+
+                Text(
+                    text = "Enable dark map tiles for better viewing at night. App interface remains in light mode.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .background(
+                    color = Color.Transparent,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
                 // Label positioned like OutlinedTextField label
                 Text(
                     text = "Automatic Backup",
