@@ -1281,16 +1281,69 @@ function updateMapTrack(sessionId) {
         return;
     }
 
-    const coordinates = validPoints.map(point => [point.lng, point.lat]); // MapLibre uses [lng, lat]
+    // Function to calculate distance between two points in meters
+    function calculateDistance(lat1, lng1, lat2, lng2) {
+        const R = 6371000; // Earth's radius in meters
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
+
+    // Break track into segments when there are large gaps (> 500 meters between consecutive points)
+    const maxGapDistance = 500; // meters
+    const trackSegments = [];
+    let currentSegment = [];
+
+    for (let i = 0; i < validPoints.length; i++) {
+        const currentPoint = validPoints[i];
+
+        if (currentSegment.length === 0) {
+            // First point in segment
+            currentSegment.push([currentPoint.lng, currentPoint.lat]);
+        } else {
+            // Check distance from previous point
+            const prevPoint = validPoints[i - 1];
+            const distance = calculateDistance(
+                prevPoint.lat, prevPoint.lng,
+                currentPoint.lat, currentPoint.lng
+            );
+
+            if (distance > maxGapDistance) {
+                // Large gap detected - finish current segment and start new one
+                if (currentSegment.length > 1) {
+                    trackSegments.push([...currentSegment]);
+                }
+                currentSegment = [[currentPoint.lng, currentPoint.lat]];
+                addDebugMessage(`Track gap detected in session ${sessionId}: ${distance.toFixed(0)}m between points`, 'system');
+            } else {
+                // Normal point - add to current segment
+                currentSegment.push([currentPoint.lng, currentPoint.lat]);
+            }
+        }
+    }
+
+    // Add the final segment
+    if (currentSegment.length > 1) {
+        trackSegments.push(currentSegment);
+    }
+
+    if (trackSegments.length === 0) {
+        addDebugMessage(`No valid track segments found for session ${sessionId}`, 'warning');
+        return;
+    }
 
     try {
-        // Create GeoJSON for the track
+        // Create GeoJSON with MultiLineString to handle multiple segments
         const geojson = {
             type: 'Feature',
             properties: {},
             geometry: {
-                type: 'LineString',
-                coordinates: coordinates
+                type: trackSegments.length === 1 ? 'LineString' : 'MultiLineString',
+                coordinates: trackSegments.length === 1 ? trackSegments[0] : trackSegments
             }
         };
 
@@ -1317,9 +1370,10 @@ function updateMapTrack(sessionId) {
         // Store reference for visibility toggling
         polylines[sessionId] = { layerId: layerId, sourceId: sourceId };
 
-        // Add start marker (use first valid coordinate)
-        const startCoord = coordinates[0];
-        if (isValidCoordinate(startCoord[1], startCoord[0])) { // Note: coordinates are [lng,lat] but validation expects [lat,lng]
+        // Add start marker (use first coordinate of first segment)
+        const firstSegment = trackSegments[0];
+        const startCoord = firstSegment[0];
+        if (isValidCoordinate(startCoord[1], startCoord[0])) {
             const startElement = document.createElement('div');
             startElement.style.cssText = `
                 width: 12px;
@@ -1339,9 +1393,10 @@ function updateMapTrack(sessionId) {
                 .addTo(map);
         }
 
-        // Add end marker (use last valid coordinate)
-        const endCoord = coordinates[coordinates.length - 1];
-        if (isValidCoordinate(endCoord[1], endCoord[0])) { // Note: coordinates are [lng,lat] but validation expects [lat,lng]
+        // Add end marker (use last coordinate of last segment)
+        const lastSegment = trackSegments[trackSegments.length - 1];
+        const endCoord = lastSegment[lastSegment.length - 1];
+        if (isValidCoordinate(endCoord[1], endCoord[0])) {
             const endElement = document.createElement('div');
             endElement.style.cssText = `
                 width: 14px;
@@ -1361,11 +1416,11 @@ function updateMapTrack(sessionId) {
                 .addTo(map);
         }
 
-        addDebugMessage(`Map track updated for session ${sessionId}: ${validPoints.length}/${points.length} valid points`, 'system');
+        addDebugMessage(`Map track updated for session ${sessionId}: ${validPoints.length}/${points.length} valid points in ${trackSegments.length} segment(s)`, 'system');
 
     } catch (error) {
         addDebugMessage(`Error updating map track for session ${sessionId}: ${error.message}`, 'error');
-        console.error('UpdateMapTrack error:', error, { sessionId, coordinates });
+        console.error('UpdateMapTrack error:', error, { sessionId, trackSegments });
     }
 }
 
