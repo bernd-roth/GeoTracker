@@ -219,6 +219,14 @@ fun MapScreen(
         )
     }
 
+    // Auto-follow followed users state
+    var isAutoFollowingUsers by remember {
+        mutableStateOf(
+            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                .getBoolean("auto_follow_users_enabled", false)
+        )
+    }
+
     // Track the last known location for restoration
     val lastKnownLocation = remember { mutableStateOf<GeoPoint?>(null) }
 
@@ -257,6 +265,15 @@ fun MapScreen(
         Timber.d("Saved auto-follow state: $enabled")
     }
 
+    // Function to save auto-follow users state
+    fun saveAutoFollowUsersState(enabled: Boolean) {
+        context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("auto_follow_users_enabled", enabled)
+            .apply()
+        Timber.d("Saved auto-follow users state: $enabled")
+    }
+
     // Function to programmatically trigger "My Location" button logic
     fun triggerMyLocationLogic() {
         if (isFollowingLocation) {
@@ -285,6 +302,41 @@ fun MapScreen(
                 }
             }
             Timber.d("My Location logic triggered programmatically")
+        }
+    }
+
+    // Function to auto-follow followed users
+    fun autoFollowUsers() {
+        if (isAutoFollowingUsers && followingState.isFollowing) {
+            // Get current positions of followed users
+            val followedUserPositions = followingState.followedUserTrails.values
+                .mapNotNull { trail -> trail.lastOrNull() }
+                .filter { it.latitude != 0.0 && it.longitude != 0.0 }
+
+            if (followedUserPositions.isNotEmpty()) {
+                mapViewRef.value?.let { mapView ->
+                    ignoringScrollEvents = true
+
+                    if (followedUserPositions.size == 1) {
+                        // Follow single user
+                        val userPoint = followedUserPositions.first()
+                        val geoPoint = GeoPoint(userPoint.latitude, userPoint.longitude)
+                        mapView.controller.setCenter(geoPoint)
+                        Timber.d("Auto-following single user: ${userPoint.person} at $geoPoint")
+                    } else {
+                        // Follow multiple users - center on average position
+                        val avgLat = followedUserPositions.map { it.latitude }.average()
+                        val avgLon = followedUserPositions.map { it.longitude }.average()
+                        val centerPoint = GeoPoint(avgLat, avgLon)
+                        mapView.controller.setCenter(centerPoint)
+                        Timber.d("Auto-following ${followedUserPositions.size} users at $centerPoint")
+                    }
+
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        ignoringScrollEvents = false
+                    }, 300)
+                }
+            }
         }
     }
 
@@ -492,7 +544,72 @@ fun MapScreen(
         }
     }
 
-    // ENHANCED: Single location listener with forced updates during recording
+    // Handle following state changes - center map on followed users when following starts
+    LaunchedEffect(followingState.isFollowing, followingState.followedUsers) {
+        if (followingState.isFollowing && followingState.followedUsers.isNotEmpty()) {
+            // Get positions of followed users from activeUsers data
+            val followedUserPositions = activeUsers.filter { user ->
+                user.sessionId in followingState.followedUsers &&
+                        user.latitude != 0.0 && user.longitude != 0.0
+            }
+
+            if (followedUserPositions.isNotEmpty()) {
+                mapViewRef.value?.let { mapView ->
+                    // If following a single user, center on that user
+                    if (followedUserPositions.size == 1) {
+                        val user = followedUserPositions.first()
+                        val geoPoint = GeoPoint(user.latitude, user.longitude)
+
+                        ignoringScrollEvents = true
+                        mapView.controller.setCenter(geoPoint)
+                        mapView.controller.setZoom(15.0)
+
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            ignoringScrollEvents = false
+                        }, 300)
+
+                        Timber.d("Centered map on followed user: ${user.person} at $geoPoint")
+                    } else {
+                        // If following multiple users, calculate center point
+                        val avgLat = followedUserPositions.map { it.latitude }.average()
+                        val avgLon = followedUserPositions.map { it.longitude }.average()
+                        val centerPoint = GeoPoint(avgLat, avgLon)
+
+                        ignoringScrollEvents = true
+                        mapView.controller.setCenter(centerPoint)
+                        mapView.controller.setZoom(13.0) // Slightly zoomed out for multiple users
+
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            ignoringScrollEvents = false
+                        }, 300)
+
+                        Timber.d("Centered map on ${followedUserPositions.size} followed users at $centerPoint")
+                    }
+
+                    // Disable auto-follow when following other users (even during recording)
+                    isFollowingLocation = false
+                    saveAutoFollowState(false)
+                    Timber.d("Disabled auto-follow when starting to follow users (recording: $isRecording)")
+                }
+            }
+        } else if (!followingState.isFollowing) {
+            // Re-enable auto-follow when stopping following (regardless of recording state)
+            if (!isRecording) {
+                // Only auto-enable if not recording - during recording user controls this manually
+                isFollowingLocation = true
+                saveAutoFollowState(true)
+                // Optionally trigger my location logic to center back on user
+                Handler(Looper.getMainLooper()).postDelayed({
+                    triggerMyLocationLogic()
+                }, 500)
+                Timber.d("Re-enabled auto-follow when stopped following users (not recording)")
+            } else {
+                Timber.d("Stopped following during recording - auto-follow remains user-controlled")
+            }
+        }
+    }
+
+    // Single location listener with forced updates during recording
     val locationObserver = remember {
         object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
@@ -535,7 +652,7 @@ fun MapScreen(
                     }
                 }
 
-                // ENHANCED: Force path updates when recording - ignore viewport restrictions
+                // Force path updates when recording - ignore viewport restrictions
                 if (showPath && currentEventId.value > 0 && isRecording && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
                         // ALWAYS force update during recording - bypass all similarity checks
@@ -572,11 +689,14 @@ fun MapScreen(
             override fun onReceive(context: Context, intent: Intent) {
                 when (intent.action) {
                     Intent.ACTION_SCREEN_ON -> {
-                        Timber.d("Screen turned ON - triggering My Location logic")
+                        Timber.d("Screen turned ON - triggering auto-follow logic")
 
                         Handler(Looper.getMainLooper()).postDelayed({
                             if (isFollowingLocation) {
                                 triggerMyLocationLogic()
+                            }
+                            if (isAutoFollowingUsers) {
+                                autoFollowUsers()
                             }
                         }, 1000)
 
@@ -589,8 +709,9 @@ fun MapScreen(
                         }
                     }
                     Intent.ACTION_SCREEN_OFF -> {
-                        Timber.d("Screen turned OFF - saving auto-follow state: $isFollowingLocation")
+                        Timber.d("Screen turned OFF - saving auto-follow states: ownLocation=$isFollowingLocation, users=$isAutoFollowingUsers")
                         saveAutoFollowState(isFollowingLocation)
+                        saveAutoFollowUsersState(isAutoFollowingUsers)
                     }
                 }
             }
@@ -602,11 +723,14 @@ fun MapScreen(
         object : DefaultLifecycleObserver {
             override fun onResume(owner: LifecycleOwner) {
                 super.onResume(owner)
-                Timber.d("App RESUMED - triggering My Location logic")
+                Timber.d("App RESUMED - triggering auto-follow logic")
 
                 Handler(Looper.getMainLooper()).postDelayed({
                     if (isFollowingLocation) {
                         triggerMyLocationLogic()
+                    }
+                    if (isAutoFollowingUsers) {
+                        autoFollowUsers()
                     }
                 }, 500)
 
@@ -633,23 +757,31 @@ fun MapScreen(
 
             override fun onPause(owner: LifecycleOwner) {
                 super.onPause(owner)
-                Timber.d("App PAUSED - saving auto-follow state: $isFollowingLocation")
+                Timber.d("App PAUSED - saving auto-follow states: ownLocation=$isFollowingLocation, users=$isAutoFollowingUsers")
                 saveAutoFollowState(isFollowingLocation)
+                saveAutoFollowUsersState(isAutoFollowingUsers)
             }
         }
     }
 
-    // Periodic auto-follow monitoring
-    LaunchedEffect(isFollowingLocation) {
-        if (isFollowingLocation) {
+    // Periodic auto-follow monitoring for both own location and users
+    LaunchedEffect(isFollowingLocation, isAutoFollowingUsers) {
+        if (isFollowingLocation || isAutoFollowingUsers) {
             while (true) {
-                delay(10000)
+                delay(10000) // Check every 10 seconds
 
-                locationOverlayRef.value?.let { overlay ->
-                    if (!overlay.isFollowLocationEnabled && isFollowingLocation) {
-                        Timber.d("Detected overlay follow disabled - triggering My Location logic")
-                        triggerMyLocationLogic()
+                if (isFollowingLocation) {
+                    locationOverlayRef.value?.let { overlay ->
+                        if (!overlay.isFollowLocationEnabled && isFollowingLocation) {
+                            Timber.d("Detected overlay follow disabled - triggering My Location logic")
+                            triggerMyLocationLogic()
+                        }
                     }
+                }
+
+                if (isAutoFollowingUsers && followingState.isFollowing) {
+                    Timber.d("Periodic auto-follow users check")
+                    autoFollowUsers()
                 }
             }
         }
@@ -672,19 +804,20 @@ fun MapScreen(
         }
     }
 
-    // Update followed users overlay when following state changes
+    // Update followed users overlay when following state changes AND auto-follow users
     LaunchedEffect(followingState.followedUserTrails) {
         followedUsersOverlayRef.value?.updateFollowedUsersWithTrails(followingState.followedUserTrails)
+
+        // Auto-follow users when their positions update
+        if (isAutoFollowingUsers && followingState.isFollowing) {
+            autoFollowUsers()
+        }
     }
 
-    // Connect to following service only when not recording
-    LaunchedEffect(isRecording) {
-        if (!isRecording && !isConnected) {
+    // Connect to following service when not connected (allow during recording)
+    LaunchedEffect(isConnected) {
+        if (!isConnected) {
             followingService.connect()
-        } else if (isRecording && isConnected) {
-            if (followingState.isFollowing) {
-                followingService.stopFollowing()
-            }
         }
     }
 
@@ -702,7 +835,7 @@ fun MapScreen(
         }
     }
 
-    // ENHANCED: Initialize or clean up path tracker with immediate updates
+    // Initialize or clean up path tracker with immediate updates
     LaunchedEffect(showPath, currentEventId.value, isRecording, followingState.isFollowing) {
         if (showPath && isRecording && !followingState.isFollowing) {
             mapViewRef.value?.let { mapView ->
@@ -770,8 +903,12 @@ fun MapScreen(
         }
     }
 
-    // Check if service is actually running on initial launch
+    // Check if service is actually running on initial launch AND restore auto-follow states
     LaunchedEffect(Unit) {
+        // Restore auto-follow states from SharedPreferences
+        isAutoFollowingUsers = context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+            .getBoolean("auto_follow_users_enabled", false)
+
         val isServiceRunning = isServiceRunningFunc(
             context,
             "at.co.netconsulting.geotracker.service.ForegroundService"
@@ -799,6 +936,8 @@ fun MapScreen(
                 }
             }
         }
+
+        Timber.d("Restored auto-follow states: ownLocation=$isFollowingLocation, users=$isAutoFollowingUsers")
     }
 
     // Single location update listener registration
@@ -838,7 +977,8 @@ fun MapScreen(
                     pathTracker.setCurrentEventId(currentEventId.value, mapView)
                 }
             }
-        } else if (!followingState.isFollowing) {
+        } else if (!followingState.isFollowing && !isRecording) {
+            // Only start background service if not recording AND not following
             try {
                 Timber.d("DisposableEffect: Starting background service")
                 val intent = Intent(context, BackgroundLocationService::class.java)
@@ -960,18 +1100,27 @@ fun MapScreen(
                             val currentTime = System.currentTimeMillis()
                             val timeSinceLastTouch = currentTime - lastTouchTime
 
-                            Timber.d("Scroll event: isFollowing=$isFollowingLocation, timeSinceTouch=${timeSinceLastTouch}ms")
+                            Timber.d("Scroll event: isFollowing=$isFollowingLocation, isFollowingUsers=$isAutoFollowingUsers, timeSinceTouch=${timeSinceLastTouch}ms")
 
-                            if (isFollowingLocation && timeSinceLastTouch < 1000) {
-                                locationOverlayRef.value?.disableFollowLocation()
-                                isFollowingLocation = false
-                                saveAutoFollowState(false)
-                                Timber.d("Touch-based manual scroll detected - disabled auto-follow")
-                            } else if (isFollowingLocation) {
-                                Timber.d("Scroll event without recent touch - keeping auto-follow active")
+                            if (timeSinceLastTouch < 1000) {
+                                // User manually scrolled - disable both auto-follow modes
+                                if (isFollowingLocation) {
+                                    locationOverlayRef.value?.disableFollowLocation()
+                                    isFollowingLocation = false
+                                    saveAutoFollowState(false)
+                                    Timber.d("Touch-based manual scroll detected - disabled auto-follow own location")
+                                }
+
+                                if (isAutoFollowingUsers) {
+                                    isAutoFollowingUsers = false
+                                    saveAutoFollowUsersState(false)
+                                    Timber.d("Touch-based manual scroll detected - disabled auto-follow users")
+                                }
+                            } else {
+                                Timber.d("Scroll event without recent touch - keeping auto-follow states active")
                             }
 
-                            // ENHANCED: Force path updates during recording on scroll
+                            // Force path updates during recording on scroll
                             if (showPath && isRecording && !followingState.isFollowing) {
                                 pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
@@ -979,7 +1128,7 @@ fun MapScreen(
                         }
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
-                            // ENHANCED: Force path updates during recording on zoom
+                            // Force path updates during recording on zoom
                             if (showPath && isRecording && !followingState.isFollowing) {
                                 pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
@@ -1148,11 +1297,15 @@ fun MapScreen(
                         else -> 16.dp
                     }),
                 shape = CircleShape,
-                color = Color.Blue,
+                color = if (isRecording) Color.Green else Color.Blue,
                 shadowElevation = 4.dp
             ) {
                 Text(
-                    text = "Following ${followingState.followedUsers.size} user(s)",
+                    text = if (isRecording) {
+                        "Recording + Following ${followingState.followedUsers.size} user(s)"
+                    } else {
+                        "Following ${followingState.followedUsers.size} user(s)"
+                    },
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     color = Color.White
                 )
@@ -1197,14 +1350,14 @@ fun MapScreen(
             horizontalAlignment = Alignment.End
         ) {
             // Auto-follow indicator above My Location button
-            if (isFollowingLocation && hasInitializedMapCenter) {
+            if ((isFollowingLocation || isAutoFollowingUsers) && hasInitializedMapCenter) {
                 Surface(
                     shape = CircleShape,
-                    color = Color.Blue.copy(alpha = 0.8f),
+                    color = if (isAutoFollowingUsers) Color.Green.copy(alpha = 0.8f) else Color.Blue.copy(alpha = 0.8f),
                     shadowElevation = 2.dp
                 ) {
                     Text(
-                        text = "Auto-Follow",
+                        text = if (isAutoFollowingUsers) "Following Users" else "Auto-Follow",
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                         color = Color.White,
                         style = MaterialTheme.typography.bodySmall
@@ -1217,7 +1370,11 @@ fun MapScreen(
             Surface(
                 modifier = Modifier.size(56.dp),
                 shape = CircleShape,
-                color = if (isFollowingLocation) Color.Blue else Color.White,
+                color = when {
+                    isAutoFollowingUsers -> Color.Green
+                    isFollowingLocation -> Color.Blue
+                    else -> Color.White
+                },
                 shadowElevation = 8.dp,
             ) {
                 Box(
@@ -1225,57 +1382,80 @@ fun MapScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            Timber.d("My Location button clicked - toggling auto-follow")
+                            Timber.d("My Location button clicked - current states: followLocation=$isFollowingLocation, followUsers=$isAutoFollowingUsers")
 
-                            isFollowingLocation = !isFollowingLocation
-                            saveAutoFollowState(isFollowingLocation)
-
-                            if (isFollowingLocation) {
-                                triggerMyLocationLogic()
+                            when {
+                                isAutoFollowingUsers -> {
+                                    // Currently following users, switch to own location
+                                    isAutoFollowingUsers = false
+                                    saveAutoFollowUsersState(false)
+                                    isFollowingLocation = true
+                                    saveAutoFollowState(true)
+                                    triggerMyLocationLogic()
+                                    Timber.d("Switched from following users to own location")
+                                }
+                                isFollowingLocation -> {
+                                    // Currently following own location, disable
+                                    isFollowingLocation = false
+                                    saveAutoFollowState(false)
+                                    Timber.d("Disabled auto-follow own location")
+                                }
+                                else -> {
+                                    // Neither active, enable own location
+                                    isFollowingLocation = true
+                                    saveAutoFollowState(true)
+                                    triggerMyLocationLogic()
+                                    Timber.d("Enabled auto-follow own location")
+                                }
                             }
                         }
                 ) {
                     Icon(
                         imageVector = Icons.Default.MyLocation,
-                        contentDescription = if (isFollowingLocation) "Disable Auto-Follow" else "Enable Auto-Follow",
-                        tint = if (isFollowingLocation) Color.White else Color.Black
+                        contentDescription = when {
+                            isAutoFollowingUsers -> "Switch to My Location"
+                            isFollowingLocation -> "Disable Auto-Follow"
+                            else -> "Enable Auto-Follow"
+                        },
+                        tint = when {
+                            isAutoFollowingUsers || isFollowingLocation -> Color.White
+                            else -> Color.Black
+                        }
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Follow Users button - only show when not recording
-            if (!isRecording) {
-                Surface(
-                    modifier = Modifier.size(56.dp),
-                    shape = CircleShape,
-                    color = if (followingState.isFollowing) Color.Blue else Color.Gray,
-                    shadowElevation = 8.dp,
-                ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clickable {
-                                if (followingState.isFollowing) {
-                                    followingService.stopFollowing()
-                                } else {
-                                    followingService.requestActiveUsers()
-                                    showUserSelectionDialog = true
-                                }
+            // Follow Users button - always available
+            Surface(
+                modifier = Modifier.size(56.dp),
+                shape = CircleShape,
+                color = if (followingState.isFollowing) Color.Blue else Color.Gray,
+                shadowElevation = 8.dp,
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable {
+                            if (followingState.isFollowing) {
+                                followingService.stopFollowing()
+                            } else {
+                                followingService.requestActiveUsers()
+                                showUserSelectionDialog = true
                             }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Group,
-                            contentDescription = if (followingState.isFollowing) "Stop Following" else "Follow Users",
-                            tint = Color.White
-                        )
-                    }
+                        }
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Group,
+                        contentDescription = if (followingState.isFollowing) "Stop Following" else "Follow Users",
+                        tint = Color.White
+                    )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Recording controls
             if (!isRecording && !followingState.isFollowing) {
@@ -1492,7 +1672,7 @@ fun MapScreen(
 
                 showRecordingDialog = false
 
-                // ENHANCED: Post-recording setup with immediate path display
+                // Post-recording setup with immediate path display
                 Handler(Looper.getMainLooper()).postDelayed({
                     val newEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                         .getInt("active_event_id", -1)

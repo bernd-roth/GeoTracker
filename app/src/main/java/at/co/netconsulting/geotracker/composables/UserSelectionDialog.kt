@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -38,8 +39,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import at.co.netconsulting.geotracker.data.ActiveUser
@@ -57,8 +61,31 @@ fun UserSelectionDialog(
     onPrecisionModeChanged: (FollowingService.TrailPrecisionMode) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var selectedUsers by remember { mutableStateOf(currentlyFollowing.toSet()) }
     var selectedPrecisionMode by remember { mutableStateOf(currentPrecisionMode) }
+
+    // Check if currently recording
+    val isRecording = context.getSharedPreferences("RecordingState", android.content.Context.MODE_PRIVATE)
+        .getBoolean("is_recording", false)
+
+    // Get current user's session ID to filter out own session when recording
+    val currentSessionId = context.getSharedPreferences("SessionPrefs", android.content.Context.MODE_PRIVATE)
+        .getString("current_session_id", "") ?: ""
+
+    // Filter out current user's session when recording to prevent following yourself
+    val availableUsers = if (isRecording && currentSessionId.isNotEmpty()) {
+        activeUsers.filter { user ->
+            user.sessionId != currentSessionId
+        }.also { filteredUsers ->
+            if (filteredUsers.size != activeUsers.size) {
+                android.util.Log.d("UserSelectionDialog",
+                    "Filtered out own session: $currentSessionId (${activeUsers.size - filteredUsers.size} removed)")
+            }
+        }
+    } else {
+        activeUsers
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -94,9 +121,49 @@ fun UserSelectionDialog(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(400.dp) // Increased height to accommodate precision settings
+                    .height(450.dp) // Increased height to accommodate info message
             ) {
                 item {
+                    // Recording + Following capability info
+                    if (isRecording) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 16.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = Color.Green.copy(alpha = 0.1f)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = Color.Green,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "You can record your own track while following others!",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.Green.copy(alpha = 0.8f),
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (currentSessionId.isNotEmpty()) {
+                                        Text(
+                                            text = "Your session is hidden from the list.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = Color.Green.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Current following status
                     if (currentlyFollowing.isNotEmpty()) {
                         Row(
@@ -135,15 +202,28 @@ fun UserSelectionDialog(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Active Users Section Header
-                    Text(
-                        text = "Available Users",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Medium
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Available Users",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        if (isRecording && activeUsers.size != availableUsers.size) {
+                            Text(
+                                text = "${availableUsers.size} of ${activeUsers.size}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                if (activeUsers.isEmpty() && !isLoading) {
+                if (availableUsers.isEmpty() && !isLoading) {
                     item {
                         Box(
                             modifier = Modifier
@@ -162,15 +242,20 @@ fun UserSelectionDialog(
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "No active users found",
+                                    text = if (isRecording && activeUsers.isNotEmpty()) {
+                                        "No other users available\n(Your session is hidden)"
+                                    } else {
+                                        "No active users found"
+                                    },
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                 )
                             }
                         }
                     }
                 } else {
-                    items(activeUsers) { user ->
+                    items(availableUsers) { user ->
                         UserSelectionItem(
                             user = user,
                             isSelected = user.sessionId in selectedUsers,
