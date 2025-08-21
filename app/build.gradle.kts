@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 2
-        versionName = "2.5 (16-08-2025: Existing GPX files cleared before re-exported)"
+        versionName = "2.6 (21-08-2025: Follow multiple users)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

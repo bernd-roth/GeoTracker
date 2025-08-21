@@ -910,22 +910,40 @@ function toggleStatBoxes() {
 
 function handleLegendClick(e, legendItem, legend) {
     const index = legendItem.datasetIndex;
-    const displayId = legend.chart.data.datasets[index].label;
+    const clickedLabel = legend.chart.data.datasets[index].label;
     const isVisible = legend.chart.isDatasetVisible(index);
 
-    const sessionId = extractSessionIdFromDisplayId(displayId);
+    // Extract session ID from the label (handle both single segment and multi-segment labels)
+    let sessionId;
+    if (clickedLabel.includes(' (') && clickedLabel.includes(')')) {
+        // Multi-segment label format: "PersonName_SessionId (1)"
+        sessionId = extractSessionIdFromDisplayId(clickedLabel.split(' (')[0]);
+    } else {
+        // Single segment label format: "PersonName_SessionId"
+        sessionId = extractSessionIdFromDisplayId(clickedLabel);
+    }
 
-    addDebugMessage(`Toggle visibility from legend click: ${displayId} (Session ID: ${sessionId})`, 'ui');
+    addDebugMessage(`Toggle visibility from legend click: ${clickedLabel} (Session ID: ${sessionId})`, 'ui');
 
+    // Toggle visibility for ALL datasets belonging to this session in both charts
     [altitudeChart, speedChart].forEach(chart => {
         chart.data.datasets.forEach((dataset, i) => {
-            if (dataset.label === displayId) {
+            // Check if this dataset belongs to the same session
+            let datasetSessionId;
+            if (dataset.label.includes(' (') && dataset.label.includes(')')) {
+                datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
+            } else {
+                datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
+            }
+
+            if (datasetSessionId === sessionId) {
                 chart.setDatasetVisibility(i, !isVisible);
             }
         });
         chart.update();
     });
 
+    // Toggle map elements visibility
     toggleMapElementsVisibility(sessionId, !isVisible);
 }
 
@@ -1436,56 +1454,133 @@ function updateCharts(sessionId) {
     const personName = sessionPersonNames[sessionId] || "";
     const displayId = createDisplayId(sessionId, personName);
 
-    const chartData = points.map(point => ({
-        x: point.distance,
-        y: point.altitude
-    }));
+    // Function to calculate distance between two points in meters
+    function calculateDistance(lat1, lng1, lat2, lng2) {
+        const R = 6371000; // Earth's radius in meters
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLng = (lng2 - lng1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        return R * c;
+    }
 
-    const speedData = points.map(point => ({
-        x: point.distance,
-        y: point.speed
-    }));
+    // Break data into segments when there are large gaps (same logic as map)
+    const maxGapDistance = 500; // meters
+    const dataSegments = [];
+    let currentSegment = [];
 
-    let altDatasetIndex = altitudeChart.data.datasets.findIndex(
-        dataset => dataset.label === sessionId || dataset.label === displayId
-    );
+    // Filter out invalid coordinates first
+    const validPoints = points.filter(point => isValidCoordinate(point.lat, point.lng));
 
-    if (altDatasetIndex === -1) {
-        altDatasetIndex = altitudeChart.data.datasets.length;
+    for (let i = 0; i < validPoints.length; i++) {
+        const currentPoint = validPoints[i];
+
+        if (currentSegment.length === 0) {
+            // First point in segment
+            currentSegment.push(currentPoint);
+        } else {
+            // Check distance from previous point
+            const prevPoint = validPoints[i - 1];
+            const distance = calculateDistance(
+                prevPoint.lat, prevPoint.lng,
+                currentPoint.lat, currentPoint.lng
+            );
+
+            if (distance > maxGapDistance) {
+                // Large gap detected - finish current segment and start new one
+                if (currentSegment.length > 1) {
+                    dataSegments.push([...currentSegment]);
+                }
+                currentSegment = [currentPoint];
+                addDebugMessage(`Chart gap detected in session ${sessionId}: ${distance.toFixed(0)}m between points`, 'system');
+            } else {
+                // Normal point - add to current segment
+                currentSegment.push(currentPoint);
+            }
+        }
+    }
+
+    // Add the final segment
+    if (currentSegment.length > 1) {
+        dataSegments.push(currentSegment);
+    }
+
+    if (dataSegments.length === 0) {
+        addDebugMessage(`No valid chart data segments found for session ${sessionId}`, 'warning');
+        return;
+    }
+
+    // Remove existing datasets for this session from both charts
+    const sessionColor = getColorForUser(sessionId);
+
+    // Remove from altitude chart
+    for (let i = altitudeChart.data.datasets.length - 1; i >= 0; i--) {
+        const dataset = altitudeChart.data.datasets[i];
+        if (dataset.label === sessionId || dataset.label === displayId ||
+            (dataset.label && dataset.label.includes(sessionId))) {
+            altitudeChart.data.datasets.splice(i, 1);
+        }
+    }
+
+    // Remove from speed chart
+    for (let i = speedChart.data.datasets.length - 1; i >= 0; i--) {
+        const dataset = speedChart.data.datasets[i];
+        if (dataset.label === sessionId || dataset.label === displayId ||
+            (dataset.label && dataset.label.includes(sessionId))) {
+            speedChart.data.datasets.splice(i, 1);
+        }
+    }
+
+    // Add new datasets for each segment
+    dataSegments.forEach((segment, segmentIndex) => {
+        const segmentLabel = dataSegments.length === 1 ? displayId : `${displayId} (${segmentIndex + 1})`;
+
+        // Create altitude data for this segment
+        const altitudeData = segment.map(point => ({
+            x: point.distance,
+            y: point.altitude
+        }));
+
+        // Create speed data for this segment
+        const speedData = segment.map(point => ({
+            x: point.distance,
+            y: point.speed
+        }));
+
+        // Add altitude dataset
         altitudeChart.data.datasets.push({
-            label: displayId,
-            borderColor: getColorForUser(sessionId),
+            label: segmentLabel,
+            borderColor: sessionColor,
+            backgroundColor: sessionColor + '20', // Add some transparency
             fill: false,
-            data: []
+            data: altitudeData,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            tension: 0
         });
-    } else if (personName && altitudeChart.data.datasets[altDatasetIndex].label !== displayId) {
-        altitudeChart.data.datasets[altDatasetIndex].label = displayId;
-    }
 
-    altitudeChart.data.datasets[altDatasetIndex].data = chartData;
-
-    let speedDatasetIndex = speedChart.data.datasets.findIndex(
-        dataset => dataset.label === sessionId || dataset.label === displayId
-    );
-
-    if (speedDatasetIndex === -1) {
-        speedDatasetIndex = speedChart.data.datasets.length;
+        // Add speed dataset
         speedChart.data.datasets.push({
-            label: displayId,
-            borderColor: getColorForUser(sessionId),
+            label: segmentLabel,
+            borderColor: sessionColor,
+            backgroundColor: sessionColor + '20', // Add some transparency
             fill: false,
-            data: []
+            data: speedData,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            tension: 0
         });
-    } else if (personName && speedChart.data.datasets[speedDatasetIndex].label !== displayId) {
-        speedChart.data.datasets[speedDatasetIndex].label = displayId;
-    }
+    });
 
-    speedChart.data.datasets[speedDatasetIndex].data = speedData;
-
+    // Update both charts
     requestAnimationFrame(() => {
         altitudeChart.update('none');
         speedChart.update('none');
     });
+
+    addDebugMessage(`Charts updated for session ${sessionId}: ${dataSegments.length} segment(s) with ${validPoints.length} total points`, 'system');
 }
 
 function getSpeedColor(speed) {
@@ -1783,10 +1878,20 @@ function toggleSessionVisibility(sessionId) {
 
     let currentVisibility = null;
 
+    // Check visibility of datasets belonging to this session
     const altDatasets = altitudeChart.data.datasets;
     for (let i = 0; i < altDatasets.length; i++) {
-        if (altDatasets[i].label === displayId ||
-            altDatasets[i].label.includes(sessionId)) {
+        const dataset = altDatasets[i];
+
+        // Check if this dataset belongs to the session (handle both single and multi-segment)
+        let datasetSessionId;
+        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
+        } else {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
+        }
+
+        if (datasetSessionId === sessionId || dataset.label === displayId || dataset.label.includes(sessionId)) {
             if (currentVisibility === null) {
                 currentVisibility = altitudeChart.isDatasetVisible(i);
             }
@@ -1794,10 +1899,19 @@ function toggleSessionVisibility(sessionId) {
         }
     }
 
+    // Apply same logic to speed chart
     const speedDatasets = speedChart.data.datasets;
     for (let i = 0; i < speedDatasets.length; i++) {
-        if (speedDatasets[i].label === displayId ||
-            speedDatasets[i].label.includes(sessionId)) {
+        const dataset = speedDatasets[i];
+
+        let datasetSessionId;
+        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
+        } else {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
+        }
+
+        if (datasetSessionId === sessionId || dataset.label === displayId || dataset.label.includes(sessionId)) {
             speedChart.setDatasetVisibility(i, !currentVisibility);
         }
     }
@@ -1805,6 +1919,7 @@ function toggleSessionVisibility(sessionId) {
     altitudeChart.update();
     speedChart.update();
 
+    // Toggle map elements visibility
     toggleMapElementsVisibility(sessionId, !currentVisibility);
 
     if (currentVisibility === null) {
@@ -2086,19 +2201,40 @@ function handleSessionDeleted(sessionId) {
         delete speedHistory[sessionId];
     }
 
+    // Remove all datasets for this session from altitude chart (including segments)
     const altDatasets = altitudeChart.data.datasets;
     for (let i = altDatasets.length - 1; i >= 0; i--) {
-        if (altDatasets[i].label.includes(sessionId)) {
-            addDebugMessage(`Removing altitude dataset: ${altDatasets[i].label}`, 'system');
+        const dataset = altDatasets[i];
+
+        // Check if this dataset belongs to the deleted session
+        let datasetSessionId;
+        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
+        } else {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
+        }
+
+        if (datasetSessionId === sessionId || dataset.label.includes(sessionId)) {
+            addDebugMessage(`Removing altitude dataset: ${dataset.label}`, 'system');
             altDatasets.splice(i, 1);
         }
     }
     altitudeChart.update();
 
+    // Remove all datasets for this session from speed chart (including segments)
     const speedDatasets = speedChart.data.datasets;
     for (let i = speedDatasets.length - 1; i >= 0; i--) {
-        if (speedDatasets[i].label.includes(sessionId)) {
-            addDebugMessage(`Removing speed dataset: ${speedDatasets[i].label}`, 'system');
+        const dataset = speedDatasets[i];
+
+        let datasetSessionId;
+        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
+        } else {
+            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
+        }
+
+        if (datasetSessionId === sessionId || dataset.label.includes(sessionId)) {
+            addDebugMessage(`Removing speed dataset: ${dataset.label}`, 'system');
             speedDatasets.splice(i, 1);
         }
     }
