@@ -13,7 +13,6 @@ CREATE TABLE public.gps_tracking_points (
 	horizontal_accuracy numeric(8, 4) NULL,
 	vertical_accuracy_meters numeric(8, 4) NULL,
 	number_of_satellites int4 NULL,
-	satellites int4 NULL,
 	used_number_of_satellites int4 NULL,
 	current_speed numeric(8, 4) NOT NULL,
 	average_speed numeric(8, 4) NOT NULL,
@@ -35,9 +34,15 @@ CREATE TABLE public.gps_tracking_points (
 	humidity int4 NULL,
 	weather_timestamp int8 NULL,
 	weather_code int4 NULL,
+	pressure numeric(8, 2) NULL,
+	pressure_accuracy int4 NULL,
+	altitude_from_pressure numeric(10, 4) NULL,
+	sea_level_pressure numeric(8, 2) NULL,
 	CONSTRAINT gps_tracking_points_pkey PRIMARY KEY (id)
 );
+CREATE INDEX idx_gps_altitude_from_pressure ON public.gps_tracking_points USING btree (altitude_from_pressure) WHERE (altitude_from_pressure IS NOT NULL);
 CREATE INDEX idx_gps_location ON public.gps_tracking_points USING btree (latitude, longitude);
+CREATE INDEX idx_gps_pressure ON public.gps_tracking_points USING btree (pressure) WHERE (pressure IS NOT NULL);
 CREATE INDEX idx_gps_received_at ON public.gps_tracking_points USING btree (received_at);
 CREATE INDEX idx_gps_session_id ON public.gps_tracking_points USING btree (session_id);
 CREATE INDEX idx_gps_temperature ON public.gps_tracking_points USING btree (temperature) WHERE (temperature IS NOT NULL);
