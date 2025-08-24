@@ -349,7 +349,6 @@ class TrackingServer:
                     horizontal_accuracy NUMERIC(8, 4),
                     vertical_accuracy_meters NUMERIC(8, 4),
                     number_of_satellites INTEGER,
-                    satellites INTEGER,
                     used_number_of_satellites INTEGER,
                     current_speed NUMERIC(8, 4) NOT NULL,
                     average_speed NUMERIC(8, 4) NOT NULL,
@@ -628,7 +627,7 @@ class TrackingServer:
                     await conn.execute("""
                         INSERT INTO gps_tracking_points (
                             session_id, latitude, longitude, altitude, horizontal_accuracy,
-                            vertical_accuracy_meters, number_of_satellites, satellites,
+                            vertical_accuracy_meters, number_of_satellites,
                             used_number_of_satellites, current_speed, average_speed, max_speed,
                             moving_average_speed, speed, speed_accuracy_meters_per_second,
                             distance, covered_distance, cumulative_elevation_gain, heart_rate,
@@ -637,8 +636,8 @@ class TrackingServer:
                             pressure, pressure_accuracy, altitude_from_pressure, sea_level_pressure
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
-                            $28, $29, $30, $31
+                            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+                            $27, $28, $29, $30
                         )
                     """,
                                        session_id,
@@ -648,7 +647,6 @@ class TrackingServer:
                                        float(message_data.get('horizontalAccuracy', 0)) if message_data.get('horizontalAccuracy') is not None else None,
                                        float(message_data.get('verticalAccuracyMeters', 0)) if message_data.get('verticalAccuracyMeters') is not None else None,
                                        int(message_data.get('numberOfSatellites', 0)) if message_data.get('numberOfSatellites') is not None else None,
-                                       int(message_data.get('satellites', 0)) if message_data.get('satellites') is not None else None,
                                        int(message_data.get('usedNumberOfSatellites', 0)) if message_data.get('usedNumberOfSatellites') is not None else None,
                                        float(message_data.get('currentSpeed', 0)),
                                        float(message_data.get('averageSpeed', 0)),
