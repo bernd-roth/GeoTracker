@@ -54,6 +54,7 @@ import at.co.netconsulting.geotracker.composables.StatisticsScreen
 import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.GpsStatus
+import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
 import at.co.netconsulting.geotracker.reminder.ReminderManager
 import at.co.netconsulting.geotracker.tools.AlarmPermissionHelper
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
 
     // Route navigation state
     private val routeToDisplay = mutableStateOf<List<GeoPoint>?>(null)
+    private val routeRerunData = mutableStateOf<RouteRerunData?>(null)
 
     // Navigation routes
     object Routes {
@@ -487,6 +489,11 @@ class MainActivity : ComponentActivity() {
                                     // Clear the route after it's been displayed
                                     routeToDisplay.value = null
                                 },
+                                routeRerunData = routeRerunData.value,
+                                onRouteRerunCompleted = {
+                                    // Clear the route rerun data after completion
+                                    routeRerunData.value = null
+                                },
                                 getCurrentGpsStatus = { currentGpsStatus }, // Pass GPS status function
                                 // REMOVED: No longer pass importedGpxTrack parameter since using persistence
                                 onGpxTrackDisplayed = {
@@ -499,6 +506,11 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToMapWithRoute = { locationPoints ->
                                     // Set the route to display and switch to map tab
                                     routeToDisplay.value = locationPoints
+                                    selectedTabIndex = 0
+                                },
+                                onNavigateToMapWithRouteRerun = { locationPoints ->
+                                    // Set the route to rerun and switch to map tab
+                                    routeRerunData.value = RouteRerunData(locationPoints)
                                     selectedTabIndex = 0
                                 }
                             )
@@ -514,7 +526,8 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun AppNavHost(
         navController: NavHostController,
-        onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {}
+        onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit = {},
+        onNavigateToMapWithRouteRerun: (List<GeoPoint>) -> Unit = {}
     ) {
         NavHost(
             navController = navController,
@@ -556,7 +569,8 @@ class MainActivity : ComponentActivity() {
                         altitudeMetrics = metrics
                         navController.navigate(Routes.altitudeDetail())
                     },
-                    onNavigateToMapWithRoute = onNavigateToMapWithRoute
+                    onNavigateToMapWithRoute = onNavigateToMapWithRoute,
+                    onNavigateToMapWithRouteRerun = onNavigateToMapWithRouteRerun
                 )
             }
 

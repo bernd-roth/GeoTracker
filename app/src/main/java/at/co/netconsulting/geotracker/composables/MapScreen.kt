@@ -56,10 +56,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import at.co.netconsulting.geotracker.data.FollowedUserPoint
 import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
@@ -140,6 +140,8 @@ fun MapScreen(
     routeToDisplay: List<GeoPoint>?,
     onRouteDisplayed: () -> Unit,
     getCurrentGpsStatus: () -> GpsStatus,
+    routeRerunData: RouteRerunData? = null,
+    onRouteRerunCompleted: () -> Unit = {},
     importedGpxTrack: ImportedGpxTrack? = null,
     onGpxTrackDisplayed: () -> Unit = {}
 ) {
@@ -203,6 +205,13 @@ fun MapScreen(
 
     // Create a reference to hold the route overlay
     val routeOverlayRef = remember { mutableStateOf<Polyline?>(null) }
+
+    // Route rerun animation state
+    var isRunningRerun by remember { mutableStateOf(false) }
+    var currentRerunPoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
+    var rerunProgress by remember { mutableStateOf(0f) }
+    var rerunOverlayRef = remember { mutableStateOf<Polyline?>(null) }
+    var rerunMarkerPosition by remember { mutableStateOf<GeoPoint?>(null) }
 
     // Track overlay references and state
     val gpxTrackOverlayRef = remember { mutableStateOf<Polyline?>(null) }
@@ -276,7 +285,7 @@ fun MapScreen(
 
     // Function to programmatically trigger "My Location" button logic
     fun triggerMyLocationLogic() {
-        if (isFollowingLocation) {
+        if (isFollowingLocation && !isRunningRerun) {
             Timber.d("Triggering My Location button logic programmatically")
 
             locationOverlayRef.value?.let { overlay ->
@@ -486,6 +495,13 @@ fun MapScreen(
             showRouteDisplayIndicator = true
 
             mapViewRef.value?.let { mapView ->
+                // Clear any existing rerun track when displaying a regular route
+                rerunOverlayRef.value?.let { rerunOverlay ->
+                    mapView.overlays.remove(rerunOverlay)
+                    Timber.d("Cleared rerun track when displaying regular route")
+                }
+                rerunOverlayRef.value = null
+                
                 // Remove existing route overlay if present
                 routeOverlayRef.value?.let { existingOverlay ->
                     mapView.overlays.remove(existingOverlay)
@@ -541,6 +557,135 @@ fun MapScreen(
 
             // Notify that route has been displayed
             onRouteDisplayed()
+        }
+    }
+
+    // Handle route rerun animation
+    LaunchedEffect(routeRerunData) {
+        if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty()) {
+            currentRerunPoints = routeRerunData.points
+            isRunningRerun = true
+            rerunProgress = 0f
+
+            mapViewRef.value?.let { mapView ->
+                // Remove existing rerun overlay if present
+                rerunOverlayRef.value?.let { existingOverlay ->
+                    mapView.overlays.remove(existingOverlay)
+                }
+
+                // Calculate total distance for timing (approximate)
+                var totalDistance = 0.0
+                for (i in 1 until routeRerunData.points.size) {
+                    totalDistance += routeRerunData.points[i-1].distanceToAsDouble(routeRerunData.points[i])
+                }
+                
+                // Convert to kilometers
+                val totalDistanceKm = totalDistance / 1000.0
+                
+                // Total animation time: 1 second per kilometer
+                val totalAnimationMs = (totalDistanceKm * 1000).toLong().coerceAtLeast(2000L) // Minimum 2 seconds
+                
+                // Center map on route start
+                mapView.controller.setCenter(routeRerunData.points[0])
+                mapView.controller.setZoom(15.0)
+                
+                // Disable auto-follow during rerun
+                isFollowingLocation = false
+                saveAutoFollowState(false)
+                
+                // Also disable the overlay's follow location to be sure
+                locationOverlayRef.value?.let { overlay ->
+                    overlay.disableFollowLocation()
+                    Timber.d("Disabled overlay follow location for route rerun")
+                }
+                
+                Timber.d("Starting route rerun: ${routeRerunData.points.size} points, ${totalDistanceKm}km, ${totalAnimationMs}ms")
+
+                // Animation loop
+                val startTime = System.currentTimeMillis()
+                while (isRunningRerun && System.currentTimeMillis() - startTime < totalAnimationMs) {
+                    val elapsed = System.currentTimeMillis() - startTime
+                    val progress = elapsed.toFloat() / totalAnimationMs
+                    rerunProgress = progress.coerceIn(0f, 1f)
+                    
+                    // Calculate current position along the route
+                    val currentIndex = (progress * (routeRerunData.points.size - 1)).toInt()
+                        .coerceIn(0, routeRerunData.points.size - 1)
+                    
+                    // Get visible points up to current position
+                    val visiblePoints = routeRerunData.points.subList(0, currentIndex + 1)
+                    
+                    if (visiblePoints.isNotEmpty()) {
+                        // Update rerun overlay with visible portion of route
+                        rerunOverlayRef.value?.let { overlay ->
+                            mapView.overlays.remove(overlay)
+                        }
+                        
+                        val rerunOverlay = Polyline().apply {
+                            setPoints(visiblePoints)
+                            color = android.graphics.Color.RED
+                            width = 8f
+                            title = "Route Rerun Progress"
+                        }
+                        
+                        mapView.overlays.add(rerunOverlay)
+                        rerunOverlayRef.value = rerunOverlay
+                        
+                        // Update current position marker
+                        val currentPoint = visiblePoints.last()
+                        rerunMarkerPosition = currentPoint
+                        
+                        // Center map on current position
+                        mapView.controller.setCenter(currentPoint)
+                        
+                        mapView.invalidate()
+                        
+                        Timber.d("Rerun progress: ${(progress * 100).toInt()}%, point ${currentIndex}/${routeRerunData.points.size}")
+                    }
+                    
+                    delay(50) // Update every 50ms for smooth animation
+                }
+
+                // Animation completed
+                if (isRunningRerun) {
+                    // Keep complete route visible in green (persistent)
+                    rerunOverlayRef.value?.let { overlay ->
+                        mapView.overlays.remove(overlay)
+                    }
+                    
+                    val finalOverlay = Polyline().apply {
+                        setPoints(routeRerunData.points)
+                        color = android.graphics.Color.RED // Use red for better visibility
+                        width = 8f
+                        title = "Route Rerun Complete"
+                    }
+                    
+                    mapView.overlays.add(finalOverlay)
+                    rerunOverlayRef.value = finalOverlay
+                    mapView.invalidate()
+                    
+                    isRunningRerun = false
+                    rerunProgress = 1f
+                    
+                    Timber.d("Route rerun completed - keeping red track visible")
+                    
+                    // Don't call onRouteRerunCompleted() immediately - keep the track visible
+                    // The track will be cleared when starting a new event or other conditions
+                }
+            }
+        } else if (routeRerunData == null) {
+            // Clear rerun state when data is cleared
+            mapViewRef.value?.let { mapView ->
+                rerunOverlayRef.value?.let { overlay ->
+                    mapView.overlays.remove(overlay)
+                    mapView.invalidate()
+                }
+            }
+            rerunOverlayRef.value = null
+            isRunningRerun = false
+            currentRerunPoints = emptyList()
+            rerunProgress = 0f
+            rerunMarkerPosition = null
         }
     }
 
@@ -621,8 +766,8 @@ fun MapScreen(
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
                 }
 
-                // Handle auto-follow functionality - but not when following other users
-                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !followingState.isFollowing) {
+                // Handle auto-follow functionality - but not when following other users or running route rerun
+                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !followingState.isFollowing && !isRunningRerun) {
                     mapViewRef.value?.let { mapView ->
                         val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
 
@@ -824,6 +969,16 @@ fun MapScreen(
     // Handle auto-follow state when recording starts/stops
     LaunchedEffect(isRecording) {
         if (isRecording) {
+            // Clear any existing rerun track when starting a new recording
+            mapViewRef.value?.let { mapView ->
+                rerunOverlayRef.value?.let { overlay ->
+                    mapView.overlays.remove(overlay)
+                    mapView.invalidate()
+                    Timber.d("Cleared rerun track when starting new recording")
+                }
+            }
+            rerunOverlayRef.value = null
+            
             isFollowingLocation = true
             saveAutoFollowState(true)
             Handler(Looper.getMainLooper()).postDelayed({
@@ -1041,7 +1196,7 @@ fun MapScreen(
                     val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
                         enableMyLocation()
 
-                        if (isFollowingLocation) {
+                        if (isFollowingLocation && !isRunningRerun) {
                             enableFollowLocation()
                             Timber.d("Initial enableFollowLocation() called")
                         }
@@ -1342,6 +1497,107 @@ fun MapScreen(
             }
         }
 
+        // Route rerun indicator
+        if (isRunningRerun) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = when {
+                        currentImportedTrack != null && showRouteDisplayIndicator -> 200.dp
+                        currentImportedTrack != null || showRouteDisplayIndicator -> 120.dp
+                        followingState.isFollowing -> 80.dp
+                        else -> 16.dp
+                    }),
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Red.copy(alpha = 0.9f),
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        progress = rerunProgress,
+                        modifier = Modifier.size(20.dp),
+                        color = Color.White,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Route Rerun in Progress",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${(rerunProgress * 100).toInt()}% complete",
+                            color = Color.White.copy(alpha = 0.8f),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            }
+        }
+
+        // Completed route rerun indicator
+        if (!isRunningRerun && rerunOverlayRef.value != null) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = when {
+                        currentImportedTrack != null && showRouteDisplayIndicator -> 240.dp
+                        currentImportedTrack != null || showRouteDisplayIndicator -> 160.dp
+                        followingState.isFollowing -> 120.dp
+                        else -> 56.dp
+                    }),
+                shape = RoundedCornerShape(20.dp),
+                color = Color.Red.copy(alpha = 0.9f),
+                shadowElevation = 4.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Route Rerun Complete",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Route Rerun Complete",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    IconButton(
+                        onClick = {
+                            // Clear the rerun track manually
+                            mapViewRef.value?.let { mapView ->
+                                rerunOverlayRef.value?.let { overlay ->
+                                    mapView.overlays.remove(overlay)
+                                    mapView.invalidate()
+                                }
+                            }
+                            rerunOverlayRef.value = null
+                            Timber.d("Manually cleared completed rerun track")
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Clear Rerun Track",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+
         // Control buttons column at the bottom
         Column(
             modifier = Modifier
@@ -1349,8 +1605,8 @@ fun MapScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.End
         ) {
-            // Auto-follow indicator above My Location button
-            if ((isFollowingLocation || isAutoFollowingUsers) && hasInitializedMapCenter) {
+            // Auto-follow indicator above My Location button (hidden during route rerun)
+            if ((isFollowingLocation || isAutoFollowingUsers) && hasInitializedMapCenter && !isRunningRerun) {
                 Surface(
                     shape = CircleShape,
                     color = if (isAutoFollowingUsers) Color.Green.copy(alpha = 0.8f) else Color.Blue.copy(alpha = 0.8f),
@@ -1371,6 +1627,7 @@ fun MapScreen(
                 modifier = Modifier.size(56.dp),
                 shape = CircleShape,
                 color = when {
+                    isRunningRerun -> Color.Gray // Disabled during route rerun
                     isAutoFollowingUsers -> Color.Green
                     isFollowingLocation -> Color.Blue
                     else -> Color.White
@@ -1382,7 +1639,13 @@ fun MapScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clickable {
-                            Timber.d("My Location button clicked - current states: followLocation=$isFollowingLocation, followUsers=$isAutoFollowingUsers")
+                            Timber.d("My Location button clicked - current states: followLocation=$isFollowingLocation, followUsers=$isAutoFollowingUsers, rerun=$isRunningRerun")
+
+                            // Disable button functionality during route rerun
+                            if (isRunningRerun) {
+                                Timber.d("My Location button disabled during route rerun")
+                                return@clickable
+                            }
 
                             when {
                                 isAutoFollowingUsers -> {
@@ -1413,11 +1676,13 @@ fun MapScreen(
                     Icon(
                         imageVector = Icons.Default.MyLocation,
                         contentDescription = when {
+                            isRunningRerun -> "Disabled during route rerun"
                             isAutoFollowingUsers -> "Switch to My Location"
                             isFollowingLocation -> "Disable Auto-Follow"
                             else -> "Enable Auto-Follow"
                         },
                         tint = when {
+                            isRunningRerun -> Color.DarkGray
                             isAutoFollowingUsers || isFollowingLocation -> Color.White
                             else -> Color.Black
                         }

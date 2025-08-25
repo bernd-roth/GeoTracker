@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
@@ -109,7 +110,8 @@ fun EventsScreen(
     onNavigateToWeatherDetail: (String, List<Metric>) -> Unit,
     onNavigateToBarometerDetail: (String, List<Metric>) -> Unit,
     onNavigateToAltitudeDetail: (String, List<Metric>) -> Unit,
-    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit
+    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit,
+    onNavigateToMapWithRouteRerun: (List<GeoPoint>) -> Unit
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -579,6 +581,9 @@ fun EventsScreen(
                             onViewOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(locationPoints)
                             },
+                            onViewOnMapRerun = { locationPoints ->
+                                onNavigateToMapWithRouteRerun(locationPoints)
+                            },
                             canViewOnMap = !isRecordingThisEvent // Only allow when not recording this event
                         )
                     }
@@ -669,6 +674,7 @@ fun EventCard(
     onBarometerClick: () -> Unit = {},
     onAltitudeClick: () -> Unit = {},
     onViewOnMap: (List<GeoPoint>) -> Unit = {},
+    onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     canViewOnMap: Boolean = true
 ) {
     Card(
@@ -1678,6 +1684,57 @@ fun EventCard(
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
+                }
+
+                // Route rerun section
+                if (canViewOnMap && event.locationPoints.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Text(
+                        text = "Route Rerun",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                onViewOnMapRerun(event.locationPoints)
+                            }
+                            .padding(4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PlayArrow,
+                                contentDescription = "Rerun Route",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Rerun Route on Map",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "Animated playback: 1 second per kilometer",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f),
+                                    fontStyle = FontStyle.Italic
+                                )
+                            }
+                        }
+                    }
                 }
 
                 if (event.event.comment.isNotEmpty()) {

@@ -45,6 +45,10 @@ fun AppNavigation() {
                 onNavigateToMapWithRoute = { locationPoints ->
                     // Handle map navigation - you might need to store this data
                     // and navigate to a map route
+                },
+                onNavigateToMapWithRouteRerun = { locationPoints ->
+                    // Handle map navigation with route rerun - you might need to store this data
+                    // and navigate to a map route
                 }
             )
         }
