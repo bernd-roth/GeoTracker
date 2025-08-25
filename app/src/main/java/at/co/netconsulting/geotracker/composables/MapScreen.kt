@@ -621,8 +621,8 @@ fun MapScreen(
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
                 }
 
-                // Handle auto-follow functionality
-                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0) {
+                // Handle auto-follow functionality - but not when following other users
+                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !followingState.isFollowing) {
                     mapViewRef.value?.let { mapView ->
                         val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
 
