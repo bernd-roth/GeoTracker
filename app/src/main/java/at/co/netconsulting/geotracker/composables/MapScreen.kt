@@ -210,6 +210,8 @@ fun MapScreen(
     var isRunningRerun by remember { mutableStateOf(false) }
     var currentRerunPoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
     var rerunProgress by remember { mutableStateOf(0f) }
+    var completedRerunRoutes by remember { mutableStateOf<Set<List<GeoPoint>>>(emptySet()) }
+    var savedFollowStateBeforeRerun by remember { mutableStateOf<Boolean?>(null) }
     var rerunOverlayRef = remember { mutableStateOf<Polyline?>(null) }
     var rerunMarkerPosition by remember { mutableStateOf<GeoPoint?>(null) }
 
@@ -562,7 +564,7 @@ fun MapScreen(
 
     // Handle route rerun animation
     LaunchedEffect(routeRerunData) {
-        if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty()) {
+        if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty() && !completedRerunRoutes.contains(routeRerunData.points)) {
             currentRerunPoints = routeRerunData.points
             isRunningRerun = true
             rerunProgress = 0f
@@ -589,14 +591,16 @@ fun MapScreen(
                 mapView.controller.setCenter(routeRerunData.points[0])
                 mapView.controller.setZoom(15.0)
                 
-                // Disable auto-follow during rerun
-                isFollowingLocation = false
-                saveAutoFollowState(false)
+                // Save current follow state before temporarily disabling during rerun
+                savedFollowStateBeforeRerun = isFollowingLocation
                 
-                // Also disable the overlay's follow location to be sure
+                // Temporarily disable auto-follow during rerun animation only
+                isFollowingLocation = false
+                
+                // Also disable the overlay's follow location temporarily
                 locationOverlayRef.value?.let { overlay ->
                     overlay.disableFollowLocation()
-                    Timber.d("Disabled overlay follow location for route rerun")
+                    Timber.d("Temporarily disabled overlay follow location for route rerun animation")
                 }
                 
                 Timber.d("Starting route rerun: ${routeRerunData.points.size} points, ${totalDistanceKm}km, ${totalAnimationMs}ms")
@@ -669,8 +673,21 @@ fun MapScreen(
                     
                     Timber.d("Route rerun completed - keeping red track visible")
                     
-                    // Don't call onRouteRerunCompleted() immediately - keep the track visible
-                    // The track will be cleared when starting a new event or other conditions
+                    // Add this route to completed reruns to prevent re-triggering
+                    completedRerunRoutes = (completedRerunRoutes + routeRerunData.points) as Set<List<GeoPoint>>
+                    
+                    // Keep auto-follow disabled after rerun completion
+                    // This allows users to manually inspect the rerun route
+                    isFollowingLocation = false
+                    saveAutoFollowState(false)
+                    locationOverlayRef.value?.let { overlay ->
+                        overlay.disableFollowLocation()
+                        Timber.d("Keeping overlay follow location disabled after rerun completion")
+                    }
+                    savedFollowStateBeforeRerun = null // Clear the saved state
+                    
+                    // Don't call onRouteRerunCompleted() to keep the track visible
+                    // and preserve the hair-cross and center map functionality
                 }
             }
         } else if (routeRerunData == null) {
@@ -686,6 +703,10 @@ fun MapScreen(
             currentRerunPoints = emptyList()
             rerunProgress = 0f
             rerunMarkerPosition = null
+            
+            // Clear completed reruns set when rerun data is cleared
+            completedRerunRoutes = emptySet()
+            savedFollowStateBeforeRerun = null
         }
     }
 
