@@ -7,7 +7,7 @@ services:
     environment:
       POSTGRES_DB: geotracker
       POSTGRES_USER: geotracker
-      POSTGRES_PASSWORD: 3Jkris67zhnnhz76zhn
+      POSTGRES_PASSWORD: xxx
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "8021:5432"
@@ -54,7 +54,7 @@ services:
       - POSTGRES_PORT=5432
       - POSTGRES_DB=geotracker
       - POSTGRES_USER=geotracker
-      - POSTGRES_PASSWORD=3Jkris67zhnnhz76zhn
+      - POSTGRES_PASSWORD=xxx
     depends_on:
       postgres-geotracker:
         condition: service_healthy
