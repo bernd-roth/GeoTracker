@@ -34,9 +34,11 @@ class Tools {
         val hours = milliseconds / (1000 * 60 * 60)
 
         return if (hours > 0) {
-            String.format("%d:%02d:%02d", hours, minutes, seconds)
+            String.format("%dh %02dm %02ds", hours, minutes, seconds)
+        } else if (minutes > 0) {
+            String.format("%dm %02ds", minutes, seconds)
         } else {
-            String.format("%d:%02d", minutes, seconds)
+            String.format("%ds", seconds)
         }
     }
 
