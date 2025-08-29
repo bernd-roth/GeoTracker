@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.composables
 
+import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.background
@@ -34,14 +35,19 @@ fun StatisticsScreen() {
     // Get singleton instance with context
     val weatherHandler = remember { WeatherEventBusHandler.getInstance(context) }
 
-    // Initialize with current session ID
+    // Initialize with current session ID, but only if the service is actually running
     LaunchedEffect(Unit) {
+        val isServiceRunning = isServiceRunning(context, "at.co.netconsulting.geotracker.service.ForegroundService")
         val sessionId = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
             .getString("current_session_id", "") ?: ""
 
-        if (sessionId.isNotEmpty()) {
+        if (isServiceRunning && sessionId.isNotEmpty()) {
             weatherHandler.initializeWithSession(sessionId)
-            Log.d("StatisticsScreen", "Initialized WeatherEventBusHandler with session: $sessionId")
+            Log.d("StatisticsScreen", "Service is running - initialized WeatherEventBusHandler with session: $sessionId")
+        } else {
+            // Service is not running or no session - clear any existing lap times to prevent showing old data
+            weatherHandler.clearLapTimes()
+            Log.d("StatisticsScreen", "Service not running or no session - cleared existing lap times (service running: $isServiceRunning, sessionId: $sessionId)")
         }
     }
 
@@ -64,6 +70,7 @@ fun StatisticsScreen() {
     val metrics by weatherHandler.metrics.collectAsState()
     val heartRateData by weatherHandler.heartRate.collectAsState()
     val heartRateHistory by weatherHandler.heartRateHistory.collectAsState()
+    val speedHistory by weatherHandler.speedHistory.collectAsState() // Speed history for chart
     val lapTimes by weatherHandler.lapTimes.collectAsState() // Database-driven lap times
 
     Column(
@@ -454,26 +461,17 @@ fun StatisticsScreen() {
         StatisticsCard(
             title = "Speed vs Distance",
             content = {
-                if (metrics != null && metrics!!.coveredDistance > 0) {
+                if (metrics != null && metrics!!.coveredDistance > 0 && speedHistory.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(160.dp)
                     ) {
-                        // Create entries for chart based on covered distance
-                        val entries = remember(metrics) {
-                            // For simplicity, create sample entries based on current metrics
-                            val distanceInKm = metrics!!.coveredDistance / 1000
-                            val entries = mutableListOf<Entry>()
-
-                            // Create 5 sample points
-                            val pointCount = 5
-                            for (i in 0..pointCount) {
-                                val x = (distanceInKm * i / pointCount).toFloat()
-                                val y = metrics!!.speed * (0.8f + (Math.random() * 0.4f)).toFloat()
-                                entries.add(Entry(x, y))
+                        // Convert the speed history into chart entries
+                        val entries = remember(speedHistory) {
+                            speedHistory.map { (distance, speed) ->
+                                Entry(distance.toFloat(), speed)
                             }
-                            entries
                         }
 
                         RealLineChart(
@@ -492,7 +490,12 @@ fun StatisticsScreen() {
                             .background(Color.LightGray.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Chart will appear as you move")
+                        Text(
+                            if (metrics != null && metrics!!.coveredDistance > 0)
+                                "Collecting speed data..."
+                            else
+                                "Chart will appear as you move"
+                        )
                     }
                 }
             }
@@ -746,4 +749,12 @@ private fun calculateLapPace(timeInMilliseconds: Long, distanceKm: Double): Stri
     val paceMinutes = paceSecondsPerKm / 60
     val paceSeconds = paceSecondsPerKm % 60
     return String.format("%d:%02d /km", paceMinutes, paceSeconds)
+}
+
+private fun isServiceRunning(context: Context, serviceName: String): Boolean {
+    val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    return manager.getRunningServices(Integer.MAX_VALUE)
+        .any { service ->
+            serviceName == service.service.className && service.foreground
+        }
 }

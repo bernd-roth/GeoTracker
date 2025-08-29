@@ -42,6 +42,10 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
     private val _heartRateHistory = MutableStateFlow<List<Pair<Double, Int>>>(emptyList())
     val heartRateHistory: StateFlow<List<Pair<Double, Int>>> = _heartRateHistory.asStateFlow()
 
+    // Speed history tracking for chart (distance in km, speed in km/h)
+    private val _speedHistory = MutableStateFlow<List<Pair<Double, Float>>>(emptyList())
+    val speedHistory: StateFlow<List<Pair<Double, Float>>> = _speedHistory.asStateFlow()
+
     // StateFlow for lap times from database
     private val _lapTimes = MutableStateFlow<List<LapTime>>(emptyList())
     val lapTimes: StateFlow<List<LapTime>> = _lapTimes.asStateFlow()
@@ -175,6 +179,29 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
             }
         }
 
+        // Update speed history for chart
+        if (metrics.coveredDistance > 0) {
+            val distanceKm = metrics.coveredDistance / 1000.0
+            val currentSpeedHistory = _speedHistory.value.toMutableList()
+
+            // Add new data point (only if distance has progressed significantly)
+            val lastDistance = currentSpeedHistory.lastOrNull()?.first ?: 0.0
+            val shouldAddPoint = currentSpeedHistory.isEmpty() || 
+                                distanceKm - lastDistance >= 0.01 // Every 10 meters
+
+            if (shouldAddPoint) {
+                currentSpeedHistory.add(Pair(distanceKm, metrics.speed))
+
+                // Keep only the last 200 points to prevent memory issues while showing good detail
+                if (currentSpeedHistory.size > 200) {
+                    val trimmedHistory = currentSpeedHistory.takeLast(200)
+                    _speedHistory.value = trimmedHistory
+                } else {
+                    _speedHistory.value = currentSpeedHistory
+                }
+            }
+        }
+
         // Check if we should refresh lap times (when lap number increases)
         lastMetricsValue?.let { lastMetrics ->
             if (metrics.lap > lastMetrics.lap) {
@@ -225,8 +252,10 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         lastLapDistance = 0.0
         isTrackingLaps = true
 
-        // Clear existing lap times and load from database
+        // Clear existing lap times, speed history, and heart rate history, then load from database
         _lapTimes.value = emptyList()
+        _speedHistory.value = emptyList()
+        _heartRateHistory.value = emptyList()
         loadLapTimesFromDatabase()
 
         Log.d(TAG, "Started new session: $sessionId")
@@ -287,8 +316,10 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
      */
     fun clearLapTimes() {
         _lapTimes.value = emptyList()
+        _speedHistory.value = emptyList() // Clear speed history as well
+        _heartRateHistory.value = emptyList() // Clear heart rate history for consistency
         currentSessionId = ""
-        Log.d(TAG, "Cleared all lap times")
+        Log.d(TAG, "Cleared all lap times, speed history, and heart rate history")
     }
 
     /**

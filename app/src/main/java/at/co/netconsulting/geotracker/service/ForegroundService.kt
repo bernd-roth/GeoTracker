@@ -203,11 +203,19 @@ class ForegroundService : Service() {
                 remove("current_sport_type")
                 remove("current_comment")
                 remove("current_clothing")
-                // Keep session_id as it might be needed for final data processing
+                remove("current_session_id") // Clear the session ID to prevent old lap data from loading
                 apply()
             }
 
-            Log.d(TAG, "Session data cleared from SharedPreferences")
+            // Clear lap times from the WeatherEventBusHandler
+            try {
+                WeatherEventBusHandler.getInstance(this@ForegroundService).clearLapTimes()
+                Log.d(TAG, "Cleared lap times from WeatherEventBusHandler")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error clearing lap times from handler", e)
+            }
+
+            Log.d(TAG, "Session data and lap times cleared from SharedPreferences")
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing session data from SharedPreferences", e)
         }
