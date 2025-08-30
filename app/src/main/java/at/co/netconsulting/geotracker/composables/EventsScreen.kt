@@ -91,6 +91,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import at.co.netconsulting.geotracker.data.AltitudeSpeedInfo
+import at.co.netconsulting.geotracker.data.RouteDisplayData
+import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.tools.GpxImporter
@@ -112,8 +114,8 @@ fun EventsScreen(
     onNavigateToWeatherDetail: (String, List<Metric>) -> Unit,
     onNavigateToBarometerDetail: (String, List<Metric>) -> Unit,
     onNavigateToAltitudeDetail: (String, List<Metric>) -> Unit,
-    onNavigateToMapWithRoute: (List<GeoPoint>) -> Unit,
-    onNavigateToMapWithRouteRerun: (List<GeoPoint>) -> Unit
+    onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
+    onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit
 ) {
     val context = LocalContext.current
     val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
@@ -496,11 +498,44 @@ fun EventsScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = if (searchQuery.isEmpty()) "No events found" else "No events match your search",
-                        fontSize = 18.sp,
-                        color = Color.Gray
-                    )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(32.dp)
+                    ) {
+                        Text(
+                            text = if (searchQuery.isEmpty()) "No activities found" else "No events match your search",
+                            fontSize = 18.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+                        
+                        if (searchQuery.isEmpty()) {
+                            // Show different messages based on whether this might be after a database upgrade
+                            Text(
+                                text = "This could be because:",
+                                fontSize = 14.sp,
+                                color = Color.Gray,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            
+                            Text(
+                                text = "• No activities have been recorded yet\n" +
+                                      "• Database upgrade may have affected data\n" +
+                                      "• Try importing a GPX file to get started",
+                                fontSize = 14.sp,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(bottom = 16.dp)
+                            )
+                            
+                            Text(
+                                text = "Tip: Use the '+' button to import a GPX file",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontStyle = FontStyle.Italic
+                            )
+                        }
+                    }
                 }
             } else {
                 LazyColumn(
@@ -581,10 +616,10 @@ fun EventsScreen(
                             },
                             // Pass the map navigation callback and recording state
                             onViewOnMap = { locationPoints ->
-                                onNavigateToMapWithRoute(locationPoints)
+                                onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId))
                             },
                             onViewOnMapRerun = { locationPoints ->
-                                onNavigateToMapWithRouteRerun(locationPoints)
+                                onNavigateToMapWithRouteRerun(RouteRerunData(locationPoints, true, eventWithDetails.event.eventId))
                             },
                             canViewOnMap = !isRecordingThisEvent // Only allow when not recording this event
                         )

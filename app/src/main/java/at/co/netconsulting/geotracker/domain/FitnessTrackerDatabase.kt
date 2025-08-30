@@ -22,9 +22,10 @@ import android.util.Log
         PlannedEvent::class,
         Clothing::class,
         WheelSprocket::class,
-        Network::class
+        Network::class,
+        Waypoint::class
     ],
-    version = 15, // ✅ INCREMENTED FROM 14 TO 15
+    version = 16, // ✅ INCREMENTED FROM 15 TO 16
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -42,6 +43,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     abstract fun clothingDao(): ClothingDao
     abstract fun wheelSprocketDao(): WheelSprocketDao
     abstract fun networkDao(): NetworkDao
+    abstract fun waypointDao(): WaypointDao
 
     companion object {
         @Volatile
@@ -514,6 +516,38 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 15->16 - adding waypoints table")
+
+                try {
+                    // Create waypoints table
+                    database.execSQL("""
+                        CREATE TABLE waypoints (
+                            waypointId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            eventId INTEGER NOT NULL,
+                            latitude REAL NOT NULL,
+                            longitude REAL NOT NULL,
+                            name TEXT NOT NULL,
+                            description TEXT,
+                            elevation REAL,
+                            FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                        )
+                    """)
+
+                    // Create index for foreign key
+                    database.execSQL("""
+                        CREATE INDEX index_waypoints_eventId ON waypoints(eventId)
+                    """)
+
+                    Log.d(TAG, "Migration 15->16 completed - waypoints table created")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 15->16", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -536,17 +570,20 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_11_12,
                             MIGRATION_12_13,
                             MIGRATION_13_14,
-                            MIGRATION_14_15  // ✅ ADD THE NEW MIGRATION
+                            MIGRATION_14_15,
+                            MIGRATION_15_16
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {
                                 super.onCreate(db)
                                 Log.d(TAG, "Database created successfully")
+                                verifyDatabaseIntegrity(db)
                             }
 
                             override fun onOpen(db: SupportSQLiteDatabase) {
                                 super.onOpen(db)
                                 Log.d(TAG, "Database opened successfully")
+                                verifyDatabaseIntegrity(db)
                             }
                         })
                         .fallbackToDestructiveMigration() // Keep as safety net
@@ -559,6 +596,112 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                     Log.e(TAG, "Error creating database instance", e)
                     throw e
                 }
+            }
+        }
+
+        private fun verifyDatabaseIntegrity(db: SupportSQLiteDatabase) {
+            try {
+                Log.d(TAG, "Verifying database integrity...")
+                
+                // Check if main tables exist and have data
+                val eventsCount = db.query("SELECT COUNT(*) FROM events").use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getInt(0) else 0
+                }
+                
+                val metricsCount = db.query("SELECT COUNT(*) FROM metrics").use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getInt(0) else 0
+                }
+                
+                val locationsCount = db.query("SELECT COUNT(*) FROM locations").use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getInt(0) else 0
+                }
+                
+                Log.d(TAG, "Database integrity check:")
+                Log.d(TAG, "  Events: $eventsCount")
+                Log.d(TAG, "  Metrics: $metricsCount") 
+                Log.d(TAG, "  Locations: $locationsCount")
+                
+                if (eventsCount == 0) {
+                    Log.w(TAG, "WARNING: No events found in database after migration!")
+                    Log.w(TAG, "This could indicate data loss during migration.")
+                    Log.w(TAG, "Check for database backup files or consider data recovery.")
+                }
+                
+                // Verify waypoints table exists (should be created in migration 15->16)
+                val waypointsTableExists = try {
+                    db.query("SELECT COUNT(*) FROM waypoints LIMIT 1").use { cursor ->
+                        cursor.moveToFirst()
+                        true
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Waypoints table doesn't exist: ${e.message}")
+                    false
+                }
+                
+                if (!waypointsTableExists) {
+                    Log.w(TAG, "Waypoints table missing - attempting to create it")
+                    try {
+                        db.execSQL("""
+                            CREATE TABLE IF NOT EXISTS waypoints (
+                                waypointId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                                eventId INTEGER NOT NULL,
+                                latitude REAL NOT NULL,
+                                longitude REAL NOT NULL,
+                                name TEXT NOT NULL,
+                                description TEXT,
+                                elevation REAL,
+                                FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                            )
+                        """)
+                        db.execSQL("CREATE INDEX IF NOT EXISTS index_waypoints_eventId ON waypoints(eventId)")
+                        Log.d(TAG, "Waypoints table created successfully")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to create waypoints table: ${e.message}")
+                    }
+                }
+                
+                Log.d(TAG, "Database integrity verification completed")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error verifying database integrity: ${e.message}", e)
+            }
+        }
+
+        /**
+         * Attempt to recover database from a potential destructive migration
+         * This should be called manually if the user reports data loss
+         */
+        suspend fun attemptDatabaseRecovery(context: Context): Boolean {
+            try {
+                Log.d(TAG, "Attempting database recovery...")
+                
+                // Check if there's a backup file
+                val dbDir = context.getDatabasePath("fitness_tracker.db").parentFile
+                val backupFiles = dbDir?.listFiles { _, name ->
+                    name.startsWith("fitness_tracker") && (name.endsWith(".db-wal") || name.endsWith(".db-shm"))
+                }
+                
+                if (backupFiles?.isNotEmpty() == true) {
+                    Log.d(TAG, "Found potential backup files: ${backupFiles.map { it.name }}")
+                    Log.d(TAG, "Manual recovery may be possible - consult Android database recovery guides")
+                }
+                
+                // Force close current instance
+                INSTANCE?.close()
+                INSTANCE = null
+                
+                // Try to reinitialize
+                val newInstance = getInstance(context)
+                
+                // Verify the new instance has data
+                val eventCount = newInstance.eventDao().getEventCount()
+                Log.d(TAG, "After recovery attempt - event count: $eventCount")
+                
+                return eventCount > 0
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Database recovery failed: ${e.message}", e)
+                return false
             }
         }
     }

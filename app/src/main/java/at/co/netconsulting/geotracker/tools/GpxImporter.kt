@@ -8,6 +8,7 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.User
+import at.co.netconsulting.geotracker.domain.Waypoint
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream
@@ -80,12 +81,15 @@ class GpxImporter(private val context: Context) {
 
             var eventId = -1
             val trackPoints = mutableListOf<GpxTrackPoint>()
+            val waypoints = mutableListOf<GpxWaypoint>()
             var eventName = ""
             var sportType = ""
             var inTrackPoint = false
+            var inWaypoint = false
             var inTrack = false
             var inMetadata = false
             var currentPoint = GpxTrackPoint()
+            var currentWaypoint = GpxWaypoint()
 
             Log.d(TAG, "Starting to parse GPX XML")
             var parserEventType = parser.eventType
@@ -106,12 +110,24 @@ class GpxImporter(private val context: Context) {
                                 parser.next()
                                 if (parser.eventType == XmlPullParser.TEXT) {
                                     val nameText = parser.text
-                                    if (inTrack && eventName.isEmpty()) {
+                                    if (inWaypoint) {
+                                        currentWaypoint.name = nameText
+                                        Log.d(TAG, "Found waypoint name: $nameText")
+                                    } else if (inTrack && eventName.isEmpty()) {
                                         eventName = nameText
                                         Log.d(TAG, "Found track name: $eventName")
                                     } else if (inMetadata && eventName.isEmpty()) {
                                         eventName = nameText
                                         Log.d(TAG, "Found metadata name: $eventName")
+                                    }
+                                }
+                            }
+                            "desc" -> {
+                                if (inWaypoint) {
+                                    parser.next()
+                                    if (parser.eventType == XmlPullParser.TEXT) {
+                                        currentWaypoint.desc = parser.text
+                                        Log.d(TAG, "Found waypoint description: ${currentWaypoint.desc}")
                                     }
                                 }
                             }
@@ -122,6 +138,17 @@ class GpxImporter(private val context: Context) {
                                         sportType = parser.text
                                         Log.d(TAG, "Found sport type: $sportType")
                                     }
+                                }
+                            }
+                            "wpt" -> {
+                                inWaypoint = true
+                                currentWaypoint = GpxWaypoint()
+                                currentWaypoint.lat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull() ?: 0.0
+                                currentWaypoint.lon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull() ?: 0.0
+
+                                // Validate coordinates
+                                if (currentWaypoint.lat == 0.0 && currentWaypoint.lon == 0.0) {
+                                    Log.w(TAG, "Invalid waypoint coordinates found: lat=${currentWaypoint.lat}, lon=${currentWaypoint.lon}")
                                 }
                             }
                             "trkpt" -> {
@@ -140,6 +167,11 @@ class GpxImporter(private val context: Context) {
                                     parser.next()
                                     if (parser.eventType == XmlPullParser.TEXT) {
                                         currentPoint.ele = parser.text.toDoubleOrNull() ?: 0.0
+                                    }
+                                } else if (inWaypoint) {
+                                    parser.next()
+                                    if (parser.eventType == XmlPullParser.TEXT) {
+                                        currentWaypoint.ele = parser.text.toDoubleOrNull() ?: 0.0
                                     }
                                 }
                             }
@@ -160,6 +192,16 @@ class GpxImporter(private val context: Context) {
                         when (parser.name) {
                             "metadata" -> inMetadata = false
                             "trk" -> inTrack = false
+                            "wpt" -> {
+                                if (inWaypoint) {
+                                    inWaypoint = false
+                                    // Only add valid waypoints
+                                    if (currentWaypoint.lat != 0.0 || currentWaypoint.lon != 0.0) {
+                                        waypoints.add(currentWaypoint)
+                                        Log.d(TAG, "Added waypoint: ${currentWaypoint.name} at (${currentWaypoint.lat}, ${currentWaypoint.lon})")
+                                    }
+                                }
+                            }
                             "trkpt" -> {
                                 if (inTrackPoint) {
                                     inTrackPoint = false
@@ -175,7 +217,7 @@ class GpxImporter(private val context: Context) {
                 parserEventType = parser.next()
             }
 
-            Log.d(TAG, "Finished parsing GPX. Found ${trackPoints.size} track points")
+            Log.d(TAG, "Finished parsing GPX. Found ${trackPoints.size} track points and ${waypoints.size} waypoints")
             Log.d(TAG, "Event name: '$eventName', Sport type: '$sportType'")
 
             // Validate track points
@@ -193,7 +235,7 @@ class GpxImporter(private val context: Context) {
             val filteredPoints = removeDuplicatePoints(trackPoints)
             Log.d(TAG, "After removing duplicates: ${filteredPoints.size} track points")
 
-            eventId = createEventFromTrackPoints(filteredPoints, eventName, sportType)
+            eventId = createEventFromTrackPoints(filteredPoints, waypoints, eventName, sportType)
             Log.d(TAG, "Created event with ID: $eventId")
 
             return eventId
@@ -281,6 +323,7 @@ class GpxImporter(private val context: Context) {
 
     private suspend fun createEventFromTrackPoints(
         trackPoints: List<GpxTrackPoint>,
+        waypoints: List<GpxWaypoint>,
         eventName: String,
         activityType: String
     ): Int {
@@ -348,6 +391,12 @@ class GpxImporter(private val context: Context) {
             insertTrackPointsAsEntities(eventId, trackPoints)
             Log.d(TAG, "Successfully inserted track points and metrics for event ID: $eventId")
 
+            // Insert waypoints
+            if (waypoints.isNotEmpty()) {
+                insertWaypoints(eventId, waypoints)
+                Log.d(TAG, "Successfully inserted ${waypoints.size} waypoints for event ID: $eventId")
+            }
+
             return eventId
         } catch (e: Exception) {
             Log.e(TAG, "Error creating event: ${e.message}", e)
@@ -382,6 +431,29 @@ class GpxImporter(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error ensuring default user exists: ${e.message}", e)
             return -1L
+        }
+    }
+
+    private suspend fun insertWaypoints(eventId: Int, waypoints: List<GpxWaypoint>) {
+        try {
+            Log.d(TAG, "Inserting ${waypoints.size} waypoints for event $eventId")
+
+            val waypointEntities = waypoints.map { waypoint ->
+                Waypoint(
+                    eventId = eventId,
+                    latitude = waypoint.lat,
+                    longitude = waypoint.lon,
+                    name = waypoint.name,
+                    description = if (waypoint.desc.isNotBlank()) waypoint.desc else null,
+                    elevation = if (waypoint.ele != 0.0) waypoint.ele else null
+                )
+            }
+
+            database.waypointDao().insertWaypoints(waypointEntities)
+            Log.d(TAG, "Successfully inserted ${waypointEntities.size} waypoint entities")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error inserting waypoints: ${e.message}", e)
+            throw e
         }
     }
 
@@ -527,5 +599,13 @@ class GpxImporter(private val context: Context) {
         var lon: Double = 0.0,
         var ele: Double = 0.0,
         var time: Long = 0
+    )
+
+    private data class GpxWaypoint(
+        var lat: Double = 0.0,
+        var lon: Double = 0.0,
+        var ele: Double = 0.0,
+        var name: String = "",
+        var desc: String = ""
     )
 }

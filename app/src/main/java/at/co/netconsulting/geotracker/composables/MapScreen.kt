@@ -60,9 +60,11 @@ import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.RouteRerunData
+import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
+import at.co.netconsulting.geotracker.location.WaypointOverlay
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.FollowingService
 import at.co.netconsulting.geotracker.service.ForegroundService
@@ -70,6 +72,7 @@ import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -137,7 +140,7 @@ private fun updateMapStyle(mapView: MapView, isDarkMode: Boolean) {
 @Composable
 fun MapScreen(
     onNavigateToSettings: () -> Unit,
-    routeToDisplay: List<GeoPoint>?,
+    routeToDisplay: RouteDisplayData?,
     onRouteDisplayed: () -> Unit,
     getCurrentGpsStatus: () -> GpsStatus,
     routeRerunData: RouteRerunData? = null,
@@ -198,9 +201,12 @@ fun MapScreen(
 
     // Add reference to hold the FollowedUsersOverlay
     val followedUsersOverlayRef = remember { mutableStateOf<FollowedUsersOverlay?>(null) }
+    
+    // Add reference to hold the WaypointOverlay
+    val waypointOverlayRef = remember { mutableStateOf<WaypointOverlay?>(null) }
 
     // New state for route display
-    var displayedRoute by remember { mutableStateOf<List<GeoPoint>?>(null) }
+    var displayedRoute by remember { mutableStateOf<RouteDisplayData?>(null) }
     var showRouteDisplayIndicator by remember { mutableStateOf(false) }
 
     // Create a reference to hold the route overlay
@@ -208,12 +214,8 @@ fun MapScreen(
 
     // Route rerun animation state
     var isRunningRerun by remember { mutableStateOf(false) }
-    var currentRerunPoints by remember { mutableStateOf<List<GeoPoint>>(emptyList()) }
     var rerunProgress by remember { mutableStateOf(0f) }
-    var completedRerunRoutes by remember { mutableStateOf<Set<List<GeoPoint>>>(emptySet()) }
-    var savedFollowStateBeforeRerun by remember { mutableStateOf<Boolean?>(null) }
     var rerunOverlayRef = remember { mutableStateOf<Polyline?>(null) }
-    var rerunMarkerPosition by remember { mutableStateOf<GeoPoint?>(null) }
 
     // Track overlay references and state
     val gpxTrackOverlayRef = remember { mutableStateOf<Polyline?>(null) }
@@ -414,6 +416,23 @@ fun MapScreen(
         }
     }
 
+    // Function to load and display waypoints for an event
+    suspend fun loadWaypointsForEvent(eventId: Int) {
+        try {
+            val waypoints = database.waypointDao().getWaypointsForEvent(eventId)
+            if (waypoints.isNotEmpty()) {
+                waypointOverlayRef.value?.updateWaypoints(waypoints)
+                Timber.d("Loaded ${waypoints.size} waypoints for event $eventId")
+            } else {
+                waypointOverlayRef.value?.updateWaypoints(emptyList())
+                Timber.d("No waypoints found for event $eventId")
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error loading waypoints for event $eventId")
+            waypointOverlayRef.value?.updateWaypoints(emptyList())
+        }
+    }
+
     // Function to clear all tracks from map
     fun clearAllTracksFromMap() {
         mapViewRef.value?.let { mapView ->
@@ -425,11 +444,28 @@ fun MapScreen(
             gpxTrackOverlayRef.value = null
             currentImportedTrack = null
 
+            // Clear route overlay (from EventsScreen "View on Map")
+            routeOverlayRef.value?.let { overlay ->
+                mapView.overlays.remove(overlay)
+                Timber.d("Removed route overlay")
+            }
+            routeOverlayRef.value = null
+
+            // Clear rerun overlay (from route rerun)
+            rerunOverlayRef.value?.let { overlay ->
+                mapView.overlays.remove(overlay)
+                Timber.d("Removed rerun overlay")
+            }
+            rerunOverlayRef.value = null
+
             // Clear live recording path
             pathTracker.clearPath(mapView)
 
+            // Clear waypoints
+            waypointOverlayRef.value?.updateWaypoints(emptyList())
+
             mapView.invalidate()
-            Timber.d("Cleared all tracks from map")
+            Timber.d("Cleared all tracks, routes, and waypoints from map")
         }
 
         // Clear persistence
@@ -492,7 +528,7 @@ fun MapScreen(
 
     // Handle route display when routeToDisplay changes
     LaunchedEffect(routeToDisplay) {
-        if (routeToDisplay != null && routeToDisplay.isNotEmpty()) {
+        if (routeToDisplay != null && routeToDisplay.points.isNotEmpty()) {
             displayedRoute = routeToDisplay
             showRouteDisplayIndicator = true
 
@@ -511,7 +547,7 @@ fun MapScreen(
 
                 // Create new route overlay
                 val routeOverlay = Polyline().apply {
-                    setPoints(routeToDisplay)
+                    setPoints(routeToDisplay.points)
                     color = android.graphics.Color.RED
                     width = 8f
                     title = "Event Route"
@@ -521,12 +557,20 @@ fun MapScreen(
                 mapView.overlays.add(routeOverlay)
                 routeOverlayRef.value = routeOverlay
 
+                // Load waypoints for the route if we have an event ID
+                routeToDisplay.eventId?.let { eventId ->
+                    kotlinx.coroutines.GlobalScope.launch {
+                        loadWaypointsForEvent(eventId)
+                        Timber.d("Loading waypoints for event $eventId")
+                    }
+                }
+
                 // Center map on the route
-                if (routeToDisplay.isNotEmpty()) {
-                    val minLat = routeToDisplay.minOf { it.latitude }
-                    val maxLat = routeToDisplay.maxOf { it.latitude }
-                    val minLon = routeToDisplay.minOf { it.longitude }
-                    val maxLon = routeToDisplay.maxOf { it.longitude }
+                if (routeToDisplay.points.isNotEmpty()) {
+                    val minLat = routeToDisplay.points.minOf { it.latitude }
+                    val maxLat = routeToDisplay.points.maxOf { it.latitude }
+                    val minLon = routeToDisplay.points.minOf { it.longitude }
+                    val maxLon = routeToDisplay.points.maxOf { it.longitude }
 
                     val centerLat = (minLat + maxLat) / 2
                     val centerLon = (minLon + maxLon) / 2
@@ -553,7 +597,7 @@ fun MapScreen(
 
                     mapView.invalidate()
 
-                    Timber.d("Displayed route with ${routeToDisplay.size} points")
+                    Timber.d("Displayed route with ${routeToDisplay.points.size} points for event ${routeToDisplay.eventId}")
                 }
             }
 
@@ -562,65 +606,47 @@ fun MapScreen(
         }
     }
 
-    // Handle route rerun animation
+    // Handle route rerun animation - simple version
     LaunchedEffect(routeRerunData) {
-        if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty() && !completedRerunRoutes.contains(routeRerunData.points)) {
-            currentRerunPoints = routeRerunData.points
+        if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty() && !isRunningRerun) {
             isRunningRerun = true
             rerunProgress = 0f
 
             mapViewRef.value?.let { mapView ->
-                // Remove existing rerun overlay if present
+                // Remove existing rerun overlay
                 rerunOverlayRef.value?.let { existingOverlay ->
                     mapView.overlays.remove(existingOverlay)
                 }
 
-                // Calculate total distance for timing (approximate)
+                // Calculate animation time: 1 second per kilometer, minimum 2 seconds
                 var totalDistance = 0.0
                 for (i in 1 until routeRerunData.points.size) {
                     totalDistance += routeRerunData.points[i-1].distanceToAsDouble(routeRerunData.points[i])
                 }
+                val totalAnimationMs = ((totalDistance / 1000.0) * 1000).toLong().coerceAtLeast(2000L)
                 
-                // Convert to kilometers
-                val totalDistanceKm = totalDistance / 1000.0
-                
-                // Total animation time: 1 second per kilometer
-                val totalAnimationMs = (totalDistanceKm * 1000).toLong().coerceAtLeast(2000L) // Minimum 2 seconds
-                
-                // Center map on route start
+                // Center map and load waypoints
                 mapView.controller.setCenter(routeRerunData.points[0])
                 mapView.controller.setZoom(15.0)
                 
-                // Save current follow state before temporarily disabling during rerun
-                savedFollowStateBeforeRerun = isFollowingLocation
-                
-                // Temporarily disable auto-follow during rerun animation only
-                isFollowingLocation = false
-                
-                // Also disable the overlay's follow location temporarily
-                locationOverlayRef.value?.let { overlay ->
-                    overlay.disableFollowLocation()
-                    Timber.d("Temporarily disabled overlay follow location for route rerun animation")
+                routeRerunData.eventId?.let { eventId ->
+                    kotlinx.coroutines.GlobalScope.launch {
+                        loadWaypointsForEvent(eventId)
+                    }
                 }
                 
-                Timber.d("Starting route rerun: ${routeRerunData.points.size} points, ${totalDistanceKm}km, ${totalAnimationMs}ms")
-
                 // Animation loop
                 val startTime = System.currentTimeMillis()
-                while (isRunningRerun && System.currentTimeMillis() - startTime < totalAnimationMs) {
+                while (isRunningRerun && isActive && System.currentTimeMillis() - startTime < totalAnimationMs) {
                     val elapsed = System.currentTimeMillis() - startTime
                     val progress = elapsed.toFloat() / totalAnimationMs
                     rerunProgress = progress.coerceIn(0f, 1f)
                     
-                    // Calculate current position along the route
                     val currentIndex = (progress * (routeRerunData.points.size - 1)).toInt()
                         .coerceIn(0, routeRerunData.points.size - 1)
-                    
-                    // Get visible points up to current position
                     val visiblePoints = routeRerunData.points.subList(0, currentIndex + 1)
                     
                     if (visiblePoints.isNotEmpty()) {
-                        // Update rerun overlay with visible portion of route
                         rerunOverlayRef.value?.let { overlay ->
                             mapView.overlays.remove(overlay)
                         }
@@ -629,39 +655,26 @@ fun MapScreen(
                             setPoints(visiblePoints)
                             color = android.graphics.Color.RED
                             width = 8f
-                            title = "Route Rerun Progress"
                         }
                         
                         mapView.overlays.add(rerunOverlay)
                         rerunOverlayRef.value = rerunOverlay
-                        
-                        // Update current position marker
-                        val currentPoint = visiblePoints.last()
-                        rerunMarkerPosition = currentPoint
-                        
-                        // Center map on current position
-                        mapView.controller.setCenter(currentPoint)
-                        
+                        mapView.controller.setCenter(visiblePoints.last())
                         mapView.invalidate()
-                        
-                        Timber.d("Rerun progress: ${(progress * 100).toInt()}%, point ${currentIndex}/${routeRerunData.points.size}")
                     }
-                    
-                    delay(50) // Update every 50ms for smooth animation
+                    delay(50)
                 }
 
-                // Animation completed
-                if (isRunningRerun) {
-                    // Keep complete route visible in green (persistent)
+                // Animation completed - show full route
+                if (isRunningRerun && isActive) {
                     rerunOverlayRef.value?.let { overlay ->
                         mapView.overlays.remove(overlay)
                     }
                     
                     val finalOverlay = Polyline().apply {
                         setPoints(routeRerunData.points)
-                        color = android.graphics.Color.RED // Use red for better visibility
+                        color = android.graphics.Color.RED
                         width = 8f
-                        title = "Route Rerun Complete"
                     }
                     
                     mapView.overlays.add(finalOverlay)
@@ -671,27 +684,17 @@ fun MapScreen(
                     isRunningRerun = false
                     rerunProgress = 1f
                     
-                    Timber.d("Route rerun completed - keeping red track visible")
-                    
-                    // Add this route to completed reruns to prevent re-triggering
-                    completedRerunRoutes = (completedRerunRoutes + routeRerunData.points) as Set<List<GeoPoint>>
-                    
                     // Keep auto-follow disabled after rerun completion
-                    // This allows users to manually inspect the rerun route
+                    // This prevents the hair-cross button from activating automatically
                     isFollowingLocation = false
                     saveAutoFollowState(false)
                     locationOverlayRef.value?.let { overlay ->
                         overlay.disableFollowLocation()
-                        Timber.d("Keeping overlay follow location disabled after rerun completion")
                     }
-                    savedFollowStateBeforeRerun = null // Clear the saved state
-                    
-                    // Don't call onRouteRerunCompleted() to keep the track visible
-                    // and preserve the hair-cross and center map functionality
                 }
             }
         } else if (routeRerunData == null) {
-            // Clear rerun state when data is cleared
+            // Clear rerun state
             mapViewRef.value?.let { mapView ->
                 rerunOverlayRef.value?.let { overlay ->
                     mapView.overlays.remove(overlay)
@@ -700,13 +703,7 @@ fun MapScreen(
             }
             rerunOverlayRef.value = null
             isRunningRerun = false
-            currentRerunPoints = emptyList()
             rerunProgress = 0f
-            rerunMarkerPosition = null
-            
-            // Clear completed reruns set when rerun data is cleared
-            completedRerunRoutes = emptySet()
-            savedFollowStateBeforeRerun = null
         }
     }
 
@@ -1019,6 +1016,12 @@ fun MapScreen(
                 pathTracker.setCurrentEventId(currentEventId.value, mapView)
                 pathTracker.setRecording(isRecording)
 
+                // Load waypoints for the current recording event
+                if (currentEventId.value > 0) {
+                    loadWaypointsForEvent(currentEventId.value)
+                    Timber.d("Loading waypoints for live recording event: ${currentEventId.value}")
+                }
+
                 // Force immediate update when initializing
                 pathTracker.updatePathForViewport(mapView, forceUpdate = true)
 
@@ -1035,6 +1038,12 @@ fun MapScreen(
         } else {
             mapViewRef.value?.let { mapView ->
                 pathTracker.clearPath(mapView)
+                
+                // Clear waypoints when path tracking is disabled
+                if (!isRecording) {
+                    waypointOverlayRef.value?.updateWaypoints(emptyList())
+                    Timber.d("Cleared waypoints when path tracking disabled")
+                }
             }
             Timber.d("Path tracking disabled")
         }
@@ -1252,6 +1261,10 @@ fun MapScreen(
                     overlays.add(followedUsersOverlay)
                     followedUsersOverlayRef.value = followedUsersOverlay
 
+                    val waypointOverlay = WaypointOverlay(ctx)
+                    overlays.add(waypointOverlay)
+                    waypointOverlayRef.value = waypointOverlay
+
                     mapViewRef.value = this
 
                     if (showPath && isRecording && !followingState.isFollowing) {
@@ -1404,7 +1417,7 @@ fun MapScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "Displaying Event Route (${displayedRoute?.size ?: 0} points)",
+                        text = "Displaying Event Route (${displayedRoute?.points?.size ?: 0} points)",
                         color = Color.White,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
@@ -1561,17 +1574,12 @@ fun MapScreen(
             }
         }
 
-        // Completed route rerun indicator
+        // Simple completed route rerun indicator
         if (!isRunningRerun && rerunOverlayRef.value != null) {
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
-                    .padding(top = when {
-                        currentImportedTrack != null && showRouteDisplayIndicator -> 240.dp
-                        currentImportedTrack != null || showRouteDisplayIndicator -> 160.dp
-                        followingState.isFollowing -> 120.dp
-                        else -> 56.dp
-                    }),
+                    .padding(top = 16.dp),
                 shape = RoundedCornerShape(20.dp),
                 color = Color.Red.copy(alpha = 0.9f),
                 shadowElevation = 4.dp
@@ -1580,13 +1588,6 @@ fun MapScreen(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Route Rerun Complete",
-                        tint = Color.White,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = "Route Rerun Complete",
                         color = Color.White,
@@ -1594,9 +1595,11 @@ fun MapScreen(
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(modifier = Modifier.width(12.dp))
+                    
+                    // Close button
                     IconButton(
                         onClick = {
-                            // Clear the rerun track manually
+                            // Clear the rerun track
                             mapViewRef.value?.let { mapView ->
                                 rerunOverlayRef.value?.let { overlay ->
                                     mapView.overlays.remove(overlay)
@@ -1604,7 +1607,7 @@ fun MapScreen(
                                 }
                             }
                             rerunOverlayRef.value = null
-                            Timber.d("Manually cleared completed rerun track")
+                            onRouteRerunCompleted()
                         },
                         modifier = Modifier.size(24.dp)
                     ) {
@@ -1967,6 +1970,13 @@ fun MapScreen(
                         if (newEventId > 0 && pathOption) {
                             Timber.d("Setting path tracker to new event: $newEventId")
                             pathTracker.setCurrentEventId(newEventId, mapView)
+
+                            // Load waypoints for the new event if GPX was imported
+                            if (importedGpx != null) {
+                                kotlinx.coroutines.GlobalScope.launch {
+                                    loadWaypointsForEvent(newEventId)
+                                }
+                            }
 
                             // Force immediate path display multiple times
                             pathTracker.updatePathForViewport(mapView, forceUpdate = true)
