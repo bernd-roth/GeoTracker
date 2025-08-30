@@ -1610,6 +1610,10 @@ fun MapScreen(
                                 }
                             }
                             rerunOverlayRef.value = null
+                            
+                            // Clear waypoints when closing rerun dialog
+                            waypointOverlayRef.value?.updateWaypoints(emptyList())
+                            
                             onRouteRerunCompleted()
                         },
                         modifier = Modifier.size(24.dp)
