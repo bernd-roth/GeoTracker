@@ -117,6 +117,8 @@ class FollowingService private constructor(private val context: Context) {
                     "update" -> {
                         // Handle regular tracking updates that might affect active users
                         handleTrackingUpdate(json)
+                        // Also check if this update is for a followed user and extract weather data
+                        handleUpdateForFollowedUsers(json)
                     }
                     // Ignore other message types since we're only following, not recording
                 }
@@ -350,9 +352,101 @@ class FollowingService private constructor(private val context: Context) {
         }
     }
 
+    private fun handleUpdateForFollowedUsers(json: JSONObject) {
+        try {
+            val point = json.optJSONObject("point")
+            if (point != null) {
+                val sessionId = point.optString("sessionId", "")
+                
+                // Check if this update is for a user we're following
+                val currentState = _followingState.value
+                if (sessionId.isNotEmpty() && sessionId in currentState.followedUsers) {
+                    // This is an update for a followed user with full weather data
+                    val temperature = if (point.has("temperature")) point.getDouble("temperature") else null
+                    val weatherCode = if (point.has("weatherCode")) point.getInt("weatherCode") else null
+                    val pressure = if (point.has("pressure")) point.getDouble("pressure") else null
+                    val relativeHumidity = if (point.has("relativeHumidity")) point.getInt("relativeHumidity") else null
+                    
+                    // Handle wind data (could be string or double)
+                    val windSpeed = when {
+                        point.has("windSpeed") -> {
+                            val windSpeedValue = point.get("windSpeed")
+                            when (windSpeedValue) {
+                                is String -> windSpeedValue.toDoubleOrNull()
+                                is Number -> windSpeedValue.toDouble()
+                                else -> null
+                            }
+                        }
+                        else -> null
+                    }
+                    val windDirection = when {
+                        point.has("windDirection") -> {
+                            val windDirValue = point.get("windDirection")
+                            when (windDirValue) {
+                                is String -> windDirValue.toDoubleOrNull()
+                                is Number -> windDirValue.toDouble()
+                                else -> null
+                            }
+                        }
+                        else -> null
+                    }
+
+                    Log.d(TAG, "Full weather data from update for ${point.optString("person", "unknown")}: temp=$temperature, code=$weatherCode, pressure=$pressure, humidity=$relativeHumidity, windSpeed=$windSpeed, windDir=$windDirection")
+
+                    val newPoint = FollowedUserPoint(
+                        sessionId = sessionId,
+                        person = point.getString("person"),
+                        latitude = point.getDouble("latitude"),
+                        longitude = point.getDouble("longitude"),
+                        altitude = point.optDouble("altitude", 0.0),
+                        currentSpeed = point.optDouble("currentSpeed", 0.0).toFloat(),
+                        distance = point.optDouble("distance", 0.0),
+                        heartRate = if (point.has("heartRate") && point.getInt("heartRate") > 0) point.getInt("heartRate") else null,
+                        timestamp = point.optString("timestamp", ""),
+                        // Weather data from full update message
+                        temperature = temperature,
+                        weatherCode = weatherCode,
+                        pressure = pressure,
+                        relativeHumidity = relativeHumidity,
+                        windSpeed = windSpeed,
+                        windDirection = windDirection
+                    )
+
+                    // Update the trail with weather data - reuse the existing trail update logic
+                    updateFollowedUserTrail(newPoint)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling update for followed users", e)
+        }
+    }
+
     private fun handleFollowedUserUpdate(json: JSONObject) {
         try {
             val pointJson = json.getJSONObject("point")
+            // Extract weather data with debug logging - try different field names for wind
+            val temperature = if (pointJson.has("temperature")) pointJson.getDouble("temperature") else null
+            val weatherCode = if (pointJson.has("weatherCode")) pointJson.getInt("weatherCode") else null
+            val pressure = if (pointJson.has("pressure")) pointJson.getDouble("pressure") else null
+            val relativeHumidity = if (pointJson.has("relativeHumidity")) pointJson.getInt("relativeHumidity") else null
+            
+            // Try different possible wind field names
+            val windSpeed = when {
+                pointJson.has("windSpeed") -> pointJson.getDouble("windSpeed")
+                pointJson.has("windspeed") -> pointJson.getDouble("windspeed")
+                else -> null
+            }
+            val windDirection = when {
+                pointJson.has("windDirection") -> pointJson.getDouble("windDirection")
+                pointJson.has("winddirection") -> pointJson.getDouble("winddirection")
+                pointJson.has("windD") -> pointJson.getDouble("windD") // In case it's truncated
+                else -> null
+            }
+
+            // Debug log weather data and all available keys
+            Log.d(TAG, "Weather data for ${pointJson.optString("person", "unknown")}: temp=$temperature, code=$weatherCode, pressure=$pressure, humidity=$relativeHumidity, windSpeed=$windSpeed, windDir=$windDirection")
+            Log.d(TAG, "All JSON keys: ${pointJson.keys().asSequence().toList()}")
+
             val newPoint = FollowedUserPoint(
                 sessionId = pointJson.getString("sessionId"),
                 person = pointJson.getString("person"),
@@ -361,10 +455,27 @@ class FollowingService private constructor(private val context: Context) {
                 altitude = pointJson.optDouble("altitude", 0.0),
                 currentSpeed = pointJson.optDouble("currentSpeed", 0.0).toFloat(),
                 distance = pointJson.optDouble("distance", 0.0),
-                heartRate = if (pointJson.has("heartRate")) pointJson.getInt("heartRate") else null,
-                timestamp = pointJson.optString("timestamp", "")
+                heartRate = if (pointJson.has("heartRate") && pointJson.getInt("heartRate") > 0) pointJson.getInt("heartRate") else null,
+                timestamp = pointJson.optString("timestamp", ""),
+                // Weather data
+                temperature = temperature,
+                weatherCode = weatherCode,
+                pressure = pressure,
+                relativeHumidity = relativeHumidity,
+                windSpeed = windSpeed,
+                windDirection = windDirection
             )
 
+            // Update the trail
+            updateFollowedUserTrail(newPoint)
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing followed user update", e)
+        }
+    }
+
+    private fun updateFollowedUserTrail(newPoint: FollowedUserPoint) {
+        try {
             // Update following state by adding the new point to the trail
             val currentState = _followingState.value
             val updatedTrails = currentState.followedUserTrails.toMutableMap()
@@ -413,7 +524,7 @@ class FollowingService private constructor(private val context: Context) {
 
                 Log.d(TAG, "✅ Added point to trail for ${newPoint.person}. Trail now has ${trimmedTrail.size} points (mode: ${trailPrecisionMode.description})")
             } else {
-                // Update just the latest point's data (speed, heart rate, etc.) without adding to trail
+                // Update just the latest point's data (speed, heart rate, weather, etc.) without adding to trail
                 if (existingTrail.isNotEmpty()) {
                     val updatedTrail = existingTrail.dropLast(1) + newPoint
                     updatedTrails[newPoint.sessionId] = updatedTrail
@@ -432,9 +543,8 @@ class FollowingService private constructor(private val context: Context) {
                     Log.d(TAG, "🆕 Created new trail for ${newPoint.person} with first point")
                 }
             }
-
         } catch (e: Exception) {
-            Log.e(TAG, "Error parsing followed user update", e)
+            Log.e(TAG, "Error updating followed user trail", e)
         }
     }
 

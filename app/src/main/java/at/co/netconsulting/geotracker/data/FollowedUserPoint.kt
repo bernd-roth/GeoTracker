@@ -15,5 +15,12 @@ data class FollowedUserPoint(
     val currentSpeed: Float = 0.0f,
     val distance: Double = 0.0,
     val heartRate: Int? = null,
-    val timestamp: String = ""
+    val timestamp: String = "",
+    // Weather data
+    val temperature: Double? = null,
+    val weatherCode: Int? = null,
+    val pressure: Double? = null,
+    val relativeHumidity: Int? = null,
+    val windSpeed: Double? = null,
+    val windDirection: Double? = null
 )

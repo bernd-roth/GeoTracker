@@ -770,7 +770,7 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
         }
     )
 
-    // Weather Card (Note: Weather data is typically local, but we'll show a placeholder)
+    // Weather Card
     StatisticsCard(
         title = "Weather - ${latestPoint.person}",
         content = {
@@ -778,9 +778,9 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                MetricColumn("Temperature", "Remote")
-                MetricColumn("Weather Code", "Remote")
-                MetricColumn("Wind", "Remote")
+                MetricColumn("Temperature", formatTemperature(latestPoint.temperature))
+                MetricColumn("Weather Code", formatWeatherCode(latestPoint.weatherCode))
+                MetricColumn("Wind", formatWind(latestPoint.windSpeed, latestPoint.windDirection))
             }
         }
     )
