@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 2
-        versionName = "2.9 (06-09-2025: adding additional section for each user in StatisticsScreen; preventing from centering map to current location if not recording own event)"
+        versionName = "2.10 (06-09-2025: weather data for additional user fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -526,14 +526,37 @@ class FollowingService private constructor(private val context: Context) {
             } else {
                 // Update just the latest point's data (speed, heart rate, weather, etc.) without adding to trail
                 if (existingTrail.isNotEmpty()) {
-                    val updatedTrail = existingTrail.dropLast(1) + newPoint
+                    val lastPoint = existingTrail.last()
+                    
+                    // Preserve existing weather data if the new point doesn't have weather data
+                    val mergedPoint = if (newPoint.temperature == null && newPoint.weatherCode == null && 
+                                         newPoint.pressure == null && newPoint.relativeHumidity == null && 
+                                         newPoint.windSpeed == null && newPoint.windDirection == null &&
+                                         (lastPoint.temperature != null || lastPoint.weatherCode != null ||
+                                          lastPoint.pressure != null || lastPoint.relativeHumidity != null ||
+                                          lastPoint.windSpeed != null || lastPoint.windDirection != null)) {
+                        // New point has no weather data but old point does - preserve weather data
+                        newPoint.copy(
+                            temperature = lastPoint.temperature,
+                            weatherCode = lastPoint.weatherCode,
+                            pressure = lastPoint.pressure,
+                            relativeHumidity = lastPoint.relativeHumidity,
+                            windSpeed = lastPoint.windSpeed,
+                            windDirection = lastPoint.windDirection
+                        )
+                    } else {
+                        // Use new point as-is (either it has weather data or old point didn't have any)
+                        newPoint
+                    }
+                    
+                    val updatedTrail = existingTrail.dropLast(1) + mergedPoint
                     updatedTrails[newPoint.sessionId] = updatedTrail
 
                     _followingState.value = currentState.copy(
                         followedUserTrails = updatedTrails
                     )
 
-                    Log.d(TAG, "⚠️ Updated latest point data for ${newPoint.person} (trail size: ${updatedTrail.size})")
+                    Log.d(TAG, "⚠️ Updated latest point data for ${newPoint.person} (trail size: ${updatedTrail.size}) - weather preserved: ${mergedPoint.temperature != null}")
                 } else {
                     // This shouldn't happen, but let's handle it
                     updatedTrails[newPoint.sessionId] = listOf(newPoint)

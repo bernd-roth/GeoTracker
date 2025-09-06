@@ -614,6 +614,16 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
     
     if (latestPoint == null || firstPoint == null) return
     
+    // Find the most recent point that has weather data for display
+    val latestPointWithWeather = trail.findLast { 
+        it.temperature != null || it.weatherCode != null || it.pressure != null || 
+        it.relativeHumidity != null || it.windSpeed != null || it.windDirection != null 
+    }
+    
+    // Debug log to see what weather data we have
+    Log.d("StatisticsScreen", "Latest point weather data for ${latestPoint.person}: temp=${latestPoint.temperature}, code=${latestPoint.weatherCode}, pressure=${latestPoint.pressure}")
+    Log.d("StatisticsScreen", "Latest point WITH weather data for ${latestPoint.person}: temp=${latestPointWithWeather?.temperature}, code=${latestPointWithWeather?.weatherCode}, pressure=${latestPointWithWeather?.pressure}")
+    
     // Calculate statistics from trail
     val totalDistance = latestPoint.distance
     val currentSpeed = latestPoint.currentSpeed
@@ -778,9 +788,9 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                MetricColumn("Temperature", formatTemperature(latestPoint.temperature))
-                MetricColumn("Weather Code", formatWeatherCode(latestPoint.weatherCode))
-                MetricColumn("Wind", formatWind(latestPoint.windSpeed, latestPoint.windDirection))
+                MetricColumn("Temperature", formatTemperature(latestPointWithWeather?.temperature))
+                MetricColumn("Weather Code", formatWeatherCode(latestPointWithWeather?.weatherCode))
+                MetricColumn("Wind", formatWind(latestPointWithWeather?.windSpeed, latestPointWithWeather?.windDirection))
             }
         }
     )
