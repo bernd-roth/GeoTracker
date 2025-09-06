@@ -17,6 +17,8 @@ import at.co.netconsulting.geotracker.MainActivity
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.gpx.saveGpxFile
+import at.co.netconsulting.geotracker.data.BackupProgress
+import at.co.netconsulting.geotracker.data.BackupPhase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -55,14 +57,15 @@ class AutoBackupService : Service() {
         Timber.d("Auto backup service started")
 
         // Show notification immediately with proper foreground service type
+        val initialProgress = BackupProgress(isBackingUp = true, currentPhase = BackupPhase.INITIALIZING)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(
                 NOTIFICATION_ID,
-                createProgressNotification(0),
+                createProgressNotification(initialProgress),
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
             )
         } else {
-            startForeground(NOTIFICATION_ID, createProgressNotification(0))
+            startForeground(NOTIFICATION_ID, createProgressNotification(initialProgress))
         }
 
         // Acquire wake lock to ensure backup completes
@@ -118,44 +121,98 @@ class AutoBackupService : Service() {
         }
     }
 
-    private fun createProgressNotification(progress: Int): Notification {
+    private fun createProgressNotification(backupProgress: BackupProgress): Notification {
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, notificationIntent,
             PendingIntent.FLAG_IMMUTABLE
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val contentText = when (backupProgress.currentPhase) {
+            BackupPhase.BACKING_UP_DATABASE -> "Backing up database: ${backupProgress.getProgressPercentage()}%"
+            BackupPhase.CLEARING_OLD_FILES -> "Clearing old files..."
+            BackupPhase.EXPORTING_GPX_FILES -> {
+                if (backupProgress.totalFiles > 0) {
+                    "Exporting GPX files: ${backupProgress.getFileProgressText()}"
+                } else {
+                    "Exporting GPX files: ${backupProgress.getProgressPercentage()}%"
+                }
+            }
+            BackupPhase.COMPLETED -> "Backup completed successfully"
+            BackupPhase.FAILED -> "Backup failed"
+            else -> "Starting backup..."
+        }
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Automatic Backup")
-            .setContentText("Backing up database and runs: $progress%")
+            .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_start_marker)
             .setContentIntent(pendingIntent)
-            .setProgress(100, progress, progress == 0)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+
+        // Show current file name if available
+        if (backupProgress.currentFileName.isNotEmpty()) {
+            builder.setSubText("Current: ${backupProgress.currentFileName}")
+        }
+
+        // Set progress bar
+        when (backupProgress.currentPhase) {
+            BackupPhase.COMPLETED, BackupPhase.FAILED -> {
+                // No progress bar for final states
+            }
+            else -> {
+                builder.setProgress(100, backupProgress.getProgressPercentage(), false)
+            }
+        }
+
+        return builder.build()
     }
 
-    private fun updateNotificationProgress(progress: Int) {
+    private fun updateNotificationProgress(backupProgress: BackupProgress) {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, createProgressNotification(progress))
+        notificationManager.notify(NOTIFICATION_ID, createProgressNotification(backupProgress))
     }
 
     private suspend fun performAutoBackup() {
         try {
             // Step 1: Backup the database (30% of progress)
-            updateNotificationProgress(10)
-            val backupSuccess = backupDatabase()
-            updateNotificationProgress(30)
+            val dbProgress = BackupProgress(
+                isBackingUp = true,
+                overallProgress = 0.1f,
+                currentPhase = BackupPhase.BACKING_UP_DATABASE,
+                status = "Starting database backup..."
+            )
+            updateNotificationProgress(dbProgress)
+            
+            val backupSuccess = backupDatabaseWithProgress { progress ->
+                val updatedProgress = dbProgress.copy(
+                    overallProgress = 0.1f + (progress * 0.2f), // 10% to 30%
+                    databaseProgress = progress,
+                    status = "Backing up database: ${(progress * 100).toInt()}%"
+                )
+                updateNotificationProgress(updatedProgress)
+            }
+            
+            val dbCompleteProgress = dbProgress.copy(overallProgress = 0.3f)
+            updateNotificationProgress(dbCompleteProgress)
 
             if (!backupSuccess) {
                 Timber.e("Database backup failed")
+                val failedProgress = BackupProgress(currentPhase = BackupPhase.FAILED)
+                updateNotificationProgress(failedProgress)
                 showCompletionNotification(false, "Database backup failed")
                 return
             }
 
             // Step 2: Clear existing GPX files before export (40% of progress)
-            updateNotificationProgress(40)
+            val clearProgress = BackupProgress(
+                isBackingUp = true,
+                overallProgress = 0.4f,
+                currentPhase = BackupPhase.CLEARING_OLD_FILES,
+                status = "Clearing old GPX files..."
+            )
+            updateNotificationProgress(clearProgress)
             val clearSuccess = clearGpxFiles()
 
             if (!clearSuccess) {
@@ -163,12 +220,38 @@ class AutoBackupService : Service() {
             }
 
             // Step 3: Export all runs to GPX files. We are using the same logic as we do for the manual export
-            updateNotificationProgress(50)
-            val gpxExportSuccess = exportAllEventsToGpx()
-            updateNotificationProgress(100)
+            val exportStartProgress = BackupProgress(
+                isBackingUp = true,
+                overallProgress = 0.5f,
+                currentPhase = BackupPhase.EXPORTING_GPX_FILES,
+                status = "Starting GPX export..."
+            )
+            updateNotificationProgress(exportStartProgress)
+            
+            val gpxExportSuccess = exportAllEventsToGpxWithProgress { processed, total, fileName ->
+                val progress = if (total > 0) processed.toFloat() / total else 0f
+                val updatedProgress = BackupProgress(
+                    isBackingUp = true,
+                    overallProgress = 0.5f + (progress * 0.5f), // 50% to 100%
+                    currentPhase = BackupPhase.EXPORTING_GPX_FILES,
+                    filesProcessed = processed,
+                    totalFiles = total,
+                    currentFileName = fileName,
+                    status = "Exporting GPX files: $processed/$total"
+                )
+                updateNotificationProgress(updatedProgress)
+            }
 
             // Final notification
             val allSuccess = backupSuccess && gpxExportSuccess
+            val finalPhase = if (allSuccess) BackupPhase.COMPLETED else BackupPhase.FAILED
+            val finalProgress = BackupProgress(
+                isBackingUp = false,
+                overallProgress = 1.0f,
+                currentPhase = finalPhase
+            )
+            updateNotificationProgress(finalProgress)
+            
             val message = if (allSuccess) {
                 "Database and GPX files backed up successfully"
             } else if (backupSuccess) {
@@ -188,6 +271,8 @@ class AutoBackupService : Service() {
 
         } catch (e: Exception) {
             Timber.e(e,"Error during automatic backup")
+            val failedProgress = BackupProgress(currentPhase = BackupPhase.FAILED)
+            updateNotificationProgress(failedProgress)
             showCompletionNotification(false, "Backup error: ${e.message}")
         }
     }
@@ -283,10 +368,9 @@ class AutoBackupService : Service() {
     }
 
     /**
-     * Export all events to GPX files using the SAME comprehensive logic as manual export
-     * This includes ALL custom extensions: atemp, heart rate, speed, cadence, etc.
+     * Export all events to GPX files with progress callback
      */
-    private suspend fun exportAllEventsToGpx(): Boolean {
+    private suspend fun exportAllEventsToGpxWithProgress(onProgress: (processed: Int, total: Int, currentFile: String) -> Unit): Boolean {
         val database = FitnessTrackerDatabase.getInstance(applicationContext)
         return try {
             withContext(Dispatchers.IO) {
@@ -295,179 +379,201 @@ class AutoBackupService : Service() {
 
                 if (allEvents.isEmpty()) {
                     Timber.i("No events to export")
+                    onProgress(0, 0, "")
                     return@withContext true // Not an error, just no data
                 }
 
+                onProgress(0, allEvents.size, "")
                 var successCount = 0
                 var failureCount = 0
 
                 // Export each event using the same logic as manual export
-                for (event in allEvents) {
-                    try {
-                        val locations = database.locationDao().getLocationsByEventId(event.eventId)
-                        val metrics = database.metricDao().getMetricsByEventId(event.eventId)
-                        val weather = database.weatherDao().getWeatherForEvent(event.eventId)
-                        val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(event.eventId)
-
-                        // Skip events with no location data
-                        if (locations.isEmpty()) {
-                            continue
-                        }
-
-                        // Map sport type to GPX activity type (same as manual export)
-                        val activityType = when (event.artOfSport?.lowercase()) {
-                            "running", "jogging", "marathon" -> "run"
-                            "cycling", "bicycle", "bike", "biking" -> "bike"
-                            "hiking", "walking", "trekking" -> "hike"
-                            else -> event.artOfSport?.lowercase() ?: "unknown"
-                        }
-
-                        // Create GPX content with ALL the same extensions as manual export
-                        val gpxBuilder = StringBuilder()
-                        gpxBuilder.append("""<?xml version="1.0" encoding="UTF-8"?>
-                                |<gpx version="1.1" 
-                                |    creator="GeoTracker"
-                                |    xmlns="http://www.topografix.com/GPX/1/1"
-                                |    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-                                |    xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
-                                |    xmlns:custom="http://geotracker.netconsulting.at/xmlschemas/CustomExtension/v1"
-                                |    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd
-                                |                        http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd">
-                                |  <metadata>
-                                |    <name>${event.eventName}</name>
-                                |    <time>${event.eventDate}T00:00:00Z</time>
-                                |  </metadata>
-                                |  <trk>
-                                |    <name>${event.eventName}</name>
-                                |    <type>${activityType}</type>
-                                |    <trkseg>
-                            """.trimMargin())
-
-                        locations.forEachIndexed { index, location ->
-                            val metric = metrics.getOrNull(index)
-                            val weatherInfo = weather.firstOrNull()
-                            val deviceInfo = deviceStatus
-
-                            // Only create a trackpoint if there's a valid metric with a valid timestamp
-                            if (metric != null && metric.timeInMilliseconds > 0) {
-                                val timestamp = Instant.ofEpochMilli(metric.timeInMilliseconds)
-                                    .atZone(ZoneId.systemDefault())
-                                    .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-
-                                gpxBuilder.append("""
-        |      <trkpt lat="${location.latitude}" lon="${location.longitude}">
-        |        <ele>${location.altitude}</ele>
-        |        <time>${timestamp}</time>
-        |        <extensions>
-        |          <custom:distance>${metric.distance}</custom:distance>""")
-
-                                // Add heart rate if available
-                                if (metric.heartRate > 0) {
-                                    gpxBuilder.append("""
-        |          <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>""")
-                                }
-
-                                // Add air temperature if available (from weather data or metric)
-                                val temperature = weatherInfo?.temperature ?: getMetricTemperature(metric)
-                                temperature?.let { temp ->
-                                    gpxBuilder.append("""
-        |          <gpxtpx:atemp>${temp}</gpxtpx:atemp>""")
-                                }
-
-                                // Add lap number
-                                gpxBuilder.append("""
-        |          <custom:lap>${metric.lap}</custom:lap>""")
-
-                                // Add activity type
-                                gpxBuilder.append("""
-        |          <custom:type>${activityType}</custom:type>""")
-
-                                // Add satellite count if available
-                                deviceInfo?.let { device ->
-                                    if (device.numberOfSatellites.isNotEmpty()) {
-                                        gpxBuilder.append("""
-        |          <custom:sat>${device.numberOfSatellites}</custom:sat>""")
-                                    }
-                                }
-
-                                // Add speed
-                                if (metric.speed > 0) {
-                                    gpxBuilder.append("""
-        |          <custom:speed>${metric.speed}</custom:speed>""")
-                                }
-
-                                // Add cadence if available
-                                metric.cadence?.let { cadence ->
-                                    if (cadence > 0) {
-                                        gpxBuilder.append("""
-        |          <custom:cadence>${cadence}</custom:cadence>""")
-                                    }
-                                }
-
-                                // Add GPS accuracy if available
-                                getMetricAccuracy(metric)?.let { accuracy ->
-                                    if (accuracy > 0) {
-                                        gpxBuilder.append("""
-        |          <custom:accuracy>${accuracy}</custom:accuracy>""")
-                                    }
-                                }
-
-                                // Add steps if available
-                                getMetricSteps(metric)?.let { steps ->
-                                    if (steps > 0) {
-                                        gpxBuilder.append("""
-        |          <custom:steps>${steps}</custom:steps>""")
-                                    }
-                                }
-
-                                // Add stride length if available
-                                getMetricStrideLength(metric)?.let { strideLength ->
-                                    if (strideLength > 0) {
-                                        gpxBuilder.append("""
-        |          <custom:stride_length>${strideLength}</custom:stride_length>""")
-                                    }
-                                }
-
-                                gpxBuilder.append("""
-        |        </extensions>
-        |      </trkpt>
-        """.trimMargin())
-                            }
-                        }
-
-                        gpxBuilder.append("""
-                            |    </trkseg>
-                            |  </trk>
-                            |</gpx>
-                        """.trimMargin())
-
-                        val filename = "${event.eventName}_${event.eventDate}.gpx"
-                            .replace(" ", "_")
-                            .replace(":", "-")
-                            .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
-
-                        // Save file using the same storage approach as manual export
-                        val success = saveGpxFile(applicationContext, filename, gpxBuilder.toString())
-
-                        if (success) {
-                            successCount++
-                            Timber.d("Exported GPX for event: ${event.eventName}")
-                        } else {
-                            failureCount++
-                            Timber.e("Failed to export GPX for event: ${event.eventName}")
-                        }
-
-                    } catch (e: Exception) {
-                        Timber.e(e, "Error exporting event ${event.eventId}")
+                for ((index, event) in allEvents.withIndex()) {
+                    val filename = "${event.eventName}_${event.eventDate}.gpx"
+                        .replace(" ", "_")
+                        .replace(":", "-")
+                        .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+                    
+                    onProgress(index, allEvents.size, filename)
+                    
+                    val success = exportSingleEventToGpx(database, event)
+                    if (success) {
+                        successCount++
+                    } else {
                         failureCount++
                     }
                 }
 
+                onProgress(allEvents.size, allEvents.size, "")
                 Timber.i("GPX Export completed: $successCount succeeded, $failureCount failed")
                 return@withContext failureCount == 0
             }
         } catch (e: Exception) {
             Timber.e(e, "Error during automatic GPX export")
+            false
+        }
+    }
+
+    /**
+     * Export all events to GPX files using the SAME comprehensive logic as manual export
+     * This includes ALL custom extensions: atemp, heart rate, speed, cadence, etc.
+     */
+    private suspend fun exportAllEventsToGpx(): Boolean {
+        return exportAllEventsToGpxWithProgress { _, _, _ -> }
+    }
+
+    /**
+     * Export a single event to GPX file
+     */
+    private suspend fun exportSingleEventToGpx(database: FitnessTrackerDatabase, event: at.co.netconsulting.geotracker.domain.Event): Boolean {
+        return try {
+            val locations = database.locationDao().getLocationsByEventId(event.eventId)
+            val metrics = database.metricDao().getMetricsByEventId(event.eventId)
+            val weather = database.weatherDao().getWeatherForEvent(event.eventId)
+            val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(event.eventId)
+
+            // Skip events with no location data
+            if (locations.isEmpty()) {
+                return false
+            }
+
+            // Map sport type to GPX activity type (same as manual export)
+            val activityType = when (event.artOfSport?.lowercase()) {
+                "running", "jogging", "marathon" -> "run"
+                "cycling", "bicycle", "bike", "biking" -> "bike"
+                "hiking", "walking", "trekking" -> "hike"
+                else -> event.artOfSport?.lowercase() ?: "unknown"
+            }
+
+            // Create GPX content with ALL the same extensions as manual export
+            val gpxBuilder = StringBuilder()
+            gpxBuilder.append("""<?xml version="1.0" encoding="UTF-8"?>
+                    |<gpx version="1.1" 
+                    |    creator="GeoTracker"
+                    |    xmlns="http://www.topografix.com/GPX/1/1"
+                    |    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                    |    xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
+                    |    xmlns:custom="http://geotracker.netconsulting.at/xmlschemas/CustomExtension/v1"
+                    |    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd
+                    |                        http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd">
+                    |  <metadata>
+                    |    <name>${event.eventName}</name>
+                    |    <time>${event.eventDate}T00:00:00Z</time>
+                    |  </metadata>
+                    |  <trk>
+                    |    <name>${event.eventName}</name>
+                    |    <type>${activityType}</type>
+                    |    <trkseg>
+                """.trimMargin())
+
+            locations.forEachIndexed { index, location ->
+                val metric = metrics.getOrNull(index)
+                val weatherInfo = weather.firstOrNull()
+                val deviceInfo = deviceStatus
+
+                // Only create a trackpoint if there's a valid metric with a valid timestamp
+                if (metric != null && metric.timeInMilliseconds > 0) {
+                    val timestamp = Instant.ofEpochMilli(metric.timeInMilliseconds)
+                        .atZone(ZoneId.systemDefault())
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+                    gpxBuilder.append("""
+|      <trkpt lat="${location.latitude}" lon="${location.longitude}">
+|        <ele>${location.altitude}</ele>
+|        <time>${timestamp}</time>
+|        <extensions>
+|          <custom:distance>${metric.distance}</custom:distance>""")
+
+                    // Add heart rate if available
+                    if (metric.heartRate > 0) {
+                        gpxBuilder.append("""
+|          <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>""")
+                    }
+
+                    // Add air temperature if available (from weather data or metric)
+                    val temperature = weatherInfo?.temperature ?: getMetricTemperature(metric)
+                    temperature?.let { temp ->
+                        gpxBuilder.append("""
+|          <gpxtpx:atemp>${temp}</gpxtpx:atemp>""")
+                    }
+
+                    // Add lap number
+                    gpxBuilder.append("""
+|          <custom:lap>${metric.lap}</custom:lap>""")
+
+                    // Add activity type
+                    gpxBuilder.append("""
+|          <custom:type>${activityType}</custom:type>""")
+
+                    // Add satellite count if available
+                    deviceInfo?.let { device ->
+                        if (device.numberOfSatellites.isNotEmpty()) {
+                            gpxBuilder.append("""
+|          <custom:sat>${device.numberOfSatellites}</custom:sat>""")
+                        }
+                    }
+
+                    // Add speed
+                    if (metric.speed > 0) {
+                        gpxBuilder.append("""
+|          <custom:speed>${metric.speed}</custom:speed>""")
+                    }
+
+                    // Add cadence if available
+                    metric.cadence?.let { cadence ->
+                        if (cadence > 0) {
+                            gpxBuilder.append("""
+|          <custom:cadence>${cadence}</custom:cadence>""")
+                        }
+                    }
+
+                    // Add GPS accuracy if available
+                    getMetricAccuracy(metric)?.let { accuracy ->
+                        if (accuracy > 0) {
+                            gpxBuilder.append("""
+|          <custom:accuracy>${accuracy}</custom:accuracy>""")
+                        }
+                    }
+
+                    // Add steps if available
+                    getMetricSteps(metric)?.let { steps ->
+                        if (steps > 0) {
+                            gpxBuilder.append("""
+|          <custom:steps>${steps}</custom:steps>""")
+                        }
+                    }
+
+                    // Add stride length if available
+                    getMetricStrideLength(metric)?.let { strideLength ->
+                        if (strideLength > 0) {
+                            gpxBuilder.append("""
+|          <custom:stride_length>${strideLength}</custom:stride_length>""")
+                        }
+                    }
+
+                    gpxBuilder.append("""
+|        </extensions>
+|      </trkpt>
+""".trimMargin())
+                }
+            }
+
+            gpxBuilder.append("""
+                |    </trkseg>
+                |  </trk>
+                |</gpx>
+            """.trimMargin())
+
+            val filename = "${event.eventName}_${event.eventDate}.gpx"
+                .replace(" ", "_")
+                .replace(":", "-")
+                .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+
+            // Save file using the same storage approach as manual export
+            saveGpxFile(applicationContext, filename, gpxBuilder.toString())
+            
+        } catch (e: Exception) {
+            Timber.e(e, "Error exporting event ${event.eventId}")
             false
         }
     }
@@ -529,13 +635,21 @@ class AutoBackupService : Service() {
         notificationManager.notify(NOTIFICATION_ID + 1, notification)
     }
 
-    private fun backupDatabase(): Boolean {
+    private fun backupDatabaseWithProgress(onProgress: (Float) -> Unit): Boolean {
+        onProgress(0.0f)
+        return backupDatabase(onProgress)
+    }
+
+    private fun backupDatabase(onProgress: ((Float) -> Unit)? = null): Boolean {
         return try {
+            onProgress?.invoke(0.1f)
+            
             // Create the backup directory in the same location as the GPX files
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val backupDir = File(downloadsDir, "GeoTracker/DatabaseBackups")
 
             Timber.d("Database backup directory: ${backupDir.absolutePath}")
+            onProgress?.invoke(0.2f)
 
             if (!backupDir.exists()) {
                 val created = backupDir.mkdirs()
@@ -546,6 +660,8 @@ class AutoBackupService : Service() {
                 }
             }
 
+            onProgress?.invoke(0.3f)
+            
             // Get current date/time for the filename
             val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault())
             val currentDateTime = dateFormat.format(Date())
@@ -555,14 +671,31 @@ class AutoBackupService : Service() {
 
             // Get the database file
             val dbFile = getDatabasePath("fitness_tracker.db")
+            
+            onProgress?.invoke(0.5f)
 
-            // Copy the database file to the backup location
+            // Copy the database file to the backup location with progress tracking
             dbFile.inputStream().use { input ->
                 FileOutputStream(backupFile).use { output ->
-                    input.copyTo(output)
+                    val buffer = ByteArray(8192)
+                    var bytesRead: Int
+                    var totalBytesRead = 0L
+                    val totalSize = dbFile.length()
+                    
+                    while (input.read(buffer).also { bytesRead = it } != -1) {
+                        output.write(buffer, 0, bytesRead)
+                        totalBytesRead += bytesRead
+                        
+                        // Update progress: 50% to 100%
+                        if (totalSize > 0) {
+                            val progress = 0.5f + (totalBytesRead.toFloat() / totalSize * 0.5f)
+                            onProgress?.invoke(progress)
+                        }
+                    }
                 }
             }
 
+            onProgress?.invoke(1.0f)
             Timber.d("Database backup successful: ${backupFile.absolutePath}")
             true
         } catch (e: Exception) {

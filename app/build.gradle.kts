@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 2
-        versionName = "2.12 (06-09-2025: added legend to Elevation vs Speed graph)"
+        versionName = "2.13 (06-09-2025: enhanced backup progress with file count and current file display)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
