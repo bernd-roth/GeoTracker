@@ -3,11 +3,19 @@ package at.co.netconsulting.geotracker.composables
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -578,7 +586,48 @@ fun InteractiveSpeedVsAltitudeGraph(
                 size.height - 5.dp.toPx(),
                 labelPaint
             )
+
+            // Draw speed legend in top-right corner
+            val legendStartY = 20.dp.toPx()
+            val legendLineLength = 30.dp.toPx()
+            val legendSpacing = 25.dp.toPx()
+            val legendTextOffset = 35.dp.toPx()
+            
+            val speedRanges = listOf(
+                Pair("< 1.0", Color(0xFF3F51B5)),     // Very slow (blue)
+                Pair("1.0-3.0", Color(0xFF2196F3)),   // Slow (light blue)
+                Pair("3.0-5.0", Color(0xFF4CAF50)),   // Medium (green) 
+                Pair("5.0-8.0", Color(0xFFFF9800)),   // Fast (orange)
+                Pair("> 8.0", Color(0xFFF44336))      // Very fast (red)
+            )
+            
+            val legendTextPaint = Paint().asFrameworkPaint().apply {
+                textSize = 12.sp.toPx()
+                textAlign = android.graphics.Paint.Align.LEFT
+            }
+            
+            speedRanges.forEachIndexed { index, (range, color) ->
+                val yPosition = legendStartY + (index * legendSpacing)
+                
+                // Draw colored line
+                drawLine(
+                    color = color,
+                    start = Offset(size.width - 120.dp.toPx(), yPosition),
+                    end = Offset(size.width - 120.dp.toPx() + legendLineLength, yPosition),
+                    strokeWidth = 3.dp.toPx()
+                )
+                
+                // Draw text label
+                legendTextPaint.color = color.toArgb()
+                drawContext.canvas.nativeCanvas.drawText(
+                    range,
+                    size.width - 120.dp.toPx() + legendTextOffset,
+                    yPosition + 4.dp.toPx(),
+                    legendTextPaint
+                )
+            }
         }
+
 
         // Show info window
         showInfo?.let { info ->
