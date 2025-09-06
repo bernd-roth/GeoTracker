@@ -193,6 +193,14 @@ fun MapScreen(
         )
     }
 
+    // Rerun mode state - disables live GPS updates during route reruns
+    var isRerunModeEnabled by remember {
+        mutableStateOf(
+            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                .getBoolean("rerun_mode_enabled", false)
+        )
+    }
+
     // Create a reference to hold the MapView
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
 
@@ -289,7 +297,7 @@ fun MapScreen(
 
     // Function to programmatically trigger "My Location" button logic
     fun triggerMyLocationLogic() {
-        if (isFollowingLocation && !isRunningRerun && !showRouteDisplayIndicator) {
+        if (isFollowingLocation && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled) {
             Timber.d("Triggering My Location button logic programmatically")
 
             locationOverlayRef.value?.let { overlay ->
@@ -609,9 +617,30 @@ fun MapScreen(
         }
     }
 
+    // Handle rerun mode changes - disable/enable location overlay following
+    LaunchedEffect(isRerunModeEnabled) {
+        locationOverlayRef.value?.let { overlay ->
+            if (isRerunModeEnabled && overlay.isFollowLocationEnabled) {
+                overlay.disableFollowLocation()
+                Timber.d("Disabled location overlay following due to rerun mode activation")
+            } else if (!isRerunModeEnabled && isFollowingLocation && !overlay.isFollowLocationEnabled) {
+                overlay.enableFollowLocation()
+                Timber.d("Re-enabled location overlay following due to rerun mode deactivation")
+            }
+        }
+    }
+
     // Handle route rerun animation - simple version
     LaunchedEffect(routeRerunData) {
         if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty() && !isRunningRerun) {
+            // Auto-enable rerun mode when starting route rerun
+            isRerunModeEnabled = true
+            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("rerun_mode_enabled", true)
+                .apply()
+            Toast.makeText(context, "Rerun mode auto-enabled", Toast.LENGTH_SHORT).show()
+            
             isRunningRerun = true
             rerunProgress = 0f
 
@@ -687,6 +716,14 @@ fun MapScreen(
                     isRunningRerun = false
                     rerunProgress = 1f
                     
+                    // Auto-disable rerun mode when route rerun completes
+                    isRerunModeEnabled = false
+                    context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("rerun_mode_enabled", false)
+                        .apply()
+                    Toast.makeText(context, "Rerun mode auto-disabled", Toast.LENGTH_SHORT).show()
+                    
                     // Keep auto-follow disabled after rerun completion
                     // This prevents the hair-cross button from activating automatically
                     isFollowingLocation = false
@@ -707,6 +744,13 @@ fun MapScreen(
             rerunOverlayRef.value = null
             isRunningRerun = false
             rerunProgress = 0f
+            
+            // Auto-disable rerun mode when clearing rerun state
+            isRerunModeEnabled = false
+            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("rerun_mode_enabled", false)
+                .apply()
         }
     }
 
@@ -787,8 +831,8 @@ fun MapScreen(
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
                 }
 
-                // Handle auto-follow functionality - but not when following other users, running route rerun, or viewing route
-                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !followingState.isFollowing && !isRunningRerun && !showRouteDisplayIndicator) {
+                // Handle auto-follow functionality - but not when following other users, running route rerun, viewing route, or in rerun mode
+                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !followingState.isFollowing && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled) {
                     mapViewRef.value?.let { mapView ->
                         val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
 
@@ -805,9 +849,12 @@ fun MapScreen(
                         }
 
                         locationOverlayRef.value?.let { overlay ->
-                            if (!overlay.isFollowLocationEnabled) {
+                            if (!overlay.isFollowLocationEnabled && !isRerunModeEnabled) {
                                 overlay.enableFollowLocation()
                                 Timber.d("Re-enabled overlay follow location during location update")
+                            } else if (overlay.isFollowLocationEnabled && isRerunModeEnabled) {
+                                overlay.disableFollowLocation()
+                                Timber.d("Disabled overlay follow location due to rerun mode")
                             }
                         }
 
@@ -936,7 +983,7 @@ fun MapScreen(
             while (true) {
                 delay(10000) // Check every 10 seconds
 
-                if (isFollowingLocation) {
+                if (isFollowingLocation && !isRerunModeEnabled) {
                     locationOverlayRef.value?.let { overlay ->
                         if (!overlay.isFollowLocationEnabled && isFollowingLocation) {
                             Timber.d("Detected overlay follow disabled - triggering My Location logic")
@@ -1229,7 +1276,7 @@ fun MapScreen(
                     val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
                         enableMyLocation()
 
-                        if (isFollowingLocation && !isRunningRerun) {
+                        if (isFollowingLocation && !isRunningRerun && !isRerunModeEnabled) {
                             enableFollowLocation()
                             Timber.d("Initial enableFollowLocation() called")
                         }
@@ -1614,6 +1661,13 @@ fun MapScreen(
                             // Clear waypoints when closing rerun dialog
                             waypointOverlayRef.value?.updateWaypoints(emptyList())
                             
+                            // Auto-disable rerun mode when manually clearing rerun
+                            isRerunModeEnabled = false
+                            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                                .edit()
+                                .putBoolean("rerun_mode_enabled", false)
+                                .apply()
+                            
                             onRouteRerunCompleted()
                         },
                         modifier = Modifier.size(24.dp)
@@ -1636,8 +1690,8 @@ fun MapScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.End
         ) {
-            // Auto-follow indicator above My Location button (hidden during route rerun or when viewing route)
-            if ((isFollowingLocation || isAutoFollowingUsers) && hasInitializedMapCenter && !isRunningRerun && !showRouteDisplayIndicator) {
+            // Auto-follow indicator above My Location button (hidden during route rerun, when viewing route, or in rerun mode)
+            if ((isFollowingLocation || isAutoFollowingUsers) && hasInitializedMapCenter && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled) {
                 Surface(
                     shape = CircleShape,
                     color = if (isAutoFollowingUsers) Color.Green.copy(alpha = 0.8f) else Color.Blue.copy(alpha = 0.8f),
@@ -1658,7 +1712,7 @@ fun MapScreen(
                 modifier = Modifier.size(56.dp),
                 shape = CircleShape,
                 color = when {
-                    isRunningRerun || showRouteDisplayIndicator -> Color.Gray // Disabled during route rerun or when viewing route
+                    isRunningRerun || showRouteDisplayIndicator || isRerunModeEnabled -> Color.Gray // Disabled during route rerun, when viewing route, or in rerun mode
                     isAutoFollowingUsers -> Color.Green
                     isFollowingLocation -> Color.Blue
                     else -> Color.White
@@ -1672,9 +1726,9 @@ fun MapScreen(
                         .clickable {
                             Timber.d("My Location button clicked - current states: followLocation=$isFollowingLocation, followUsers=$isAutoFollowingUsers, rerun=$isRunningRerun, showingRoute=$showRouteDisplayIndicator")
 
-                            // Disable button functionality during route rerun or when viewing route
-                            if (isRunningRerun || showRouteDisplayIndicator) {
-                                Timber.d("My Location button disabled during route rerun or route display")
+                            // Disable button functionality during route rerun, when viewing route, or in rerun mode
+                            if (isRunningRerun || showRouteDisplayIndicator || isRerunModeEnabled) {
+                                Timber.d("My Location button disabled during route rerun, route display, or rerun mode")
                                 return@clickable
                             }
 
@@ -1708,13 +1762,14 @@ fun MapScreen(
                         imageVector = Icons.Default.MyLocation,
                         contentDescription = when {
                             isRunningRerun -> "Disabled during route rerun"
+                            isRerunModeEnabled -> "Disabled in rerun mode"
                             showRouteDisplayIndicator -> "Disabled while viewing route"
                             isAutoFollowingUsers -> "Switch to My Location"
                             isFollowingLocation -> "Disable Auto-Follow"
                             else -> "Enable Auto-Follow"
                         },
                         tint = when {
-                            isRunningRerun || showRouteDisplayIndicator -> Color.DarkGray
+                            isRunningRerun || showRouteDisplayIndicator || isRerunModeEnabled -> Color.DarkGray
                             isAutoFollowingUsers || isFollowingLocation -> Color.White
                             else -> Color.Black
                         }
