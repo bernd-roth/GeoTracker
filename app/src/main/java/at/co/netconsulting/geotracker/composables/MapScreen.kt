@@ -352,14 +352,36 @@ fun MapScreen(
                         val userPoint = followedUserPositions.first()
                         val geoPoint = GeoPoint(userPoint.latitude, userPoint.longitude)
                         mapView.controller.setCenter(geoPoint)
+                        mapView.controller.setZoom(15.0) // Standard zoom for single user
                         Timber.d("Auto-following single user: ${userPoint.person} at $geoPoint")
                     } else {
-                        // Follow multiple users - center on average position
+                        // Follow multiple users - center on average position and adjust zoom
                         val avgLat = followedUserPositions.map { it.latitude }.average()
                         val avgLon = followedUserPositions.map { it.longitude }.average()
                         val centerPoint = GeoPoint(avgLat, avgLon)
+                        
+                        // Calculate appropriate zoom level based on user spread
+                        val minLat = followedUserPositions.minOf { it.latitude }
+                        val maxLat = followedUserPositions.maxOf { it.latitude }
+                        val minLon = followedUserPositions.minOf { it.longitude }
+                        val maxLon = followedUserPositions.maxOf { it.longitude }
+                        
+                        val latDiff = maxLat - minLat
+                        val lonDiff = maxLon - minLon
+                        val maxDiff = maxOf(latDiff, lonDiff)
+                        
+                        val zoomLevel = when {
+                            maxDiff > 0.1 -> 10.0   // Very spread out users
+                            maxDiff > 0.05 -> 11.0  // Moderately spread out
+                            maxDiff > 0.02 -> 12.0  // Somewhat close
+                            maxDiff > 0.01 -> 13.0  // Close together
+                            maxDiff > 0.005 -> 14.0 // Very close
+                            else -> 15.0            // Very close or same location
+                        }
+                        
                         mapView.controller.setCenter(centerPoint)
-                        Timber.d("Auto-following ${followedUserPositions.size} users at $centerPoint")
+                        mapView.controller.setZoom(zoomLevel)
+                        Timber.d("Auto-following ${followedUserPositions.size} users at $centerPoint with zoom $zoomLevel (spread: $maxDiff)")
                     }
 
                     Handler(Looper.getMainLooper()).postDelayed({
@@ -940,11 +962,37 @@ fun MapScreen(
                         Timber.d("Screen turned ON - triggering auto-follow logic")
 
                         Handler(Looper.getMainLooper()).postDelayed({
-                            if (isFollowingLocation) {
-                                triggerMyLocationLogic()
-                            }
-                            if (isAutoFollowingUsers) {
-                                autoFollowUsers()
+                            // Priority logic: when following other users and not recording, follow users instead of own location
+                            if (followingState.isFollowing && !isRecording) {
+                                // Following other users and not recording own event - follow the users
+                                if (isAutoFollowingUsers) {
+                                    autoFollowUsers()
+                                } else {
+                                    // Enable auto-follow users and center on them
+                                    isAutoFollowingUsers = true
+                                    saveAutoFollowUsersState(true)
+                                    autoFollowUsers()
+                                }
+                                Timber.d("Screen ON - prioritized following users over own location (not recording)")
+                            } else if (followingState.isFollowing && isRecording) {
+                                // Following other users but also recording own event - follow own location
+                                if (isFollowingLocation) {
+                                    triggerMyLocationLogic()
+                                }
+                                // Still auto-follow users as secondary
+                                if (isAutoFollowingUsers) {
+                                    autoFollowUsers()
+                                }
+                                Timber.d("Screen ON - prioritized own location while recording and following users")
+                            } else {
+                                // Not following other users - normal behavior
+                                if (isFollowingLocation) {
+                                    triggerMyLocationLogic()
+                                }
+                                if (isAutoFollowingUsers) {
+                                    autoFollowUsers()
+                                }
+                                Timber.d("Screen ON - normal auto-follow logic (not following users)")
                             }
                         }, 1000)
 
@@ -974,11 +1022,37 @@ fun MapScreen(
                 Timber.d("App RESUMED - triggering auto-follow logic")
 
                 Handler(Looper.getMainLooper()).postDelayed({
-                    if (isFollowingLocation) {
-                        triggerMyLocationLogic()
-                    }
-                    if (isAutoFollowingUsers) {
-                        autoFollowUsers()
+                    // Priority logic: when following other users and not recording, follow users instead of own location
+                    if (followingState.isFollowing && !isRecording) {
+                        // Following other users and not recording own event - follow the users
+                        if (isAutoFollowingUsers) {
+                            autoFollowUsers()
+                        } else {
+                            // Enable auto-follow users and center on them
+                            isAutoFollowingUsers = true
+                            saveAutoFollowUsersState(true)
+                            autoFollowUsers()
+                        }
+                        Timber.d("App RESUMED - prioritized following users over own location (not recording)")
+                    } else if (followingState.isFollowing && isRecording) {
+                        // Following other users but also recording own event - follow own location
+                        if (isFollowingLocation) {
+                            triggerMyLocationLogic()
+                        }
+                        // Still auto-follow users as secondary
+                        if (isAutoFollowingUsers) {
+                            autoFollowUsers()
+                        }
+                        Timber.d("App RESUMED - prioritized own location while recording and following users")
+                    } else {
+                        // Not following other users - normal behavior
+                        if (isFollowingLocation) {
+                            triggerMyLocationLogic()
+                        }
+                        if (isAutoFollowingUsers) {
+                            autoFollowUsers()
+                        }
+                        Timber.d("App RESUMED - normal auto-follow logic (not following users)")
                     }
                 }, 500)
 

@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.service.WeatherEventBusHandler
+import at.co.netconsulting.geotracker.service.FollowingService
+import at.co.netconsulting.geotracker.data.FollowedUserPoint
 import at.co.netconsulting.geotracker.tools.Tools
 import com.github.mikephil.charting.data.Entry
 import org.greenrobot.eventbus.EventBus
@@ -34,6 +36,7 @@ fun StatisticsScreen() {
 
     // Get singleton instance with context
     val weatherHandler = remember { WeatherEventBusHandler.getInstance(context) }
+    val followingService = remember { FollowingService.getInstance(context) }
 
     // Initialize with current session ID, but only if the service is actually running
     LaunchedEffect(Unit) {
@@ -73,6 +76,9 @@ fun StatisticsScreen() {
     val speedHistory by weatherHandler.speedHistory.collectAsState() // Speed history for chart
     val altitudeHistory by weatherHandler.altitudeHistory.collectAsState() // Altitude history for chart
     val lapTimes by weatherHandler.lapTimes.collectAsState() // Database-driven lap times
+    
+    // Collect following state
+    val followingState by followingService.followingState.collectAsState()
 
     Column(
         modifier = Modifier
@@ -588,7 +594,558 @@ fun StatisticsScreen() {
                 }
             }
         )
+
+        // Followed Users Statistics
+        if (followingState.isFollowing && followingState.followedUsers.isNotEmpty()) {
+            followingState.followedUsers.forEach { sessionId ->
+                val trail = followingState.getTrail(sessionId)
+                if (trail.isNotEmpty()) {
+                    FollowedUserStatistics(sessionId, trail)
+                }
+            }
+        }
     }
+}
+
+@Composable
+fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
+    val latestPoint = trail.lastOrNull()
+    val firstPoint = trail.firstOrNull()
+    
+    if (latestPoint == null || firstPoint == null) return
+    
+    // Calculate statistics from trail
+    val totalDistance = latestPoint.distance
+    val currentSpeed = latestPoint.currentSpeed
+    val currentAltitude = latestPoint.altitude
+    val currentHeartRate = latestPoint.heartRate
+    
+    // Calculate average speed and moving average speed
+    val averageSpeed = if (trail.size > 1) {
+        trail.filter { it.currentSpeed > 0 }.map { it.currentSpeed }.average()
+    } else {
+        currentSpeed.toDouble()
+    }
+    
+    val movingAverageSpeed = if (trail.size >= 10) {
+        trail.takeLast(10).filter { it.currentSpeed > 0 }.map { it.currentSpeed }.average()
+    } else {
+        averageSpeed
+    }
+    
+    // Calculate elevation gain
+    val elevationGain = calculateElevationGain(trail)
+    
+    // Create chart entries for speed and altitude
+    val speedEntries = remember(trail) {
+        trail.mapIndexed { index, point ->
+            Entry((point.distance / 1000.0).toFloat(), point.currentSpeed)
+        }
+    }
+    
+    val altitudeEntries = remember(trail) {
+        trail.mapIndexed { index, point ->
+            Entry((point.distance / 1000.0).toFloat(), point.altitude.toFloat())
+        }
+    }
+    
+    val heartRateEntries = remember(trail) {
+        trail.filter { it.heartRate != null }.map { point ->
+            Entry((point.distance / 1000.0).toFloat(), point.heartRate!!.toFloat())
+        }
+    }
+    
+    // Calculate lap times for followed user
+    val lapTimes = calculateFollowedUserLaps(trail)
+    
+    // User title
+    Text(
+        text = "Following: ${latestPoint.person}",
+        fontSize = 20.sp,
+        fontWeight = FontWeight.Bold,
+        color = Color(0xFF6650a4),
+        modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
+    )
+    
+    // Session Info Card
+    StatisticsCard(
+        title = "Session Info - ${latestPoint.person}",
+        content = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text(
+                        text = "Start Time",
+                        color = Color.Gray,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = firstPoint.timestamp.substringAfter("T").substringBefore("."),
+                        fontSize = 20.sp
+                    )
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = "Last Update",
+                        color = Color.Gray,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = latestPoint.timestamp.substringAfter("T").substringBefore("."),
+                        fontSize = 20.sp
+                    )
+                }
+            }
+        }
+    )
+
+    // Speed Card
+    StatisticsCard(
+        title = "Speed - ${latestPoint.person}",
+        content = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                MetricColumn("Current", "${String.format("%.1f", currentSpeed)} km/h")
+                MetricColumn("Average", "${String.format("%.1f", averageSpeed)} km/h")
+                MetricColumn("Moving Avg", "${String.format("%.1f", movingAverageSpeed)} km/h")
+            }
+        }
+    )
+
+    // Distance Card
+    StatisticsCard(
+        title = "Distance - ${latestPoint.person}",
+        content = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                MetricColumn("Total", formatDistance(totalDistance))
+                MetricColumn("Altitude", formatAltitude(currentAltitude))
+                MetricColumn("Elev. Gain", formatElevation(elevationGain))
+            }
+        }
+    )
+
+    // Heart Rate Card
+    StatisticsCard(
+        title = "Heart Rate - ${latestPoint.person}",
+        content = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Current",
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+
+                    if (currentHeartRate != null) {
+                        Text(
+                            text = "$currentHeartRate bpm",
+                            fontSize = 20.sp
+                        )
+                    } else {
+                        Text(
+                            text = "Not available",
+                            fontSize = 16.sp,
+                            color = Color.Gray
+                        )
+                    }
+
+                    Text(
+                        text = "Remote Data",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
+                }
+            }
+        }
+    )
+
+    // Weather Card (Note: Weather data is typically local, but we'll show a placeholder)
+    StatisticsCard(
+        title = "Weather - ${latestPoint.person}",
+        content = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                MetricColumn("Temperature", "Remote")
+                MetricColumn("Weather Code", "Remote")
+                MetricColumn("Wind", "Remote")
+            }
+        }
+    )
+
+    // Lap Times Card
+    StatisticsCard(
+        title = "Lap Times - ${latestPoint.person}",
+        content = {
+            val currentDistance = totalDistance
+            val distanceKm = currentDistance / 1000.0
+
+            Column {
+                if (lapTimes.isNotEmpty()) {
+                    // Display each completed lap with its time
+                    lapTimes.forEach { lapTime ->
+                        val lapDuration = formatFollowedUserLapTime(lapTime.duration)
+                        val lapPace = calculateFollowedUserLapPace(lapTime.duration, lapTime.distance)
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "${lapTime.lapNumber} km:",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Gray
+                            )
+
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    text = lapDuration,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Normal,
+                                    color = Color.Green
+                                )
+                                Text(
+                                    text = lapPace,
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+
+                    // Show current lap progress if in progress
+                    val completedLaps = lapTimes.size
+                    val currentLapDistance = currentDistance - (completedLaps * 1000)
+
+                    if (currentDistance > completedLaps * 1000) {
+                        val nextLapNumber = completedLaps + 1
+                        val lapProgress = currentLapDistance / 1000.0
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Current lap progress
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Current ($nextLapNumber km):",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Blue
+                            )
+
+                            Text(
+                                text = String.format("%.0f m", currentLapDistance),
+                                fontSize = 14.sp,
+                                color = Color.Blue
+                            )
+                        }
+
+                        // Progress bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .background(Color.LightGray.copy(alpha = 0.3f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(lapProgress.toFloat())
+                                    .background(Color.Blue)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Summary statistics
+                    if (lapTimes.isNotEmpty()) {
+                        val totalLapTime = lapTimes.sumOf { it.duration }
+                        val averageLapTime = totalLapTime / lapTimes.size
+                        val bestLap = lapTimes.minByOrNull { it.duration }
+                        val worstLap = lapTimes.maxByOrNull { it.duration }
+
+                        Column {
+                            // Divider
+                            Spacer(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(Color.Gray.copy(alpha = 0.3f))
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Summary stats
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                // Total and Average
+                                Column(horizontalAlignment = Alignment.Start) {
+                                    Text(
+                                        text = "Total Lap Time",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                    Text(
+                                        text = formatFollowedUserLapTime(totalLapTime),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Text(
+                                        text = "Avg Lap",
+                                        fontSize = 12.sp,
+                                        color = Color.Gray
+                                    )
+                                    Text(
+                                        text = formatFollowedUserLapTime(averageLapTime),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                }
+
+                                // Best and Worst
+                                Column(horizontalAlignment = Alignment.End) {
+                                    bestLap?.let {
+                                        Text(
+                                            text = "Best (${it.lapNumber} km)",
+                                            fontSize = 12.sp,
+                                            color = Color.Gray
+                                        )
+                                        Text(
+                                            text = formatFollowedUserLapTime(it.duration),
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Normal,
+                                            color = Color(0xFF4CAF50)
+                                        )
+                                    }
+
+                                    if (lapTimes.size > 1) {
+                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        worstLap?.let {
+                                            Text(
+                                                text = "Slowest (${it.lapNumber} km)",
+                                                fontSize = 12.sp,
+                                                color = Color.Gray
+                                            )
+                                            Text(
+                                                text = formatFollowedUserLapTime(it.duration),
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                color = Color(0xFFFF9800)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                } else if (distanceKm > 0) {
+                    // Show current lap progress when no laps completed yet
+                    val currentLapDistanceMeters = currentDistance % 1000
+                    val lapProgress = currentLapDistanceMeters / 1000.0
+
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Current (1 km):",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.Blue
+                            )
+
+                            Text(
+                                text = String.format("%.0f / 1000 m", currentLapDistanceMeters),
+                                fontSize = 14.sp,
+                                color = Color.Blue
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Progress bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .background(
+                                    Color.LightGray.copy(alpha = 0.3f),
+                                    RoundedCornerShape(3.dp)
+                                )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(lapProgress.toFloat())
+                                    .background(
+                                        Color.Blue,
+                                        RoundedCornerShape(3.dp)
+                                    )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            text = String.format("%.1f%% complete", lapProgress * 100),
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "Waiting for movement data...",
+                        fontSize = 14.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+                }
+            }
+        }
+    )
+
+    // Speed vs Distance Chart
+    StatisticsCard(
+        title = "Speed vs Distance - ${latestPoint.person}",
+        content = {
+            if (totalDistance > 0 && speedEntries.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                ) {
+                    RealLineChart(
+                        entries = speedEntries,
+                        lineColor = Color(0xFF2196F3),
+                        fillColor = Color(0xFF2196F3),
+                        xLabel = "Distance (km)",
+                        yLabel = "Speed (km/h)"
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .background(Color.LightGray.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (totalDistance > 0)
+                            "Collecting speed data..."
+                        else
+                            "Chart will appear as user moves"
+                    )
+                }
+            }
+        }
+    )
+
+    // Altitude vs Distance Chart
+    StatisticsCard(
+        title = "Altitude vs Distance - ${latestPoint.person}",
+        content = {
+            if (totalDistance > 0 && altitudeEntries.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                ) {
+                    RealLineChart(
+                        entries = altitudeEntries,
+                        lineColor = Color(0xFF4CAF50),
+                        fillColor = Color(0xFF4CAF50).copy(alpha = 0.2f),
+                        xLabel = "Distance (km)",
+                        yLabel = "Altitude (m)"
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .background(Color.LightGray.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (totalDistance > 0)
+                            "Collecting altitude data..."
+                        else
+                            "Chart will appear as user moves"
+                    )
+                }
+            }
+        }
+    )
+
+    // Heart Rate vs Distance Chart
+    StatisticsCard(
+        title = "Heart Rate vs Distance - ${latestPoint.person}",
+        content = {
+            if (totalDistance > 0 && heartRateEntries.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                ) {
+                    HeartRateDistanceChart(
+                        entries = heartRateEntries,
+                        lineColor = Color(0xFFE91E63), // Pink color for heart rate
+                        fillColor = Color(0xFFE91E63).copy(alpha = 0.2f)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .background(Color.LightGray.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (currentHeartRate != null)
+                            "Chart will appear as user moves"
+                        else
+                            "Heart rate data not available from remote user"
+                    )
+                }
+            }
+        }
+    )
 }
 
 @Composable
@@ -752,4 +1309,90 @@ private fun isServiceRunning(context: Context, serviceName: String): Boolean {
         .any { service ->
             serviceName == service.service.className && service.foreground
         }
+}
+
+private fun calculateElevationGain(trail: List<FollowedUserPoint>): Double {
+    if (trail.size < 2) return 0.0
+    
+    var totalGain = 0.0
+    
+    for (i in 1 until trail.size) {
+        val currentAltitude = trail[i].altitude
+        val previousAltitude = trail[i - 1].altitude
+        val gain = currentAltitude - previousAltitude
+        
+        if (gain > 0) {
+            totalGain += gain
+        }
+    }
+    
+    return totalGain
+}
+
+// Data class for followed user lap times
+data class FollowedUserLap(
+    val lapNumber: Int,
+    val distance: Double, // in meters, should be 1000.0 for completed laps
+    val duration: Long // duration in milliseconds (simulated from timestamps)
+)
+
+private fun calculateFollowedUserLaps(trail: List<FollowedUserPoint>): List<FollowedUserLap> {
+    if (trail.isEmpty()) return emptyList()
+    
+    val lapTimes = mutableListOf<FollowedUserLap>()
+    var currentLap = 1
+    var lapStartIndex = 0
+    
+    for (i in 1 until trail.size) {
+        val currentDistance = trail[i].distance
+        val lapThreshold = currentLap * 1000.0 // Each lap is 1000 meters
+        
+        if (currentDistance >= lapThreshold) {
+            // Find the points before and after the lap boundary
+            val prevPoint = trail[i - 1]
+            val currentPoint = trail[i]
+            
+            // Calculate approximate time when the lap was completed using linear interpolation
+            val distanceToLap = lapThreshold - prevPoint.distance
+            val segmentDistance = currentPoint.distance - prevPoint.distance
+            
+            // Since we don't have actual timestamps as Long values, we'll simulate duration
+            // based on the assumption that points are collected at regular intervals
+            val pointInterval = 1000L // Assume 1 second between points
+            val lapStartTime = lapStartIndex * pointInterval
+            val lapEndTime = (i - 1) * pointInterval + (pointInterval * (distanceToLap / segmentDistance)).toLong()
+            
+            val lapDuration = lapEndTime - lapStartTime
+            
+            lapTimes.add(
+                FollowedUserLap(
+                    lapNumber = currentLap,
+                    distance = 1000.0,
+                    duration = lapDuration
+                )
+            )
+            
+            currentLap++
+            lapStartIndex = i - 1
+        }
+    }
+    
+    return lapTimes
+}
+
+private fun formatFollowedUserLapTime(durationInMilliseconds: Long): String {
+    val totalSeconds = durationInMilliseconds / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format("%02d:%02d", minutes, seconds)
+}
+
+private fun calculateFollowedUserLapPace(durationInMilliseconds: Long, distanceKm: Double): String {
+    if (distanceKm <= 0 || durationInMilliseconds <= 0) return "-- /km"
+    
+    val totalSeconds = durationInMilliseconds / 1000.0
+    val paceSecondsPerKm = (totalSeconds / distanceKm).toInt()
+    val paceMinutes = paceSecondsPerKm / 60
+    val paceSeconds = paceSecondsPerKm % 60
+    return String.format("%d:%02d /km", paceMinutes, paceSeconds)
 }
