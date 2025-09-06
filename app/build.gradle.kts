@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 2
-        versionName = "2.6 (21-08-2025: Follow multiple users)"
+        versionName = "2.7 (06-09-2025: Barometer sensor service responsiveness changed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
