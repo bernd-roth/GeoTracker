@@ -71,6 +71,7 @@ fun StatisticsScreen() {
     val heartRateData by weatherHandler.heartRate.collectAsState()
     val heartRateHistory by weatherHandler.heartRateHistory.collectAsState()
     val speedHistory by weatherHandler.speedHistory.collectAsState() // Speed history for chart
+    val altitudeHistory by weatherHandler.altitudeHistory.collectAsState() // Altitude history for chart
     val lapTimes by weatherHandler.lapTimes.collectAsState() // Database-driven lap times
 
     Column(
@@ -505,32 +506,21 @@ fun StatisticsScreen() {
         StatisticsCard(
             title = "Altitude vs Distance",
             content = {
-                if (metrics != null && metrics!!.coveredDistance > 0) {
+                if (metrics != null && metrics!!.coveredDistance > 0 && altitudeHistory.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(160.dp)
                     ) {
-                        // Create entries for chart based on altitude and distance
-                        val altitudeDistanceEntries = remember(metrics) {
-                            val distanceInKm = metrics!!.coveredDistance / 1000
-                            val entries = mutableListOf<Entry>()
-
-                            // Create sample points
-                            val pointCount = 5
-                            val baseAltitude = metrics!!.altitude.toFloat()
-                            for (i in 0..pointCount) {
-                                val x = (distanceInKm * i / pointCount).toFloat()
-                                // Simulate altitude variation
-                                val variation = (Math.sin(i.toDouble()) * 5).toFloat()
-                                val y = baseAltitude + variation
-                                entries.add(Entry(x, y))
+                        // Convert the altitude history into chart entries
+                        val altitudeEntries = remember(altitudeHistory) {
+                            altitudeHistory.map { (distance, altitude) ->
+                                Entry(distance.toFloat(), altitude.toFloat())
                             }
-                            entries
                         }
 
                         RealLineChart(
-                            entries = altitudeDistanceEntries,
+                            entries = altitudeEntries,
                             lineColor = Color(0xFF4CAF50),
                             fillColor = Color(0xFF4CAF50).copy(alpha = 0.2f),
                             xLabel = "Distance (km)",
@@ -545,7 +535,12 @@ fun StatisticsScreen() {
                             .background(Color.LightGray.copy(alpha = 0.2f)),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("Chart will appear as you move")
+                        Text(
+                            if (metrics != null && metrics!!.coveredDistance > 0)
+                                "Collecting altitude data..."
+                            else
+                                "Chart will appear as you move"
+                        )
                     }
                 }
             }
