@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 2
-        versionName = "2.7 (06-09-2025: Barometer sensor service responsiveness changed)"
+        versionName = "2.8 (06-09-2025: Centering map and auto-following other user(s), if not recording own event)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

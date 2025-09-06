@@ -297,8 +297,15 @@ fun MapScreen(
 
     // Function to programmatically trigger "My Location" button logic
     fun triggerMyLocationLogic() {
-        if (isFollowingLocation && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled) {
-            Timber.d("Triggering My Location button logic programmatically")
+        // Only trigger if conditions are met and either not following others or recording own event
+        val shouldTrigger = if (followingState.isFollowing) {
+            isRecording && isFollowingLocation && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled
+        } else {
+            isFollowingLocation && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled
+        }
+
+        if (shouldTrigger) {
+            Timber.d("Triggering My Location button logic programmatically (following others: ${followingState.isFollowing}, recording: $isRecording)")
 
             locationOverlayRef.value?.let { overlay ->
                 overlay.enableFollowLocation()
@@ -323,6 +330,8 @@ fun MapScreen(
                 }
             }
             Timber.d("My Location logic triggered programmatically")
+        } else {
+            Timber.d("My Location logic NOT triggered - following others: ${followingState.isFollowing}, recording: $isRecording, conditions: $isFollowingLocation, rerun: $isRunningRerun, showRoute: $showRouteDisplayIndicator, rerunMode: $isRerunModeEnabled")
         }
     }
 
@@ -796,25 +805,43 @@ fun MapScreen(
                         Timber.d("Centered map on ${followedUserPositions.size} followed users at $centerPoint")
                     }
 
-                    // Disable auto-follow when following other users (even during recording)
+                    // Disable auto-follow when following other users
                     isFollowingLocation = false
                     saveAutoFollowState(false)
+                    
+                    // Disable location overlay's follow functionality when following other users (but only if not recording own event)
+                    if (!isRecording) {
+                        locationOverlayRef.value?.disableFollowLocation()
+                        Timber.d("Disabled location overlay following when following other users (not recording own event)")
+                    } else {
+                        // When recording own event, keep location overlay enabled for tracking but disable auto-center
+                        locationOverlayRef.value?.enableFollowLocation()
+                        Timber.d("Kept location overlay enabled when following users while recording own event")
+                    }
+                    
                     Timber.d("Disabled auto-follow when starting to follow users (recording: $isRecording)")
                 }
             }
         } else if (!followingState.isFollowing) {
-            // Re-enable auto-follow when stopping following (regardless of recording state)
-            if (!isRecording) {
-                // Only auto-enable if not recording - during recording user controls this manually
+            // Re-enable location services and auto-follow when stopping following
+            if (isRecording) {
+                // When recording, always re-enable location services and auto-follow
                 isFollowingLocation = true
                 saveAutoFollowState(true)
-                // Optionally trigger my location logic to center back on user
+                locationOverlayRef.value?.enableFollowLocation()
+                Handler(Looper.getMainLooper()).postDelayed({
+                    triggerMyLocationLogic()
+                }, 500)
+                Timber.d("Re-enabled location services and auto-follow when stopped following users (recording own event)")
+            } else {
+                // When not recording, optionally re-enable auto-follow
+                isFollowingLocation = true
+                saveAutoFollowState(true)
+                locationOverlayRef.value?.enableFollowLocation()
                 Handler(Looper.getMainLooper()).postDelayed({
                     triggerMyLocationLogic()
                 }, 500)
                 Timber.d("Re-enabled auto-follow when stopped following users (not recording)")
-            } else {
-                Timber.d("Stopped following during recording - auto-follow remains user-controlled")
             }
         }
     }
@@ -831,8 +858,16 @@ fun MapScreen(
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
                 }
 
-                // Handle auto-follow functionality - but not when following other users, running route rerun, viewing route, or in rerun mode
-                if (isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !followingState.isFollowing && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled) {
+                // Handle auto-follow functionality - conditional based on following state and recording status
+                val shouldAutoFollow = if (followingState.isFollowing) {
+                    // When following other users, only auto-follow if we're also recording our own event
+                    isRecording && isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled
+                } else {
+                    // When not following other users, use normal auto-follow logic
+                    isFollowingLocation && metrics.latitude != 0.0 && metrics.longitude != 0.0 && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled
+                }
+
+                if (shouldAutoFollow) {
                     mapViewRef.value?.let { mapView ->
                         val newLocation = GeoPoint(metrics.latitude, metrics.longitude)
 
@@ -840,12 +875,12 @@ fun MapScreen(
 
                         if (hasInitializedMapCenter) {
                             mapView.controller.setCenter(newLocation)
-                            Timber.d("Auto-follow: centered to $newLocation")
+                            Timber.d("Auto-follow: centered to $newLocation (following others: ${followingState.isFollowing}, recording: $isRecording)")
                         } else {
                             mapView.controller.setCenter(newLocation)
                             mapView.controller.setZoom(15.0)
                             hasInitializedMapCenter = true
-                            Timber.d("Auto-follow: initial center at $newLocation")
+                            Timber.d("Auto-follow: initial center at $newLocation (following others: ${followingState.isFollowing}, recording: $isRecording)")
                         }
 
                         locationOverlayRef.value?.let { overlay ->
@@ -985,8 +1020,15 @@ fun MapScreen(
 
                 if (isFollowingLocation && !isRerunModeEnabled) {
                     locationOverlayRef.value?.let { overlay ->
-                        if (!overlay.isFollowLocationEnabled && isFollowingLocation) {
-                            Timber.d("Detected overlay follow disabled - triggering My Location logic")
+                        // Check if overlay follow should be enabled based on following state and recording status
+                        val shouldEnableOverlay = if (followingState.isFollowing) {
+                            isRecording && isFollowingLocation // Only enable if recording own event
+                        } else {
+                            isFollowingLocation // Normal behavior when not following others
+                        }
+
+                        if (!overlay.isFollowLocationEnabled && shouldEnableOverlay) {
+                            Timber.d("Detected overlay follow disabled - triggering My Location logic (following others: ${followingState.isFollowing}, recording: $isRecording)")
                             triggerMyLocationLogic()
                         }
                     }
@@ -1213,9 +1255,9 @@ fun MapScreen(
                 }
             }
         } else if (!followingState.isFollowing && !isRecording) {
-            // Only start background service if not recording AND not following
+            // Only start background service if not recording AND not following other users
             try {
-                Timber.d("DisposableEffect: Starting background service")
+                Timber.d("DisposableEffect: Starting background service (not recording, not following)")
                 val intent = Intent(context, BackgroundLocationService::class.java)
                 context.startService(intent)
                 pathTracker.setRecording(false)
@@ -1223,6 +1265,10 @@ fun MapScreen(
                 Timber.e(e, "Failed to start background service")
                 Toast.makeText(context, "Failed to start location service", Toast.LENGTH_SHORT).show()
             }
+        } else if (followingState.isFollowing && !isRecording) {
+            // When following other users but not recording, don't start background location service
+            // to avoid interfering with the map centering on followed users
+            Timber.d("DisposableEffect: Not starting background service - following other users without recording")
         }
 
         onDispose {
@@ -1238,11 +1284,13 @@ fun MapScreen(
 
             if (!isRecording && !followingState.isFollowing) {
                 try {
-                    Timber.d("onDispose: Stopping background service")
+                    Timber.d("onDispose: Stopping background service (not recording, not following)")
                     context.stopService(Intent(context, BackgroundLocationService::class.java))
                 } catch (e: Exception) {
                     Timber.e(e, "Error stopping background service")
                 }
+            } else if (followingState.isFollowing && !isRecording) {
+                Timber.d("onDispose: Not stopping background service - following other users without recording")
             }
         }
     }
