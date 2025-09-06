@@ -923,7 +923,7 @@ fun MapScreen(
                 }
 
                 // Force path updates when recording - ignore viewport restrictions
-                if (showPath && currentEventId.value > 0 && isRecording && !followingState.isFollowing) {
+                if (showPath && currentEventId.value > 0 && isRecording) {
                     mapViewRef.value?.let { mapView ->
                         // ALWAYS force update during recording - bypass all similarity checks
                         pathTracker.updatePathForViewport(mapView, forceUpdate = true)
@@ -941,8 +941,8 @@ fun MapScreen(
 
     // Periodic path updates during recording to ensure path always appears
     LaunchedEffect(isRecording, showPath, currentEventId.value) {
-        if (isRecording && showPath && currentEventId.value > 0 && !followingState.isFollowing) {
-            while (isRecording && showPath && currentEventId.value > 0 && !followingState.isFollowing) {
+        if (isRecording && showPath && currentEventId.value > 0) {
+            while (isRecording && showPath && currentEventId.value > 0) {
                 delay(2000) // Update every 2 seconds during recording
 
                 mapViewRef.value?.let { mapView ->
@@ -996,7 +996,7 @@ fun MapScreen(
                             }
                         }, 1000)
 
-                        if (showPath && isRecording && !followingState.isFollowing) {
+                        if (showPath && isRecording) {
                             mapViewRef.value?.let { mapView ->
                                 Handler(Looper.getMainLooper()).postDelayed({
                                     pathTracker.refreshPath(mapView)
@@ -1176,7 +1176,7 @@ fun MapScreen(
 
     // Initialize or clean up path tracker with immediate updates
     LaunchedEffect(showPath, currentEventId.value, isRecording, followingState.isFollowing) {
-        if (showPath && isRecording && !followingState.isFollowing) {
+        if (showPath && isRecording) {
             mapViewRef.value?.let { mapView ->
                 pathTracker.initialize(mapView)
                 pathTracker.setCurrentEventId(currentEventId.value, mapView)
@@ -1194,7 +1194,7 @@ fun MapScreen(
                 // Schedule additional immediate updates for the first few seconds
                 repeat(5) { attempt ->
                     delay(1000L * (attempt + 1)) // 1s, 2s, 3s, 4s, 5s
-                    if (isActive && isRecording && showPath && !followingState.isFollowing) {
+                    if (isActive && isRecording && showPath) {
                         pathTracker.updatePathForViewport(mapView, forceUpdate = true)
                         Timber.d("Scheduled path update ${attempt + 1}")
                     }
@@ -1323,7 +1323,7 @@ fun MapScreen(
             currentEventId.value = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
                 .getInt("active_event_id", -1)
 
-            if (showPath && !followingState.isFollowing) {
+            if (showPath && isRecording) {
                 mapViewRef.value?.let { mapView ->
                     pathTracker.setCurrentEventId(currentEventId.value, mapView)
                 }
@@ -1439,7 +1439,7 @@ fun MapScreen(
 
                     mapViewRef.value = this
 
-                    if (showPath && isRecording && !followingState.isFollowing) {
+                    if (showPath && isRecording) {
                         pathTracker.initialize(this)
                         pathTracker.setCurrentEventId(currentEventId.value, this)
                         pathTracker.setRecording(isRecording)
@@ -1482,7 +1482,7 @@ fun MapScreen(
                             }
 
                             // Force path updates during recording on scroll
-                            if (showPath && isRecording && !followingState.isFollowing) {
+                            if (showPath && isRecording) {
                                 pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
                             return true
@@ -1490,7 +1490,7 @@ fun MapScreen(
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
                             // Force path updates during recording on zoom
-                            if (showPath && isRecording && !followingState.isFollowing) {
+                            if (showPath && isRecording) {
                                 pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
                             return true
@@ -1674,7 +1674,7 @@ fun MapScreen(
         }
 
         // Path loading indicator
-        if (isPathLoading && showPath && isRecording && !followingState.isFollowing) {
+        if (isPathLoading && showPath && isRecording) {
             CircularProgressIndicator(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
