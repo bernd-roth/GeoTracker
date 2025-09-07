@@ -665,8 +665,14 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
         }
     }
     
-    // Calculate lap times for followed user
-    val lapTimes = calculateFollowedUserLaps(trail)
+    // Use actual lap times from WebSocket data instead of calculating fake ones
+    val lapTimes = latestPoint.lapTimes?.map { webSocketLapTime ->
+        FollowedUserLap(
+            lapNumber = webSocketLapTime.lapNumber,
+            distance = webSocketLapTime.distance,
+            duration = webSocketLapTime.duration
+        )
+    } ?: emptyList()
     
     // User title
     Text(
