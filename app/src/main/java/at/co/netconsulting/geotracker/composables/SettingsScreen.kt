@@ -78,6 +78,9 @@ fun SettingsScreen() {
     }
     var height by remember { mutableStateOf(sharedPreferences.getFloat("height", 0f)) }
     var weight by remember { mutableStateOf(sharedPreferences.getFloat("weight", 0f)) }
+    var maxHeartRate by remember { 
+        mutableStateOf(sharedPreferences.getInt("maxHeartRate", 180))
+    }
     var websocketserver by remember {
         mutableStateOf(sharedPreferences.getString("websocketserver", "") ?: "")
     }
@@ -181,6 +184,20 @@ fun SettingsScreen() {
                 weight = input.toFloatOrNull() ?: weight
             },
             label = { Text("Weight (kg)") },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = maxHeartRate.toString(),
+            onValueChange = { input ->
+                val value = input.toIntOrNull()
+                if (value != null && value in 10..300 && input.length <= 3) {
+                    maxHeartRate = value
+                }
+            },
+            label = { Text("Max Heart Rate (bpm)") },
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
             modifier = Modifier.fillMaxWidth()
         )
@@ -442,6 +459,7 @@ fun SettingsScreen() {
                     birthDate,
                     height,
                     weight,
+                    maxHeartRate,
                     websocketserver,
                     autoBackupEnabled,
                     backupHour,
@@ -498,6 +516,7 @@ fun saveAllSettings(
     birthDate: String,
     height: Float,
     weight: Float,
+    maxHeartRate: Int,
     websocketserver: String,
     autoBackupEnabled: Boolean,
     backupHour: Int,
@@ -513,6 +532,7 @@ fun saveAllSettings(
         putString("birthdate", birthDate)
         putFloat("height", height)
         putFloat("weight", weight)
+        putInt("maxHeartRate", maxHeartRate)
         putString("websocketserver", websocketserver)
         putBoolean("autoBackupEnabled", autoBackupEnabled)
         putInt("backupHour", backupHour)

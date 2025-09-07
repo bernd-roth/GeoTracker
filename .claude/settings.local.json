@@ -4,7 +4,10 @@
       "Bash(find:*)",
       "Bash(rm:*)",
       "Bash(./gradlew:*)",
-      "Bash(.gradlew.bat build:*)"
+      "Bash(.gradlew.bat build:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

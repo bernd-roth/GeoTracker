@@ -50,6 +50,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 import at.co.netconsulting.geotracker.data.AltitudeInfo
 import at.co.netconsulting.geotracker.data.DistanceInfo
 import at.co.netconsulting.geotracker.data.TimeInfo
@@ -164,6 +166,19 @@ fun HeartRateDetailScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(200.dp)
+                    )
+                }
+
+                // Heart Rate Zones Bar Chart
+                GraphCard(
+                    title = "Heart Rate Zones",
+                    description = "Time spent in each heart rate zone based on your max heart rate"
+                ) {
+                    HeartRateZonesBarChart(
+                        metrics = validMetrics,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(250.dp)
                     )
                 }
             }
@@ -1003,3 +1018,170 @@ private fun formatTime(elapsedTimeInMilliseconds: Long): String {
     val seconds = (elapsedTimeInMilliseconds / 1000) % 60
     return String.format("%d:%02d", totalMinutes, seconds)
 }
+
+@Composable
+fun HeartRateZonesBarChart(
+    metrics: List<Metric>,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val sharedPreferences = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+    val maxHeartRate = sharedPreferences.getInt("maxHeartRate", 180)
+    
+    // Define the 5 heart rate zones based on percentage of max HR
+    val zones = listOf(
+        HeartRateZone("Zone 1", 0.5f * maxHeartRate, 0.6f * maxHeartRate, Color(0xFF4CAF50)), // Green - Recovery
+        HeartRateZone("Zone 2", 0.6f * maxHeartRate, 0.7f * maxHeartRate, Color(0xFF2196F3)), // Blue - Aerobic Base
+        HeartRateZone("Zone 3", 0.7f * maxHeartRate, 0.8f * maxHeartRate, Color(0xFFFF9800)), // Orange - Aerobic
+        HeartRateZone("Zone 4", 0.8f * maxHeartRate, 0.9f * maxHeartRate, Color(0xFFF44336)), // Red - Lactate Threshold
+        HeartRateZone("Zone 5", 0.9f * maxHeartRate, maxHeartRate.toFloat(), Color(0xFF9C27B0))  // Purple - Neuromuscular Power
+    )
+    
+    // Calculate time spent in each zone (in minutes)
+    val zoneMinutes = zones.map { zone ->
+        val metricsInZone = metrics.filter { metric ->
+            metric.heartRate >= zone.minHR && metric.heartRate < zone.maxHR
+        }
+        metricsInZone.size.toFloat() / 60.0f // Assuming metrics are recorded every second, convert to minutes
+    }
+    
+    val maxMinutes = zoneMinutes.maxOrNull() ?: 1f
+    
+    Canvas(modifier = modifier) {
+        val padding = 80.dp.toPx()
+        val graphWidth = size.width - 2 * padding
+        val graphHeight = size.height - 2 * padding
+        
+        val barWidth = graphWidth / zones.size
+        val barSpacing = barWidth * 0.1f
+        val actualBarWidth = barWidth - barSpacing
+        
+        // Draw axes
+        drawLine(
+            color = Color.Gray,
+            start = Offset(padding, padding),
+            end = Offset(padding, size.height - padding),
+            strokeWidth = 2.dp.toPx()
+        )
+        drawLine(
+            color = Color.Gray,
+            start = Offset(padding, size.height - padding),
+            end = Offset(size.width - padding, size.height - padding),
+            strokeWidth = 2.dp.toPx()
+        )
+        
+        // Draw Y-axis grid lines and labels
+        val paint = Paint().asFrameworkPaint().apply {
+            color = Color.Gray.toArgb()
+            textSize = 10.sp.toPx()
+            textAlign = android.graphics.Paint.Align.RIGHT
+        }
+        
+        for (i in 0..5) {
+            val y = padding + (graphHeight * i / 5)
+            if (i > 0 && i < 5) {
+                drawLine(
+                    color = Color.LightGray,
+                    start = Offset(padding, y),
+                    end = Offset(size.width - padding, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            
+            val minutes = maxMinutes - (maxMinutes * i / 5)
+            drawContext.canvas.nativeCanvas.drawText(
+                String.format("%.1f", minutes),
+                padding - 10.dp.toPx(),
+                y + 4.dp.toPx(),
+                paint
+            )
+        }
+        
+        // Draw bars
+        zones.forEachIndexed { index, zone ->
+            val barHeight = if (maxMinutes > 0) (zoneMinutes[index] / maxMinutes) * graphHeight else 0f
+            val x = padding + (index * barWidth) + (barSpacing / 2)
+            val y = size.height - padding - barHeight
+            
+            // Draw bar
+            drawRect(
+                color = zone.color,
+                topLeft = Offset(x, y),
+                size = Size(actualBarWidth, barHeight)
+            )
+            
+            // Draw bar outline
+            drawRect(
+                color = Color.Black,
+                topLeft = Offset(x, y),
+                size = Size(actualBarWidth, barHeight),
+                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+            )
+            
+            // Draw zone label
+            paint.textAlign = android.graphics.Paint.Align.CENTER
+            paint.textSize = 10.sp.toPx()
+            paint.color = Color.Black.toArgb()
+            drawContext.canvas.nativeCanvas.drawText(
+                zone.name,
+                x + actualBarWidth / 2,
+                size.height - padding + 20.dp.toPx(),
+                paint
+            )
+            
+            // Draw HR range
+            drawContext.canvas.nativeCanvas.drawText(
+                "${zone.minHR.toInt()}-${zone.maxHR.toInt()}",
+                x + actualBarWidth / 2,
+                size.height - padding + 35.dp.toPx(),
+                paint
+            )
+            
+            // Draw minutes on top of bar if there's data
+            if (zoneMinutes[index] > 0) {
+                paint.color = Color.Black.toArgb()
+                paint.isFakeBoldText = true
+                drawContext.canvas.nativeCanvas.drawText(
+                    String.format("%.1f min", zoneMinutes[index]),
+                    x + actualBarWidth / 2,
+                    y - 5.dp.toPx(),
+                    paint
+                )
+                paint.isFakeBoldText = false
+            }
+        }
+        
+        // Draw axis labels
+        val labelPaint = Paint().asFrameworkPaint().apply {
+            color = Color.Black.toArgb()
+            textSize = 14.sp.toPx()
+            isFakeBoldText = true
+        }
+        
+        drawContext.canvas.nativeCanvas.save()
+        drawContext.canvas.nativeCanvas.rotate(-90f, 20.dp.toPx(), size.height / 2)
+        labelPaint.textAlign = android.graphics.Paint.Align.CENTER
+        drawContext.canvas.nativeCanvas.drawText(
+            "Time (minutes)",
+            20.dp.toPx(),
+            size.height / 2,
+            labelPaint
+        )
+        drawContext.canvas.nativeCanvas.restore()
+        
+        labelPaint.textAlign = android.graphics.Paint.Align.CENTER
+        drawContext.canvas.nativeCanvas.drawText(
+            "Heart Rate Zones",
+            size.width / 2,
+            size.height - 5.dp.toPx(),
+            labelPaint
+        )
+    }
+}
+
+data class HeartRateZone(
+    val name: String,
+    val minHR: Float,
+    val maxHR: Float,
+    val color: Color
+)

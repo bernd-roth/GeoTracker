@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "3.0 (07-09-2025: hierarchical sport categories with Water Sports and Ball Sports)"
+        versionName = "3.1 (07-09-2025: Max Heart Rate settings field and Heart Rate Zones bar chart analysis)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
