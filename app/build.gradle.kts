@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 2
-        versionName = "2.15 (07-09-2025: fixed lap time display for late-joining followers using actual WebSocket data)"
+        versionName = "2.16 (07-09-2025: Color.Green changed to Color(0,139,0))"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

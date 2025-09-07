@@ -976,7 +976,7 @@ fun EventCard(
                                 label = "Min Satellites:",
                                 value = "${event.minSatellites}",
                                 textColor = when {
-                                    event.minSatellites >= 8 -> Color.Green
+                                    event.minSatellites >= 8 -> Color(0,139,0)
                                     event.minSatellites >= 4 -> MaterialTheme.colorScheme.primary
                                     else -> Color.Red
                                 }
@@ -985,7 +985,7 @@ fun EventCard(
                                 label = "Avg Satellites:",
                                 value = "${event.avgSatellites}",
                                 textColor = when {
-                                    event.avgSatellites >= 8 -> Color.Green
+                                    event.avgSatellites >= 8 -> Color(0,139,0)
                                     event.avgSatellites >= 4 -> MaterialTheme.colorScheme.primary
                                     else -> Color.Red
                                 }
@@ -997,7 +997,7 @@ fun EventCard(
                                 label = "Max Satellites:",
                                 value = "${event.maxSatellites}",
                                 textColor = when {
-                                    event.maxSatellites >= 8 -> Color.Green
+                                    event.maxSatellites >= 8 -> Color(0,139,0)
                                     event.maxSatellites >= 4 -> MaterialTheme.colorScheme.primary
                                     else -> Color.Red
                                 }
@@ -1015,7 +1015,7 @@ fun EventCard(
                                 label = "Signal Quality:",
                                 value = signalQuality,
                                 textColor = when {
-                                    event.avgSatellites >= 8 -> Color.Green
+                                    event.avgSatellites >= 8 -> Color(0,139,0)
                                     event.avgSatellites >= 4 -> MaterialTheme.colorScheme.primary
                                     else -> Color.Red
                                 }
@@ -1355,7 +1355,7 @@ fun EventCard(
                                         else -> "Unknown"
                                     },
                                     textColor = when (avgAccuracy) {
-                                        3 -> Color.Green
+                                        3 -> Color(0,139,0)
                                         2 -> MaterialTheme.colorScheme.primary
                                         1 -> Color(0xFFFF9800) // Orange
                                         else -> Color.Red
@@ -1584,7 +1584,7 @@ fun EventCard(
 
                         val textColor = when {
                             isLastAndIncomplete -> Color.Gray // Last incomplete lap in gray
-                            lapTime == fastestLapTime && !isLastAndIncomplete -> Color.Green // Fastest lap in green
+                            lapTime == fastestLapTime && !isLastAndIncomplete -> Color(0,139,0) // Fastest lap in green
                             lapTime == slowestLapTime -> Color.Red // Slowest lap in red
                             else -> Color.Unspecified // Normal laps in default color
                         }
