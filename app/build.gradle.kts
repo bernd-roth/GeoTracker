@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 2
-        versionName = "2.13 (06-09-2025: enhanced backup progress with file count and current file display)"
+        versionName = "2.14 (07-09-2025: fixed lap time synchronization for remote users via WebSocket)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

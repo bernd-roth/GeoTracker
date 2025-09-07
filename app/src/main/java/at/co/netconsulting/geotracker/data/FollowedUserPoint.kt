@@ -3,6 +3,16 @@ package at.co.netconsulting.geotracker.data
 import androidx.compose.runtime.Immutable
 
 /**
+ * Data class for followed user lap time information
+ */
+@Immutable
+data class FollowedUserLapTime(
+    val lapNumber: Int,
+    val duration: Long, // Duration in milliseconds
+    val distance: Double
+)
+
+/**
  * Represents a tracking point from a followed user
  */
 @Immutable
@@ -22,5 +32,7 @@ data class FollowedUserPoint(
     val pressure: Double? = null,
     val relativeHumidity: Int? = null,
     val windSpeed: Double? = null,
-    val windDirection: Double? = null
+    val windDirection: Double? = null,
+    // Lap times data
+    val lapTimes: List<FollowedUserLapTime>? = null
 )

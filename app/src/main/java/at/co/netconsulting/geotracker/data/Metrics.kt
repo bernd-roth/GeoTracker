@@ -4,6 +4,17 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
+/**
+ * Data class for individual lap time information
+ */
+data class LapTimeData(
+    val lapNumber: Int,
+    val startTime: Long,
+    val endTime: Long,
+    val distance: Double,
+    val duration: Long = endTime - startTime
+)
+
 data class Metrics(
     val latitude: Double,
     val longitude: Double,
@@ -75,7 +86,10 @@ data class Metrics(
     val person: String = firstname,
 
     // Satellites
-    val satellites: Int? = null
+    val satellites: Int? = null,
+    
+    // Lap times data - list of completed lap times
+    val lapTimes: List<LapTimeData>? = null
 ) {
 
     // Helper function to format timestamp for server (dd-MM-yyyy HH:mm:ss)

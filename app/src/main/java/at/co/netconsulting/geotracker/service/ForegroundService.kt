@@ -20,6 +20,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.data.LapTimeData
 import at.co.netconsulting.geotracker.data.WeatherResponse
 import at.co.netconsulting.geotracker.data.HeartRateData
 import at.co.netconsulting.geotracker.data.BarometerData
@@ -938,6 +939,16 @@ class ForegroundService : Service() {
                             Log.w(TAG, "Could not notify WeatherEventBusHandler to refresh lap times: ${e.message}")
                         }
 
+                        // Transmit updated lap times via WebSocket if enabled
+                        if (enableWebSocketTransfer) {
+                            try {
+                                transmitLapTimesToWebSocket()
+                                Log.d(TAG, "Transmitted lap times to WebSocket server")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Could not transmit lap times to WebSocket: ${e.message}")
+                            }
+                        }
+
                     } catch (e: Exception) {
                         Log.e(TAG, "Error saving lap time: ${e.message}")
                     }
@@ -1722,6 +1733,61 @@ class ForegroundService : Service() {
                     Log.e(TAG, "Error in connection monitoring", e)
                 }
             }
+        }
+    }
+
+    /**
+     * Transmit current lap times to WebSocket server
+     */
+    private suspend fun transmitLapTimesToWebSocket() {
+        try {
+            val database = FitnessTrackerDatabase.getInstance(applicationContext)
+            val lapTimes = database.lapTimeDao().getLapTimesBySession(sessionId)
+            
+            if (lapTimes.isNotEmpty()) {
+                val lapTimeData = lapTimes.map { lapTime: LapTime ->
+                    LapTimeData(
+                        lapNumber = lapTime.lapNumber,
+                        startTime = lapTime.startTime,
+                        endTime = lapTime.endTime,
+                        distance = lapTime.distance
+                    )
+                }
+                
+                // Create metrics object with lap times for transmission
+                val metricsWithLapTimes = Metrics(
+                    latitude = latitude,
+                    longitude = longitude,
+                    speed = speed,
+                    altitude = altitude,
+                    coveredDistance = distance,
+                    lap = lap,
+                    startDateTime = startDateTime,
+                    currentDateTime = LocalDateTime.now(),
+                    averageSpeed = 0.0, // Will be calculated by CustomLocationListener
+                    maxSpeed = 0.0, // Will be calculated by CustomLocationListener
+                    cumulativeElevationGain = 0.0, // Will be calculated by CustomLocationListener
+                    sessionId = sessionId,
+                    firstname = firstname,
+                    lastname = lastname,
+                    birthdate = birthdate,
+                    height = height,
+                    weight = weight,
+                    eventName = eventname,
+                    sportType = artofsport,
+                    comment = comment,
+                    clothing = clothing,
+                    movingAverageSpeed = 0.0, // Will be calculated by CustomLocationListener
+                    lapTimes = lapTimeData
+                )
+                
+                // Send to CustomLocationListener for WebSocket transmission
+                customLocationListener?.transmitLapTimes(metricsWithLapTimes)
+                Log.d(TAG, "Transmitted ${lapTimeData.size} lap times to WebSocket")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error transmitting lap times to WebSocket: ${e.message}")
+            throw e
         }
     }
 

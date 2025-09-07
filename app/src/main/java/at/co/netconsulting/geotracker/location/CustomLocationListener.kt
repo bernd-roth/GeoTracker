@@ -47,6 +47,7 @@ import android.net.NetworkRequest
 import android.os.Build
 import at.co.netconsulting.geotracker.data.BarometerData
 import at.co.netconsulting.geotracker.data.HeartRateData
+import at.co.netconsulting.geotracker.data.LapTimeData
 
 class CustomLocationListener: LocationListener {
     var startDateTime: LocalDateTime = LocalDateTime.now()
@@ -1266,6 +1267,29 @@ class CustomLocationListener: LocationListener {
         currentAltitudeFromPressure = altitudeFromPressure
         currentSeaLevelPressure = seaLevelPressure
         Log.d(TAG_WEBSOCKET, "Barometer data updated in CustomLocationListener")
+    }
+
+    /**
+     * Transmit lap times data via WebSocket
+     */
+    fun transmitLapTimes(metrics: Metrics) {
+        if (!isWebSocketConnected || webSocket == null) {
+            Log.w(TAG_WEBSOCKET, "Cannot transmit lap times - WebSocket not connected")
+            return
+        }
+
+        try {
+            val gson = GsonBuilder()
+                .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
+                .create()
+            
+            val jsonMessage = gson.toJson(metrics)
+            webSocket?.send(jsonMessage)
+            
+            Log.d(TAG_WEBSOCKET, "Lap times transmitted: ${metrics.lapTimes?.size ?: 0} lap times for session ${metrics.sessionId}")
+        } catch (e: Exception) {
+            Log.e(TAG_WEBSOCKET, "Error transmitting lap times: ${e.message}", e)
+        }
     }
 
     companion object {

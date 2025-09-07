@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import at.co.netconsulting.geotracker.data.ActiveUser
 import at.co.netconsulting.geotracker.data.FollowedUserPoint
+import at.co.netconsulting.geotracker.data.FollowedUserLapTime
 import at.co.netconsulting.geotracker.data.FollowingState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -443,8 +444,27 @@ class FollowingService private constructor(private val context: Context) {
                 else -> null
             }
 
-            // Debug log weather data and all available keys
+            // Parse lap times if they exist
+            val lapTimes = if (pointJson.has("lapTimes") && !pointJson.isNull("lapTimes")) {
+                val lapTimesArray = pointJson.getJSONArray("lapTimes")
+                val lapTimesList = mutableListOf<FollowedUserLapTime>()
+                
+                for (i in 0 until lapTimesArray.length()) {
+                    val lapTimeJson = lapTimesArray.getJSONObject(i)
+                    lapTimesList.add(
+                        FollowedUserLapTime(
+                            lapNumber = lapTimeJson.getInt("lapNumber"),
+                            duration = lapTimeJson.getLong("duration"),
+                            distance = lapTimeJson.getDouble("distance")
+                        )
+                    )
+                }
+                lapTimesList.toList()
+            } else null
+
+            // Debug log weather data and lap times
             Log.d(TAG, "Weather data for ${pointJson.optString("person", "unknown")}: temp=$temperature, code=$weatherCode, pressure=$pressure, humidity=$relativeHumidity, windSpeed=$windSpeed, windDir=$windDirection")
+            Log.d(TAG, "Lap times for ${pointJson.optString("person", "unknown")}: ${lapTimes?.size ?: 0} lap times received")
             Log.d(TAG, "All JSON keys: ${pointJson.keys().asSequence().toList()}")
 
             val newPoint = FollowedUserPoint(
@@ -463,7 +483,8 @@ class FollowingService private constructor(private val context: Context) {
                 pressure = pressure,
                 relativeHumidity = relativeHumidity,
                 windSpeed = windSpeed,
-                windDirection = windDirection
+                windDirection = windDirection,
+                lapTimes = lapTimes
             )
 
             // Update the trail

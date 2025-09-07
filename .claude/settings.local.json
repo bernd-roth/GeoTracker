@@ -3,7 +3,8 @@
     "allow": [
       "Bash(find:*)",
       "Bash(rm:*)",
-      "Bash(./gradlew:*)"
+      "Bash(./gradlew:*)",
+      "Bash(.gradlew.bat build:*)"
     ],
     "deny": [],
     "ask": []

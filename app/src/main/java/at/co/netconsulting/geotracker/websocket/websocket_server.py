@@ -377,6 +377,22 @@ class TrackingServer:
                 )
             """)
 
+            # Create lap_times table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS lap_times (
+                    id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(255) NOT NULL,
+                    user_id INTEGER REFERENCES users(user_id),
+                    lap_number INTEGER NOT NULL,
+                    start_time BIGINT NOT NULL,
+                    end_time BIGINT NOT NULL,
+                    duration BIGINT GENERATED ALWAYS AS (end_time - start_time) STORED,
+                    distance NUMERIC(8, 4) NOT NULL DEFAULT 1.0,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(session_id, lap_number)
+                )
+            """)
+
             # Create planned_events table
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS planned_events (
@@ -671,6 +687,10 @@ class TrackingServer:
                                        altitude_from_pressure,
                                        sea_level_pressure
                                        )
+
+                    # Process lap times if they exist in the message
+                    if message_data.get('lapTimes') and isinstance(message_data['lapTimes'], list):
+                        await self.save_lap_times(conn, session_id, user_id, message_data['lapTimes'])
 
             logging.info(f"Successfully saved normalized tracking data with barometer data for session {session_id}")
             return True
@@ -1024,6 +1044,64 @@ class TrackingServer:
             logging.error(f"Error retrieving weather data for session {session_id}: {str(e)}")
             return []
 
+    async def save_lap_times(self, conn, session_id: str, user_id: int, lap_times_data: List[Dict[str, Any]]):
+        """Save lap times data to the database."""
+        try:
+            for lap_time in lap_times_data:
+                await conn.execute("""
+                    INSERT INTO lap_times (session_id, user_id, lap_number, start_time, end_time, distance)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                    ON CONFLICT (session_id, lap_number) DO UPDATE SET
+                        start_time = EXCLUDED.start_time,
+                        end_time = EXCLUDED.end_time,
+                        distance = EXCLUDED.distance
+                """,
+                    session_id,
+                    user_id,
+                    int(lap_time.get('lapNumber')),
+                    int(lap_time.get('startTime')),
+                    int(lap_time.get('endTime')),
+                    float(lap_time.get('distance', 1.0))
+                )
+            
+            logging.info(f"Successfully saved {len(lap_times_data)} lap times for session {session_id}")
+
+        except Exception as e:
+            logging.error(f"Error saving lap times for session {session_id}: {str(e)}")
+            raise
+
+    async def get_lap_times_for_session(self, session_id: str) -> List[Dict[str, Any]]:
+        """Retrieve lap times for a specific session."""
+        if not self.db_pool:
+            return []
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT lap_number, start_time, end_time, duration, distance, created_at
+                    FROM lap_times 
+                    WHERE session_id = $1
+                    ORDER BY lap_number ASC
+                """, session_id)
+
+                lap_times = []
+                for row in rows:
+                    lap_time = {
+                        "lapNumber": row['lap_number'],
+                        "startTime": row['start_time'],
+                        "endTime": row['end_time'],
+                        "duration": row['duration'],
+                        "distance": float(row['distance']),
+                        "createdAt": row['created_at'].isoformat() if row['created_at'] else None
+                    }
+                    lap_times.append(lap_time)
+
+                return lap_times
+
+        except Exception as e:
+            logging.error(f"Error retrieving lap times for session {session_id}: {str(e)}")
+            return []
+
     async def get_weather_summary_for_session(self, session_id: str) -> Dict[str, Any]:
         """Get weather summary statistics for a session."""
         if not self.db_pool:
@@ -1306,6 +1384,9 @@ class TrackingServer:
                     if session_id in self.tracking_history and self.tracking_history[session_id]:
                         latest_point = self.tracking_history[session_id][-1]
 
+                        # Get lap times for this session
+                        lap_times = await self.get_lap_times_for_session(session_id)
+                        
                         # Send followed_user_update message with latest data
                         await websocket.send(json.dumps({
                             'type': 'followed_user_update',
@@ -1318,7 +1399,14 @@ class TrackingServer:
                                 'currentSpeed': latest_point.get("currentSpeed", 0.0),
                                 'distance': latest_point.get("distance", 0.0),
                                 'heartRate': latest_point.get("heartRate"),
-                                'timestamp': latest_point.get("timestamp", "")
+                                'timestamp': latest_point.get("timestamp", ""),
+                                'lapTimes': [
+                                    {
+                                        'lapNumber': lap['lapNumber'],
+                                        'duration': lap['duration'],
+                                        'distance': lap['distance']
+                                    } for lap in lap_times
+                                ] if lap_times else None
                             }
                         }))
 
@@ -2012,6 +2100,9 @@ class TrackingServer:
 
                     # Send specific followed_user_update to followers of this session
                     if actual_session_id in self.session_followers:
+                        # Get lap times for this session
+                        lap_times = await self.get_lap_times_for_session(actual_session_id)
+                        
                         follower_update = {
                             'type': 'followed_user_update',
                             'point': {
@@ -2023,7 +2114,14 @@ class TrackingServer:
                                 'currentSpeed': tracking_point.get("currentSpeed", 0.0),
                                 'distance': tracking_point.get("distance", 0.0),
                                 'heartRate': tracking_point.get("heartRate"),
-                                'timestamp': tracking_point.get("timestamp", "")
+                                'timestamp': tracking_point.get("timestamp", ""),
+                                'lapTimes': [
+                                    {
+                                        'lapNumber': lap['lapNumber'],
+                                        'duration': lap['duration'],
+                                        'distance': lap['distance']
+                                    } for lap in lap_times
+                                ] if lap_times else None
                             }
                         }
 
