@@ -16,8 +16,8 @@ android {
         applicationId = "at.co.netconsulting.geotracker"
         minSdk = 29
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.16 (07-09-2025: Color.Green changed to Color(0,139,0))"
+        versionCode = 3
+        versionName = "3.0 (07-09-2025: hierarchical sport categories with Water Sports and Ball Sports)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

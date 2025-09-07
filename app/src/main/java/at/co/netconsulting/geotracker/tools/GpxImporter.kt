@@ -360,10 +360,27 @@ class GpxImporter(private val context: Context) {
 
             // Validate and normalize sport type
             val normalizedSportType = when (activityType.lowercase().trim()) {
-                "running", "run" -> "Running"
+                "running", "run", "road running" -> "Running"
+                "trail running", "trailrun", "trail run" -> "Trail Running"
+                "ultramarathon", "ultra marathon", "ultra" -> "Ultramarathon"
+                "marathon" -> "Marathon"
                 "cycling", "bike", "biking" -> "Cycling"
+                "e-bike", "ebike", "electric bike" -> "E-Bike"
+                "gravel bike", "gravel" -> "Gravel Bike"
+                "racing bicycle", "racing bike", "road bike" -> "Racing Bicycle"
+                "mountain bike", "mtb" -> "Mountain Bike"
+                "swimming", "swim" -> "Swimming"
+                "open water", "open water swimming" -> "Open Water"
+                "pool swimming", "pool" -> "Pool Swimming"
                 "walking", "walk" -> "Walking"
+                "nordic walking" -> "Nordic Walking"
+                "urban walking" -> "Urban Walking"
                 "hiking", "hike" -> "Hiking"
+                "mountain hiking" -> "Mountain Hiking"
+                "forest hiking" -> "Forest Hiking"
+                "car", "driving" -> "Car"
+                "motorcycle", "motorbike" -> "Motorcycle"
+                "motorsport", "motor sport" -> "Motorsport"
                 "" -> "Unknown"
                 else -> activityType.replaceFirstChar { it.uppercase() }
             }

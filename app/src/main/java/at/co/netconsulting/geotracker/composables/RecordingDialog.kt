@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.GpsNotFixed
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.AlertDialog
@@ -254,8 +257,22 @@ fun RecordingDialog(
         }
     }
 
-    // Sport types list
-    val sportTypes = listOf("Running", "Cycling", "Swimming", "Walking", "Hiking", "Other")
+    // Hierarchical sport types structure
+    data class SportType(val name: String, val subcategories: List<String> = emptyList())
+    
+    val sportTypes = listOf(
+        SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running")),
+        SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
+        SportType("Water Sports", listOf("Swimming - Open Water", "Swimming - Pool", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
+        SportType("Ball Sports", listOf("Soccer", "American Football", "Fistball", "Squash", "Tennis", "Basketball", "Volleyball", "Baseball", "Badminton", "Table Tennis")),
+        SportType("Walking", listOf("Nordic Walking", "Urban Walking")),
+        SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
+        SportType("Motorsport", listOf("Car", "Motorcycle"))
+    )
+    
+    // Track expanded categories and selected sport
+    var expandedCategories by remember { mutableStateOf(setOf<String>()) }
+    var selectedSport by remember { mutableStateOf(artOfSport) }
 
     // Date picker dialog
     val calendar = Calendar.getInstance()
@@ -541,42 +558,93 @@ fun RecordingDialog(
                     }
                 }
 
-                // Sport type dropdown
-                Box(
+                // Hierarchical Sport Type Selector (styled to match OutlinedTextField)
+                Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF79747E))
                 ) {
-                    OutlinedTextField(
-                        value = artOfSport,
-                        onValueChange = { },
-                        readOnly = true,
-                        label = { Text("Sport Type") },
-                        trailingIcon = {
-                            IconButton(onClick = { expanded = !expanded }) {
-                                Icon(
-                                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.ArrowDropDown,
-                                    contentDescription = "Dropdown Arrow"
-                                )
-                            }
-                        },
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                    )
-
-                    DropdownMenu(
-                        expanded = expanded,
-                        onDismissRequest = { expanded = false },
-                        modifier = Modifier.fillMaxWidth(0.9f)
+                            .padding(16.dp)
                     ) {
-                        sportTypes.forEach { sport ->
-                            DropdownMenuItem(
-                                text = { Text(sport) },
-                                onClick = {
-                                    artOfSport = sport
-                                    expanded = false
+                        Text(
+                            text = "Sport Type",
+                            fontSize = 12.sp,
+                            color = Color(0xFF49454F),
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                        Text(
+                            text = selectedSport,
+                            fontSize = 16.sp,
+                            color = Color(0xFF1C1B1F),
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        )
+                        
+                        sportTypes.forEach { sportType ->
+                            // Main category
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { 
+                                        expandedCategories = if (expandedCategories.contains(sportType.name)) {
+                                            expandedCategories - sportType.name
+                                        } else {
+                                            expandedCategories + sportType.name
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (expandedCategories.contains(sportType.name)) 
+                                        Icons.Default.KeyboardArrowDown 
+                                    else 
+                                        Icons.Default.KeyboardArrowRight,
+                                    contentDescription = "Expand ${sportType.name}",
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = sportType.name,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (selectedSport == sportType.name) Color(0xFF1976D2) else Color.Black,
+                                    modifier = Modifier
+                                        .clickable { 
+                                            selectedSport = sportType.name
+                                            artOfSport = sportType.name
+                                        }
+                                        .weight(1f)
+                                )
+                            }
+                            
+                            // Subcategories (show when expanded)
+                            if (expandedCategories.contains(sportType.name)) {
+                                sportType.subcategories.forEach { subcat ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { 
+                                                selectedSport = subcat
+                                                artOfSport = subcat
+                                            }
+                                            .padding(top = 2.dp, bottom = 2.dp)
+                                            .padding(start = 28.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "├── $subcat",
+                                            fontSize = 14.sp,
+                                            color = if (selectedSport == subcat) Color(0xFF1976D2) else Color.Gray,
+                                            fontWeight = if (selectedSport == subcat) FontWeight.Medium else FontWeight.Normal
+                                        )
+                                    }
                                 }
-                            )
+                            }
                         }
                     }
                 }
