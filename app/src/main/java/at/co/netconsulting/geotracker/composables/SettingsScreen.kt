@@ -1,6 +1,7 @@
 package at.co.netconsulting.geotracker.composables
 
 import android.app.AlarmManager
+import android.app.DatePickerDialog
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -26,6 +27,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -47,10 +50,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DateRange
 import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.receiver.AutoBackupReceiver
 import at.co.netconsulting.geotracker.service.AutoBackupService
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -105,6 +111,7 @@ fun SettingsScreen() {
         mutableStateOf(sharedPreferences.getInt("backupMinute", 0))
     }
     var showTimePickerDialog by remember { mutableStateOf(false) }
+    var showBirthDatePickerDialog by remember { mutableStateOf(false) }
 
     // Get last backup info
     val nextBackupTime = remember { mutableStateOf(backupPrefs.getString("nextBackupTime", null)) }
@@ -125,6 +132,19 @@ fun SettingsScreen() {
     fun formatTime(hour: Int, minute: Int): String {
         return String.format("%02d:%02d", hour, minute)
     }
+
+    // Birth date picker dialog
+    val birthDateCalendar = Calendar.getInstance()
+    val birthDatePickerDialog = DatePickerDialog(
+        context,
+        { _, year, month, dayOfMonth ->
+            birthDateCalendar.set(year, month, dayOfMonth)
+            birthDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(birthDateCalendar.time)
+        },
+        birthDateCalendar.get(Calendar.YEAR),
+        birthDateCalendar.get(Calendar.MONTH),
+        birthDateCalendar.get(Calendar.DAY_OF_MONTH)
+    )
 
     Column(
         modifier = Modifier
@@ -158,14 +178,27 @@ fun SettingsScreen() {
         )
         Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(
-            value = birthDate,
-            onValueChange = { birthDate = it },
-            label = { Text("Birthdate (YYYY-MM-DD)") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+        // Birth date field with date picker
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            OutlinedTextField(
+                value = birthDate,
+                onValueChange = { birthDate = it },
+                label = { Text("Birthdate") },
+                readOnly = true,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = { birthDatePickerDialog.show() }) {
+                Icon(
+                    imageVector = Icons.Default.DateRange,
+                    contentDescription = "Pick Birth Date"
+                )
+            }
+        }
 
         OutlinedTextField(
             value = height.toString(),
@@ -454,13 +487,13 @@ fun SettingsScreen() {
             onClick = {
                 saveAllSettings(
                     sharedPreferences,
-                    firstName,
-                    lastName,
+                    firstName.trim(),
+                    lastName.trim(),
                     birthDate,
                     height,
                     weight,
                     maxHeartRate,
-                    websocketserver,
+                    websocketserver.trim(),
                     autoBackupEnabled,
                     backupHour,
                     backupMinute,

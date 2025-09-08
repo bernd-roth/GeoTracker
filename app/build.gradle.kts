@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "3.1 (07-09-2025: Max Heart Rate settings field and Heart Rate Zones bar chart analysis)"
+        versionName = "3.2 (08-09-2025: Trailing whitespaces removed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
