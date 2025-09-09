@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "3.2 (08-09-2025: Trailing whitespaces removed)"
+        versionName = "3.3 (09-09-2025: Sport type icons in recording dialog dropdown with detailed subcategory differentiation)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

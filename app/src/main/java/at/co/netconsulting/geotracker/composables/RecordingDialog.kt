@@ -21,14 +21,39 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.DirectionsWalk
+import androidx.compose.material.icons.filled.ElectricBike
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FileOpen
+import androidx.compose.material.icons.filled.Forest
 import androidx.compose.material.icons.filled.GpsFixed
 import androidx.compose.material.icons.filled.GpsNotFixed
+import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Landscape
+import androidx.compose.material.icons.filled.LocationCity
+import androidx.compose.material.icons.filled.Motorcycle
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Pool
+import androidx.compose.material.icons.filled.Route
+import androidx.compose.material.icons.filled.Sailing
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SportsBaseball
+import androidx.compose.material.icons.filled.SportsBasketball
+import androidx.compose.material.icons.filled.SportsFootball
+import androidx.compose.material.icons.filled.SportsHandball
+import androidx.compose.material.icons.filled.SportsMotorsports
+import androidx.compose.material.icons.filled.SportsSoccer
+import androidx.compose.material.icons.filled.SportsTennis
+import androidx.compose.material.icons.filled.SportsVolleyball
+import androidx.compose.material.icons.filled.Terrain
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -269,6 +294,62 @@ fun RecordingDialog(
         SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
         SportType("Motorsport", listOf("Car", "Motorcycle"))
     )
+
+    // Function to get appropriate icon for sport type with specific subcategory icons
+    fun getSportIcon(sportName: String) = when (sportName) {
+        // Running subcategories
+        "Trail Running" -> Icons.Default.Terrain
+        "Ultramarathon" -> Icons.Default.Timer
+        "Marathon" -> Icons.Default.Speed
+        "Road Running" -> Icons.Default.Route
+        "Running" -> Icons.Default.DirectionsRun
+        
+        // Cycling subcategories
+        "Gravel Bike" -> Icons.Default.Terrain
+        "E-Bike" -> Icons.Default.ElectricBike
+        "Racing Bicycle" -> Icons.Default.Speed
+        "Mountain Bike" -> Icons.Default.Landscape
+        "Cycling" -> Icons.Default.DirectionsBike
+        
+        // Water Sports subcategories
+        "Swimming - Open Water" -> Icons.Default.Waves
+        "Swimming - Pool" -> Icons.Default.Pool
+        "Kayaking" -> Icons.Default.Sailing
+        "Canoeing" -> Icons.Default.Sailing
+        "Stand Up Paddleboarding" -> Icons.Default.Sailing
+        "Water Sports" -> Icons.Default.Pool
+        
+        // Ball Sports subcategories
+        "Soccer" -> Icons.Default.SportsSoccer
+        "American Football" -> Icons.Default.SportsFootball
+        "Fistball" -> Icons.Default.SportsHandball
+        "Squash" -> Icons.Default.SportsTennis
+        "Tennis" -> Icons.Default.SportsTennis
+        "Basketball" -> Icons.Default.SportsBasketball
+        "Volleyball" -> Icons.Default.SportsVolleyball
+        "Baseball" -> Icons.Default.SportsBaseball
+        "Badminton" -> Icons.Default.SportsTennis
+        "Table Tennis" -> Icons.Default.SportsTennis
+        "Ball Sports" -> Icons.Default.SportsFootball
+        
+        // Walking subcategories
+        "Nordic Walking" -> Icons.Default.Hiking
+        "Urban Walking" -> Icons.Default.LocationCity
+        "Walking" -> Icons.Default.DirectionsWalk
+        
+        // Hiking subcategories
+        "Mountain Hiking" -> Icons.Default.Landscape
+        "Forest Hiking" -> Icons.Default.Forest
+        "Hiking" -> Icons.Default.Hiking
+        
+        // Motorsport subcategories
+        "Car" -> Icons.Default.DirectionsCar
+        "Motorcycle" -> Icons.Default.Motorcycle
+        "Motorsport" -> Icons.Default.SportsMotorsports
+        
+        // Default fallback
+        else -> Icons.Default.DirectionsRun
+    }
     
     // Track expanded categories and selected sport
     var expandedCategories by remember { mutableStateOf(setOf<String>()) }
@@ -577,13 +658,24 @@ fun RecordingDialog(
                             color = Color(0xFF49454F),
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
-                        Text(
-                            text = selectedSport,
-                            fontSize = 16.sp,
-                            color = Color(0xFF1C1B1F),
-                            fontWeight = FontWeight.Medium,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(bottom = 12.dp)
-                        )
+                        ) {
+                            Icon(
+                                imageVector = getSportIcon(selectedSport),
+                                contentDescription = "$selectedSport icon",
+                                modifier = Modifier.size(20.dp),
+                                tint = Color(0xFF1976D2)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = selectedSport,
+                                fontSize = 16.sp,
+                                color = Color(0xFF1C1B1F),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                         
                         sportTypes.forEach { sportType ->
                             // Main category
@@ -607,6 +699,13 @@ fun RecordingDialog(
                                         Icons.Default.KeyboardArrowRight,
                                     contentDescription = "Expand ${sportType.name}",
                                     modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = getSportIcon(sportType.name),
+                                    contentDescription = "${sportType.name} icon",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = if (selectedSport == sportType.name) Color(0xFF1976D2) else Color(0xFF616161)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
@@ -636,8 +735,16 @@ fun RecordingDialog(
                                             .padding(start = 28.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Icon(
+                                            imageVector = getSportIcon(subcat),
+                                            contentDescription = "$subcat icon",
+                                            modifier = Modifier.size(16.dp),
+                                            tint = if (selectedSport == subcat) Color(0xFF1976D2) else Color(0xFF9E9E9E)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = "├── $subcat",
+                                            text = subcat,
                                             fontSize = 14.sp,
                                             color = if (selectedSport == subcat) Color(0xFF1976D2) else Color.Gray,
                                             fontWeight = if (selectedSport == subcat) FontWeight.Medium else FontWeight.Normal
