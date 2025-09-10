@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -167,6 +168,7 @@ fun MapScreen(
 
     var showRecordingDialog by remember { mutableStateOf(false) }
     var showUserSelectionDialog by remember { mutableStateOf(false) }
+    var showWaypointDialog by remember { mutableStateOf(false) }
 
     var showSettingsValidationDialog by remember { mutableStateOf(false) }
     var missingSettingsFields by remember { mutableStateOf(listOf<String>()) }
@@ -1931,6 +1933,36 @@ fun MapScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Waypoint button - only show during recording
+            if (isRecording && !followingState.isFollowing) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = Color(0xFFFF9800), // Orange color for waypoint
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                if (lastKnownLocation.value != null) {
+                                    showWaypointDialog = true
+                                } else {
+                                    Toast.makeText(context, "Location not available", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = "Add Waypoint",
+                            tint = Color.White
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Recording controls
             if (!isRecording && !followingState.isFollowing) {
                 Surface(
@@ -2083,6 +2115,28 @@ fun MapScreen(
                 ) {
                     Text("Cancel")
                 }
+            }
+        )
+    }
+
+    // Waypoint dialog
+    if (showWaypointDialog && lastKnownLocation.value != null) {
+        WaypointDialog(
+            currentLatitude = lastKnownLocation.value!!.latitude,
+            currentLongitude = lastKnownLocation.value!!.longitude,
+            currentEventId = currentEventId.value,
+            onDismiss = {
+                showWaypointDialog = false
+            },
+            onWaypointSaved = {
+                showWaypointDialog = false
+                // Refresh waypoints on map
+                if (currentEventId.value > 0) {
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                        loadWaypointsForEvent(currentEventId.value)
+                    }
+                }
+                Toast.makeText(context, "Waypoint saved", Toast.LENGTH_SHORT).show()
             }
         )
     }

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "3.3 (09-09-2025: Sport type icons in recording dialog dropdown with detailed subcategory differentiation)"
+        versionName = "3.4 (10-09-2025: Waypoint system with dialog for adding named waypoints during recording with map preview and location details)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
