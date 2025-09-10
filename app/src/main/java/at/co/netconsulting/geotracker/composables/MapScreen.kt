@@ -460,10 +460,18 @@ fun MapScreen(
     // Function to load and display waypoints for an event
     suspend fun loadWaypointsForEvent(eventId: Int) {
         try {
+            Timber.d("Loading waypoints for event $eventId...")
             val waypoints = database.waypointDao().getWaypointsForEvent(eventId)
+            Timber.d("Found ${waypoints.size} waypoints for event $eventId")
+            
+            waypoints.forEach { wp ->
+                Timber.d("Waypoint: ${wp.name} at (${wp.latitude}, ${wp.longitude})")
+            }
+            
             if (waypoints.isNotEmpty()) {
                 waypointOverlayRef.value?.updateWaypoints(waypoints)
-                Timber.d("Loaded ${waypoints.size} waypoints for event $eventId")
+                mapViewRef.value?.invalidate() // Force map redraw
+                Timber.d("Updated WaypointOverlay with ${waypoints.size} waypoints and triggered map redraw")
             } else {
                 waypointOverlayRef.value?.updateWaypoints(emptyList())
                 Timber.d("No waypoints found for event $eventId")
@@ -569,6 +577,7 @@ fun MapScreen(
 
     // Handle route display when routeToDisplay changes
     LaunchedEffect(routeToDisplay) {
+        Timber.d("LaunchedEffect triggered with routeToDisplay: ${routeToDisplay?.let { "points=${it.points.size}, eventId=${it.eventId}" } ?: "null"}")
         if (routeToDisplay != null && routeToDisplay.points.isNotEmpty()) {
             displayedRoute = routeToDisplay
             showRouteDisplayIndicator = true
@@ -599,11 +608,14 @@ fun MapScreen(
                 routeOverlayRef.value = routeOverlay
 
                 // Load waypoints for the route if we have an event ID
+                Timber.d("RouteDisplayData eventId: ${routeToDisplay.eventId}")
                 routeToDisplay.eventId?.let { eventId ->
-                    kotlinx.coroutines.GlobalScope.launch {
+                    Timber.d("About to load waypoints for route display event $eventId")
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
                         loadWaypointsForEvent(eventId)
-                        Timber.d("Loading waypoints for event $eventId")
                     }
+                } ?: run {
+                    Timber.w("No eventId provided for route display - waypoints cannot be loaded")
                 }
 
                 // Center map on the route

@@ -21,7 +21,7 @@ class WaypointOverlay(
     
     // Paint objects for drawing waypoint markers
     private val waypointPaint = Paint().apply {
-        color = Color.RED
+        color = Color.parseColor("#FF5722") // Orange-red for better visibility
         style = Paint.Style.FILL
         isAntiAlias = true
     }
@@ -29,7 +29,7 @@ class WaypointOverlay(
     private val waypointStrokePaint = Paint().apply {
         color = Color.WHITE
         style = Paint.Style.STROKE
-        strokeWidth = 3f
+        strokeWidth = 4f // Slightly thicker border
         isAntiAlias = true
     }
     
@@ -52,7 +52,15 @@ class WaypointOverlay(
     }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {
-        if (shadow || waypoints.isEmpty()) return
+        if (shadow) return
+        
+        // Enhanced logging for debugging
+        if (waypoints.isEmpty()) {
+            Timber.d("WaypointOverlay draw: No waypoints to display")
+            return
+        } else {
+            Timber.d("WaypointOverlay draw: Drawing ${waypoints.size} waypoints")
+        }
 
         val projection = mapView.projection
         val point = Point()
@@ -65,10 +73,20 @@ class WaypointOverlay(
             if (point.x >= -50 && point.x <= mapView.width + 50 &&
                 point.y >= -50 && point.y <= mapView.height + 50) {
                 
-                // Draw waypoint marker (circle with white border)
-                val radius = 16f
-                canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radius, waypointStrokePaint)
-                canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radius - 2f, waypointPaint)
+                Timber.v("Drawing waypoint ${waypoint.name} at screen position (${point.x}, ${point.y})")
+                
+                // Draw waypoint marker (larger circle with prominent border)
+                val radius = 20f
+                canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radius + 2f, waypointStrokePaint)
+                canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radius, waypointPaint)
+                
+                // Add a small inner circle for more visibility
+                val innerPaint = Paint().apply {
+                    color = Color.WHITE
+                    style = Paint.Style.FILL
+                    isAntiAlias = true
+                }
+                canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), radius / 3f, innerPaint)
                 
                 // Draw waypoint name if not empty
                 if (waypoint.name.isNotEmpty()) {
@@ -76,20 +94,22 @@ class WaypointOverlay(
                     textPaint.getTextBounds(waypoint.name, 0, waypoint.name.length, textBounds)
                     
                     val textX = point.x.toFloat()
-                    val textY = point.y.toFloat() - radius - 10f
-                    val padding = 8f
+                    val textY = point.y.toFloat() - radius - 15f // More space from marker
+                    val padding = 6f
                     
-                    // Draw text background
-                    canvas.drawRect(
+                    // Draw text background with rounded corners effect
+                    val backgroundRect = android.graphics.RectF(
                         textX - textBounds.width() / 2f - padding,
                         textY - textBounds.height() - padding,
                         textX + textBounds.width() / 2f + padding,
-                        textY + padding,
-                        textBackgroundPaint
+                        textY + padding
                     )
+                    canvas.drawRoundRect(backgroundRect, 8f, 8f, textBackgroundPaint)
                     
                     // Draw text
                     canvas.drawText(waypoint.name, textX, textY, textPaint)
+                    
+                    Timber.v("Drew waypoint text '${waypoint.name}' at (${textX}, ${textY})")
                 }
             }
         }

@@ -1,6 +1,20 @@
 import org.gradle.api.JavaVersion.VERSION_11
 import org.gradle.api.JavaVersion.VERSION_1_8
 
+// Helper function to auto-increment version
+fun getNextVersion(currentVersion: String): String {
+    val versionPattern = Regex("""(\d+)\.(\d+)""")
+    val matchResult = versionPattern.find(currentVersion)
+    
+    return if (matchResult != null) {
+        val major = matchResult.groupValues[1].toInt()
+        val minor = matchResult.groupValues[2].toInt()
+        "$major.${minor + 1}"
+    } else {
+        "3.5" // Fallback version
+    }
+}
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -17,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "3.4 (10-09-2025: Waypoint system with dialog for adding named waypoints during recording with map preview and location details)"
+        versionName = "${getNextVersion("3.4")} (10-09-2025: Added automatic version incrementing helper function to build.gradle.kts for streamlined version management)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
