@@ -51,7 +51,9 @@ fun HeartRateDistanceChart(
                     position = XAxis.XAxisPosition.BOTTOM
                     textSize = 10f
                     setDrawGridLines(false)
-                    granularity = 0.5f
+                    granularity = 1.0f
+                    labelCount = 6
+                    isGranularityEnabled = true
                 }
 
                 // Left Y-axis setup (Heart Rate)
@@ -99,7 +101,11 @@ fun HeartRateDistanceChart(
             // X-axis formatter for distance
             chart.xAxis.valueFormatter = object : ValueFormatter() {
                 override fun getFormattedValue(value: Float): String {
-                    return "${value.toInt()} km"
+                    return if (value % 1.0f == 0.0f) {
+                        "${value.toInt()} km"
+                    } else {
+                        String.format("%.1f km", value)
+                    }
                 }
             }
 

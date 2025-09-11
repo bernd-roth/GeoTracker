@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.5")} (10-09-2025: Enhanced websocket server with waypoint database table, message validation, and separate waypoint processing pipeline)"
+        versionName = "${getNextVersion("3.6")} (11-09-2025: chart axis label fixes preventing duplicate distance markers and improving chart readability in StatisticsScreen live graphs)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
