@@ -393,6 +393,24 @@ class TrackingServer:
                 )
             """)
 
+            # Create waypoints table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS waypoints (
+                    waypoint_id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(255) REFERENCES tracking_sessions(session_id) ON DELETE CASCADE,
+                    user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+                    event_name VARCHAR(255),
+                    waypoint_name VARCHAR(255) NOT NULL,
+                    waypoint_description TEXT,
+                    latitude NUMERIC(10, 8) NOT NULL,
+                    longitude NUMERIC(11, 8) NOT NULL,
+                    elevation NUMERIC(10, 4),
+                    waypoint_timestamp BIGINT NOT NULL,
+                    received_at TIMESTAMPTZ DEFAULT NOW(),
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
             # Create planned_events table
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS planned_events (
@@ -454,6 +472,13 @@ class TrackingServer:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_public ON planned_events(is_public) WHERE is_public = true")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_created_by ON planned_events(created_by_user_id)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_planned_events_created_at ON planned_events(created_at)")
+
+            # Waypoints indexes
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_session_id ON waypoints(session_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_user_id ON waypoints(user_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_location ON waypoints(latitude, longitude)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_timestamp ON waypoints(waypoint_timestamp)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_received_at ON waypoints(received_at)")
 
             # Unique constraint for duplicate prevention
             await conn.execute("""
@@ -564,6 +589,53 @@ class TrackingServer:
                            )
 
         logging.info(f"Created session: {session_id} for user: {user_id}")
+
+    async def save_waypoint_to_db(self, message_data: Dict[str, Any]) -> bool:
+        """Save waypoint data to PostgreSQL database."""
+        if not self.db_pool:
+            logging.error("Database pool not initialized")
+            return False
+
+        try:
+            session_id = message_data.get('sessionId', '')
+            event_name = message_data.get('eventName', '')
+            waypoint = message_data.get('waypoint', {})
+            
+            async with self.db_pool.acquire() as conn:
+                async with conn.transaction():
+                    # Get user_id from session
+                    user_id = await conn.fetchval("""
+                        SELECT user_id FROM tracking_sessions WHERE session_id = $1
+                    """, session_id)
+                    
+                    if not user_id:
+                        logging.error(f"No user found for session {session_id}")
+                        return False
+                    
+                    # Insert waypoint
+                    await conn.execute("""
+                        INSERT INTO waypoints (
+                            session_id, user_id, event_name, waypoint_name, waypoint_description,
+                            latitude, longitude, elevation, waypoint_timestamp
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    """,
+                        session_id,
+                        user_id,
+                        event_name,
+                        waypoint.get('name', ''),
+                        waypoint.get('description'),
+                        float(waypoint.get('latitude', 0)),
+                        float(waypoint.get('longitude', 0)),
+                        float(waypoint.get('elevation', 0)) if waypoint.get('elevation') else None,
+                        int(waypoint.get('timestamp', 0))
+                    )
+
+                    logging.info(f"Saved waypoint '{waypoint.get('name', '')}' for session {session_id}")
+                    return True
+
+        except Exception as e:
+            logging.error(f"Error saving waypoint to database: {str(e)}")
+            return False
 
     async def save_tracking_data_to_db(self, message_data: Dict[str, Any]) -> bool:
         """Save tracking data to normalized PostgreSQL database with weather and barometer data in gps_tracking_points."""
@@ -1515,6 +1587,18 @@ class TrackingServer:
             for key in required_fields
         )
 
+    def validate_waypoint_message(self, message_data: Dict[str, Any]) -> bool:
+        """Validate required fields in waypoint message data."""
+        required_fields = ["sessionId", "eventName", "waypoint"]
+        
+        if not all(field in message_data for field in required_fields):
+            return False
+            
+        waypoint_data = message_data.get("waypoint", {})
+        waypoint_required_fields = ["latitude", "longitude", "name", "timestamp"]
+        
+        return all(field in waypoint_data for field in waypoint_required_fields)
+
     def create_tracking_point(self, message_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a tracking point with timestamp from Android device and smart session management."""
 
@@ -2027,6 +2111,20 @@ class TrackingServer:
                             'type': 'session_list',
                             'sessions': session_info
                         }))
+                        continue
+
+                    # Handle waypoint messages
+                    if 'waypoint' in message_data and self.validate_waypoint_message(message_data):
+                        logging.info(f"Received waypoint: '{message_data.get('waypoint', {}).get('name', 'Unknown')}' for session {message_data.get('sessionId', 'Unknown')}")
+                        
+                        # Save waypoint to database
+                        waypoint_saved = await self.save_waypoint_to_db(message_data)
+                        
+                        if waypoint_saved:
+                            logging.info(f"Successfully saved waypoint: {message_data.get('waypoint', {}).get('name', 'Unknown')}")
+                        else:
+                            logging.error(f"Failed to save waypoint: {message_data.get('waypoint', {}).get('name', 'Unknown')}")
+                        
                         continue
 
                     # Handle tracking data with enhanced session management

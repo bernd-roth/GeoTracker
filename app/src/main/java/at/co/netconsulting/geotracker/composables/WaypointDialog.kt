@@ -40,6 +40,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Waypoint
+import at.co.netconsulting.geotracker.data.WaypointData
+import at.co.netconsulting.geotracker.data.WebSocketMessage
+import org.greenrobot.eventbus.EventBus
+import java.time.LocalDateTime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -219,6 +223,9 @@ fun WaypointDialog(
                                     database.waypointDao().insertWaypoint(waypoint)
                                 }
                                 
+                                // Send waypoint to websocket server
+                                sendWaypointToWebSocket(waypoint, context)
+                                
                                 Timber.d("Waypoint saved: ${waypoint.name} at ${waypoint.latitude}, ${waypoint.longitude}")
                                 onWaypointSaved()
                             } catch (e: Exception) {
@@ -248,5 +255,46 @@ fun WaypointDialog(
         onDispose {
             mapViewRef.value?.onDetach()
         }
+    }
+}
+
+/**
+ * Sends waypoint data to websocket server as separate message
+ */
+private fun sendWaypointToWebSocket(waypoint: Waypoint, context: Context) {
+    try {
+        // Get session ID and event name from SharedPreferences
+        val sessionPrefs = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+        val sessionId = sessionPrefs.getString("current_session_id", "") ?: ""
+        val eventName = sessionPrefs.getString("current_event_name", "Unknown Event") ?: "Unknown Event"
+        
+        if (sessionId.isEmpty()) {
+            Timber.w("Cannot send waypoint - no sessionId available")
+            return
+        }
+        
+        // Create WaypointData for websocket transmission
+        val waypointData = WaypointData(
+            latitude = waypoint.latitude,
+            longitude = waypoint.longitude,
+            name = waypoint.name,
+            description = waypoint.description,
+            elevation = waypoint.elevation,
+            timestamp = System.currentTimeMillis()
+        )
+        
+        // Create dedicated waypoint message
+        val waypointMessage = WebSocketMessage.WaypointMessage(
+            sessionId = sessionId,
+            eventName = eventName,
+            waypoint = waypointData
+        )
+        
+        // Send via EventBus - CustomLocationListener will handle this separately from regular metrics
+        EventBus.getDefault().post(waypointMessage)
+        
+        Timber.d("Waypoint message sent: '${waypoint.name}' at (${waypoint.latitude}, ${waypoint.longitude}) for session $sessionId")
+    } catch (e: Exception) {
+        Timber.e(e, "Error sending waypoint to websocket")
     }
 }

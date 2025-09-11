@@ -674,6 +674,7 @@ class CustomLocationListener: LocationListener {
 
         // Log barometer data
         Log.d(TAG_WEBSOCKET, "Barometer data: pressure=${metrics.pressure}hPa, altitude=${metrics.altitudeFromPressure}m, accuracy=${metrics.pressureAccuracy}, sea_level=${metrics.seaLevelPressure}hPa")
+        
 
         // Convert metrics to JSON using a properly configured Gson instance
         val gson = GsonBuilder()
@@ -1127,6 +1128,50 @@ class CustomLocationListener: LocationListener {
         currentSeaLevelPressure = barometerData.seaLevelPressure
 
         Log.d(TAG_WEBSOCKET, "Barometer data updated - will be included in next metrics transmission")
+    }
+
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onWaypointMessage(waypointMessage: at.co.netconsulting.geotracker.data.WebSocketMessage.WaypointMessage) {
+        Log.d(TAG_WEBSOCKET, "Received waypoint message: '${waypointMessage.waypoint.name}' at (${waypointMessage.waypoint.latitude}, ${waypointMessage.waypoint.longitude})")
+        
+        // Send waypoint as separate websocket message (not mixed with live tracking)
+        sendWaypointToWebSocketServer(waypointMessage)
+    }
+
+    private fun sendWaypointToWebSocketServer(waypointMessage: at.co.netconsulting.geotracker.data.WebSocketMessage.WaypointMessage) {
+        // Check if sessionId is available
+        if (sessionId.isEmpty()) {
+            Log.e(TAG_WEBSOCKET, "Cannot send waypoint - missing sessionId")
+            return
+        }
+
+        // Check if WebSocket transfer is disabled
+        if (!enableWebSocketTransfer) {
+            Log.d(TAG_WEBSOCKET, "WebSocket transfer disabled by user - not sending waypoint")
+            return
+        }
+
+        Log.d(TAG_WEBSOCKET, "Sending waypoint: '${waypointMessage.waypoint.name}', desc='${waypointMessage.waypoint.description}', coords=(${waypointMessage.waypoint.latitude}, ${waypointMessage.waypoint.longitude})")
+
+        // Convert waypoint message to JSON
+        val gson = GsonBuilder()
+            .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
+            .create()
+
+        val jsonData = gson.toJson(waypointMessage)
+        Log.d(TAG_WEBSOCKET, "Waypoint JSON: $jsonData")
+
+        // Send to websocket server
+        coroutineScope.launch {
+            try {
+                webSocket?.let { socket ->
+                    socket.send(jsonData)
+                    Log.d(TAG_WEBSOCKET, "Successfully sent waypoint '${waypointMessage.waypoint.name}' to websocket server")
+                } ?: Log.e(TAG_WEBSOCKET, "WebSocket is null - cannot send waypoint")
+            } catch (e: Exception) {
+                Log.e(TAG_WEBSOCKET, "Error sending waypoint to websocket server", e)
+            }
+        }
     }
 
     fun updateHeartRateOnly(heartRate: Int, deviceName: String) {

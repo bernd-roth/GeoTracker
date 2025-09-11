@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.4")} (10-09-2025: Added automatic version incrementing helper function to build.gradle.kts for streamlined version management)"
+        versionName = "${getNextVersion("3.5")} (10-09-2025: Enhanced websocket server with waypoint database table, message validation, and separate waypoint processing pipeline)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
