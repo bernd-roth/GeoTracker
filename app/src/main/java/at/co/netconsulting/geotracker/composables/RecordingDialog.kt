@@ -286,7 +286,7 @@ fun RecordingDialog(
     data class SportType(val name: String, val subcategories: List<String> = emptyList())
     
     val sportTypes = listOf(
-        SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running")),
+        SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running", "Orienteering")),
         SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
         SportType("Water Sports", listOf("Swimming - Open Water", "Swimming - Pool", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
         SportType("Ball Sports", listOf("Soccer", "American Football", "Fistball", "Squash", "Tennis", "Basketball", "Volleyball", "Baseball", "Badminton", "Table Tennis")),
@@ -302,6 +302,7 @@ fun RecordingDialog(
         "Ultramarathon" -> Icons.Default.Timer
         "Marathon" -> Icons.Default.Speed
         "Road Running" -> Icons.Default.Route
+        "Orienteering" -> Icons.Default.MyLocation
         "Running" -> Icons.Default.DirectionsRun
         
         // Cycling subcategories
