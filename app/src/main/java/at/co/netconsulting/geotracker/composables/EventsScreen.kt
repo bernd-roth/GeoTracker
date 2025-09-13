@@ -280,6 +280,8 @@ fun EventsScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(true) } // State to toggle stats visibility
+    var showExportDialog by remember { mutableStateOf(false) }
+    var eventToExport by remember { mutableStateOf<EventWithDetails?>(null) }
 
     // Import progress dialog
     if (showImportingDialog) {
@@ -367,6 +369,68 @@ fun EventsScreen(
                     onClick = {
                         showDeleteDialog = false
                         eventToDelete = null
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Export format selection dialog
+    if (showExportDialog && eventToExport != null) {
+        AlertDialog(
+            onDismissRequest = { 
+                showExportDialog = false
+                eventToExport = null
+            },
+            title = { Text("Export Format") },
+            text = {
+                Text("Choose the export format for '${eventToExport?.event?.eventName}':")
+            },
+            confirmButton = {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TextButton(
+                        onClick = {
+                            eventToExport?.let { event ->
+                                coroutineScope.launch {
+                                    at.co.netconsulting.geotracker.gpx.export(
+                                        eventId = event.event.eventId,
+                                        contextActivity = context
+                                    )
+                                }
+                            }
+                            showExportDialog = false
+                            eventToExport = null
+                        }
+                    ) {
+                        Text("GPX")
+                    }
+                    TextButton(
+                        onClick = {
+                            eventToExport?.let { event ->
+                                coroutineScope.launch {
+                                    at.co.netconsulting.geotracker.kml.export(
+                                        eventId = event.event.eventId,
+                                        contextActivity = context
+                                    )
+                                }
+                            }
+                            showExportDialog = false
+                            eventToExport = null
+                        }
+                    ) {
+                        Text("KML")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showExportDialog = false
+                        eventToExport = null
                     }
                 ) {
                     Text("Cancel")
@@ -588,14 +652,9 @@ fun EventsScreen(
                                 }
                             },
                             onExport = {
-                                // Launch the export function in a coroutine
-                                coroutineScope.launch {
-                                    // Call the export function properly with the correct parameters
-                                    at.co.netconsulting.geotracker.gpx.export(
-                                        eventId = eventWithDetails.event.eventId,
-                                        contextActivity = context
-                                    )
-                                }
+                                // Show export format selection dialog
+                                eventToExport = eventWithDetails
+                                showExportDialog = true
                             },
                             onImport = {
                                 // Launch the GPX file picker
@@ -747,14 +806,14 @@ fun EventCard(
 
                 // Action buttons
                 Row {
-                    // Export GPX button
+                    // Export button (GPX/KML selection)
                     IconButton(
                         onClick = onExport,
                         modifier = Modifier.size(40.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Export GPX",
+                            contentDescription = "Export",
                             tint = MaterialTheme.colorScheme.secondary
                         )
                     }

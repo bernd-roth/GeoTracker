@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.7")} (12-09-2025: Orienteering added to running sport types)"
+        versionName = "${getNextVersion("3.8")} (13-09-2025: Support integrated GPX/KML export functionality with format selection dialog)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
