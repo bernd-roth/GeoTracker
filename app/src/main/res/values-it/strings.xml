@@ -1,0 +1,85 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Mappa</string>
+    <string name="statistics">Statistiche</string>
+    <string name="events">Eventi</string>
+    <string name="competitions">Competizioni</string>
+    <string name="settings">Impostazioni</string>
+    <!--Marker-->
+    <string name="marker_title">Inizio</string>
+    <!--Toast messages-->
+    <string name="recording_started">Registrazione avviata</string>
+    <!--Buttons-->
+    <string name="cancel">Annulla</string>
+    
+    <!--Export messages-->
+    <string name="no_location_data_export">Nessun dato di posizione da esportare</string>
+    <string name="gpx_file_exported">File GPX esportato: %s</string>
+    <string name="kml_file_exported">File KML esportato: %s</string>
+    <string name="failed_export_gpx_permissions">Impossibile esportare il file GPX. Controllare i permessi di archiviazione.</string>
+    <string name="failed_export_kml_permissions">Impossibile esportare il file KML. Controllare i permessi di archiviazione.</string>
+    <string name="error_exporting_gpx">Errore nell\'esportazione del file GPX: %s</string>
+    <string name="error_exporting_kml">Errore nell\'esportazione del file KML: %s</string>
+    
+    <!--Import messages-->
+    <string name="gpx_file_imported_success">File GPX importato con successo! ID Evento: %d</string>
+    <string name="no_valid_track_data">Nessun dato di traccia valido trovato nel file GPX. Verificare che il file contenga coordinate GPS.</string>
+    <string name="error_processing_gpx">Errore nell\'elaborazione del file GPX. Controllare il formato del file e riprovare.</string>
+    <string name="invalid_gpx_format">Formato file GPX non valido. Selezionare un file GPX valido.</string>
+    <string name="permission_denied_storage">Accesso negato. Concedere l\'accesso all\'archiviazione e riprovare.</string>
+    <string name="unknown_error_import">Errore sconosciuto durante l\'importazione (codice: %d)</string>
+    <string name="permission_denied_reading_file">Accesso negato alla lettura del file</string>
+    <string name="file_not_found_access">File non trovato o non accessibile</string>
+    <string name="invalid_gpx_xml_parsing_failed">Formato file GPX non valido - parsing XML fallito</string>
+    <string name="gpx_file_too_large">File GPX troppo grande. Provare con un file più piccolo.</string>
+    <string name="unexpected_error">Errore imprevisto: %s</string>
+    <string name="unknown_error">Errore sconosciuto</string>
+    <string name="no_file_selected">Nessun file selezionato</string>
+    <string name="file_selection_cancelled">Selezione file annullata o fallita</string>
+    
+    <!--Settings messages-->
+    <string name="manual_backup_started">Backup manuale avviato</string>
+    <string name="all_settings_saved">Tutte le impostazioni salvate</string>
+    
+    <!--Recording messages-->
+    <string name="event_name_cannot_empty">Il nome dell\'evento non può essere vuoto</string>
+    <string name="event_saved">Evento salvato</string>
+    
+    <!--Map messages-->
+    <string name="rerun_mode_auto_enabled">Modalità ripetizione attivata automaticamente</string>
+    <string name="rerun_mode_auto_disabled">Modalità ripetizione disattivata automaticamente</string>
+    
+    <!--Dialog messages-->
+    <string name="delete_event">Elimina Evento</string>
+    <string name="cannot_delete_recording">Impossibile eliminare un evento attualmente in registrazione.</string>
+    <string name="confirm_delete_event">Sei sicuro di voler eliminare \"%s\"?</string>
+    <string name="delete">Elimina</string>
+    <string name="event_deleted_successfully">Evento eliminato con successo</string>
+    <string name="cannot_edit_recording">Impossibile modificare un evento attualmente in registrazione</string>
+    <string name="cannot_delete_event_recording">Impossibile eliminare un evento attualmente in registrazione</string>
+    
+    <!--Export dialog-->
+    <string name="export_format">Formato Esportazione</string>
+    <string name="choose_export_format">Scegli il formato di esportazione per \"%s\":</string>
+    <string name="gpx">GPX</string>
+    <string name="kml">KML</string>
+    
+    <!--Import dialog-->
+    <string name="importing_gpx">Importazione GPX</string>
+    <string name="importing_gpx_please_wait">Importazione file GPX in corso, attendere...</string>
+    
+    <!--Activity types-->
+    <string name="running">Corsa</string>
+    <string name="cycling">Ciclismo</string>
+    <string name="hiking">Escursionismo</string>
+    <string name="activity">Attività</string>
+    
+    <!--File operations-->
+    <string name="error_saving_file">Errore nel salvataggio del file</string>
+    <string name="error_scoped_storage">Errore con archiviazione limitata</string>
+    <string name="error_legacy_storage">Errore con archiviazione legacy</string>
+    <string name="both_storage_methods_failed">Entrambi i metodi di archiviazione falliti</string>
+    <string name="saved_to_app_directory">Salvato nella directory dell\'app: %s</string>
+    <string name="saved_to_public_directory">Salvato nella directory pubblica: %s</string>
+</resources>

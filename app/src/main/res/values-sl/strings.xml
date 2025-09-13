@@ -1,0 +1,85 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Zemljevid</string>
+    <string name="statistics">Statistike</string>
+    <string name="events">Dogodki</string>
+    <string name="competitions">Tekmovanja</string>
+    <string name="settings">Nastavitve</string>
+    <!--Marker-->
+    <string name="marker_title">Začetek</string>
+    <!--Toast messages-->
+    <string name="recording_started">Snemanje začeto</string>
+    <!--Buttons-->
+    <string name="cancel">Prekliči</string>
+    
+    <!--Export messages-->
+    <string name="no_location_data_export">Ni podatkov o lokaciji za izvoz</string>
+    <string name="gpx_file_exported">GPX datoteka izvožena: %s</string>
+    <string name="kml_file_exported">KML datoteka izvožena: %s</string>
+    <string name="failed_export_gpx_permissions">Izvoz GPX datoteke ni uspel. Preverite dovoljenja za shranjevanje.</string>
+    <string name="failed_export_kml_permissions">Izvoz KML datoteke ni uspel. Preverite dovoljenja za shranjevanje.</string>
+    <string name="error_exporting_gpx">Napaka pri izvozu GPX datoteke: %s</string>
+    <string name="error_exporting_kml">Napaka pri izvozu KML datoteke: %s</string>
+    
+    <!--Import messages-->
+    <string name="gpx_file_imported_success">GPX datoteka uspešno uvožena! ID dogodka: %d</string>
+    <string name="no_valid_track_data">V GPX datoteki ni najdenih veljavnih podatkov sledi. Preverite, ali datoteka vsebuje GPS koordinate.</string>
+    <string name="error_processing_gpx">Napaka pri obdelavi GPX datoteke. Preverite format datoteke in poskusite znova.</string>
+    <string name="invalid_gpx_format">Neveljaven format GPX datoteke. Izberite veljavno GPX datoteko.</string>
+    <string name="permission_denied_storage">Dostop zavrnjen. Dodelite dostop do shranjevanja in poskusite znova.</string>
+    <string name="unknown_error_import">Med uvozom je prišlo do neznane napake (koda: %d)</string>
+    <string name="permission_denied_reading_file">Dostop do branja datoteke zavrnjen</string>
+    <string name="file_not_found_access">Datoteka ni najdena ali ni dostopna</string>
+    <string name="invalid_gpx_xml_parsing_failed">Neveljaven format GPX datoteke - razčlenjevanje XML ni uspelo</string>
+    <string name="gpx_file_too_large">GPX datoteka je prevelika. Poskusite z manjšo datoteko.</string>
+    <string name="unexpected_error">Nepričakovana napaka: %s</string>
+    <string name="unknown_error">Neznana napaka</string>
+    <string name="no_file_selected">Nobena datoteka ni izbrana</string>
+    <string name="file_selection_cancelled">Izbira datoteke preklicana ali neuspešna</string>
+    
+    <!--Settings messages-->
+    <string name="manual_backup_started">Ročna varnostna kopija začeta</string>
+    <string name="all_settings_saved">Vse nastavitve shranjene</string>
+    
+    <!--Recording messages-->
+    <string name="event_name_cannot_empty">Ime dogodka ne sme biti prazno</string>
+    <string name="event_saved">Dogodek shranjen</string>
+    
+    <!--Map messages-->
+    <string name="rerun_mode_auto_enabled">Način ponovnega predvajanja samodejno omogočen</string>
+    <string name="rerun_mode_auto_disabled">Način ponovnega predvajanja samodejno onemogočen</string>
+    
+    <!--Dialog messages-->
+    <string name="delete_event">Izbriši dogodek</string>
+    <string name="cannot_delete_recording">Dogodka, ki se trenutno snema, ni mogoče izbrisati.</string>
+    <string name="confirm_delete_event">Ali ste prepričani, da želite izbrisati \"%s\"?</string>
+    <string name="delete">Izbriši</string>
+    <string name="event_deleted_successfully">Dogodek uspešno izbrisan</string>
+    <string name="cannot_edit_recording">Dogodka, ki se trenutno snema, ni mogoče urejati</string>
+    <string name="cannot_delete_event_recording">Dogodka, ki se trenutno snema, ni mogoče izbrisati</string>
+    
+    <!--Export dialog-->
+    <string name="export_format">Format izvoza</string>
+    <string name="choose_export_format">Izberite format izvoza za \"%s\":</string>
+    <string name="gpx">GPX</string>
+    <string name="kml">KML</string>
+    
+    <!--Import dialog-->
+    <string name="importing_gpx">Uvažanje GPX</string>
+    <string name="importing_gpx_please_wait">Uvažanje GPX datoteke, počakajte...</string>
+    
+    <!--Activity types-->
+    <string name="running">Tek</string>
+    <string name="cycling">Kolesarjenje</string>
+    <string name="hiking">Pohodništvo</string>
+    <string name="activity">Dejavnost</string>
+    
+    <!--File operations-->
+    <string name="error_saving_file">Napaka pri shranjevanju datoteke</string>
+    <string name="error_scoped_storage">Napaka z omejenim shranjevanjem</string>
+    <string name="error_legacy_storage">Napaka s podedovanim shranjevanjem</string>
+    <string name="both_storage_methods_failed">Oba načina shranjevanja sta neuspešna</string>
+    <string name="saved_to_app_directory">Shranjeno v imenik aplikacije: %s</string>
+    <string name="saved_to_public_directory">Shranjeno v javni imenik: %s</string>
+</resources>

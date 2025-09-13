@@ -1,0 +1,85 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Mapa</string>
+    <string name="statistics">Štatistiky</string>
+    <string name="events">Udalosti</string>
+    <string name="competitions">Súťaže</string>
+    <string name="settings">Nastavenia</string>
+    <!--Marker-->
+    <string name="marker_title">Štart</string>
+    <!--Toast messages-->
+    <string name="recording_started">Nahrávanie spustené</string>
+    <!--Buttons-->
+    <string name="cancel">Zrušiť</string>
+    
+    <!--Export messages-->
+    <string name="no_location_data_export">Žiadne údaje o polohe na export</string>
+    <string name="gpx_file_exported">GPX súbor exportovaný: %s</string>
+    <string name="kml_file_exported">KML súbor exportovaný: %s</string>
+    <string name="failed_export_gpx_permissions">Nepodarilo sa exportovať GPX súbor. Skontrolujte povolenia úložiska.</string>
+    <string name="failed_export_kml_permissions">Nepodarilo sa exportovať KML súbor. Skontrolujte povolenia úložiska.</string>
+    <string name="error_exporting_gpx">Chyba pri exporte GPX súboru: %s</string>
+    <string name="error_exporting_kml">Chyba pri exporte KML súboru: %s</string>
+    
+    <!--Import messages-->
+    <string name="gpx_file_imported_success">GPX súbor úspešne importovaný! ID udalosti: %d</string>
+    <string name="no_valid_track_data">V GPX súbore neboli nájdené žiadne platné údaje trasy. Skontrolujte, či súbor obsahuje GPS súradnice.</string>
+    <string name="error_processing_gpx">Chyba pri spracovaní GPX súboru. Skontrolujte formát súboru a skúste znova.</string>
+    <string name="invalid_gpx_format">Neplatný formát GPX súboru. Vyberte platný GPX súbor.</string>
+    <string name="permission_denied_storage">Prístup odmietnutý. Udeľte prístup k úložisku a skúste znova.</string>
+    <string name="unknown_error_import">Počas importu sa vyskytla neznáma chyba (kód: %d)</string>
+    <string name="permission_denied_reading_file">Prístup k čítaniu súboru odmietnutý</string>
+    <string name="file_not_found_access">Súbor nenájdený alebo nie je prístupný</string>
+    <string name="invalid_gpx_xml_parsing_failed">Neplatný formát GPX súboru - XML parsovanie zlyhalo</string>
+    <string name="gpx_file_too_large">GPX súbor je príliš veľký. Skúste s menším súborom.</string>
+    <string name="unexpected_error">Neočakávaná chyba: %s</string>
+    <string name="unknown_error">Neznáma chyba</string>
+    <string name="no_file_selected">Žiadny súbor nevybraný</string>
+    <string name="file_selection_cancelled">Výber súboru zrušený alebo zlyhal</string>
+    
+    <!--Settings messages-->
+    <string name="manual_backup_started">Manuálna záloha spustená</string>
+    <string name="all_settings_saved">Všetky nastavenia uložené</string>
+    
+    <!--Recording messages-->
+    <string name="event_name_cannot_empty">Názov udalosti nemôže byť prázdny</string>
+    <string name="event_saved">Udalosť uložená</string>
+    
+    <!--Map messages-->
+    <string name="rerun_mode_auto_enabled">Režim opakovania automaticky zapnutý</string>
+    <string name="rerun_mode_auto_disabled">Režim opakovania automaticky vypnutý</string>
+    
+    <!--Dialog messages-->
+    <string name="delete_event">Odstrániť udalosť</string>
+    <string name="cannot_delete_recording">Nemožno odstrániť udalosť, ktorá sa práve nahráva.</string>
+    <string name="confirm_delete_event">Ste si istí, že chcete odstrániť \"%s\"?</string>
+    <string name="delete">Odstrániť</string>
+    <string name="event_deleted_successfully">Udalosť úspešne odstránená</string>
+    <string name="cannot_edit_recording">Nemožno upraviť udalosť, ktorá sa práve nahráva</string>
+    <string name="cannot_delete_event_recording">Nemožno odstrániť udalosť, ktorá sa práve nahráva</string>
+    
+    <!--Export dialog-->
+    <string name="export_format">Formát exportu</string>
+    <string name="choose_export_format">Vyberte formát exportu pre \"%s\":</string>
+    <string name="gpx">GPX</string>
+    <string name="kml">KML</string>
+    
+    <!--Import dialog-->
+    <string name="importing_gpx">Importovanie GPX</string>
+    <string name="importing_gpx_please_wait">Importuje sa GPX súbor, čakajte prosím...</string>
+    
+    <!--Activity types-->
+    <string name="running">Beh</string>
+    <string name="cycling">Cyklistika</string>
+    <string name="hiking">Pešia turistika</string>
+    <string name="activity">Aktivita</string>
+    
+    <!--File operations-->
+    <string name="error_saving_file">Chyba pri ukladaní súboru</string>
+    <string name="error_scoped_storage">Chyba s obmedzeným úložiskom</string>
+    <string name="error_legacy_storage">Chyba so starším úložiskom</string>
+    <string name="both_storage_methods_failed">Oba spôsoby úložiska zlyhali</string>
+    <string name="saved_to_app_directory">Uložené v adresári aplikácie: %s</string>
+    <string name="saved_to_public_directory">Uložené vo verejnom adresári: %s</string>
+</resources>
