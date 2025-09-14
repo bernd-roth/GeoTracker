@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">地図</string>
+    <string name="statistics">統計</string>
+    <string name="events">イベント</string>
+    <string name="competitions">競技</string>
+    <string name="settings">設定</string>
+    <!--Marker-->
+    <string name="marker_title">スタート</string>
+    <!--Toast messages-->
+    <string name="recording_started">記録開始</string>
+    <!--Buttons-->
+    <string name="cancel">キャンセル</string>
+</resources>

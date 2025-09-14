@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">지도</string>
+    <string name="statistics">통계</string>
+    <string name="events">이벤트</string>
+    <string name="competitions">경기</string>
+    <string name="settings">설정</string>
+    <!--Marker-->
+    <string name="marker_title">시작</string>
+    <!--Toast messages-->
+    <string name="recording_started">기록 시작됨</string>
+    <!--Buttons-->
+    <string name="cancel">취소</string>
+</resources>
