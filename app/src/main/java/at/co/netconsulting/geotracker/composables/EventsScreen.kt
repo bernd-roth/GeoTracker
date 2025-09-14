@@ -45,8 +45,10 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -58,6 +60,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DividerDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -280,8 +284,6 @@ fun EventsScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(true) } // State to toggle stats visibility
-    var showExportDialog by remember { mutableStateOf(false) }
-    var eventToExport by remember { mutableStateOf<EventWithDetails?>(null) }
 
     // Import progress dialog
     if (showImportingDialog) {
@@ -377,67 +379,6 @@ fun EventsScreen(
         )
     }
 
-    // Export format selection dialog
-    if (showExportDialog && eventToExport != null) {
-        AlertDialog(
-            onDismissRequest = { 
-                showExportDialog = false
-                eventToExport = null
-            },
-            title = { Text("Export Format") },
-            text = {
-                Text("Choose the export format for '${eventToExport?.event?.eventName}':")
-            },
-            confirmButton = {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    TextButton(
-                        onClick = {
-                            eventToExport?.let { event ->
-                                coroutineScope.launch {
-                                    at.co.netconsulting.geotracker.gpx.export(
-                                        eventId = event.event.eventId,
-                                        contextActivity = context
-                                    )
-                                }
-                            }
-                            showExportDialog = false
-                            eventToExport = null
-                        }
-                    ) {
-                        Text("GPX")
-                    }
-                    TextButton(
-                        onClick = {
-                            eventToExport?.let { event ->
-                                coroutineScope.launch {
-                                    at.co.netconsulting.geotracker.kml.export(
-                                        eventId = event.event.eventId,
-                                        contextActivity = context
-                                    )
-                                }
-                            }
-                            showExportDialog = false
-                            eventToExport = null
-                        }
-                    ) {
-                        Text("KML")
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showExportDialog = false
-                        eventToExport = null
-                    }
-                ) {
-                    Text("Cancel")
-                }
-            }
-        )
-    }
 
     Scaffold(
         floatingActionButton = {
@@ -652,9 +593,7 @@ fun EventsScreen(
                                 }
                             },
                             onExport = {
-                                // Show export format selection dialog
-                                eventToExport = eventWithDetails
-                                showExportDialog = true
+                                // Export handled directly in EventCard dropdown
                             },
                             onImport = {
                                 // Launch the GPX file picker
@@ -773,6 +712,9 @@ fun EventCard(
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     canViewOnMap: Boolean = true
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var showExportDropdown by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -806,16 +748,80 @@ fun EventCard(
 
                 // Action buttons
                 Row {
-                    // Export button (GPX/KML selection)
-                    IconButton(
-                        onClick = onExport,
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Export",
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
+                    // Export button with dropdown
+                    Box {
+                        IconButton(
+                            onClick = { showExportDropdown = true },
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FileDownload,
+                                contentDescription = "Export",
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showExportDropdown,
+                            onDismissRequest = { showExportDropdown = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Map,
+                                            contentDescription = "GPX",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Export as GPX",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showExportDropdown = false
+                                    coroutineScope.launch {
+                                        at.co.netconsulting.geotracker.gpx.export(
+                                            eventId = event.event.eventId,
+                                            contextActivity = context
+                                        )
+                                    }
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MyLocation,
+                                            contentDescription = "KML",
+                                            tint = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Export as KML",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showExportDropdown = false
+                                    coroutineScope.launch {
+                                        at.co.netconsulting.geotracker.kml.export(
+                                            eventId = event.event.eventId,
+                                            contextActivity = context
+                                        )
+                                    }
+                                }
+                            )
+                        }
                     }
 
                     // Edit button - disabled if currently recording
