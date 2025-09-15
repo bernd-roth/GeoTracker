@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.11")} (13-09-2025: a more polished approach for a dropdown file exporter)"
+        versionName = "${getNextVersion("3.12")} (15-09-2025: adding all missing european languages)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
