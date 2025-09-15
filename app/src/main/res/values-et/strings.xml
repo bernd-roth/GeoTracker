@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Kaart</string>
+    <string name="statistics">Statistika</string>
+    <string name="events">Sündmused</string>
+    <string name="competitions">Võistlused</string>
+    <string name="settings">Seaded</string>
+    <!--Marker-->
+    <string name="marker_title">Algus</string>
+    <!--Toast messages-->
+    <string name="recording_started">Salvestamine alustatud</string>
+    <!--Buttons-->
+    <string name="cancel">Tühista</string>
+</resources>

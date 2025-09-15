@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Mapa</string>
+    <string name="statistics">Estatistikak</string>
+    <string name="events">Gertaerak</string>
+    <string name="competitions">Lehiaketak</string>
+    <string name="settings">Ezarpenak</string>
+    <!--Marker-->
+    <string name="marker_title">Hasiera</string>
+    <!--Toast messages-->
+    <string name="recording_started">Grabaketa hasi da</string>
+    <!--Buttons-->
+    <string name="cancel">Utzi</string>
+</resources>

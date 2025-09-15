@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Map</string>
+    <string name="statistics">Ystadegau</string>
+    <string name="events">Digwyddiadau</string>
+    <string name="competitions">Cystadlaethau</string>
+    <string name="settings">Gosodiadau</string>
+    <!--Marker-->
+    <string name="marker_title">Dechrau</string>
+    <!--Toast messages-->
+    <string name="recording_started">Recordio wedi dechrau</string>
+    <!--Buttons-->
+    <string name="cancel">Canslo</string>
+</resources>

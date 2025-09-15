@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Мапа</string>
+    <string name="statistics">Статистике</string>
+    <string name="events">Догађаји</string>
+    <string name="competitions">Такмичења</string>
+    <string name="settings">Подешавања</string>
+    <!--Marker-->
+    <string name="marker_title">Почетак</string>
+    <!--Toast messages-->
+    <string name="recording_started">Снимање покренуто</string>
+    <!--Buttons-->
+    <string name="cancel">Откажи</string>
+</resources>

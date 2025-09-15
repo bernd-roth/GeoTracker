@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Harta</string>
+    <string name="statistics">Statistikat</string>
+    <string name="events">Ngjarjet</string>
+    <string name="competitions">Garat</string>
+    <string name="settings">Cilësimet</string>
+    <!--Marker-->
+    <string name="marker_title">Fillimi</string>
+    <!--Toast messages-->
+    <string name="recording_started">Regjistrimi filloi</string>
+    <!--Buttons-->
+    <string name="cancel">Anulo</string>
+</resources>

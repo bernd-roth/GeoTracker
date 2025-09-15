@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Karte</string>
+    <string name="statistics">Statistika</string>
+    <string name="events">Notikumi</string>
+    <string name="competitions">Sacensības</string>
+    <string name="settings">Iestatījumi</string>
+    <!--Marker-->
+    <string name="marker_title">Sākums</string>
+    <!--Toast messages-->
+    <string name="recording_started">Ierakstīšana sākta</string>
+    <!--Buttons-->
+    <string name="cancel">Atcelt</string>
+</resources>

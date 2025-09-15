@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Χάρτης</string>
+    <string name="statistics">Στατιστικά</string>
+    <string name="events">Γεγονότα</string>
+    <string name="competitions">Διαγωνισμοί</string>
+    <string name="settings">Ρυθμίσεις</string>
+    <!--Marker-->
+    <string name="marker_title">Έναρξη</string>
+    <!--Toast messages-->
+    <string name="recording_started">Η εγγραφή ξεκίνησε</string>
+    <!--Buttons-->
+    <string name="cancel">Ακύρωση</string>
+</resources>

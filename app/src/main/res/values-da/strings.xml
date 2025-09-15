@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Kort</string>
+    <string name="statistics">Statistikker</string>
+    <string name="events">Begivenheder</string>
+    <string name="competitions">Konkurrencer</string>
+    <string name="settings">Indstillinger</string>
+    <!--Marker-->
+    <string name="marker_title">Start</string>
+    <!--Toast messages-->
+    <string name="recording_started">Optagelse startet</string>
+    <!--Buttons-->
+    <string name="cancel">Annuller</string>
+</resources>

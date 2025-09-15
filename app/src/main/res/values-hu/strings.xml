@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Térkép</string>
+    <string name="statistics">Statisztikák</string>
+    <string name="events">Események</string>
+    <string name="competitions">Versenyek</string>
+    <string name="settings">Beállítások</string>
+    <!--Marker-->
+    <string name="marker_title">Kezdés</string>
+    <!--Toast messages-->
+    <string name="recording_started">Felvétel elindítva</string>
+    <!--Buttons-->
+    <string name="cancel">Mégse</string>
+</resources>

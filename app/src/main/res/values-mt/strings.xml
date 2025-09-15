@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Mappa</string>
+    <string name="statistics">Statistika</string>
+    <string name="events">Avvenimenti</string>
+    <string name="competitions">Kompetizzjonijiet</string>
+    <string name="settings">Settings</string>
+    <!--Marker-->
+    <string name="marker_title">Bidu</string>
+    <!--Toast messages-->
+    <string name="recording_started">Ir-reġistrazzjoni bdiet</string>
+    <!--Buttons-->
+    <string name="cancel">Ikkanċella</string>
+</resources>

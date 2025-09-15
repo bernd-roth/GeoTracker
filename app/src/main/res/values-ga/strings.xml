@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">GeoTracker</string>
+    <!--MainScreen-->
+    <string name="map">Léarscáil</string>
+    <string name="statistics">Staitisticí</string>
+    <string name="events">Imeachtaí</string>
+    <string name="competitions">Comórtais</string>
+    <string name="settings">Socruithe</string>
+    <!--Marker-->
+    <string name="marker_title">Tús</string>
+    <!--Toast messages-->
+    <string name="recording_started">Taifeadadh tosaithe</string>
+    <!--Buttons-->
+    <string name="cancel">Cealaigh</string>
+</resources>
