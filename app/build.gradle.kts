@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.13")} (19-09-2025: fixed barometric altitude calculation by reverting overly aggressive filtering)"
+        versionName = "${getNextVersion("3.14")} (20-09-2025: python export_todays_gpx.py script to export transferred data from db into gpx file)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
