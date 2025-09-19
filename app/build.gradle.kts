@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.13")} (19-09-2025: trend overview of activities and heart rate in events)"
+        versionName = "${getNextVersion("3.13")} (19-09-2025: fixed barometric altitude calculation by reverting overly aggressive filtering)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

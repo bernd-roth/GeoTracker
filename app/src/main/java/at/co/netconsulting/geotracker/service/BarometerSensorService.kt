@@ -31,12 +31,12 @@ class BarometerSensorService private constructor(private val context: Context) :
 
     // Smoothing filter for pressure readings
     private val pressureBuffer = mutableListOf<Float>()
-    private val bufferSize = 3  // Reduced from 5 to 3 for more responsiveness
+    private val bufferSize = 5
     private var smoothedPressure = 0f
 
     // Advanced filtering
     private val longTermBuffer = mutableListOf<Float>()
-    private val longTermBufferSize = 8  // Reduced from 20 to 8 for more responsiveness
+    private val longTermBufferSize = 20
     private var lastValidPressure = 0f
     private var consecutiveInvalidReadings = 0
 
@@ -66,7 +66,7 @@ class BarometerSensorService private constructor(private val context: Context) :
         private const val STANDARD_SEA_LEVEL_PRESSURE = 1013.25f
         private const val MIN_REALISTIC_PRESSURE = 870f  // Strong low pressure system
         private const val MAX_REALISTIC_PRESSURE = 1085f // Strong high pressure system
-        private const val MAX_PRESSURE_CHANGE_PER_SECOND = 8.0f // hPa/s (increased from 2.0 for dynamic activities like hiking/climbing)
+        private const val MAX_PRESSURE_CHANGE_PER_SECOND = 2.0f // hPa/s (unrealistic if exceeded)
         private const val CALIBRATION_VALIDITY_HOURS = 24 // Calibration valid for 24 hours
         private const val MIN_CALIBRATION_ALTITUDE = -500f // Dead Sea level
         private const val MAX_CALIBRATION_ALTITUDE = 9000f // Reasonable max for hiking/climbing
@@ -170,13 +170,13 @@ class BarometerSensorService private constructor(private val context: Context) :
         val success = sensorManager?.registerListener(
             this,
             pressureSensor,
-            SensorManager.SENSOR_DELAY_FASTEST  // Changed from NORMAL to FAST for more responsive altitude tracking
+            SensorManager.SENSOR_DELAY_NORMAL
         ) ?: false
 
         if (success) {
             isListening = true
             sensorErrorCount = 0
-            Log.d(TAG, "Started listening to barometer sensor with enhanced responsiveness (FAST sampling)")
+            Log.d(TAG, "Started listening to barometer sensor")
 
             // Reset some statistics
             lastReadingTimestamp = System.currentTimeMillis()
@@ -400,9 +400,9 @@ class BarometerSensorService private constructor(private val context: Context) :
 
         // If current reading is too far from median, use filtered value
         val deviation = abs(newPressure - median)
-        val threshold = 12.0f // hPa threshold for outlier detection (increased from 5.0 for dynamic altitude changes)
+        val threshold = 5.0f // hPa threshold for outlier detection
 
-        return if (deviation > threshold && longTermBuffer.size >= 3) {  // Reduced from 5 to 3
+        return if (deviation > threshold && longTermBuffer.size >= 5) {
             Log.d(TAG, "Outlier detected: ${newPressure} hPa (median: ${median} hPa), using filtered value")
             median
         } else {
@@ -473,7 +473,7 @@ class BarometerSensorService private constructor(private val context: Context) :
                     // Post to EventBus
                     EventBus.getDefault().post(barometerData)
 
-                    Log.d(TAG, "[RESPONSIVE] Barometer reading: ${String.format("%.2f", currentPressure)} hPa, " +
+                    Log.d(TAG, "Barometer reading: ${String.format("%.2f", currentPressure)} hPa, " +
                             "altitude: ${String.format("%.1f", altitudeFromPressure)}m, " +
                             "accuracy: ${getAccuracyString(currentAccuracy)}")
 
