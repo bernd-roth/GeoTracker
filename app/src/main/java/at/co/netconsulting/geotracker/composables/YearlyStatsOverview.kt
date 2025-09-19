@@ -51,7 +51,6 @@ import java.util.Calendar
 fun YearlyStatsOverview(
     modifier: Modifier = Modifier,
     eventsViewModel: EventsViewModel,
-    refreshTrigger: Int = 0, // Add refresh trigger parameter with default value
     onWeekSelected: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
@@ -65,12 +64,12 @@ fun YearlyStatsOverview(
     // Current year for highlighting
     val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
 
-    // Load yearly statistics - now also depends on refreshTrigger
-    LaunchedEffect(refreshTrigger) {
+    LaunchedEffect(Unit) {
+
         isLoading = true
         coroutineScope.launch {
             try {
-                // Get all events and their metrics
+                // For statistics, we need actual distances, so use the full method
                 val events = getAllEventsWithMetrics(database)
 
                 // Calculate yearly totals
@@ -338,6 +337,36 @@ fun WeeklyBreakdown(
                 }
             }
         }
+    }
+}
+
+// Fast loading: Get basic events with minimal distance calculation
+private suspend fun getAllEventsBasic(database: FitnessTrackerDatabase): List<EventWithTotalDistance> {
+    return withContext(Dispatchers.IO) {
+        val result = mutableListOf<EventWithTotalDistance>()
+
+        try {
+            val eventsFlow = database.eventDao().getAllEvents()
+            val events = eventsFlow.first()
+
+            // Process events with basic distance calculation
+            events.forEach { event ->
+                // For basic loading, add events without distance calculation
+                // Distance will be loaded later when statistics are actually needed
+                result.add(
+                    EventWithTotalDistance(
+                        eventId = event.eventId,
+                        eventName = event.eventName,
+                        artOfSport = event.artOfSport,
+                        eventDate = event.eventDate,
+                        totalDistance = 0.0 // Will be calculated when needed
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("YearlyStatsOverview", "Error getting basic events: ${e.message}", e)
+        }
+        result
     }
 }
 

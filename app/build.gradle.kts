@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.12")} (15-09-2025: adding all missing european languages)"
+        versionName = "${getNextVersion("3.13")} (19-09-2025: trend overview of activities and heart rate in events)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
+import at.co.netconsulting.geotracker.YearlyStatisticsActivity
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -137,8 +138,6 @@ fun EventsScreen(
     var isImporting by remember { mutableStateOf(false) }
     var showImportingDialog by remember { mutableStateOf(false) }
 
-    // Add a state to trigger stats refresh
-    var statsRefreshTrigger by remember { mutableStateOf(0) }
 
     // Result launcher for file picking
     val gpxFileLauncher = rememberLauncherForActivityResult(
@@ -162,7 +161,6 @@ fun EventsScreen(
                             newEventId > 0 -> {
                                 // Success
                                 eventsViewModel.loadEvents()
-                                statsRefreshTrigger++
                                 Toast.makeText(
                                     context,
                                     "GPX file imported successfully! Event ID: $newEventId",
@@ -306,9 +304,14 @@ fun EventsScreen(
         )
     }
 
-    // Load initial events
+    // Parallel loading for better performance
     LaunchedEffect(Unit) {
-        eventsViewModel.loadEvents()
+        // Launch events loading and stats loading in parallel
+        coroutineScope.launch {
+            // Load events immediately for quick UI response
+            eventsViewModel.loadEvents()
+        }
+        // Stats will be loaded separately when shown
     }
 
     // Load more events when scrolling to the bottom
@@ -341,9 +344,6 @@ fun EventsScreen(
                             if (event.event.eventId != activeEventId || !isRecording) {
                                 coroutineScope.launch {
                                     eventsViewModel.deleteEvent(event.event.eventId)
-
-                                    // Increment the refresh trigger to force stats update
-                                    statsRefreshTrigger++
 
                                     // Show feedback to the user
                                     Toast.makeText(
@@ -412,19 +412,39 @@ fun EventsScreen(
                     fontWeight = FontWeight.Bold
                 )
 
-                // Toggle button for stats
-                TextButton(
-                    onClick = { showYearlyStats = !showYearlyStats },
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.primary
-                    )
-                ) {
-                    Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
-                    Icon(
-                        imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Toggle stats",
-                        modifier = Modifier.padding(start = 4.dp)
-                    )
+                Row {
+                    // Detailed Statistics button
+                    TextButton(
+                        onClick = {
+                            val intent = Intent(context, YearlyStatisticsActivity::class.java)
+                            context.startActivity(intent)
+                        },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Text("Detailed Stats")
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = "Detailed Statistics",
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+
+                    // Toggle button for quick stats
+                    TextButton(
+                        onClick = { showYearlyStats = !showYearlyStats },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
+                        Icon(
+                            imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Toggle stats",
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
                 }
             }
 
@@ -458,7 +478,6 @@ fun EventsScreen(
                 YearlyStatsOverview(
                     modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
                     eventsViewModel = eventsViewModel,
-                    refreshTrigger = statsRefreshTrigger, // Pass the refresh trigger
                     onWeekSelected = { year, week ->
                         // Filter events for the selected week
                         coroutineScope.launch {
@@ -623,8 +642,9 @@ fun EventsScreen(
                         )
                     }
 
-                    item {
-                        if (isLoading) {
+                    // Show loading indicator at bottom when loading more
+                    if (isLoading && events.isNotEmpty()) {
+                        item {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()

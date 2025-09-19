@@ -196,6 +196,7 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
         }
     }
 
+
     private suspend fun loadEventsWithDetails(offset: Int, limit: Int): List<EventWithDetails> {
         return withContext(Dispatchers.IO) {
             try {

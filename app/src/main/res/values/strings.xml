@@ -12,4 +12,7 @@
     <string name="recording_started">Recording started</string>
     <!--Buttons-->
     <string name="cancel">Cancel</string>
+    <string name="back">Back</string>
+    <!--Activities-->
+    <string name="yearly_statistics">Event Overview</string>
 </resources>
