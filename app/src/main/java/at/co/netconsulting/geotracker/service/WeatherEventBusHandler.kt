@@ -50,6 +50,14 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
     private val _altitudeHistory = MutableStateFlow<List<Pair<Double, Double>>>(emptyList())
     val altitudeHistory: StateFlow<List<Pair<Double, Double>>> = _altitudeHistory.asStateFlow()
 
+    // Barometric pressure history tracking for chart (distance in km, pressure in hPa)
+    private val _pressureHistory = MutableStateFlow<List<Pair<Double, Float>>>(emptyList())
+    val pressureHistory: StateFlow<List<Pair<Double, Float>>> = _pressureHistory.asStateFlow()
+
+    // Barometric altitude history tracking for chart (distance in km, altitude in m)
+    private val _barometerAltitudeHistory = MutableStateFlow<List<Pair<Double, Float>>>(emptyList())
+    val barometerAltitudeHistory: StateFlow<List<Pair<Double, Float>>> = _barometerAltitudeHistory.asStateFlow()
+
     // StateFlow for lap times from database
     private val _lapTimes = MutableStateFlow<List<LapTime>>(emptyList())
     val lapTimes: StateFlow<List<LapTime>> = _lapTimes.asStateFlow()
@@ -213,7 +221,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
 
             // Add new data point (only if distance has progressed significantly)
             val lastDistance = currentAltitudeHistory.lastOrNull()?.first ?: 0.0
-            val shouldAddPoint = currentAltitudeHistory.isEmpty() || 
+            val shouldAddPoint = currentAltitudeHistory.isEmpty() ||
                                 distanceKm - lastDistance >= 0.01 // Every 10 meters
 
             if (shouldAddPoint) {
@@ -225,6 +233,52 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
                     _altitudeHistory.value = trimmedHistory
                 } else {
                     _altitudeHistory.value = currentAltitudeHistory
+                }
+            }
+        }
+
+        // Update pressure history for chart
+        if (metrics.coveredDistance > 0 && metrics.pressure > 0) {
+            val distanceKm = metrics.coveredDistance / 1000.0
+            val currentPressureHistory = _pressureHistory.value.toMutableList()
+
+            // Add new data point (only if distance has progressed significantly)
+            val lastDistance = currentPressureHistory.lastOrNull()?.first ?: 0.0
+            val shouldAddPoint = currentPressureHistory.isEmpty() ||
+                                distanceKm - lastDistance >= 0.01 // Every 10 meters
+
+            if (shouldAddPoint) {
+                currentPressureHistory.add(Pair(distanceKm, metrics.pressure))
+
+                // Keep only the last 200 points to prevent memory issues while showing good detail
+                if (currentPressureHistory.size > 200) {
+                    val trimmedHistory = currentPressureHistory.takeLast(200)
+                    _pressureHistory.value = trimmedHistory
+                } else {
+                    _pressureHistory.value = currentPressureHistory
+                }
+            }
+        }
+
+        // Update barometric altitude history for chart
+        if (metrics.coveredDistance > 0 && metrics.altitudeFromPressure != 0f) {
+            val distanceKm = metrics.coveredDistance / 1000.0
+            val currentBarometerHistory = _barometerAltitudeHistory.value.toMutableList()
+
+            // Add new data point (only if distance has progressed significantly)
+            val lastDistance = currentBarometerHistory.lastOrNull()?.first ?: 0.0
+            val shouldAddPoint = currentBarometerHistory.isEmpty() ||
+                                distanceKm - lastDistance >= 0.01 // Every 10 meters
+
+            if (shouldAddPoint) {
+                currentBarometerHistory.add(Pair(distanceKm, metrics.altitudeFromPressure))
+
+                // Keep only the last 200 points to prevent memory issues while showing good detail
+                if (currentBarometerHistory.size > 200) {
+                    val trimmedHistory = currentBarometerHistory.takeLast(200)
+                    _barometerAltitudeHistory.value = trimmedHistory
+                } else {
+                    _barometerAltitudeHistory.value = currentBarometerHistory
                 }
             }
         }
@@ -279,11 +333,13 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         lastLapDistance = 0.0
         isTrackingLaps = true
 
-        // Clear existing lap times, speed history, heart rate history, and altitude history, then load from database
+        // Clear existing lap times, speed history, heart rate history, altitude history, and barometric histories, then load from database
         _lapTimes.value = emptyList()
         _speedHistory.value = emptyList()
         _heartRateHistory.value = emptyList()
         _altitudeHistory.value = emptyList()
+        _pressureHistory.value = emptyList()
+        _barometerAltitudeHistory.value = emptyList()
         loadLapTimesFromDatabase()
 
         Log.d(TAG, "Started new session: $sessionId")
@@ -347,8 +403,10 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         _speedHistory.value = emptyList() // Clear speed history as well
         _heartRateHistory.value = emptyList() // Clear heart rate history for consistency
         _altitudeHistory.value = emptyList() // Clear altitude history for consistency
+        _pressureHistory.value = emptyList() // Clear pressure history for consistency
+        _barometerAltitudeHistory.value = emptyList() // Clear barometric altitude history for consistency
         currentSessionId = ""
-        Log.d(TAG, "Cleared all lap times, speed history, heart rate history, and altitude history")
+        Log.d(TAG, "Cleared all lap times, speed history, heart rate history, altitude history, and barometric histories")
     }
 
     /**

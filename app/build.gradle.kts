@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.15")} (20-09-2025: strava style like on home screen: distance covered, and movement time; disable yearly statistics in eventscreen)"
+        versionName = "${getNextVersion("3.16")} (20-09-2025: added new graph barometer pressure; fixed wrong y-axis label numbering)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

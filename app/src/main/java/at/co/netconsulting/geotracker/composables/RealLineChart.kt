@@ -59,6 +59,8 @@ fun RealLineChart(
                 axisLeft.apply {
                     textSize = 10f
                     setDrawGridLines(true)
+                    granularity = 1.0f
+                    isGranularityEnabled = true
                 }
 
                 // Right Y-axis setup (disabled)
@@ -105,9 +107,17 @@ fun RealLineChart(
             chart.axisLeft.valueFormatter = object : ValueFormatter() {
                 override fun getFormattedValue(value: Float): String {
                     return if (yLabel.contains("Speed")) {
-                        "${value.toInt()} km/h"
+                        if (value == value.toInt().toFloat()) {
+                            "${value.toInt()} km/h"
+                        } else {
+                            String.format("%.1f km/h", value)
+                        }
                     } else {
-                        "${value.toInt()} m"
+                        if (value == value.toInt().toFloat()) {
+                            "${value.toInt()} m"
+                        } else {
+                            String.format("%.1f m", value)
+                        }
                     }
                 }
             }

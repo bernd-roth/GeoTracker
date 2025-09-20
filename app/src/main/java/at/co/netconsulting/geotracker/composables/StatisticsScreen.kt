@@ -75,6 +75,8 @@ fun StatisticsScreen() {
     val heartRateHistory by weatherHandler.heartRateHistory.collectAsState()
     val speedHistory by weatherHandler.speedHistory.collectAsState() // Speed history for chart
     val altitudeHistory by weatherHandler.altitudeHistory.collectAsState() // Altitude history for chart
+    val pressureHistory by weatherHandler.pressureHistory.collectAsState() // Pressure history for chart
+    val barometerAltitudeHistory by weatherHandler.barometerAltitudeHistory.collectAsState() // Barometric altitude history for chart
     val lapTimes by weatherHandler.lapTimes.collectAsState() // Database-driven lap times
     
     // Collect following state
@@ -464,9 +466,9 @@ fun StatisticsScreen() {
             }
         )
 
-        // Speed vs Distance Card
+        // Distance vs Speed card
         StatisticsCard(
-            title = "Speed vs Distance",
+            title = "Distance vs Speed",
             content = {
                 if (metrics != null && metrics!!.coveredDistance > 0 && speedHistory.isNotEmpty()) {
                     Box(
@@ -508,9 +510,9 @@ fun StatisticsScreen() {
             }
         )
 
-        // Altitude vs Distance Card
+        // Distance vs Altitude card
         StatisticsCard(
-            title = "Altitude vs Distance",
+            title = "Distance vs Altitude",
             content = {
                 if (metrics != null && metrics!!.coveredDistance > 0 && altitudeHistory.isNotEmpty()) {
                     Box(
@@ -544,6 +546,54 @@ fun StatisticsScreen() {
                         Text(
                             if (metrics != null && metrics!!.coveredDistance > 0)
                                 "Collecting altitude data..."
+                            else
+                                "Chart will appear as you move"
+                        )
+                    }
+                }
+            }
+        )
+
+        // Barometer Altitude Card
+        StatisticsCard(
+            title = "Barometer Altitude",
+            content = {
+                if (metrics != null && metrics!!.coveredDistance > 0 &&
+                    (pressureHistory.isNotEmpty() || barometerAltitudeHistory.isNotEmpty())) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    ) {
+                        // Convert the barometric data into chart entries
+                        val pressureEntries = remember(pressureHistory) {
+                            pressureHistory.map { (distance, pressure) ->
+                                Entry(distance.toFloat(), pressure)
+                            }
+                        }
+
+                        val barometerAltitudeEntries = remember(barometerAltitudeHistory) {
+                            barometerAltitudeHistory.map { (distance, altitude) ->
+                                Entry(distance.toFloat(), altitude)
+                            }
+                        }
+
+                        BarometerChart(
+                            pressureEntries = pressureEntries,
+                            altitudeEntries = barometerAltitudeEntries
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .background(Color.LightGray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (metrics != null && metrics!!.coveredDistance > 0)
+                                "Collecting barometer data..."
                             else
                                 "Chart will appear as you move"
                         )
@@ -662,6 +712,18 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
     val heartRateEntries = remember(trail) {
         trail.filter { it.heartRate != null }.map { point ->
             Entry((point.distance / 1000.0).toFloat(), point.heartRate!!.toFloat())
+        }
+    }
+
+    val pressureEntries = remember(trail) {
+        trail.filter { it.pressure != null }.map { point ->
+            Entry((point.distance / 1000.0).toFloat(), point.pressure!!.toFloat())
+        }
+    }
+
+    val barometerAltitudeEntries = remember(trail) {
+        trail.filter { it.altitudeFromPressure != null }.map { point ->
+            Entry((point.distance / 1000.0).toFloat(), point.altitudeFromPressure!!.toFloat())
         }
     }
     
@@ -1120,6 +1182,40 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
                     Text(
                         if (totalDistance > 0)
                             "Collecting altitude data..."
+                        else
+                            "Chart will appear as user moves"
+                    )
+                }
+            }
+        }
+    )
+
+    // Barometer Altitude Chart
+    StatisticsCard(
+        title = "Barometer Altitude - ${latestPoint.person}",
+        content = {
+            if (totalDistance > 0 && (pressureEntries.isNotEmpty() || barometerAltitudeEntries.isNotEmpty())) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                ) {
+                    BarometerChart(
+                        pressureEntries = pressureEntries,
+                        altitudeEntries = barometerAltitudeEntries
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .background(Color.LightGray.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (totalDistance > 0)
+                            "Collecting barometer data..."
                         else
                             "Chart will appear as user moves"
                     )

@@ -30,6 +30,7 @@ data class FollowedUserPoint(
     val temperature: Double? = null,
     val weatherCode: Int? = null,
     val pressure: Double? = null,
+    val altitudeFromPressure: Double? = null,
     val relativeHumidity: Int? = null,
     val windSpeed: Double? = null,
     val windDirection: Double? = null,
