@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
 import at.co.netconsulting.geotracker.YearlyStatisticsActivity
+import at.co.netconsulting.geotracker.LapAnalysisActivity
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -1644,11 +1645,34 @@ fun EventCard(
                 // Lap information with highlighting
                 Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = "Lap Information",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Lap Information",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    if (event.laps.isNotEmpty()) {
+                        TextButton(
+                            onClick = {
+                                val intent = Intent(context, LapAnalysisActivity::class.java).apply {
+                                    putExtra("EVENT_ID", event.event.eventId)
+                                }
+                                context.startActivity(intent)
+                            }
+                        ) {
+                            Text(
+                                text = "Detailed Analysis",
+                                fontSize = 12.sp,
+                                color = Color(0xFF6650a4)
+                            )
+                        }
+                    }
+                }
 
                 Spacer(modifier = Modifier.height(4.dp))
 

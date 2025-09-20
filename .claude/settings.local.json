@@ -10,7 +10,10 @@
       "Bash(git push:*)",
       "Bash(mkdir:*)",
       "Bash(python:*)",
-      "Bash(git revert:*)"
+      "Bash(git revert:*)",
+      "Bash(.gradlew build)",
+      "Bash(./gradlew.bat build:*)",
+      "Bash(./gradlew.bat:*)"
     ],
     "deny": [],
     "ask": []

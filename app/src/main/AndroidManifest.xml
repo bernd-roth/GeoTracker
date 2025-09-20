@@ -60,6 +60,13 @@
             android:theme="@style/Theme.GeoTracker"
             android:parentActivityName=".MainActivity">
         </activity>
+        <activity
+            android:name=".LapAnalysisActivity"
+            android:exported="false"
+            android:label="Lap Analysis"
+            android:theme="@style/Theme.GeoTracker"
+            android:parentActivityName=".MainActivity">
+        </activity>
         <service
             android:name=".service.ForegroundService"
             android:foregroundServiceType="location"
