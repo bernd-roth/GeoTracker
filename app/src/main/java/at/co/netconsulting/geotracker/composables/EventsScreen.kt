@@ -281,7 +281,7 @@ fun EventsScreen(
     var selectedEventId by remember { mutableStateOf<Int?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
-    var showYearlyStats by remember { mutableStateOf(true) } // State to toggle stats visibility
+    var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
 
     // Import progress dialog
     if (showImportingDialog) {

@@ -1028,7 +1028,11 @@ class ForegroundService : Service() {
             ""
         }
 
+        // Create Strava-style notification title with sport, time, and distance
+        val notificationTitle = "${String.format("%.2f", distance / 1000)} km • $movementFormattedTime"
+
         updateNotification(
+            notificationTitle,
             "Activity: " + movementFormattedTime +
                     "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
@@ -1054,9 +1058,10 @@ class ForegroundService : Service() {
         return eventId
     }
 
-    private fun updateNotification(newContent: String) {
+    private fun updateNotification(newTitle: String, newContent: String) {
         runOnUiThread {
             notificationBuilder
+                .setContentTitle(newTitle)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(newContent))
                 .setPriority(NotificationCompat.PRIORITY_MAX)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)

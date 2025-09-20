@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("3.14")} (20-09-2025: python export_todays_gpx.py script to export transferred data from db into gpx file)"
+        versionName = "${getNextVersion("3.15")} (20-09-2025: strava style like on home screen: distance covered, and movement time; disable yearly statistics in eventscreen)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
