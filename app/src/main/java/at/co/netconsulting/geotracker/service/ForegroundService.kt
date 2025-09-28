@@ -1028,19 +1028,27 @@ class ForegroundService : Service() {
             ""
         }
 
+        // Calculate total recording time since startDateTime
+        val totalRecordingDuration = Duration.between(startDateTime, LocalDateTime.now())
+        val totalHours = totalRecordingDuration.toHours()
+        val totalMinutes = (totalRecordingDuration.toMinutes() % 60)
+        val totalSeconds = (totalRecordingDuration.seconds % 60)
+        val totalRecordingFormattedTime = String.format("%02d:%02d:%02d", totalHours, totalMinutes, totalSeconds)
+
         // Create Strava-style notification title with sport, time, and distance
-        val notificationTitle = "${String.format("%.2f", distance / 1000)} km • $movementFormattedTime"
+        val notificationTitle = "${String.format("%.2f", distance / 1000)} km • $totalRecordingFormattedTime"
 
         updateNotification(
             notificationTitle,
-            "Activity: " + movementFormattedTime +
+            "Total Recording: " + totalRecordingFormattedTime +
+                    "\nActivity: " + movementFormattedTime +
+                    "\nInactivity: " + lazyFormattedTime +
                     "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
                     "\nGPS Altitude: " + String.format("%.2f", altitude) + " m" +
                     "\nLap: " + String.format("%2d", lap) +
                     heartRateText +
-                    barometerText +
-                    "\nInactivity: " + lazyFormattedTime
+                    barometerText
         )
     }
 

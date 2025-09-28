@@ -13,7 +13,8 @@
       "Bash(git revert:*)",
       "Bash(.gradlew build)",
       "Bash(./gradlew.bat build:*)",
-      "Bash(./gradlew.bat:*)"
+      "Bash(./gradlew.bat:*)",
+      "Bash(gradlew.bat build:*)"
     ],
     "deny": [],
     "ask": []
