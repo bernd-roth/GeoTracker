@@ -322,6 +322,9 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 Triple(0, 0, 0)
             }
 
+            // Calculate slope statistics
+            val (averageSlope, maxSlope, minSlope) = calculateSlope(metrics)
+
             // Get weather, locations, and other data
             val weather = database.eventDao().getLatestWeatherForEvent(eventId)
             val locations = database.locationDao().getLocationsForEvent(eventId)
@@ -355,6 +358,10 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                 maxHeartRate = maxHeartRate,
                 avgHeartRate = avgHeartRate,
                 heartRateDevice = heartRateDevice,
+                // Slope statistics
+                averageSlope = averageSlope,
+                maxSlope = maxSlope,
+                minSlope = minSlope,
                 metrics = metrics
             )
         }
@@ -466,6 +473,64 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
                     Log.e("ElevationDebug", "Error debugging elevation data", e)
                 }
             }
+        }
+    }
+
+    private fun calculateSlope(metrics: List<at.co.netconsulting.geotracker.domain.Metric>): Triple<Double, Double, Double> {
+        if (metrics.size < 2) {
+            return Triple(0.0, 0.0, 0.0)
+        }
+
+        // Sort metrics by time to ensure correct order
+        val sortedMetrics = metrics.sortedBy { it.timeInMilliseconds }
+        val slopes = mutableListOf<Double>()
+        var totalDistance = 0.0
+        var totalElevationChange = 0.0
+
+        // Calculate slope between consecutive points
+        for (i in 1 until sortedMetrics.size) {
+            val previousMetric = sortedMetrics[i - 1]
+            val currentMetric = sortedMetrics[i]
+
+            // Calculate actual distance between points (not cumulative distance)
+            val distanceDiff = if (currentMetric.distance > previousMetric.distance) {
+                // If distance is cumulative, use the difference
+                currentMetric.distance - previousMetric.distance
+            } else {
+                // If distance resets or is not cumulative, calculate from stored distance
+                currentMetric.distance
+            }
+
+            val elevationDiff = currentMetric.elevation - previousMetric.elevation
+
+            // Only calculate slope if there's meaningful distance covered (> 5 meters)
+            // Reduced threshold to capture more data points
+            if (distanceDiff > 5.0) {
+                // Slope = (elevation change / distance change) * 100 to get percentage
+                val slope = (elevationDiff / distanceDiff) * 100.0
+
+                // More reasonable filtering - allow steeper slopes but filter extreme GPS errors
+                if (slope >= -50.0 && slope <= 50.0) {
+                    slopes.add(slope)
+                    totalDistance += distanceDiff
+                    totalElevationChange += elevationDiff
+                }
+            }
+        }
+
+        return if (slopes.isNotEmpty() && totalDistance > 0) {
+            // Calculate average slope using total elevation change over total distance
+            val avgSlope = (totalElevationChange / totalDistance) * 100.0
+            val maxSlope = slopes.maxOrNull() ?: 0.0
+            val minSlope = slopes.minOrNull() ?: 0.0
+
+            // Log for debugging - remove in production
+            android.util.Log.d("SlopeCalculation", "Total elevation change: $totalElevationChange m over $totalDistance m")
+            android.util.Log.d("SlopeCalculation", "Average slope: $avgSlope%, Min: $minSlope%, Max: $maxSlope%")
+
+            Triple(avgSlope, maxSlope, minSlope)
+        } else {
+            Triple(0.0, 0.0, 0.0)
         }
     }
 }

@@ -639,6 +639,9 @@ fun EventsScreen(
                             onViewOnMapRerun = { locationPoints ->
                                 onNavigateToMapWithRouteRerun(RouteRerunData(locationPoints, true, eventWithDetails.event.eventId))
                             },
+                            onViewSlopeOnMap = { locationPoints ->
+                                onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId, showSlopeColors = true, metrics = eventWithDetails.metrics))
+                            },
                             canViewOnMap = !isRecordingThisEvent // Only allow when not recording this event
                         )
                     }
@@ -731,6 +734,7 @@ fun EventCard(
     onAltitudeClick: () -> Unit = {},
     onViewOnMap: (List<GeoPoint>) -> Unit = {},
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
+    onViewSlopeOnMap: (List<GeoPoint>) -> Unit = {},
     canViewOnMap: Boolean = true
 ) {
     val coroutineScope = rememberCoroutineScope()
@@ -984,6 +988,41 @@ fun EventCard(
                                     value = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else "N/A",
                                     textColor = if (event.avgHeartRate > 0) MaterialTheme.colorScheme.primary else Color.Gray
                                 )
+                            }
+                        }
+
+                        // Third row: Slope information
+                        if (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    InfoRowWithColor(
+                                        label = "Avg Slope:",
+                                        value = String.format("%.1f%%", event.averageSlope),
+                                        textColor = when {
+                                            event.averageSlope > 5 -> Color.Red
+                                            event.averageSlope > 2 -> Color(0xFFFF9800) // Orange
+                                            event.averageSlope > -2 -> MaterialTheme.colorScheme.primary
+                                            event.averageSlope > -5 -> Color(0xFFFF9800) // Orange
+                                            else -> Color.Red
+                                        }
+                                    )
+                                }
+
+                                Column(modifier = Modifier.weight(1f)) {
+                                    InfoRowWithColor(
+                                        label = "Max Slope:",
+                                        value = String.format("%.1f%%", event.maxSlope),
+                                        textColor = when {
+                                            event.maxSlope > 15 -> Color.Red
+                                            event.maxSlope > 8 -> Color(0xFFFF9800) // Orange
+                                            else -> Color.Green
+                                        }
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -1642,6 +1681,142 @@ fun EventCard(
                     }
                 }
 
+                // Slope information section
+                if (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0) {
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Enhanced Slope Analysis header with map navigation option
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Slope Analysis",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+
+                        // "View on Map" button for slope analysis - only show when not recording and has location data
+                        if (canViewOnMap && event.locationPoints.isNotEmpty()) {
+                            Surface(
+                                modifier = Modifier
+                                    .clickable {
+                                        onViewSlopeOnMap(event.locationPoints)
+                                    }
+                                    .padding(4.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MyLocation,
+                                        contentDescription = "View Slope on Map",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "View on Map",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRowWithColor(
+                                label = "Average Slope:",
+                                value = String.format("%.2f%%", event.averageSlope),
+                                textColor = when {
+                                    event.averageSlope > 5 -> Color.Red
+                                    event.averageSlope > 2 -> Color(0xFFFF9800) // Orange
+                                    event.averageSlope > -2 -> MaterialTheme.colorScheme.primary
+                                    event.averageSlope > -5 -> Color(0xFFFF9800) // Orange
+                                    else -> Color.Red
+                                }
+                            )
+                            InfoRowWithColor(
+                                label = "Min Slope:",
+                                value = String.format("%.2f%%", event.minSlope),
+                                textColor = when {
+                                    event.minSlope < -15 -> Color.Red
+                                    event.minSlope < -8 -> Color(0xFFFF9800) // Orange
+                                    else -> Color.Blue
+                                }
+                            )
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            InfoRowWithColor(
+                                label = "Max Slope:",
+                                value = String.format("%.2f%%", event.maxSlope),
+                                textColor = when {
+                                    event.maxSlope > 15 -> Color.Red
+                                    event.maxSlope > 8 -> Color(0xFFFF9800) // Orange
+                                    else -> Color.Green
+                                }
+                            )
+
+                            // Add slope category
+                            val slopeCategory = when {
+                                event.averageSlope > 10 -> "Very Steep"
+                                event.averageSlope > 5 -> "Steep"
+                                event.averageSlope > 2 -> "Moderate"
+                                event.averageSlope > -2 -> "Flat"
+                                event.averageSlope > -5 -> "Gentle Decline"
+                                else -> "Steep Decline"
+                            }
+                            InfoRow("Terrain:", slopeCategory)
+                        }
+                    }
+
+                    // Slope visualization map
+                    if (event.locationPoints.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Text(
+                            text = "Slope Profile Map",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Gray
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(180.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.LightGray)
+                        ) {
+                            SlopeColoredMap(
+                                metrics = event.metrics,
+                                locationPoints = event.locationPoints,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Add slope color legend
+                        SlopeColorLegend()
+                    }
+                }
+
                 // Lap information with highlighting
                 Spacer(modifier = Modifier.height(4.dp))
 
@@ -1780,30 +1955,9 @@ fun EventCard(
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color.LightGray)
                     ) {
-                        AndroidView(
-                            factory = { context ->
-                                MapView(context).apply {
-                                    setMultiTouchControls(false)
-                                    controller.setZoom(14.0)
-                                    isClickable = false
-
-                                    val routePath = Polyline().apply {
-                                        setPoints(event.locationPoints)
-                                        color = android.graphics.Color.BLUE
-                                        width = 5f
-                                    }
-
-                                    overlays.add(routePath)
-
-                                    if (event.locationPoints.isNotEmpty()) {
-                                        controller.setCenter(event.locationPoints[0])
-                                    }
-                                }
-                            },
-                            update = { mapView ->
-                                // Simply invalidate the map to force a redraw
-                                mapView.invalidate()
-                            },
+                        SlopeColoredMap(
+                            metrics = event.metrics,
+                            locationPoints = event.locationPoints,
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -1896,5 +2050,31 @@ fun EventCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CompactLegendItem(
+    color: Color,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(12.dp, 3.dp)
+                .clip(RoundedCornerShape(1.5.dp))
+                .background(color)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+        )
     }
 }

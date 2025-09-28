@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("4.0")} (20-09-2025: added graph for lap times, altitude with point selection)"
+        versionName = "${getNextVersion("5.0")} (20-09-2025: added graph for lap times, altitude with point selection)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

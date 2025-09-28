@@ -1,6 +1,7 @@
 package at.co.netconsulting.geotracker.data
 
 import org.osmdroid.util.GeoPoint
+import at.co.netconsulting.geotracker.domain.Metric
 
 data class RouteRerunData(
     val points: List<GeoPoint>,
@@ -10,5 +11,7 @@ data class RouteRerunData(
 
 data class RouteDisplayData(
     val points: List<GeoPoint>,
-    val eventId: Int? = null
+    val eventId: Int? = null,
+    val showSlopeColors: Boolean = false,
+    val metrics: List<Metric>? = null
 )

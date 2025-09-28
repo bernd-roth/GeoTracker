@@ -29,6 +29,11 @@ data class EventWithDetails(
     val avgHeartRate: Int = 0,
     val heartRateDevice: String = "",
 
+    // Slope calculations
+    val averageSlope: Double = 0.0,
+    val maxSlope: Double = 0.0,
+    val minSlope: Double = 0.0,
+
     // Added metrics for altitude graph
     val metrics: List<Metric> = emptyList()
 )

@@ -63,6 +63,7 @@ import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
 import at.co.netconsulting.geotracker.location.WaypointOverlay
@@ -595,17 +596,32 @@ fun MapScreen(
                     mapView.overlays.remove(existingOverlay)
                 }
 
-                // Create new route overlay
-                val routeOverlay = Polyline().apply {
-                    setPoints(routeToDisplay.points)
-                    color = android.graphics.Color.RED
-                    width = 8f
-                    title = "Event Route"
+                // Create route overlay(s) based on visualization type
+                if (routeToDisplay.showSlopeColors && !routeToDisplay.metrics.isNullOrEmpty()) {
+                    // Create slope-colored route segments
+                    val slopeSegments = createSlopeColoredSegments(routeToDisplay.metrics!!, routeToDisplay.points)
+                    slopeSegments.forEach { segment ->
+                        if (segment.geoPoints.isNotEmpty()) {
+                            val polyline = Polyline().apply {
+                                setPoints(segment.geoPoints)
+                                color = getSlopeColorInt(segment.slope)
+                                width = 8f
+                                title = "Slope: ${String.format("%.1f%%", segment.slope)}"
+                            }
+                            mapView.overlays.add(polyline)
+                        }
+                    }
+                } else {
+                    // Create standard single-color route overlay
+                    val routeOverlay = Polyline().apply {
+                        setPoints(routeToDisplay.points)
+                        color = android.graphics.Color.RED
+                        width = 8f
+                        title = "Event Route"
+                    }
+                    mapView.overlays.add(routeOverlay)
                 }
-
-                // Add the route overlay to the map
-                mapView.overlays.add(routeOverlay)
-                routeOverlayRef.value = routeOverlay
+                routeOverlayRef.value = null // We're managing multiple overlays for slope colors
 
                 // Load waypoints for the route if we have an event ID
                 Timber.d("RouteDisplayData eventId: ${routeToDisplay.eventId}")
@@ -2276,4 +2292,149 @@ private fun isServiceRunningFunc(context: Context, serviceName: String): Boolean
         .any { service ->
             serviceName == service.service.className && service.foreground
         }
+}
+
+// Helper functions for slope-colored route visualization
+private data class MapSlopeSegment(
+    val geoPoints: List<GeoPoint>,
+    val slope: Double
+)
+
+private fun createSlopeColoredSegments(metrics: List<Metric>, locationPoints: List<GeoPoint>): List<MapSlopeSegment> {
+    if (metrics.size < 2 || locationPoints.isEmpty()) return emptyList()
+
+    // Sort metrics by time to ensure correct order
+    val sortedMetrics = metrics.sortedBy { it.timeInMilliseconds }
+    val segments = mutableListOf<MapSlopeSegment>()
+    var currentSegmentIndices = mutableListOf<Int>()
+    var currentSlopeRange = getSlopeRange(0.0) // Start with flat
+
+    // Calculate slope between consecutive points
+    for (i in 1 until sortedMetrics.size) {
+        val previousMetric = sortedMetrics[i - 1]
+        val currentMetric = sortedMetrics[i]
+
+        // Calculate actual distance between points
+        val distanceDiff = if (currentMetric.distance > previousMetric.distance) {
+            currentMetric.distance - previousMetric.distance
+        } else {
+            currentMetric.distance
+        }
+
+        val elevationDiff = currentMetric.elevation - previousMetric.elevation
+
+        val slope = if (distanceDiff > 5.0) {
+            // Slope = (elevation change / distance change) * 100 to get percentage
+            val calculatedSlope = (elevationDiff / distanceDiff) * 100.0
+            // Filter extreme values but allow steeper slopes
+            if (calculatedSlope >= -50.0 && calculatedSlope <= 50.0) calculatedSlope else 0.0
+        } else {
+            0.0 // No meaningful distance change
+        }
+
+        val pointSlopeRange = getSlopeRange(slope)
+
+        if (pointSlopeRange == currentSlopeRange) {
+            // Same slope range, add to current segment
+            if (currentSegmentIndices.isEmpty()) {
+                currentSegmentIndices.add(i - 1)
+            }
+            currentSegmentIndices.add(i)
+        } else {
+            // Different slope range, finish current segment and start new one
+            if (currentSegmentIndices.isNotEmpty()) {
+                val segmentGeoPoints = currentSegmentIndices.mapNotNull { index ->
+                    if (index < locationPoints.size) locationPoints[index] else null
+                }
+                val segmentMetrics = currentSegmentIndices.map { sortedMetrics[it] }
+                val avgSlope = calculateAverageSlope(segmentMetrics)
+
+                if (segmentGeoPoints.isNotEmpty()) {
+                    segments.add(MapSlopeSegment(
+                        geoPoints = segmentGeoPoints,
+                        slope = avgSlope
+                    ))
+                }
+            }
+
+            currentSegmentIndices = mutableListOf(i - 1, i)
+            currentSlopeRange = pointSlopeRange
+        }
+    }
+
+    // Add the last segment
+    if (currentSegmentIndices.isNotEmpty()) {
+        val segmentGeoPoints = currentSegmentIndices.mapNotNull { index ->
+            if (index < locationPoints.size) locationPoints[index] else null
+        }
+        val segmentMetrics = currentSegmentIndices.map { sortedMetrics[it] }
+        val avgSlope = calculateAverageSlope(segmentMetrics)
+
+        if (segmentGeoPoints.isNotEmpty()) {
+            segments.add(MapSlopeSegment(
+                geoPoints = segmentGeoPoints,
+                slope = avgSlope
+            ))
+        }
+    }
+
+    return segments
+}
+
+private fun calculateAverageSlope(metrics: List<Metric>): Double {
+    if (metrics.size < 2) return 0.0
+
+    var totalDistance = 0.0
+    var totalElevationChange = 0.0
+
+    for (i in 1 until metrics.size) {
+        // Calculate actual distance between points
+        val distanceDiff = if (metrics[i].distance > metrics[i-1].distance) {
+            metrics[i].distance - metrics[i-1].distance
+        } else {
+            metrics[i].distance
+        }
+
+        val elevationDiff = metrics[i].elevation - metrics[i-1].elevation
+
+        if (distanceDiff > 5.0) {
+            totalDistance += distanceDiff
+            totalElevationChange += elevationDiff
+        }
+    }
+
+    return if (totalDistance > 0) {
+        (totalElevationChange / totalDistance) * 100.0
+    } else {
+        0.0
+    }
+}
+
+private enum class MapSlopeRange {
+    STEEP_DECLINE, MODERATE_DECLINE, GENTLE_DECLINE, FLAT,
+    GENTLE_INCLINE, MODERATE_INCLINE, STEEP_INCLINE
+}
+
+private fun getSlopeRange(slope: Double): MapSlopeRange {
+    return when {
+        slope < -8.0 -> MapSlopeRange.STEEP_DECLINE     // Red
+        slope < -3.0 -> MapSlopeRange.MODERATE_DECLINE  // Orange
+        slope < -1.0 -> MapSlopeRange.GENTLE_DECLINE    // Yellow
+        slope < 1.0 -> MapSlopeRange.FLAT               // Dark Green
+        slope < 3.0 -> MapSlopeRange.GENTLE_INCLINE     // Light Blue
+        slope < 8.0 -> MapSlopeRange.MODERATE_INCLINE   // Blue
+        else -> MapSlopeRange.STEEP_INCLINE             // Dark Blue
+    }
+}
+
+private fun getSlopeColorInt(slope: Double): Int {
+    return when {
+        slope < -8.0 -> android.graphics.Color.RED           // Steep decline
+        slope < -3.0 -> android.graphics.Color.rgb(255, 102, 0)  // Orange - Moderate decline
+        slope < -1.0 -> android.graphics.Color.YELLOW        // Gentle decline
+        slope < 1.0 -> android.graphics.Color.rgb(0, 139, 0) // Flat - consistent with app theme
+        slope < 3.0 -> android.graphics.Color.rgb(135, 206, 235) // Light blue - Gentle incline
+        slope < 8.0 -> android.graphics.Color.BLUE           // Moderate incline
+        else -> android.graphics.Color.rgb(0, 0, 128)        // Dark blue - Steep incline
+    }
 }
