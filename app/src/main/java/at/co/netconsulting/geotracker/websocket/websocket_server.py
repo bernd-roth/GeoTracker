@@ -721,11 +721,12 @@ class TrackingServer:
                             distance, covered_distance, cumulative_elevation_gain, heart_rate,
                             heart_rate_device_id, lap, temperature, wind_speed, wind_direction,
                             humidity, weather_timestamp, weather_code,
-                            pressure, pressure_accuracy, altitude_from_pressure, sea_level_pressure
+                            pressure, pressure_accuracy, altitude_from_pressure, sea_level_pressure,
+                            slope
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                             $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                            $27, $28, $29, $30
+                            $27, $28, $29, $30, $31
                         )
                     """,
                                        session_id,
@@ -757,7 +758,8 @@ class TrackingServer:
                                        pressure,
                                        pressure_accuracy,
                                        altitude_from_pressure,
-                                       sea_level_pressure
+                                       sea_level_pressure,
+                                       float(message_data.get('slope', 0)) if message_data.get('slope') is not None else None
                                        )
 
                     # Process lap times if they exist in the message
@@ -794,6 +796,7 @@ class TrackingServer:
                     gtp.temperature, gtp.wind_speed, gtp.wind_direction,
                     gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
                     gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
+                    gtp.slope,
                     gtp.received_at
                 FROM gps_tracking_points gtp
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
@@ -871,6 +874,10 @@ class TrackingServer:
                     tracking_point["altitudeFromPressure"] = float(row['altitude_from_pressure'])
                 if row['sea_level_pressure'] is not None:
                     tracking_point["seaLevelPressure"] = float(row['sea_level_pressure'])
+
+                # Add slope data if available
+                if row['slope'] is not None:
+                    tracking_point["slope"] = float(row['slope'])
 
                 self.tracking_history[row['session_id']].append(tracking_point)
 
@@ -1471,6 +1478,7 @@ class TrackingServer:
                                 'currentSpeed': latest_point.get("currentSpeed", 0.0),
                                 'distance': latest_point.get("distance", 0.0),
                                 'heartRate': latest_point.get("heartRate"),
+                                'slope': latest_point.get("slope"),
                                 'timestamp': latest_point.get("timestamp", ""),
                                 'lapTimes': [
                                     {
@@ -1734,6 +1742,10 @@ class TrackingServer:
 
         if "seaLevelPressure" in message_data:
             tracking_point["seaLevelPressure"] = float(message_data["seaLevelPressure"])
+
+        # Add slope data if available
+        if "slope" in message_data:
+            tracking_point["slope"] = float(message_data["slope"])
 
         return tracking_point
 
@@ -2167,6 +2179,7 @@ class TrackingServer:
                             'reason': tracking_point.get('reason', 'Invalid GPS coordinates'),
                             'otherData': {
                                 'heartRate': tracking_point.get('heartRate'),
+                                'slope': tracking_point.get('slope'),
                                 'currentSpeed': tracking_point.get('currentSpeed'),
                                 'timestamp': tracking_point.get('timestamp')
                             }
@@ -2212,6 +2225,7 @@ class TrackingServer:
                                 'currentSpeed': tracking_point.get("currentSpeed", 0.0),
                                 'distance': tracking_point.get("distance", 0.0),
                                 'heartRate': tracking_point.get("heartRate"),
+                                'slope': tracking_point.get("slope"),
                                 'timestamp': tracking_point.get("timestamp", ""),
                                 'lapTimes': [
                                     {

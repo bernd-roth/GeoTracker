@@ -772,6 +772,10 @@ function showInfoPopup(event, point, sessionId, chartType) {
                     <strong style="color: ${getHeartRateColor(point.heartRate || 0)};">Heart Rate</strong><br>
                     ${point.heartRate || 0} bpm
                 </div>
+                <div>
+                    <strong style="color: ${getSlopeColor(point.slope || 0)};">Slope</strong><br>
+                    ${(point.slope || 0).toFixed(1)}%
+                </div>
             </div>
             ${weatherSection}
             <div style="margin-top: 8px; padding-top: 6px; border-top: 1px solid #ddd; font-size: 10px; color: #666;">
@@ -1067,6 +1071,14 @@ function handleInvalidCoordinates(message) {
                     heartRateElement.style.color = getHeartRateColor(otherData.heartRate);
                 }
             }
+
+            if (otherData.slope !== undefined) {
+                const slopeElement = document.getElementById(`slope-${sessionId}`);
+                if (slopeElement) {
+                    slopeElement.textContent = parseFloat(otherData.slope || 0).toFixed(1);
+                    slopeElement.style.color = getSlopeColor(parseFloat(otherData.slope || 0));
+                }
+            }
         }
     }
 
@@ -1101,6 +1113,7 @@ function handleHistoryBatch(points) {
             averageSpeed: parseFloat(point.averageSpeed || 0),
             cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
             heartRate: parseInt(point.heartRate || 0),
+            slope: parseFloat(point.slope || 0),
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
             personName: personName,
 
@@ -1151,6 +1164,7 @@ function finalizeBatchProcessing() {
                         averageSpeed: latestPoint.averageSpeed,
                         cumulativeElevationGain: latestPoint.cumulativeElevationGain,
                         heartRate: latestPoint.heartRate,
+                        slope: latestPoint.slope,
                         distance: latestPoint.distance,
                         personName: latestPoint.personName ||
                             (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || "",
@@ -1193,6 +1207,7 @@ function handlePoint(data) {
         movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
         heartRate: parseInt(data.heartRate || 0),
+        slope: parseFloat(data.slope || 0),
         timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
         personName: personName,
 
@@ -1229,6 +1244,7 @@ function handlePoint(data) {
             movingAverageSpeed: processedPoint.movingAverageSpeed,
             cumulativeElevationGain: processedPoint.cumulativeElevationGain,
             heartRate: processedPoint.heartRate,
+            slope: processedPoint.slope,
             distance: processedPoint.distance,
             personName: processedPoint.personName,
             weather: {
@@ -1603,6 +1619,17 @@ function getHeartRateColor(heartRate) {
     return '#F44336';
 }
 
+function getSlopeColor(slope) {
+    if (slope === null || slope === undefined) return '#999';
+    if (slope < -10) return '#F44336';  // Steep downhill - red
+    if (slope < -5) return '#FF9800';   // Moderate downhill - orange
+    if (slope < -2) return '#FFC107';   // Slight downhill - amber
+    if (slope < 2) return '#4CAF50';    // Flat - green
+    if (slope < 5) return '#2196F3';    // Slight uphill - blue
+    if (slope < 10) return '#3F51B5';   // Moderate uphill - indigo
+    return '#9C27B0';                   // Steep uphill - purple
+}
+
 function updateSpeedDisplay(sessionId, speed, data) {
     if (!shouldDisplaySession(sessionId)) {
         addDebugMessage(`Skipping speed display update for filtered session: ${sessionId}`, 'system');
@@ -1620,6 +1647,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
             movingAvg: 0,
             elevationGain: 0,
             heartRate: 0,
+            slope: 0,
             totalDistance: 0,
             lastUpdate: new Date(),
             personName: personName
@@ -1643,6 +1671,10 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         if (data.heartRate !== undefined) {
             history.heartRate = data.heartRate;
+        }
+
+        if (data.slope !== undefined) {
+            history.slope = data.slope;
         }
 
         if (data.distance !== undefined) {
@@ -1717,6 +1749,11 @@ function updateSpeedDisplay(sessionId, speed, data) {
                 <div class="speed-value" id="heartRate-${sessionId}">0</div>
                 <div class="speed-unit">bpm</div>
             </div>
+            <div class="stat-box">
+                <div class="speed-label">Slope</div>
+                <div class="elevation-value" id="slope-${sessionId}">0.0</div>
+                <div class="elevation-unit">%</div>
+            </div>
         `;
 
         speedDisplay.scrollTop = speedDisplay.scrollHeight;
@@ -1771,6 +1808,13 @@ function updateSpeedDisplay(sessionId, speed, data) {
         history.heartRate = data.heartRate;
         heartRateElement.textContent = history.heartRate;
         heartRateElement.style.color = getHeartRateColor(history.heartRate);
+    }
+
+    const slopeElement = document.getElementById(`slope-${sessionId}`);
+    if (slopeElement && data.slope !== undefined) {
+        history.slope = data.slope;
+        slopeElement.textContent = history.slope.toFixed(1);
+        slopeElement.style.color = getSlopeColor(history.slope);
     }
 
     cleanupOldSessions();
