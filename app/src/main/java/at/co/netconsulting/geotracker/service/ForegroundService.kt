@@ -151,6 +151,13 @@ class ForegroundService : Service() {
     private var hasSetInitialElevation: Boolean = false
     private var currentElevationGain: Float = 0f
 
+    // Real-time slope calculation
+    private var previousDistance: Double = 0.0
+    private var previousAltitude: Double = 0.0
+    private var currentSlope: Double = 0.0
+    private var slopeHistory = mutableListOf<Double>()
+    private val maxSlopeHistorySize = 5  // For smoothing GPS noise
+
     // recovery after crash
     private var recoveryManager: SessionRecoveryManager? = null
     private var stateConsistencyCheckerJob: Job? = null
@@ -1102,6 +1109,12 @@ class ForegroundService : Service() {
                 }
                 previousElevation = currentElevation
 
+                // Calculate real-time slope
+                currentSlope = calculateRealTimeSlope(distance, altitude)
+
+                // Update CustomLocationListener with current slope
+                customLocationListener?.updateSlopeData(currentSlope)
+
                 // Always save metrics data with barometer data included
                 val metric = Metric(
                     eventId = eventId,
@@ -1116,6 +1129,7 @@ class ForegroundService : Service() {
                     elevation = altitude.toFloat(),
                     elevationGain = elevGain,
                     elevationLoss = elevLoss,
+                    slope = currentSlope,                      // Real-time slope percentage
                     temperature = if (currentTemperature > 0) currentTemperature.toFloat() else null,
                     accuracy = null,
 
@@ -1773,6 +1787,7 @@ class ForegroundService : Service() {
                     longitude = longitude,
                     speed = speed,
                     altitude = altitude,
+                    slope = currentSlope,                      // Real-time slope percentage
                     coveredDistance = distance,
                     lap = lap,
                     startDateTime = startDateTime,
@@ -1802,6 +1817,52 @@ class ForegroundService : Service() {
             Log.e(TAG, "Error transmitting lap times to WebSocket: ${e.message}")
             throw e
         }
+    }
+
+    /**
+     * Calculate real-time slope based on distance and elevation changes
+     */
+    private fun calculateRealTimeSlope(currentDistance: Double, currentAltitude: Double): Double {
+        if (previousDistance == 0.0) {
+            // First measurement - initialize
+            previousDistance = currentDistance
+            previousAltitude = currentAltitude
+            return 0.0
+        }
+
+        val distanceDiff = currentDistance - previousDistance
+        val elevationDiff = currentAltitude - previousAltitude
+
+        // Only calculate slope if there's meaningful distance covered (> 5 meters)
+        if (distanceDiff > 5.0) {
+            // Slope = (elevation change / distance change) * 100 to get percentage
+            val slope = (elevationDiff / distanceDiff) * 100.0
+
+            // Filter out extreme values that are likely GPS errors
+            if (slope >= -50.0 && slope <= 50.0) {
+                // Add to history for smoothing
+                slopeHistory.add(slope)
+                if (slopeHistory.size > maxSlopeHistorySize) {
+                    slopeHistory.removeFirst()
+                }
+
+                // Calculate smoothed slope using moving average
+                val smoothedSlope = slopeHistory.average()
+
+                // Update previous values for next calculation
+                previousDistance = currentDistance
+                previousAltitude = currentAltitude
+
+                Log.d(TAG, "Slope calculated: ${String.format("%.2f", smoothedSlope)}% (raw: ${String.format("%.2f", slope)}%, distance: ${String.format("%.1f", distanceDiff)}m, elevation: ${String.format("%.1f", elevationDiff)}m)")
+
+                return smoothedSlope
+            } else {
+                Log.w(TAG, "Extreme slope value filtered out: ${String.format("%.1f", slope)}%")
+            }
+        }
+
+        // Return current slope if no meaningful distance change
+        return currentSlope
     }
 
     companion object {
