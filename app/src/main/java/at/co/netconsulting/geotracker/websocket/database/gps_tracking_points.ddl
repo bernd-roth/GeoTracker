@@ -38,6 +38,7 @@ CREATE TABLE public.gps_tracking_points (
 	pressure_accuracy int4 NULL,
 	altitude_from_pressure numeric(10, 4) NULL,
 	sea_level_pressure numeric(8, 2) NULL,
+	slope numeric(6, 2) NULL,
 	CONSTRAINT gps_tracking_points_pkey PRIMARY KEY (id)
 );
 CREATE INDEX idx_gps_altitude_from_pressure ON public.gps_tracking_points USING btree (altitude_from_pressure) WHERE (altitude_from_pressure IS NOT NULL);
@@ -48,6 +49,7 @@ CREATE INDEX idx_gps_session_id ON public.gps_tracking_points USING btree (sessi
 CREATE INDEX idx_gps_temperature ON public.gps_tracking_points USING btree (temperature) WHERE (temperature IS NOT NULL);
 CREATE INDEX idx_gps_weather_code ON public.gps_tracking_points USING btree (weather_code) WHERE (weather_code IS NOT NULL);
 CREATE INDEX idx_gps_wind_speed ON public.gps_tracking_points USING btree (wind_speed) WHERE (wind_speed IS NOT NULL);
+CREATE INDEX idx_gps_slope ON public.gps_tracking_points USING btree (slope) WHERE (slope IS NOT NULL);
 
 
 -- public.gps_tracking_points foreign keys

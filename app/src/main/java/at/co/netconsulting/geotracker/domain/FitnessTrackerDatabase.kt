@@ -25,7 +25,7 @@ import android.util.Log
         Network::class,
         Waypoint::class
     ],
-    version = 16, // ✅ INCREMENTED FROM 15 TO 16
+    version = 17, // ✅ INCREMENTED FROM 16 TO 17
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -548,6 +548,22 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 16->17 - adding slope field to metrics table")
+
+                try {
+                    // Add slope column to metrics table for real-time slope calculation
+                    database.execSQL("ALTER TABLE metrics ADD COLUMN slope REAL NOT NULL DEFAULT 0.0")
+
+                    Log.d(TAG, "Migration 16->17 completed - slope field added to metrics table")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 16->17", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -571,7 +587,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_12_13,
                             MIGRATION_13_14,
                             MIGRATION_14_15,
-                            MIGRATION_15_16
+                            MIGRATION_15_16,
+                            MIGRATION_16_17
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

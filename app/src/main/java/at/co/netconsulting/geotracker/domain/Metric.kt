@@ -29,6 +29,7 @@ data class Metric(
     val elevation: Float = 0f,
     val elevationGain: Float = 0f,
     val elevationLoss: Float = 0f,
+    val slope: Double = 0.0,                        // Real-time slope percentage
     val steps: Int? = null,
     val strideLength: Float? = null,
     val temperature: Float? = null,

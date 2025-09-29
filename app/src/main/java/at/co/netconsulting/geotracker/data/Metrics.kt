@@ -23,6 +23,7 @@ data class Metrics(
     val altitude: Double,
     val horizontalAccuracy: Float = 0f,
     val verticalAccuracyMeters: Float = 0f,
+    val slope: Double = 0.0,                        // Real-time slope percentage
     val coveredDistance: Double = 0.0,
     val lap: Int = 0,
     val startDateTime: LocalDateTime,
