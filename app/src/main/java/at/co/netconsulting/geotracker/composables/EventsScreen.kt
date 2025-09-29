@@ -1019,7 +1019,7 @@ fun EventCard(
                                         textColor = when {
                                             event.maxSlope > 15 -> Color.Red
                                             event.maxSlope > 8 -> Color(0xFFFF9800) // Orange
-                                            else -> Color.Green
+                                            else -> Color(0,139,0)
                                         }
                                     )
                                 }
@@ -1502,7 +1502,7 @@ fun EventCard(
                                         label = "Alt. Difference:",
                                         value = String.format("%.1f m", altitudeDifference),
                                         textColor = when {
-                                            kotlin.math.abs(altitudeDifference) < 5 -> Color.Green
+                                            kotlin.math.abs(altitudeDifference) < 5 -> Color(0,139,0)
                                             kotlin.math.abs(altitudeDifference) < 15 -> MaterialTheme.colorScheme.primary
                                             else -> Color.Red
                                         }
@@ -1527,7 +1527,7 @@ fun EventCard(
                             }
 
                             val trendColor = when {
-                                pressureChange > 1.0 -> Color.Green
+                                pressureChange > 1.0 -> Color(0,139,0)
                                 pressureChange < -1.0 -> Color.Red
                                 else -> MaterialTheme.colorScheme.primary
                             }
@@ -1766,7 +1766,7 @@ fun EventCard(
                                 textColor = when {
                                     event.maxSlope > 15 -> Color.Red
                                     event.maxSlope > 8 -> Color(0xFFFF9800) // Orange
-                                    else -> Color.Green
+                                    else -> Color(0,139,0)
                                 }
                             )
 

@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.0")} (28-09-2025: added slope calculation)"
+        versionName = "${getNextVersion("5.1")} (29-09-2025: color change for better readability)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
