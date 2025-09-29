@@ -40,4 +40,91 @@ interface EventDao {
 
     @Query("SELECT * FROM weather WHERE eventId = :eventId ORDER BY weatherId DESC LIMIT 1")
     suspend fun getLatestWeatherForEvent(eventId: Int): Weather?
+
+    // Database cleanup methods
+    @Query("""
+        SELECT DISTINCT e.* FROM events e
+        WHERE e.eventId IN (
+            SELECT DISTINCT l.eventId FROM locations l
+        )
+        AND e.eventId NOT IN (
+            SELECT DISTINCT m.eventId FROM metrics m WHERE m.timeInMilliseconds > 0
+        )
+    """)
+    suspend fun getEventsWithLocationsButNoValidMetrics(): List<Event>
+
+    @Query("""
+        DELETE FROM events WHERE eventId IN (
+            SELECT DISTINCT e.eventId FROM events e
+            WHERE e.eventId IN (
+                SELECT DISTINCT l.eventId FROM locations l
+            )
+            AND e.eventId NOT IN (
+                SELECT DISTINCT m.eventId FROM metrics m WHERE m.timeInMilliseconds > 0
+            )
+        )
+    """)
+    suspend fun deleteEventsWithLocationsButNoValidMetrics(): Int
+
+    // Enhanced cleanup: Find events with invalid timestamps (1970 or future dates)
+    @Query("""
+        SELECT DISTINCT e.* FROM events e
+        WHERE e.eventId IN (
+            SELECT DISTINCT m.eventId FROM metrics m
+            WHERE m.timeInMilliseconds < 31536000000
+            OR m.timeInMilliseconds > :futureThreshold
+        )
+        AND e.eventId IN (
+            SELECT DISTINCT l.eventId FROM locations l
+        )
+    """)
+    suspend fun getEventsWithInvalidTimestamps(futureThreshold: Long = System.currentTimeMillis() + 86400000): List<Event>
+
+    @Query("""
+        DELETE FROM events WHERE eventId IN (
+            SELECT DISTINCT e.eventId FROM events e
+            WHERE e.eventId IN (
+                SELECT DISTINCT m.eventId FROM metrics m
+                WHERE m.timeInMilliseconds < 31536000000
+                OR m.timeInMilliseconds > :futureThreshold
+            )
+            AND e.eventId IN (
+                SELECT DISTINCT l.eventId FROM locations l
+            )
+        )
+    """)
+    suspend fun deleteEventsWithInvalidTimestamps(futureThreshold: Long = System.currentTimeMillis() + 86400000): Int
+
+    // Simplified: Just get events with locations but no valid metrics first
+    @Query("""
+        SELECT DISTINCT e.* FROM events e
+        WHERE e.eventId IN (
+            SELECT DISTINCT l.eventId FROM locations l
+        )
+        AND e.eventId NOT IN (
+            SELECT DISTINCT m.eventId FROM metrics m
+            WHERE m.timeInMilliseconds > 31536000000
+            AND m.timeInMilliseconds < :futureThreshold
+        )
+    """)
+    suspend fun getAllInvalidEvents(futureThreshold: Long = System.currentTimeMillis() + 86400000): List<Event>
+
+    @Query("""
+        DELETE FROM events WHERE eventId IN (
+            SELECT DISTINCT e.eventId FROM events e
+            WHERE e.eventId IN (
+                SELECT DISTINCT l.eventId FROM locations l
+            )
+            AND e.eventId NOT IN (
+                SELECT DISTINCT m.eventId FROM metrics m
+                WHERE m.timeInMilliseconds > 31536000000
+                AND m.timeInMilliseconds < :futureThreshold
+            )
+        )
+    """)
+    suspend fun deleteAllInvalidEvents(futureThreshold: Long = System.currentTimeMillis() + 86400000): Int
+
+    // Delete specific events by their IDs
+    @Query("DELETE FROM events WHERE eventId IN (:eventIds)")
+    suspend fun deleteEventsByIds(eventIds: List<Int>): Int
 }

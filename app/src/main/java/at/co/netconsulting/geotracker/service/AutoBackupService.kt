@@ -432,17 +432,54 @@ class AutoBackupService : Service() {
             val weather = database.weatherDao().getWeatherForEvent(event.eventId)
             val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(event.eventId)
 
-            // Skip events with no location data
-            if (locations.isEmpty()) {
+            // Skip events with no location data or invalid coordinates
+            if (locations.isEmpty() || locations.all { it.latitude == 0.0 && it.longitude == 0.0 }) {
                 return false
             }
 
-            // Map sport type to GPX activity type (same as manual export)
+            // Skip events with no valid metrics (no trackpoints will be created)
+            val validMetrics = metrics.filter { it.timeInMilliseconds > 0 }
+            if (validMetrics.isEmpty()) {
+                return false
+            }
+
+            // Skip events with invalid timestamps (1970 epoch or future dates)
+            val currentTime = System.currentTimeMillis()
+            val oneDayInFuture = currentTime + (24 * 60 * 60 * 1000) // 24 hours ahead
+            val earliestValidTime = 31536000000L // 1 year after Unix epoch (1971)
+
+            val metricsWithValidTimestamps = validMetrics.filter { metric ->
+                metric.timeInMilliseconds >= earliestValidTime && metric.timeInMilliseconds <= oneDayInFuture
+            }
+
+            if (metricsWithValidTimestamps.isEmpty()) {
+                return false
+            }
+
+            // Map sport type to GPX activity type (comprehensive mapping - matches GpxExport.kt)
             val activityType = when (event.artOfSport?.lowercase()) {
-                "running", "jogging", "marathon" -> "run"
-                "cycling", "bicycle", "bike", "biking" -> "bike"
-                "hiking", "walking", "trekking" -> "hike"
-                else -> event.artOfSport?.lowercase() ?: "unknown"
+                // Running variants
+                "running", "jogging", "marathon", "trail running", "ultramarathon", "road running", "orienteering" -> "run"
+
+                // Cycling variants
+                "cycling", "bicycle", "bike", "biking", "gravel bike", "e-bike", "racing bicycle", "mountain bike" -> "bike"
+
+                // Walking/Hiking variants
+                "hiking", "walking", "trekking", "mountain hiking", "forest hiking", "nordic walking", "urban walking" -> "hike"
+
+                // Water sports
+                "swimming - open water", "swimming - pool", "kayaking", "canoeing", "stand up paddleboarding", "water sports" -> "swim"
+
+                // Winter sports
+                "ski", "snowboard", "cross country skiing", "ski touring", "ice skating", "ice hockey", "biathlon", "sledding", "snowshoeing", "winter sport" -> "winter"
+
+                // Ball sports and other sports
+                "soccer", "american football", "fistball", "squash", "tennis", "basketball", "volleyball", "baseball", "badminton", "table tennis", "ball sports" -> "sport"
+
+                // Motorsports
+                "car", "motorcycle", "motorsport" -> "drive"
+
+                else -> event.artOfSport?.lowercase()?.replace(" ", "_") ?: "unknown"
             }
 
             // Create GPX content with ALL the same extensions as manual export
@@ -703,4 +740,73 @@ class AutoBackupService : Service() {
             false
         }
     }
+
+    /**
+     * Clean up database by removing events with locations but no valid metrics
+     * These events would create empty GPX files during export
+     */
+    suspend fun cleanupInvalidEvents(): CleanupResult {
+        return try {
+            withContext(Dispatchers.IO) {
+                val database = FitnessTrackerDatabase.getInstance(applicationContext)
+
+                // First, get the events that would be deleted for reporting
+                val eventsToDelete = database.eventDao().getEventsWithLocationsButNoValidMetrics()
+
+                if (eventsToDelete.isEmpty()) {
+                    CleanupResult(0, emptyList(), "No invalid events found to clean up.")
+                } else {
+                    // Delete the invalid events (this will cascade delete related data due to foreign keys)
+                    val deletedCount = database.eventDao().deleteEventsWithLocationsButNoValidMetrics()
+
+                    val eventNames = eventsToDelete.map { "${it.eventName} (${it.eventDate})" }
+                    CleanupResult(
+                        deletedCount,
+                        eventNames,
+                        "Successfully cleaned up $deletedCount invalid events."
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error during database cleanup")
+            CleanupResult(0, emptyList(), "Error during cleanup: ${e.message}")
+        }
+    }
+
+    /**
+     * Preview events that would be deleted without actually deleting them
+     */
+    suspend fun previewCleanup(): CleanupResult {
+        return try {
+            withContext(Dispatchers.IO) {
+                val database = FitnessTrackerDatabase.getInstance(applicationContext)
+                val eventsToDelete = database.eventDao().getEventsWithLocationsButNoValidMetrics()
+
+                val eventNames = eventsToDelete.map { "${it.eventName} (${it.eventDate})" }
+                CleanupResult(
+                    eventsToDelete.size,
+                    eventNames,
+                    if (eventsToDelete.isEmpty()) {
+                        "No invalid events found."
+                    } else {
+                        "Found ${eventsToDelete.size} events with locations but no valid metrics that would be deleted."
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error during cleanup preview")
+            CleanupResult(0, emptyList(), "Error during preview: ${e.message}")
+        }
+    }
 }
+
+/**
+ * Result of database cleanup operation
+ */
+data class CleanupResult(
+    val deletedCount: Int,
+    val eventNames: List<String>,
+    val message: String,
+    val events: List<at.co.netconsulting.geotracker.domain.Event> = emptyList(),
+    val eventCategories: Map<Int, String> = emptyMap() // eventId -> category (reason for cleanup)
+)

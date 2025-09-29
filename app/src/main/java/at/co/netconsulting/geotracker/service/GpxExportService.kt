@@ -59,7 +59,7 @@ class GpxExportService : Service() {
                     val locations = database.locationDao().getLocationsByEventId(eventId)
                     val metrics = database.metricDao().getMetricsByEventId(eventId)
 
-                    if (locations.isNotEmpty()) {
+                    if (locations.isNotEmpty() && locations.any { it.latitude != 0.0 && it.longitude != 0.0 }) {
                         val gpxContent = createGPXContent(event, locations, metrics)
                         saveGPXFile(event, gpxContent)
                         updateNotification("Exported ${index + 1}/${events.size} events")

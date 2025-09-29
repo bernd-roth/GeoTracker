@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -55,6 +56,13 @@ import androidx.compose.material.icons.filled.DateRange
 import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.receiver.AutoBackupReceiver
 import at.co.netconsulting.geotracker.service.AutoBackupService
+import at.co.netconsulting.geotracker.service.CleanupResult
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import android.util.Log
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -116,6 +124,13 @@ fun SettingsScreen() {
     // Get last backup info
     val nextBackupTime = remember { mutableStateOf(backupPrefs.getString("nextBackupTime", null)) }
     val lastBackupTime = remember { mutableStateOf<String?>(null) }
+
+    // Database cleanup state
+    var showCleanupDialog by remember { mutableStateOf(false) }
+    var cleanupResult by remember { mutableStateOf<CleanupResult?>(null) }
+    var isCleanupInProgress by remember { mutableStateOf(false) }
+    var selectedEventIds by remember { mutableStateOf(setOf<Int>()) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Update last backup time display
     LaunchedEffect(Unit) {
@@ -416,6 +431,35 @@ fun SettingsScreen() {
                 ) {
                     Text("Run Backup Now")
                 }
+
+                // Database cleanup button
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        Log.d("CleanupButton", "Cleanup button clicked")
+                        isCleanupInProgress = true
+                        coroutineScope.launch {
+                            try {
+                                Log.d("CleanupButton", "Starting cleanup preview coroutine")
+                                cleanupResult = previewDatabaseCleanup(context)
+                                Log.d("CleanupButton", "Preview completed, showing dialog: ${cleanupResult != null}")
+                                // Select all events by default
+                                selectedEventIds = cleanupResult?.events?.map { it.eventId }?.toSet() ?: emptySet()
+                                showCleanupDialog = true
+                            } catch (e: Exception) {
+                                Log.e("CleanupButton", "Error in cleanup preview", e)
+                                Toast.makeText(context, "Error previewing cleanup: ${e.message}", Toast.LENGTH_LONG).show()
+                            } finally {
+                                Log.d("CleanupButton", "Setting cleanup progress to false")
+                                isCleanupInProgress = false
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isCleanupInProgress
+                ) {
+                    Text(if (isCleanupInProgress) "Checking..." else "Clean Up Invalid Events")
+                }
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -540,6 +584,161 @@ fun SettingsScreen() {
             initialMinute = backupMinute
         )
     }
+
+    // Enhanced database cleanup dialog with individual selection
+    if (showCleanupDialog && cleanupResult != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showCleanupDialog = false
+                cleanupResult = null
+                selectedEventIds = emptySet()
+            },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Database Cleanup", modifier = Modifier.weight(1f))
+                    Text(
+                        "${selectedEventIds.size}/${cleanupResult!!.events.size} selected",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(400.dp)
+                ) {
+                    Text(cleanupResult!!.message)
+
+                    if (cleanupResult!!.events.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Select/Deselect all buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    selectedEventIds = cleanupResult!!.events.map { it.eventId }.toSet()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Select All")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    selectedEventIds = emptySet()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Deselect All")
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Select events to delete:",
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Scrollable list of events with checkboxes
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            cleanupResult!!.events.forEach { event ->
+                                val reason = cleanupResult!!.eventCategories[event.eventId] ?: "Unknown issue"
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    androidx.compose.material3.Checkbox(
+                                        checked = selectedEventIds.contains(event.eventId),
+                                        onCheckedChange = { isChecked ->
+                                            selectedEventIds = if (isChecked) {
+                                                selectedEventIds + event.eventId
+                                            } else {
+                                                selectedEventIds - event.eventId
+                                            }
+                                        }
+                                    )
+
+                                    Column(
+                                        modifier = Modifier.padding(start = 8.dp)
+                                    ) {
+                                        Text(
+                                            text = event.eventName,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                        Text(
+                                            text = "${event.eventDate} • $reason",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                if (selectedEventIds.isNotEmpty()) {
+                    Button(
+                        onClick = {
+                            isCleanupInProgress = true
+                            coroutineScope.launch {
+                                try {
+                                    val result = performSelectedEventsCleanup(context, selectedEventIds.toList())
+
+                                    Toast.makeText(
+                                        context,
+                                        result.message,
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } catch (e: Exception) {
+                                    Toast.makeText(
+                                        context,
+                                        "Error during cleanup: ${e.message}",
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                } finally {
+                                    isCleanupInProgress = false
+                                    showCleanupDialog = false
+                                    cleanupResult = null
+                                    selectedEventIds = emptySet()
+                                }
+                            }
+                        },
+                        enabled = !isCleanupInProgress
+                    ) {
+                        Text(if (isCleanupInProgress) "Deleting..." else "Delete Selected (${selectedEventIds.size})")
+                    }
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = {
+                        showCleanupDialog = false
+                        cleanupResult = null
+                        selectedEventIds = emptySet()
+                    }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
 fun saveAllSettings(
@@ -654,6 +853,133 @@ fun TimePickerDialog(
             }
         }
     )
+}
+
+// Database cleanup helper functions
+private suspend fun previewDatabaseCleanup(context: Context): CleanupResult {
+    return try {
+        Log.d("CleanupPreview", "Starting cleanup preview")
+        withContext(Dispatchers.IO) {
+            val database = FitnessTrackerDatabase.getInstance(context)
+            Log.d("CleanupPreview", "Database instance obtained")
+
+            // Get all types of invalid events
+            Log.d("CleanupPreview", "Querying events with no valid metrics...")
+            val noMetricsEvents = database.eventDao().getEventsWithLocationsButNoValidMetrics()
+            Log.d("CleanupPreview", "Found ${noMetricsEvents.size} events with no valid metrics")
+
+            Log.d("CleanupPreview", "Querying events with invalid timestamps...")
+            val futureThreshold = System.currentTimeMillis() + 86400000L // 24 hours from now
+            val invalidTimestampEvents = database.eventDao().getEventsWithInvalidTimestamps(futureThreshold)
+            Log.d("CleanupPreview", "Found ${invalidTimestampEvents.size} events with invalid timestamps")
+
+            Log.d("CleanupPreview", "Querying all invalid events...")
+            val allInvalidEvents = database.eventDao().getAllInvalidEvents(futureThreshold)
+            Log.d("CleanupPreview", "Found ${allInvalidEvents.size} total invalid events")
+
+            val eventNames = mutableListOf<String>()
+            val categories = mutableListOf<String>()
+            val eventCategories = mutableMapOf<Int, String>()
+            val allEvents = mutableListOf<at.co.netconsulting.geotracker.domain.Event>()
+
+            if (noMetricsEvents.isNotEmpty()) {
+                categories.add("${noMetricsEvents.size} events with no valid metrics")
+                noMetricsEvents.forEach { event ->
+                    eventNames.add("• ${event.eventName} (${event.eventDate}) - No metrics")
+                    eventCategories[event.eventId] = "No valid metrics"
+                    allEvents.add(event)
+                    Log.d("CleanupPreview", "No metrics: ${event.eventName} (${event.eventDate})")
+                }
+            }
+
+            if (invalidTimestampEvents.isNotEmpty()) {
+                categories.add("${invalidTimestampEvents.size} events with invalid timestamps")
+                invalidTimestampEvents.forEach { event ->
+                    if (!eventCategories.containsKey(event.eventId)) { // Avoid duplicates
+                        eventNames.add("• ${event.eventName} (${event.eventDate}) - Invalid timestamps")
+                        eventCategories[event.eventId] = "Invalid timestamps"
+                        allEvents.add(event)
+                        Log.d("CleanupPreview", "Invalid timestamps: ${event.eventName} (${event.eventDate})")
+                    }
+                }
+            }
+
+            val result = CleanupResult(
+                allInvalidEvents.size,
+                eventNames,
+                if (allInvalidEvents.isEmpty()) {
+                    "No invalid events found."
+                } else {
+                    "Found ${allInvalidEvents.size} invalid events:\n${categories.joinToString("\n")}"
+                },
+                events = allEvents,
+                eventCategories = eventCategories
+            )
+
+            Log.d("CleanupPreview", "Cleanup preview completed: ${result.message}")
+            result
+        }
+    } catch (e: Exception) {
+        Log.e("CleanupPreview", "Error during preview", e)
+        CleanupResult(0, emptyList(), "Error during preview: ${e.message}")
+    }
+}
+
+private suspend fun performDatabaseCleanup(context: Context): CleanupResult {
+    return try {
+        withContext(Dispatchers.IO) {
+            val database = FitnessTrackerDatabase.getInstance(context)
+
+            // First, get the events that would be deleted for reporting
+            val futureThreshold = System.currentTimeMillis() + 86400000L // 24 hours from now
+            val eventsToDelete = database.eventDao().getAllInvalidEvents(futureThreshold)
+
+            if (eventsToDelete.isEmpty()) {
+                CleanupResult(0, emptyList(), "No invalid events found to clean up.")
+            } else {
+                // Delete all invalid events (this will cascade delete related data due to foreign keys)
+                val deletedCount = database.eventDao().deleteAllInvalidEvents(futureThreshold)
+
+                val eventNames = eventsToDelete.map { "${it.eventName} (${it.eventDate})" }
+                CleanupResult(
+                    deletedCount,
+                    eventNames,
+                    "Successfully cleaned up $deletedCount invalid events."
+                )
+            }
+        }
+    } catch (e: Exception) {
+        CleanupResult(0, emptyList(), "Error during cleanup: ${e.message}")
+    }
+}
+
+private suspend fun performSelectedEventsCleanup(context: Context, selectedEventIds: List<Int>): CleanupResult {
+    return try {
+        withContext(Dispatchers.IO) {
+            val database = FitnessTrackerDatabase.getInstance(context)
+
+            if (selectedEventIds.isEmpty()) {
+                CleanupResult(0, emptyList(), "No events selected for cleanup.")
+            } else {
+                // Get the events that will be deleted for reporting
+                val eventsToDelete = selectedEventIds.mapNotNull { eventId ->
+                    database.eventDao().getEventById(eventId)
+                }
+
+                // Delete the selected events (this will cascade delete related data due to foreign keys)
+                val deletedCount = database.eventDao().deleteEventsByIds(selectedEventIds)
+
+                val eventNames = eventsToDelete.map { "${it.eventName} (${it.eventDate})" }
+                CleanupResult(
+                    deletedCount,
+                    eventNames,
+                    "Successfully deleted $deletedCount selected events."
+                )
+            }
+        }
+    } catch (e: Exception) {
+        CleanupResult(0, emptyList(), "Error during cleanup: ${e.message}")
+    }
 }
 
 // Helper functions
