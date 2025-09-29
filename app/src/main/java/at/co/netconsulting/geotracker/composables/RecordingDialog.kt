@@ -290,6 +290,7 @@ fun RecordingDialog(
         SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
         SportType("Water Sports", listOf("Swimming - Open Water", "Swimming - Pool", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
         SportType("Ball Sports", listOf("Soccer", "American Football", "Fistball", "Squash", "Tennis", "Basketball", "Volleyball", "Baseball", "Badminton", "Table Tennis")),
+        SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Ice Skating", "Ice Hockey", "Biathlon", "Sledding", "Snowshoeing")),
         SportType("Walking", listOf("Nordic Walking", "Urban Walking")),
         SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
         SportType("Motorsport", listOf("Car", "Motorcycle"))
@@ -347,7 +348,19 @@ fun RecordingDialog(
         "Car" -> Icons.Default.DirectionsCar
         "Motorcycle" -> Icons.Default.Motorcycle
         "Motorsport" -> Icons.Default.SportsMotorsports
-        
+
+        // Winter Sport subcategories
+        "Ski" -> Icons.Default.Terrain  // Mountain/downhill terrain
+        "Snowboard" -> Icons.Default.Landscape  // Mountain landscape
+        "Cross Country Skiing" -> Icons.Default.DirectionsRun  // Similar movement to running
+        "Ski Touring" -> Icons.Default.Terrain  // Mountain terrain
+        "Ice Skating" -> Icons.Default.Speed  // Speed/gliding motion
+        "Ice Hockey" -> Icons.Default.SportsFootball  // Team sport icon
+        "Biathlon" -> Icons.Default.GpsFixed  // Target/precision sport
+        "Sledding" -> Icons.Default.Speed  // Speed/downhill motion
+        "Snowshoeing" -> Icons.Default.Hiking  // Similar to hiking
+        "Winter Sport" -> Icons.Default.Landscape  // Winter mountain landscape
+
         // Default fallback
         else -> Icons.Default.DirectionsRun
     }

@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.2")} (29-09-2025: import / export slope data)"
+        versionName = "${getNextVersion("5.3")} (29-09-2025: new sports type: winter sport; importing / exporting winter sports)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

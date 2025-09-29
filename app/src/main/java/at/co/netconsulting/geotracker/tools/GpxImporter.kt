@@ -390,6 +390,17 @@ class GpxImporter(private val context: Context) {
                 "car", "driving" -> "Car"
                 "motorcycle", "motorbike" -> "Motorcycle"
                 "motorsport", "motor sport" -> "Motorsport"
+                // Winter sports
+                "ski", "skiing", "alpine skiing", "downhill skiing" -> "Ski"
+                "snowboard", "snowboarding" -> "Snowboard"
+                "cross country skiing", "cross-country skiing", "xc skiing" -> "Cross Country Skiing"
+                "ski touring", "ski-touring", "backcountry skiing" -> "Ski Touring"
+                "ice skating", "ice-skating", "skating" -> "Ice Skating"
+                "ice hockey", "hockey" -> "Ice Hockey"
+                "biathlon" -> "Biathlon"
+                "sledding", "tobogganing", "sled" -> "Sledding"
+                "snowshoeing", "snowshoe" -> "Snowshoeing"
+                "winter sport", "winter sports" -> "Winter Sport"
                 "" -> "Unknown"
                 else -> activityType.replaceFirstChar { it.uppercase() }
             }

@@ -35,10 +35,16 @@ suspend fun export(eventId: Int, contextActivity: Context) {
 
             // Map sport type to GPX activity type
             val activityType = when (event?.artOfSport?.lowercase()) {
-                "running", "jogging", "marathon" -> "run"
-                "cycling", "bicycle", "bike", "biking" -> "bike"
-                "hiking", "walking", "trekking" -> "hike"
-                else -> event?.artOfSport?.lowercase() ?: "unknown"
+                "running", "jogging", "marathon", "trail running", "ultramarathon", "road running", "orienteering" -> "run"
+                "cycling", "bicycle", "bike", "biking", "gravel bike", "e-bike", "racing bicycle", "mountain bike" -> "bike"
+                "hiking", "walking", "trekking", "mountain hiking", "forest hiking", "nordic walking", "urban walking" -> "hike"
+                "swimming - open water", "swimming - pool", "kayaking", "canoeing", "stand up paddleboarding" -> "swim"
+                // Winter sports
+                "ski", "snowboard", "cross country skiing", "ski touring", "ice skating", "ice hockey", "biathlon", "sledding", "snowshoeing", "winter sport" -> "winter"
+                // Other sports
+                "soccer", "american football", "fistball", "squash", "tennis", "basketball", "volleyball", "baseball", "badminton", "table tennis" -> "sport"
+                "car", "motorcycle", "motorsport" -> "drive"
+                else -> event?.artOfSport?.lowercase()?.replace(" ", "_") ?: "unknown"
             }
 
             // Create GPX content with proper namespace declarations
