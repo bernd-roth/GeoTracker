@@ -103,7 +103,24 @@ private fun calculateSlopeSegments(metrics: List<Metric>, locationPoints: List<G
             currentMetric.distance
         }
 
-        val elevationDiff = currentMetric.elevation - previousMetric.elevation
+        // Use barometer elevation if available and more accurate than GPS
+        val currentElevation = if (currentMetric.altitudeFromPressure != null &&
+                                 currentMetric.pressureAccuracy != null &&
+                                 currentMetric.pressureAccuracy!! >= 2) {
+            currentMetric.altitudeFromPressure!!.toDouble()
+        } else {
+            currentMetric.elevation.toDouble()
+        }
+
+        val previousElevation = if (previousMetric.altitudeFromPressure != null &&
+                                  previousMetric.pressureAccuracy != null &&
+                                  previousMetric.pressureAccuracy!! >= 2) {
+            previousMetric.altitudeFromPressure!!.toDouble()
+        } else {
+            previousMetric.elevation.toDouble()
+        }
+
+        val elevationDiff = currentElevation - previousElevation
 
         val slope = if (distanceDiff > 5.0) {
             // Slope = (elevation change / distance change) * 100 to get percentage

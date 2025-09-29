@@ -141,6 +141,15 @@ class CustomLocationListener: LocationListener {
     private var currentAltitudeFromPressure: Float = 0f
     private var currentSeaLevelPressure: Float = 1013.25f
 
+    // Real-time slope data
+    private var currentSlope: Double = 0.0
+
+    // Elevation smoothing for noise reduction
+    private val elevationHistory = mutableListOf<Double>()
+    private val elevationHistoryMaxSize = 5 // Number of readings to average
+    private var smoothedElevation: Double = 0.0
+    private var lastRawElevation: Double? = null
+
     // websocket server transfer
     private var enableWebSocketTransfer: Boolean = true
 
@@ -563,7 +572,7 @@ class CustomLocationListener: LocationListener {
 
             // When creating metrics for active tracking:
             currentSpeedKmh = location.speed * 3.6
-            val metrics = createMetricsObject(location, currentSpeedKmh.toFloat())
+            val metrics = createMetricsObject(location, currentSpeedKmh.toFloat(), currentSlope)
 
             // Send data to websocket server and EventBus
             sendDataToWebsocketServer(metrics)
@@ -1012,6 +1021,7 @@ class CustomLocationListener: LocationListener {
             altitude = startingAltitude ?: 0.0,
             horizontalAccuracy = 0f,
             verticalAccuracyMeters = 0f,
+            slope = currentSlope, // Use current slope data
 
             // Distance and lap data
             coveredDistance = coveredDistance,
@@ -1192,6 +1202,7 @@ class CustomLocationListener: LocationListener {
             longitude = oldLongitude,
             speed = if (isCurrentlyTracking) (movingAverageSpeed * 3.6).toFloat() else 0f,
             altitude = startingAltitude ?: 0.0,
+            slope = currentSlope, // Use current slope data
             coveredDistance = coveredDistance,
             lap = lap,
             startDateTime = startDateTime,
@@ -1231,15 +1242,19 @@ class CustomLocationListener: LocationListener {
     }
 
     // Create metrics object with weather data included
-    private fun createMetricsObject(location: Location, currentSpeedKmh: Float): Metrics {
+    private fun createMetricsObject(location: Location, currentSpeedKmh: Float, slope: Double = 0.0): Metrics {
+        // Apply elevation smoothing to reduce GPS noise
+        val smoothedAltitude = smoothElevation(location.altitude)
+
         return Metrics(
             latitude = location.latitude,
             longitude = location.longitude,
             speed = currentSpeedKmh,
             speedAccuracyMetersPerSecond = location.speedAccuracyMetersPerSecond,
-            altitude = location.altitude,
+            altitude = smoothedAltitude,
             horizontalAccuracy = location.accuracy,
             verticalAccuracyMeters = location.verticalAccuracyMeters,
+            slope = slope,
             coveredDistance = coveredDistance,
             lap = lap,
             startDateTime = startDateTime,
@@ -1312,6 +1327,64 @@ class CustomLocationListener: LocationListener {
         currentAltitudeFromPressure = altitudeFromPressure
         currentSeaLevelPressure = seaLevelPressure
         Log.d(TAG_WEBSOCKET, "Barometer data updated in CustomLocationListener")
+    }
+
+    fun updateSlopeData(slope: Double) {
+        currentSlope = slope
+        Log.d(TAG_WEBSOCKET, "Slope data updated: ${String.format("%.2f", slope)}%")
+    }
+
+    /**
+     * Smooth elevation data using moving average to reduce GPS noise
+     * @param rawElevation Raw elevation from GPS
+     * @return Smoothed elevation value
+     */
+    private fun smoothElevation(rawElevation: Double): Double {
+        // For barometer data, prefer it over GPS when available and accurate
+        if (currentPressureAccuracy >= 2 && currentAltitudeFromPressure != 0f) {
+            // Use barometer altitude when pressure sensor is reliable
+            smoothedElevation = currentAltitudeFromPressure.toDouble()
+            Log.d(TAG_WEBSOCKET, "Using barometer elevation: ${String.format("%.2f", smoothedElevation)}m (accuracy: $currentPressureAccuracy)")
+            return smoothedElevation
+        }
+
+        // Add current elevation to history
+        elevationHistory.add(rawElevation)
+
+        // Remove oldest reading if we exceed max size
+        if (elevationHistory.size > elevationHistoryMaxSize) {
+            elevationHistory.removeAt(0)
+        }
+
+        // Calculate weighted moving average (more weight to recent readings)
+        var weightedSum = 0.0
+        var totalWeight = 0.0
+
+        for (i in elevationHistory.indices) {
+            val weight = (i + 1).toDouble() // Newer readings get higher weight
+            weightedSum += elevationHistory[i] * weight
+            totalWeight += weight
+        }
+
+        smoothedElevation = weightedSum / totalWeight
+
+        // Apply additional noise filtering for large GPS jumps
+        lastRawElevation?.let { lastElevation ->
+            val elevationChange = kotlin.math.abs(rawElevation - lastElevation)
+
+            // If elevation change is suspiciously large (>20m), use more smoothing
+            if (elevationChange > 20.0 && elevationHistory.size >= 3) {
+                // Use median of last 3 readings to filter outliers
+                val recentReadings = elevationHistory.takeLast(3).sorted()
+                smoothedElevation = recentReadings[recentReadings.size / 2]
+                Log.d(TAG_WEBSOCKET, "Large elevation jump detected (${String.format("%.2f", elevationChange)}m), using median filter")
+            }
+        }
+
+        lastRawElevation = rawElevation
+
+        Log.d(TAG_WEBSOCKET, "Elevation smoothed: raw=${String.format("%.2f", rawElevation)}m -> smoothed=${String.format("%.2f", smoothedElevation)}m")
+        return smoothedElevation
     }
 
     /**
