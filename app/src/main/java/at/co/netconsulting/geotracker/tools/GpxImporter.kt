@@ -186,6 +186,15 @@ class GpxImporter(private val context: Context) {
                                     }
                                 }
                             }
+                            "slope" -> {
+                                if (inTrackPoint) {
+                                    parser.next()
+                                    if (parser.eventType == XmlPullParser.TEXT) {
+                                        currentPoint.slope = parser.text.toDoubleOrNull() ?: 0.0
+                                        Log.d(TAG, "Parsed slope: ${currentPoint.slope}")
+                                    }
+                                }
+                            }
                         }
                     }
                     XmlPullParser.END_TAG -> {
@@ -565,6 +574,17 @@ class GpxImporter(private val context: Context) {
                 val elevationGain = if (elevationDiff > 0) elevationDiff else 0.0
                 val elevationLoss = if (elevationDiff < 0) abs(elevationDiff) else 0.0
 
+                // Calculate or use provided slope
+                val slope = if (currentPoint.slope != 0.0) {
+                    // Use provided slope from GPX file
+                    currentPoint.slope
+                } else if (distance > 0) {
+                    // Calculate slope as percentage: (elevation change / horizontal distance) * 100
+                    (elevationDiff / distance) * 100.0
+                } else {
+                    0.0
+                }
+
                 val metric = Metric(
                     metricId = 0,
                     eventId = eventId,
@@ -578,7 +598,8 @@ class GpxImporter(private val context: Context) {
                     unity = "metric",
                     elevation = currentPoint.ele.toFloat(),
                     elevationGain = elevationGain.toFloat(),
-                    elevationLoss = elevationLoss.toFloat()
+                    elevationLoss = elevationLoss.toFloat(),
+                    slope = slope
                 )
 
                 metrics.add(metric)
@@ -615,7 +636,8 @@ class GpxImporter(private val context: Context) {
         var lat: Double = 0.0,
         var lon: Double = 0.0,
         var ele: Double = 0.0,
-        var time: Long = 0
+        var time: Long = 0,
+        var slope: Double = 0.0
     )
 
     private data class GpxWaypoint(

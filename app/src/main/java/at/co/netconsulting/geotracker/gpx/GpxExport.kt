@@ -149,6 +149,12 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                         }
                     }
 
+                    // Add slope if available
+                    if (metric.slope != 0.0) {
+                        gpxBuilder.append("""
+        |          <custom:slope>${metric.slope}</custom:slope>""")
+                    }
+
                     gpxBuilder.append("""
         |        </extensions>
         |      </trkpt>
