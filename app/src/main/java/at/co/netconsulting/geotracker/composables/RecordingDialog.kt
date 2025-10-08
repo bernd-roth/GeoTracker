@@ -286,6 +286,7 @@ fun RecordingDialog(
     data class SportType(val name: String, val subcategories: List<String> = emptyList())
     
     val sportTypes = listOf(
+        SportType("Training"),
         SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running", "Orienteering")),
         SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
         SportType("Water Sports", listOf("Swimming - Open Water", "Swimming - Pool", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
@@ -298,6 +299,9 @@ fun RecordingDialog(
 
     // Function to get appropriate icon for sport type with specific subcategory icons
     fun getSportIcon(sportName: String) = when (sportName) {
+        // Training
+        "Training" -> Icons.Default.Timer
+
         // Running subcategories
         "Trail Running" -> Icons.Default.Terrain
         "Ultramarathon" -> Icons.Default.Timer

@@ -458,6 +458,9 @@ class AutoBackupService : Service() {
 
             // Map sport type to GPX activity type (comprehensive mapping - matches GpxExport.kt)
             val activityType = when (event.artOfSport?.lowercase()) {
+                // Training
+                "training" -> "training"
+
                 // Running variants
                 "running", "jogging", "marathon", "trail running", "ultramarathon", "road running", "orienteering" -> "run"
 

@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.4")} (29-09-2025: cleanup database for invalid events; mapping sport events for gpx files adapted )"
+        versionName = "${getNextVersion("5.5")} (08-10-2025: sport type 'Training' added)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
