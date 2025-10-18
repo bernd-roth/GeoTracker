@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.5")} (08-10-2025: sport type 'Training' added)"
+        versionName = "${getNextVersion("5.6")} (18-10-2025: GPS is preferred over barometer data)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

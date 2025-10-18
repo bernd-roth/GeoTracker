@@ -1340,14 +1340,6 @@ class CustomLocationListener: LocationListener {
      * @return Smoothed elevation value
      */
     private fun smoothElevation(rawElevation: Double): Double {
-        // For barometer data, prefer it over GPS when available and accurate
-        if (currentPressureAccuracy >= 2 && currentAltitudeFromPressure != 0f) {
-            // Use barometer altitude when pressure sensor is reliable
-            smoothedElevation = currentAltitudeFromPressure.toDouble()
-            Log.d(TAG_WEBSOCKET, "Using barometer elevation: ${String.format("%.2f", smoothedElevation)}m (accuracy: $currentPressureAccuracy)")
-            return smoothedElevation
-        }
-
         // Add current elevation to history
         elevationHistory.add(rawElevation)
 
@@ -1383,7 +1375,7 @@ class CustomLocationListener: LocationListener {
 
         lastRawElevation = rawElevation
 
-        Log.d(TAG_WEBSOCKET, "Elevation smoothed: raw=${String.format("%.2f", rawElevation)}m -> smoothed=${String.format("%.2f", smoothedElevation)}m")
+        Log.d(TAG_WEBSOCKET, "Elevation smoothed: raw=${String.format("%.2f", rawElevation)}m -> smoothed=${String.format("%.2f", smoothedElevation)}m (GPS-based)")
         return smoothedElevation
     }
 
