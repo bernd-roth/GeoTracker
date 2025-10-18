@@ -702,7 +702,7 @@ fun MapScreen(
             if (isRerunModeEnabled && overlay.isFollowLocationEnabled) {
                 overlay.disableFollowLocation()
                 Timber.d("Disabled location overlay following due to rerun mode activation")
-            } else if (!isRerunModeEnabled && isFollowingLocation && !overlay.isFollowLocationEnabled) {
+            } else if (!isRerunModeEnabled && isFollowingLocation && !overlay.isFollowLocationEnabled && !showRouteDisplayIndicator) {
                 overlay.enableFollowLocation()
                 Timber.d("Re-enabled location overlay following due to rerun mode deactivation")
             }
@@ -893,8 +893,8 @@ fun MapScreen(
                 }
             }
         } else if (!followingState.isFollowing) {
-            // Re-enable location services and auto-follow when stopping following
-            if (isRecording) {
+            // Re-enable location services and auto-follow when stopping following (but not if viewing a route)
+            if (isRecording && !showRouteDisplayIndicator) {
                 // When recording, always re-enable location services and auto-follow
                 isFollowingLocation = true
                 saveAutoFollowState(true)
@@ -903,7 +903,7 @@ fun MapScreen(
                     triggerMyLocationLogic()
                 }, 500)
                 Timber.d("Re-enabled location services and auto-follow when stopped following users (recording own event)")
-            } else {
+            } else if (!isRecording && !showRouteDisplayIndicator) {
                 // When not recording, optionally re-enable auto-follow
                 isFollowingLocation = true
                 saveAutoFollowState(true)
@@ -912,6 +912,8 @@ fun MapScreen(
                     triggerMyLocationLogic()
                 }, 500)
                 Timber.d("Re-enabled auto-follow when stopped following users (not recording)")
+            } else {
+                Timber.d("Skipped re-enabling auto-follow - viewing route display")
             }
         }
     }
@@ -954,12 +956,12 @@ fun MapScreen(
                         }
 
                         locationOverlayRef.value?.let { overlay ->
-                            if (!overlay.isFollowLocationEnabled && !isRerunModeEnabled) {
+                            if (!overlay.isFollowLocationEnabled && !isRerunModeEnabled && !showRouteDisplayIndicator) {
                                 overlay.enableFollowLocation()
                                 Timber.d("Re-enabled overlay follow location during location update")
-                            } else if (overlay.isFollowLocationEnabled && isRerunModeEnabled) {
+                            } else if (overlay.isFollowLocationEnabled && (isRerunModeEnabled || showRouteDisplayIndicator)) {
                                 overlay.disableFollowLocation()
-                                Timber.d("Disabled overlay follow location due to rerun mode")
+                                Timber.d("Disabled overlay follow location due to rerun mode or route display")
                             }
                         }
 
@@ -1446,9 +1448,12 @@ fun MapScreen(
                     val locationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(ctx), this).apply {
                         enableMyLocation()
 
-                        if (isFollowingLocation && !isRunningRerun && !isRerunModeEnabled) {
+                        // Only enable follow location if not displaying a route
+                        if (isFollowingLocation && !isRunningRerun && !isRerunModeEnabled && routeToDisplay == null) {
                             enableFollowLocation()
                             Timber.d("Initial enableFollowLocation() called")
+                        } else if (routeToDisplay != null) {
+                            Timber.d("Skipping initial enableFollowLocation() because displaying a route")
                         }
 
                         runOnFirstFix {
