@@ -127,3 +127,99 @@ private fun LegendItem(
         )
     }
 }
+
+/**
+ * Compact slope legend for the main map screen
+ * Smaller version with just color indicators and slope percentages
+ */
+@Composable
+fun CompactSlopeColorLegend(
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(
+                Color.White.copy(alpha = 0.85f),
+                RoundedCornerShape(6.dp)
+            )
+            .padding(8.dp)
+    ) {
+        Text(
+            text = "Slope",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 4.dp)
+        )
+
+        // Steep decline
+        CompactLegendItem(
+            color = Color.Red,
+            description = ">8%↓"
+        )
+
+        // Moderate decline
+        CompactLegendItem(
+            color = Color(0xFFFF6600),
+            description = "3-8%↓"
+        )
+
+        // Gentle decline
+        CompactLegendItem(
+            color = Color.Yellow,
+            description = "1-3%↓"
+        )
+
+        // Flat
+        CompactLegendItem(
+            color = Color(0,139,0),
+            description = "±1%"
+        )
+
+        // Gentle incline
+        CompactLegendItem(
+            color = Color(0xFF87CEEB),
+            description = "1-3%↑"
+        )
+
+        // Moderate incline
+        CompactLegendItem(
+            color = Color.Blue,
+            description = "3-8%↑"
+        )
+
+        // Steep incline
+        CompactLegendItem(
+            color = Color(0xFF000080),
+            description = ">8%↑"
+        )
+    }
+}
+
+@Composable
+private fun CompactLegendItem(
+    color: Color,
+    description: String
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(12.dp, 3.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(color)
+        )
+
+        Spacer(modifier = Modifier.width(6.dp))
+
+        Text(
+            text = description,
+            fontSize = 9.sp,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}

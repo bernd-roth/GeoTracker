@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -196,6 +197,14 @@ fun MapScreen(
         )
     }
 
+    // Slope legend visibility state
+    var showSlopeLegend by remember {
+        mutableStateOf(
+            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                .getBoolean("show_slope_legend", false)
+        )
+    }
+
     // Rerun mode state - disables live GPS updates during route reruns
     var isRerunModeEnabled by remember {
         mutableStateOf(
@@ -287,6 +296,15 @@ fun MapScreen(
             .putBoolean("auto_follow_enabled", enabled)
             .apply()
         Timber.d("Saved auto-follow state: $enabled")
+    }
+
+    // Function to save slope legend state
+    fun saveSlopeLegendState(enabled: Boolean) {
+        context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("show_slope_legend", enabled)
+            .apply()
+        Timber.d("Saved slope legend state: $enabled")
     }
 
     // Function to save auto-follow users state
@@ -1961,6 +1979,34 @@ fun MapScreen(
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Slope legend toggle button - only show when displaying an event route with slope colors
+            if (showRouteDisplayIndicator && displayedRoute?.showSlopeColors == true) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = if (showSlopeLegend) Color(0xFF4CAF50) else Color.White,
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                showSlopeLegend = !showSlopeLegend
+                                saveSlopeLegendState(showSlopeLegend)
+                                Timber.d("Slope legend toggled: $showSlopeLegend")
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Terrain,
+                            contentDescription = if (showSlopeLegend) "Hide Slope Legend" else "Show Slope Legend",
+                            tint = if (showSlopeLegend) Color.White else Color.Gray
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Waypoint button - only show during recording
             if (isRecording && !followingState.isFollowing) {
                 Surface(
@@ -2079,6 +2125,15 @@ fun MapScreen(
                     }
                 }
             }
+        }
+
+        // Compact slope legend - bottom left, only when viewing event route with slope colors
+        if (showSlopeLegend && showRouteDisplayIndicator && displayedRoute?.showSlopeColors == true) {
+            CompactSlopeColorLegend(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(16.dp)
+            )
         }
     }
 

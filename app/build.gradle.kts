@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.8")} (18-10-2025: Avg. Slope calculation fixed)"
+        versionName = "${getNextVersion("5.9")} (18-10-2025: Show slope legend on main map)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
