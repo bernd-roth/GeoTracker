@@ -507,9 +507,10 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
 
             val elevationDiff = currentElevation - previousElevation
 
-            // Only calculate slope if there's meaningful distance covered (> 5 meters)
-            // Reduced threshold to capture more data points
-            if (distanceDiff > 5.0) {
+            // Only calculate slope if there's meaningful distance covered (> 2 meters)
+            // With 1-second recording intervals, running speeds of 10-15 km/h yield 2.8-4.2 m/s
+            // Using 2m threshold ensures we capture most GPS points while filtering stationary noise
+            if (distanceDiff > 2.0) {
                 // Slope = (elevation change / distance change) * 100 to get percentage
                 val slope = (elevationDiff / distanceDiff) * 100.0
 
@@ -523,13 +524,14 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
         }
 
         return if (slopes.isNotEmpty() && totalDistance > 0) {
-            // Calculate average slope using total elevation change over total distance
-            val avgSlope = (totalElevationChange / totalDistance) * 100.0
+            // Calculate average slope as mean of all individual slopes
+            // This gives meaningful results for loops/circular routes (unlike net elevation / distance)
+            val avgSlope = slopes.average()
             val maxSlope = slopes.maxOrNull() ?: 0.0
             val minSlope = slopes.minOrNull() ?: 0.0
 
             // Log for debugging - remove in production
-            android.util.Log.d("SlopeCalculation", "Total elevation change: $totalElevationChange m over $totalDistance m")
+            android.util.Log.d("SlopeCalculation", "Slopes count: ${slopes.size}, Total distance: $totalDistance m")
             android.util.Log.d("SlopeCalculation", "Average slope: $avgSlope%, Min: $minSlope%, Max: $maxSlope%")
 
             Triple(avgSlope, maxSlope, minSlope)

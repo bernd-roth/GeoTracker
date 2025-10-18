@@ -172,8 +172,7 @@ private fun calculateSlopeSegments(metrics: List<Metric>, locationPoints: List<G
 private fun calculateAverageSlope(metrics: List<Metric>): Double {
     if (metrics.size < 2) return 0.0
 
-    var totalDistance = 0.0
-    var totalElevationChange = 0.0
+    val slopes = mutableListOf<Double>()
 
     for (i in 1 until metrics.size) {
         // Calculate actual distance between points
@@ -185,14 +184,20 @@ private fun calculateAverageSlope(metrics: List<Metric>): Double {
 
         val elevationDiff = metrics[i].elevation - metrics[i-1].elevation
 
-        if (distanceDiff > 5.0) {
-            totalDistance += distanceDiff
-            totalElevationChange += elevationDiff
+        // Use 2m threshold to match 1-second recording intervals (running speeds: 2.8-4.2 m/s)
+        if (distanceDiff > 2.0) {
+            val slope = (elevationDiff / distanceDiff) * 100.0
+            // Filter extreme GPS errors
+            if (slope >= -50.0 && slope <= 50.0) {
+                slopes.add(slope)
+            }
         }
     }
 
-    return if (totalDistance > 0) {
-        (totalElevationChange / totalDistance) * 100.0
+    // Calculate average slope as mean of all individual slopes
+    // This gives meaningful results for loops/circular routes
+    return if (slopes.isNotEmpty()) {
+        slopes.average()
     } else {
         0.0
     }
