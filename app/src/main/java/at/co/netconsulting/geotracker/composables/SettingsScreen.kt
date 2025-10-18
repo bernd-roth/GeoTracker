@@ -49,8 +49,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions as FoundationKeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
 import androidx.core.content.ContextCompat
@@ -148,6 +152,25 @@ fun SettingsScreen() {
         return String.format("%02d:%02d", hour, minute)
     }
 
+    // Auto-save function
+    fun autoSaveSettings() {
+        saveAllSettings(
+            sharedPreferences,
+            firstName.trim(),
+            lastName.trim(),
+            birthDate,
+            height,
+            weight,
+            maxHeartRate,
+            websocketserver.trim(),
+            autoBackupEnabled,
+            backupHour,
+            backupMinute,
+            voiceAnnouncementInterval,
+            darkModeEnabled
+        )
+    }
+
     // Birth date picker dialog
     val birthDateCalendar = Calendar.getInstance()
     val birthDatePickerDialog = DatePickerDialog(
@@ -155,6 +178,7 @@ fun SettingsScreen() {
         { _, year, month, dayOfMonth ->
             birthDateCalendar.set(year, month, dayOfMonth)
             birthDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(birthDateCalendar.time)
+            autoSaveSettings()
         },
         birthDateCalendar.get(Calendar.YEAR),
         birthDateCalendar.get(Calendar.MONTH),
@@ -179,8 +203,20 @@ fun SettingsScreen() {
             value = firstName,
             onValueChange = { firstName = it },
             label = { Text("Firstname") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        autoSaveSettings()
+                    }
+                },
+            singleLine = true,
+            keyboardOptions = FoundationKeyboardOptions(
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { autoSaveSettings() }
+            )
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -188,8 +224,20 @@ fun SettingsScreen() {
             value = lastName,
             onValueChange = { lastName = it },
             label = { Text("Lastname") },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        autoSaveSettings()
+                    }
+                },
+            singleLine = true,
+            keyboardOptions = FoundationKeyboardOptions(
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { autoSaveSettings() }
+            )
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -221,8 +269,20 @@ fun SettingsScreen() {
                 height = input.toFloatOrNull() ?: height
             },
             label = { Text("Height (cm)") },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { autoSaveSettings() }
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        autoSaveSettings()
+                    }
+                }
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -232,8 +292,20 @@ fun SettingsScreen() {
                 weight = input.toFloatOrNull() ?: weight
             },
             label = { Text("Weight (kg)") },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { autoSaveSettings() }
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        autoSaveSettings()
+                    }
+                }
         )
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -246,16 +318,40 @@ fun SettingsScreen() {
                 }
             },
             label = { Text("Max Heart Rate (bpm)") },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth()
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { autoSaveSettings() }
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        autoSaveSettings()
+                    }
+                }
         )
         Spacer(modifier = Modifier.height(8.dp))
         OutlinedTextField(
             value = websocketserver,
             onValueChange = { websocketserver = it },
             label = { Text("Websocket ip address") },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text),
-            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { autoSaveSettings() }
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        autoSaveSettings()
+                    }
+                },
             singleLine = true
         )
         Spacer(modifier = Modifier.height(16.dp))
@@ -263,7 +359,8 @@ fun SettingsScreen() {
         VoiceAnnouncementDropdown(
             value = voiceAnnouncementInterval,
             onValueChange = { voiceAnnouncementInterval = it },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            onSave = { autoSaveSettings() }
         )
         Spacer(modifier = Modifier.height(16.dp))
         Box(
@@ -526,47 +623,12 @@ fun SettingsScreen() {
                 )
             }
         }
-        Spacer(modifier = Modifier.height(16.dp))
-        Button(
-            onClick = {
-                saveAllSettings(
-                    sharedPreferences,
-                    firstName.trim(),
-                    lastName.trim(),
-                    birthDate,
-                    height,
-                    weight,
-                    maxHeartRate,
-                    websocketserver.trim(),
-                    autoBackupEnabled,
-                    backupHour,
-                    backupMinute,
-//                    minDistanceMeters,
-//                    minTimeSeconds,
-                    voiceAnnouncementInterval,
-                    darkModeEnabled
-                )
-
-                // If auto backup is enabled, reschedule it with the new time
-                if (autoBackupEnabled) {
-                    AutoBackupReceiver.scheduleBackup(context, backupHour, backupMinute)
-
-                    // Refresh next backup time
-                    nextBackupTime.value = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE)
-                        .getString("nextBackupTime", null)
-                }
-                Toast.makeText(context, "All settings saved", Toast.LENGTH_SHORT).show()
-            },
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Save")
-        }
     }
 
     // Show time picker dialog
     if (showTimePickerDialog) {
         TimePickerDialog(
-            onDismissRequest = { showTimePickerDialog = false },
+            onDismissRequest = { /* Do nothing - prevent closing when clicking outside */ },
             onTimeSelected = { hour, minute ->
                 backupHour = hour
                 backupMinute = minute
@@ -579,7 +641,10 @@ fun SettingsScreen() {
                     nextBackupTime.value = context.getSharedPreferences("BackupPrefs", Context.MODE_PRIVATE)
                         .getString("nextBackupTime", null)
                 }
+                // Auto-save settings
+                autoSaveSettings()
             },
+            onCancel = { showTimePickerDialog = false },
             initialHour = backupHour,
             initialMinute = backupMinute
         )
@@ -781,6 +846,7 @@ fun saveAllSettings(
 fun TimePickerDialog(
     onDismissRequest: () -> Unit,
     onTimeSelected: (Int, Int) -> Unit,
+    onCancel: () -> Unit = onDismissRequest,
     initialHour: Int,
     initialMinute: Int
 ) {
@@ -848,7 +914,7 @@ fun TimePickerDialog(
             }
         },
         dismissButton = {
-            Button(onClick = onDismissRequest) {
+            Button(onClick = onCancel) {
                 Text("Cancel")
             }
         }

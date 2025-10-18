@@ -15,7 +15,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions as FoundationKeyboardOptions
 
 // Simple direct input for distance
 @Composable
@@ -108,7 +112,8 @@ fun ManualInputOption(
 fun VoiceAnnouncementDropdown(
     value: Int,
     onValueChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSave: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var textInput by remember { mutableStateOf(value.toString()) }
@@ -132,9 +137,19 @@ fun VoiceAnnouncementDropdown(
                     onValueChange(newValue)
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = KeyboardType.Number
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focusState ->
+                    if (!focusState.isFocused) {
+                        onSave()
+                    }
+                },
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Number,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(
+                onDone = { onSave() }
             ),
             singleLine = true
         )

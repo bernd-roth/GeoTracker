@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.6")} (18-10-2025: GPS is preferred over barometer data)"
+        versionName = "${getNextVersion("5.7")} (18-10-2025: 'Save' button removed from SettingsScreen)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
