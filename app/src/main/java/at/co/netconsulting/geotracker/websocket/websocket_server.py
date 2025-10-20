@@ -372,6 +372,10 @@ class TrackingServer:
                     pressure_accuracy INTEGER,
                     altitude_from_pressure NUMERIC(10, 4),
                     sea_level_pressure NUMERIC(8, 2),
+                    slope NUMERIC(6, 2),
+                    average_slope NUMERIC(6, 2),
+                    max_uphill_slope NUMERIC(6, 2),
+                    max_downhill_slope NUMERIC(6, 2),
                     received_at TIMESTAMPTZ DEFAULT NOW(),
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
@@ -722,11 +726,11 @@ class TrackingServer:
                             heart_rate_device_id, lap, temperature, wind_speed, wind_direction,
                             humidity, weather_timestamp, weather_code,
                             pressure, pressure_accuracy, altitude_from_pressure, sea_level_pressure,
-                            slope
+                            slope, average_slope, max_uphill_slope, max_downhill_slope
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                             $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                            $27, $28, $29, $30, $31
+                            $27, $28, $29, $30, $31, $32, $33, $34
                         )
                     """,
                                        session_id,
@@ -759,7 +763,10 @@ class TrackingServer:
                                        pressure_accuracy,
                                        altitude_from_pressure,
                                        sea_level_pressure,
-                                       float(message_data.get('slope', 0)) if message_data.get('slope') is not None else None
+                                       float(message_data.get('slope', 0)) if message_data.get('slope') is not None else None,
+                                       float(message_data.get('averageSlope', 0)) if message_data.get('averageSlope') is not None else None,
+                                       float(message_data.get('maxUphillSlope', 0)) if message_data.get('maxUphillSlope') is not None else None,
+                                       float(message_data.get('maxDownhillSlope', 0)) if message_data.get('maxDownhillSlope') is not None else None
                                        )
 
                     # Process lap times if they exist in the message
@@ -796,7 +803,7 @@ class TrackingServer:
                     gtp.temperature, gtp.wind_speed, gtp.wind_direction,
                     gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
                     gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
-                    gtp.slope,
+                    gtp.slope, gtp.average_slope, gtp.max_uphill_slope, gtp.max_downhill_slope,
                     gtp.received_at
                 FROM gps_tracking_points gtp
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
@@ -878,6 +885,12 @@ class TrackingServer:
                 # Add slope data if available
                 if row['slope'] is not None:
                     tracking_point["slope"] = float(row['slope'])
+                if row['average_slope'] is not None:
+                    tracking_point["averageSlope"] = float(row['average_slope'])
+                if row['max_uphill_slope'] is not None:
+                    tracking_point["maxUphillSlope"] = float(row['max_uphill_slope'])
+                if row['max_downhill_slope'] is not None:
+                    tracking_point["maxDownhillSlope"] = float(row['max_downhill_slope'])
 
                 self.tracking_history[row['session_id']].append(tracking_point)
 
@@ -1479,6 +1492,9 @@ class TrackingServer:
                                 'distance': latest_point.get("distance", 0.0),
                                 'heartRate': latest_point.get("heartRate"),
                                 'slope': latest_point.get("slope"),
+                                'averageSlope': latest_point.get("averageSlope"),
+                                'maxUphillSlope': latest_point.get("maxUphillSlope"),
+                                'maxDownhillSlope': latest_point.get("maxDownhillSlope"),
                                 'timestamp': latest_point.get("timestamp", ""),
                                 'lapTimes': [
                                     {
@@ -1746,6 +1762,15 @@ class TrackingServer:
         # Add slope data if available
         if "slope" in message_data:
             tracking_point["slope"] = float(message_data["slope"])
+
+        if "averageSlope" in message_data:
+            tracking_point["averageSlope"] = float(message_data["averageSlope"])
+
+        if "maxUphillSlope" in message_data:
+            tracking_point["maxUphillSlope"] = float(message_data["maxUphillSlope"])
+
+        if "maxDownhillSlope" in message_data:
+            tracking_point["maxDownhillSlope"] = float(message_data["maxDownhillSlope"])
 
         return tracking_point
 
@@ -2226,6 +2251,9 @@ class TrackingServer:
                                 'distance': tracking_point.get("distance", 0.0),
                                 'heartRate': tracking_point.get("heartRate"),
                                 'slope': tracking_point.get("slope"),
+                                'averageSlope': tracking_point.get("averageSlope"),
+                                'maxUphillSlope': tracking_point.get("maxUphillSlope"),
+                                'maxDownhillSlope': tracking_point.get("maxDownhillSlope"),
                                 'timestamp': tracking_point.get("timestamp", ""),
                                 'lapTimes': [
                                     {

@@ -154,6 +154,31 @@ fun StatisticsScreen() {
             }
         )
 
+        // Slope Card
+        StatisticsCard(
+            title = "Slope",
+            content = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    MetricColumn("Current", formatSlope(metrics?.slope ?: 0.0))
+                    MetricColumn("Average", formatSlope(metrics?.averageSlope ?: 0.0))
+                    MetricColumn("Max Uphill", formatSlope(metrics?.maxUphillSlope ?: 0.0))
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Second row for max downhill
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    MetricColumn("Max Downhill", formatSlope(metrics?.maxDownhillSlope ?: 0.0))
+                }
+            }
+        )
+
         // Heart Rate Card
         StatisticsCard(
             title = "Heart Rate",
@@ -810,6 +835,31 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
         }
     )
 
+    // Slope Card
+    StatisticsCard(
+        title = "Slope - ${latestPoint.person}",
+        content = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                MetricColumn("Current", formatSlope(latestPoint.slope ?: 0.0))
+                MetricColumn("Average", formatSlope(latestPoint.averageSlope ?: 0.0))
+                MetricColumn("Max Uphill", formatSlope(latestPoint.maxUphillSlope ?: 0.0))
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Second row for max downhill
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                MetricColumn("Max Downhill", formatSlope(latestPoint.maxDownhillSlope ?: 0.0))
+            }
+        }
+    )
+
     // Heart Rate Card
     StatisticsCard(
         title = "Heart Rate - ${latestPoint.person}",
@@ -1361,6 +1411,10 @@ private fun formatAltitude(altitude: Double): String {
 
 private fun formatElevation(elevation: Double): String {
     return String.format("%.1f m", elevation)
+}
+
+private fun formatSlope(slope: Double): String {
+    return String.format("%.1f%%", slope)
 }
 
 private fun formatTemperature(temperature: Double?): String {

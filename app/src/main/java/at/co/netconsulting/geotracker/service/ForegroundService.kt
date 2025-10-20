@@ -158,6 +158,11 @@ class ForegroundService : Service() {
     private var slopeHistory = mutableListOf<Double>()
     private val maxSlopeHistorySize = 5  // For smoothing GPS noise
 
+    // Slope statistics tracking
+    private var allSlopeMeasurements = mutableListOf<Double>()
+    private var maxUphillSlope: Double = 0.0
+    private var maxDownhillSlope: Double = 0.0
+
     // recovery after crash
     private var recoveryManager: SessionRecoveryManager? = null
     private var stateConsistencyCheckerJob: Job? = null
@@ -1112,8 +1117,11 @@ class ForegroundService : Service() {
                 // Calculate real-time slope
                 currentSlope = calculateRealTimeSlope(distance, altitude)
 
-                // Update CustomLocationListener with current slope
-                customLocationListener?.updateSlopeData(currentSlope)
+                // Calculate average slope
+                val avgSlope = calculateAverageSlope()
+
+                // Update CustomLocationListener with all slope statistics
+                customLocationListener?.updateSlopeData(currentSlope, avgSlope, maxUphillSlope, maxDownhillSlope)
 
                 // Always save metrics data with barometer data included
                 val metric = Metric(
@@ -1849,6 +1857,19 @@ class ForegroundService : Service() {
                 // Calculate smoothed slope using moving average
                 val smoothedSlope = slopeHistory.average()
 
+                // Track slope statistics
+                allSlopeMeasurements.add(smoothedSlope)
+
+                // Update max uphill slope (positive slopes)
+                if (smoothedSlope > 0 && smoothedSlope > maxUphillSlope) {
+                    maxUphillSlope = smoothedSlope
+                }
+
+                // Update max downhill slope (negative slopes, store as positive value)
+                if (smoothedSlope < 0 && kotlin.math.abs(smoothedSlope) > maxDownhillSlope) {
+                    maxDownhillSlope = kotlin.math.abs(smoothedSlope)
+                }
+
                 // Update previous values for next calculation
                 previousDistance = currentDistance
                 previousAltitude = currentAltitude
@@ -1863,6 +1884,17 @@ class ForegroundService : Service() {
 
         // Return current slope if no meaningful distance change
         return currentSlope
+    }
+
+    /**
+     * Calculate average slope over the entire route
+     */
+    private fun calculateAverageSlope(): Double {
+        return if (allSlopeMeasurements.isNotEmpty()) {
+            allSlopeMeasurements.average()
+        } else {
+            0.0
+        }
     }
 
     companion object {

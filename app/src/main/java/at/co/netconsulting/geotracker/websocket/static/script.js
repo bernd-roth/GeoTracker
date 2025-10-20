@@ -1079,6 +1079,30 @@ function handleInvalidCoordinates(message) {
                     slopeElement.style.color = getSlopeColor(parseFloat(otherData.slope || 0));
                 }
             }
+
+            if (otherData.averageSlope !== undefined) {
+                const avgSlopeElement = document.getElementById(`avgSlope-${sessionId}`);
+                if (avgSlopeElement) {
+                    avgSlopeElement.textContent = parseFloat(otherData.averageSlope || 0).toFixed(1);
+                    avgSlopeElement.style.color = getSlopeColor(parseFloat(otherData.averageSlope || 0));
+                }
+            }
+
+            if (otherData.maxUphillSlope !== undefined) {
+                const maxUphillSlopeElement = document.getElementById(`maxUphillSlope-${sessionId}`);
+                if (maxUphillSlopeElement) {
+                    maxUphillSlopeElement.textContent = parseFloat(otherData.maxUphillSlope || 0).toFixed(1);
+                    maxUphillSlopeElement.style.color = getSlopeColor(parseFloat(otherData.maxUphillSlope || 0));
+                }
+            }
+
+            if (otherData.maxDownhillSlope !== undefined) {
+                const maxDownhillSlopeElement = document.getElementById(`maxDownhillSlope-${sessionId}`);
+                if (maxDownhillSlopeElement) {
+                    maxDownhillSlopeElement.textContent = parseFloat(otherData.maxDownhillSlope || 0).toFixed(1);
+                    maxDownhillSlopeElement.style.color = getSlopeColor(-parseFloat(otherData.maxDownhillSlope || 0));
+                }
+            }
         }
     }
 
@@ -1114,6 +1138,9 @@ function handleHistoryBatch(points) {
             cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
             heartRate: parseInt(point.heartRate || 0),
             slope: parseFloat(point.slope || 0),
+            averageSlope: parseFloat(point.averageSlope || 0),
+            maxUphillSlope: parseFloat(point.maxUphillSlope || 0),
+            maxDownhillSlope: parseFloat(point.maxDownhillSlope || 0),
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
             personName: personName,
 
@@ -1208,6 +1235,9 @@ function handlePoint(data) {
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
         heartRate: parseInt(data.heartRate || 0),
         slope: parseFloat(data.slope || 0),
+        averageSlope: parseFloat(data.averageSlope || 0),
+        maxUphillSlope: parseFloat(data.maxUphillSlope || 0),
+        maxDownhillSlope: parseFloat(data.maxDownhillSlope || 0),
         timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
         personName: personName,
 
@@ -1245,6 +1275,9 @@ function handlePoint(data) {
             cumulativeElevationGain: processedPoint.cumulativeElevationGain,
             heartRate: processedPoint.heartRate,
             slope: processedPoint.slope,
+            averageSlope: processedPoint.averageSlope,
+            maxUphillSlope: processedPoint.maxUphillSlope,
+            maxDownhillSlope: processedPoint.maxDownhillSlope,
             distance: processedPoint.distance,
             personName: processedPoint.personName,
             weather: {
@@ -1648,6 +1681,9 @@ function updateSpeedDisplay(sessionId, speed, data) {
             elevationGain: 0,
             heartRate: 0,
             slope: 0,
+            averageSlope: 0,
+            maxUphillSlope: 0,
+            maxDownhillSlope: 0,
             totalDistance: 0,
             lastUpdate: new Date(),
             personName: personName
@@ -1675,6 +1711,18 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         if (data.slope !== undefined) {
             history.slope = data.slope;
+        }
+
+        if (data.averageSlope !== undefined) {
+            history.averageSlope = data.averageSlope;
+        }
+
+        if (data.maxUphillSlope !== undefined) {
+            history.maxUphillSlope = data.maxUphillSlope;
+        }
+
+        if (data.maxDownhillSlope !== undefined) {
+            history.maxDownhillSlope = data.maxDownhillSlope;
         }
 
         if (data.distance !== undefined) {
@@ -1750,8 +1798,23 @@ function updateSpeedDisplay(sessionId, speed, data) {
                 <div class="speed-unit">bpm</div>
             </div>
             <div class="stat-box">
-                <div class="speed-label">Slope</div>
+                <div class="speed-label">Current Slope</div>
                 <div class="elevation-value" id="slope-${sessionId}">0.0</div>
+                <div class="elevation-unit">%</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Average Slope</div>
+                <div class="elevation-value" id="avgSlope-${sessionId}">0.0</div>
+                <div class="elevation-unit">%</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Max Uphill</div>
+                <div class="elevation-value" id="maxUphillSlope-${sessionId}">0.0</div>
+                <div class="elevation-unit">%</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Max Downhill</div>
+                <div class="elevation-value" id="maxDownhillSlope-${sessionId}">0.0</div>
                 <div class="elevation-unit">%</div>
             </div>
         `;
@@ -1815,6 +1878,28 @@ function updateSpeedDisplay(sessionId, speed, data) {
         history.slope = data.slope;
         slopeElement.textContent = history.slope.toFixed(1);
         slopeElement.style.color = getSlopeColor(history.slope);
+    }
+
+    const avgSlopeElement = document.getElementById(`avgSlope-${sessionId}`);
+    if (avgSlopeElement && data.averageSlope !== undefined) {
+        history.averageSlope = data.averageSlope;
+        avgSlopeElement.textContent = history.averageSlope.toFixed(1);
+        avgSlopeElement.style.color = getSlopeColor(history.averageSlope);
+    }
+
+    const maxUphillSlopeElement = document.getElementById(`maxUphillSlope-${sessionId}`);
+    if (maxUphillSlopeElement && data.maxUphillSlope !== undefined) {
+        history.maxUphillSlope = data.maxUphillSlope;
+        maxUphillSlopeElement.textContent = history.maxUphillSlope.toFixed(1);
+        maxUphillSlopeElement.style.color = getSlopeColor(history.maxUphillSlope);
+    }
+
+    const maxDownhillSlopeElement = document.getElementById(`maxDownhillSlope-${sessionId}`);
+    if (maxDownhillSlopeElement && data.maxDownhillSlope !== undefined) {
+        history.maxDownhillSlope = data.maxDownhillSlope;
+        maxDownhillSlopeElement.textContent = history.maxDownhillSlope.toFixed(1);
+        // Show downhill as negative for color coding
+        maxDownhillSlopeElement.style.color = getSlopeColor(-history.maxDownhillSlope);
     }
 
     cleanupOldSessions();

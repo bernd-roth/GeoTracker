@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.10")} (18-10-2025: Disable map centering when slope analysis is shown)"
+        versionName = "${getNextVersion("5.11")} (20-10-2025: Slope overview in StatisticsScreen implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

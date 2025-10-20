@@ -402,6 +402,10 @@ class FollowingService private constructor(private val context: Context) {
                         altitude = point.optDouble("altitude", 0.0),
                         currentSpeed = point.optDouble("currentSpeed", 0.0).toFloat(),
                         distance = point.optDouble("distance", 0.0),
+                        slope = if (point.has("slope")) point.getDouble("slope") else null,
+                        averageSlope = if (point.has("averageSlope")) point.getDouble("averageSlope") else null,
+                        maxUphillSlope = if (point.has("maxUphillSlope")) point.getDouble("maxUphillSlope") else null,
+                        maxDownhillSlope = if (point.has("maxDownhillSlope")) point.getDouble("maxDownhillSlope") else null,
                         heartRate = if (point.has("heartRate") && point.getInt("heartRate") > 0) point.getInt("heartRate") else null,
                         timestamp = point.optString("timestamp", ""),
                         // Weather data from full update message
@@ -475,6 +479,10 @@ class FollowingService private constructor(private val context: Context) {
                 altitude = pointJson.optDouble("altitude", 0.0),
                 currentSpeed = pointJson.optDouble("currentSpeed", 0.0).toFloat(),
                 distance = pointJson.optDouble("distance", 0.0),
+                slope = if (pointJson.has("slope")) pointJson.getDouble("slope") else null,
+                averageSlope = if (pointJson.has("averageSlope")) pointJson.getDouble("averageSlope") else null,
+                maxUphillSlope = if (pointJson.has("maxUphillSlope")) pointJson.getDouble("maxUphillSlope") else null,
+                maxDownhillSlope = if (pointJson.has("maxDownhillSlope")) pointJson.getDouble("maxDownhillSlope") else null,
                 heartRate = if (pointJson.has("heartRate") && pointJson.getInt("heartRate") > 0) pointJson.getInt("heartRate") else null,
                 timestamp = pointJson.optString("timestamp", ""),
                 // Weather data

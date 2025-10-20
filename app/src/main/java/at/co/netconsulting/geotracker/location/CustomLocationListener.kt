@@ -143,6 +143,9 @@ class CustomLocationListener: LocationListener {
 
     // Real-time slope data
     private var currentSlope: Double = 0.0
+    private var averageSlope: Double = 0.0
+    private var maxUphillSlope: Double = 0.0
+    private var maxDownhillSlope: Double = 0.0
 
     // Elevation smoothing for noise reduction
     private val elevationHistory = mutableListOf<Double>()
@@ -1022,6 +1025,9 @@ class CustomLocationListener: LocationListener {
             horizontalAccuracy = 0f,
             verticalAccuracyMeters = 0f,
             slope = currentSlope, // Use current slope data
+            averageSlope = averageSlope,
+            maxUphillSlope = maxUphillSlope,
+            maxDownhillSlope = maxDownhillSlope,
 
             // Distance and lap data
             coveredDistance = coveredDistance,
@@ -1203,6 +1209,9 @@ class CustomLocationListener: LocationListener {
             speed = if (isCurrentlyTracking) (movingAverageSpeed * 3.6).toFloat() else 0f,
             altitude = startingAltitude ?: 0.0,
             slope = currentSlope, // Use current slope data
+            averageSlope = averageSlope,
+            maxUphillSlope = maxUphillSlope,
+            maxDownhillSlope = maxDownhillSlope,
             coveredDistance = coveredDistance,
             lap = lap,
             startDateTime = startDateTime,
@@ -1255,6 +1264,9 @@ class CustomLocationListener: LocationListener {
             horizontalAccuracy = location.accuracy,
             verticalAccuracyMeters = location.verticalAccuracyMeters,
             slope = slope,
+            averageSlope = averageSlope,
+            maxUphillSlope = maxUphillSlope,
+            maxDownhillSlope = maxDownhillSlope,
             coveredDistance = coveredDistance,
             lap = lap,
             startDateTime = startDateTime,
@@ -1329,9 +1341,12 @@ class CustomLocationListener: LocationListener {
         Log.d(TAG_WEBSOCKET, "Barometer data updated in CustomLocationListener")
     }
 
-    fun updateSlopeData(slope: Double) {
+    fun updateSlopeData(slope: Double, avgSlope: Double, maxUphill: Double, maxDownhill: Double) {
         currentSlope = slope
-        Log.d(TAG_WEBSOCKET, "Slope data updated: ${String.format("%.2f", slope)}%")
+        averageSlope = avgSlope
+        maxUphillSlope = maxUphill
+        maxDownhillSlope = maxDownhill
+        Log.d(TAG_WEBSOCKET, "Slope data updated: current=${String.format("%.2f", slope)}%, avg=${String.format("%.2f", avgSlope)}%, max uphill=${String.format("%.2f", maxUphill)}%, max downhill=${String.format("%.2f", maxDownhill)}%")
     }
 
     /**

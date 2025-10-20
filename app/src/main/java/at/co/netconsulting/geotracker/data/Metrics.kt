@@ -24,6 +24,9 @@ data class Metrics(
     val horizontalAccuracy: Float = 0f,
     val verticalAccuracyMeters: Float = 0f,
     val slope: Double = 0.0,                        // Real-time slope percentage
+    val averageSlope: Double = 0.0,                 // Average slope over entire route
+    val maxUphillSlope: Double = 0.0,               // Maximum uphill slope encountered
+    val maxDownhillSlope: Double = 0.0,             // Maximum downhill slope encountered (positive value)
     val coveredDistance: Double = 0.0,
     val lap: Int = 0,
     val startDateTime: LocalDateTime,

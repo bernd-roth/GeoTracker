@@ -24,6 +24,10 @@ data class FollowedUserPoint(
     val altitude: Double = 0.0,
     val currentSpeed: Float = 0.0f,
     val distance: Double = 0.0,
+    val slope: Double? = null,
+    val averageSlope: Double? = null,
+    val maxUphillSlope: Double? = null,
+    val maxDownhillSlope: Double? = null,
     val heartRate: Int? = null,
     val timestamp: String = "",
     // Weather data
