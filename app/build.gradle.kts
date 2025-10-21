@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.11")} (20-10-2025: Slope overview in StatisticsScreen implemented)"
+        versionName = "${getNextVersion("5.12")} (21-10-2025: OutOfMemoryError fixed when navigating back and forth to EventsScreen)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

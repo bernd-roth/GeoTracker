@@ -1,12 +1,14 @@
 package at.co.netconsulting.geotracker.viewmodel
 
 import EventWithDetails
+import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +18,10 @@ import org.osmdroid.util.GeoPoint
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel() {
+class EventsViewModel(
+    private val database: FitnessTrackerDatabase,
+    private val context: Context
+) : ViewModel() {
     private val _eventsWithDetails = MutableStateFlow<List<EventWithDetails>>(emptyList())
     val eventsWithDetails: StateFlow<List<EventWithDetails>> = _eventsWithDetails.asStateFlow()
 
@@ -28,6 +33,13 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    // Recording state monitoring
+    private val _activeEventId = MutableStateFlow(-1)
+    val activeEventId: StateFlow<Int> = _activeEventId.asStateFlow()
+
+    private val _isRecording = MutableStateFlow(false)
+    val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
 
     private var currentPage = 0
 
@@ -43,6 +55,29 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
     // Date range filter
     private var startDateFilter: String? = null
     private var endDateFilter: String? = null
+
+    init {
+        // Monitor SharedPreferences for recording state changes
+        // This runs in viewModelScope and will be automatically cancelled when ViewModel is cleared
+        viewModelScope.launch {
+            while (true) {
+                val newActiveEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+                    .getInt("active_event_id", -1)
+
+                val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                    .getBoolean("is_recording", false)
+
+                // Update state if changed
+                if (newActiveEventId != _activeEventId.value || newIsRecording != _isRecording.value) {
+                    Log.d("EventsViewModel", "Recording state changed: activeEventId=$newActiveEventId, isRecording=$newIsRecording")
+                    _activeEventId.value = newActiveEventId
+                    _isRecording.value = newIsRecording
+                }
+
+                delay(1000) // Check every 1 second
+            }
+        }
+    }
 
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
@@ -483,9 +518,13 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
 
         // Sort metrics by time to ensure correct order
         val sortedMetrics = metrics.sortedBy { it.timeInMilliseconds }
-        val slopes = mutableListOf<Double>()
+
+        // Use O(1) memory by tracking only min, max, sum, and count
+        var minSlope = Double.MAX_VALUE
+        var maxSlope = Double.MIN_VALUE
+        var slopeSum = 0.0
+        var slopeCount = 0
         var totalDistance = 0.0
-        var totalElevationChange = 0.0
 
         // Calculate slope between consecutive points
         for (i in 1 until sortedMetrics.size) {
@@ -516,27 +555,44 @@ class EventsViewModel(private val database: FitnessTrackerDatabase) : ViewModel(
 
                 // More reasonable filtering - allow steeper slopes but filter extreme GPS errors
                 if (slope >= -50.0 && slope <= 50.0) {
-                    slopes.add(slope)
+                    // Update min and max
+                    if (slope < minSlope) minSlope = slope
+                    if (slope > maxSlope) maxSlope = slope
+
+                    // Update sum and count for average
+                    slopeSum += slope
+                    slopeCount++
                     totalDistance += distanceDiff
-                    totalElevationChange += elevationDiff
                 }
             }
         }
 
-        return if (slopes.isNotEmpty() && totalDistance > 0) {
+        return if (slopeCount > 0 && totalDistance > 0) {
             // Calculate average slope as mean of all individual slopes
             // This gives meaningful results for loops/circular routes (unlike net elevation / distance)
-            val avgSlope = slopes.average()
-            val maxSlope = slopes.maxOrNull() ?: 0.0
-            val minSlope = slopes.minOrNull() ?: 0.0
+            val avgSlope = slopeSum / slopeCount
 
             // Log for debugging - remove in production
-            android.util.Log.d("SlopeCalculation", "Slopes count: ${slopes.size}, Total distance: $totalDistance m")
+            android.util.Log.d("SlopeCalculation", "Slopes count: $slopeCount, Total distance: $totalDistance m")
             android.util.Log.d("SlopeCalculation", "Average slope: $avgSlope%, Min: $minSlope%, Max: $maxSlope%")
 
             Triple(avgSlope, maxSlope, minSlope)
         } else {
             Triple(0.0, 0.0, 0.0)
         }
+    }
+}
+
+// ViewModelFactory to provide database and context to EventsViewModel
+class EventsViewModelFactory(
+    private val database: FitnessTrackerDatabase,
+    private val context: Context
+) : androidx.lifecycle.ViewModelProvider.Factory {
+    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+        if (modelClass.isAssignableFrom(EventsViewModel::class.java)) {
+            @Suppress("UNCHECKED_CAST")
+            return EventsViewModel(database, context) as T
+        }
+        throw IllegalArgumentException("Unknown ViewModel class")
     }
 }

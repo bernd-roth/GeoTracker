@@ -76,6 +76,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -104,6 +105,8 @@ import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
+import at.co.netconsulting.geotracker.viewmodel.EventsViewModelFactory
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -124,16 +127,21 @@ fun EventsScreen(
     onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit
 ) {
     val context = LocalContext.current
-    val eventsViewModel = remember { EventsViewModel(FitnessTrackerDatabase.getInstance(context)) }
+    val eventsViewModel: EventsViewModel = viewModel(
+        factory = EventsViewModelFactory(
+            FitnessTrackerDatabase.getInstance(context),
+            context
+        )
+    )
     val events by eventsViewModel.filteredEventsWithDetails.collectAsState(initial = emptyList())
     val allEvents by eventsViewModel.eventsWithDetails.collectAsState(initial = emptyList())
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
-    // Track both the active event ID and recording state
-    var activeEventId by remember { mutableStateOf(-1) }
-    var isRecording by remember { mutableStateOf(false) }
+    // Observe recording state from ViewModel (managed in viewModelScope to prevent memory leaks)
+    val activeEventId by eventsViewModel.activeEventId.collectAsState()
+    val isRecording by eventsViewModel.isRecording.collectAsState()
 
     // State for importing GPX
     var isImporting by remember { mutableStateOf(false) }
@@ -242,39 +250,13 @@ fun EventsScreen(
         gpxFileLauncher.launch(intent)
     }
 
-    // Refresh the state on recomposition
-    LaunchedEffect(Unit) {
-        // Launch effect to fetch shared preferences values
-        activeEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-            .getInt("active_event_id", -1)
+    // Recording state is now monitored in the ViewModel to prevent memory leaks
+    // The ViewModel's viewModelScope ensures the monitoring coroutine is properly cancelled
 
-        isRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-            .getBoolean("is_recording", false)
-
-        // Log initial state for debugging
-        Log.d("EventsScreen", "Initial state: activeEventId=$activeEventId, isRecording=$isRecording")
-    }
-
-    // Create a periodic check to catch changes in SharedPreferences
-    LaunchedEffect(Unit) {
-        // Check every 1 second for changes in SharedPreferences
-        while (true) {
-            val newActiveEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                .getInt("active_event_id", -1)
-
-            val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                .getBoolean("is_recording", false)
-
-            // Log any changes
-            if (newActiveEventId != activeEventId || newIsRecording != isRecording) {
-                Log.d("EventsScreen", "State changed: activeEventId=$newActiveEventId (was $activeEventId), isRecording=$newIsRecording (was $isRecording)")
-            }
-
-            // Update regardless of change to ensure UI is consistent
-            activeEventId = newActiveEventId
-            isRecording = newIsRecording
-
-            delay(1000) // 1-second interval
+    // Clear search query when leaving the screen
+    DisposableEffect(Unit) {
+        onDispose {
+            eventsViewModel.setSearchQuery("")
         }
     }
 

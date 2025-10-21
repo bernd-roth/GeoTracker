@@ -44,6 +44,8 @@ import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
+import at.co.netconsulting.geotracker.viewmodel.EventsViewModelFactory
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,9 +55,10 @@ fun TrackSelectionDialog(
 ) {
     val context = LocalContext.current
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
-    val eventsViewModel = remember { EventsViewModel(database) }
+    val eventsViewModel: EventsViewModel = viewModel(
+        factory = EventsViewModelFactory(database, context)
+    )
     val events by eventsViewModel.eventsWithDetails.collectAsState(initial = emptyList())
-    val coroutineScope = rememberCoroutineScope()
 
     // Load events when dialog opens
     LaunchedEffect(Unit) {

@@ -16,7 +16,9 @@
       "Bash(./gradlew.bat:*)",
       "Bash(gradlew.bat build:*)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(.gradlew.bat assembleDebug)",
+      "Bash(gradlew.bat assembleDebug)"
     ],
     "deny": [],
     "ask": []
