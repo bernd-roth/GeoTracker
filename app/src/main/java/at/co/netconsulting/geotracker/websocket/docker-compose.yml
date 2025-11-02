@@ -67,6 +67,9 @@ services:
     volumes:
       - ./ssl:/etc/letsencrypt
       - ./certbot-webroot:/var/www/certbot
+      - ./duckdns-auth.sh:/scripts/duckdns-auth.sh:ro
+      - ./duckdns-cleanup.sh:/scripts/duckdns-cleanup.sh:ro
+      - ./duckdns.ini:/etc/duckdns.ini:ro
     networks:
       - app-network
 networks:
