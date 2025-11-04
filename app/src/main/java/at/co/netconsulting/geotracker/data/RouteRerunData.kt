@@ -6,7 +6,8 @@ import at.co.netconsulting.geotracker.domain.Metric
 data class RouteRerunData(
     val points: List<GeoPoint>,
     val isRerun: Boolean = true,
-    val eventId: Int? = null
+    val eventId: Int? = null,
+    val totalDistance: Double? = null
 )
 
 data class RouteDisplayData(

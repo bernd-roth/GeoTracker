@@ -730,9 +730,13 @@ fun MapScreen(
                 }
 
                 // Calculate animation time: 1 second per kilometer, minimum 2 seconds
-                var totalDistance = 0.0
-                for (i in 1 until routeRerunData.points.size) {
-                    totalDistance += routeRerunData.points[i-1].distanceToAsDouble(routeRerunData.points[i])
+                // Use pre-calculated distance if available, otherwise calculate it (for backwards compatibility)
+                val totalDistance = routeRerunData.totalDistance ?: run {
+                    var calculatedDistance = 0.0
+                    for (i in 1 until routeRerunData.points.size) {
+                        calculatedDistance += routeRerunData.points[i-1].distanceToAsDouble(routeRerunData.points[i])
+                    }
+                    calculatedDistance
                 }
                 val totalAnimationMs = ((totalDistance / 1000.0) * 1000).toLong().coerceAtLeast(2000L)
                 

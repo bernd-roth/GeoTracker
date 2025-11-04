@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.12")} (21-10-2025: OutOfMemoryError fixed when navigating back and forth to EventsScreen)"
+        versionName = "${getNextVersion("5.13")} (04-11-2025: Rerun issue fixed because of bad calculation)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

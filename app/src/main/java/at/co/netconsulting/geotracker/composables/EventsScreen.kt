@@ -619,7 +619,7 @@ fun EventsScreen(
                                 onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId))
                             },
                             onViewOnMapRerun = { locationPoints ->
-                                onNavigateToMapWithRouteRerun(RouteRerunData(locationPoints, true, eventWithDetails.event.eventId))
+                                onNavigateToMapWithRouteRerun(RouteRerunData(locationPoints, true, eventWithDetails.event.eventId, eventWithDetails.totalDistance))
                             },
                             onViewSlopeOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId, showSlopeColors = true, metrics = eventWithDetails.metrics))
