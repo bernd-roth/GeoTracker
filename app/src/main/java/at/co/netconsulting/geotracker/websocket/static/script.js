@@ -1135,6 +1135,8 @@ function handleHistoryBatch(points) {
             altitude: parseFloat(point.altitude || 0),
             speed: parseFloat(point.currentSpeed || 0),
             averageSpeed: parseFloat(point.averageSpeed || 0),
+            maxSpeed: parseFloat(point.maxSpeed || 0),
+            movingAverageSpeed: parseFloat(point.movingAverageSpeed || 0),
             cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
             heartRate: parseInt(point.heartRate || 0),
             slope: parseFloat(point.slope || 0),
@@ -1189,9 +1191,14 @@ function finalizeBatchProcessing() {
                 if (latestPoint) {
                     updateSpeedDisplay(sessionId, latestPoint.speed, {
                         averageSpeed: latestPoint.averageSpeed,
+                        maxSpeed: latestPoint.maxSpeed,
+                        movingAverageSpeed: latestPoint.movingAverageSpeed,
                         cumulativeElevationGain: latestPoint.cumulativeElevationGain,
                         heartRate: latestPoint.heartRate,
                         slope: latestPoint.slope,
+                        averageSlope: latestPoint.averageSlope,
+                        maxUphillSlope: latestPoint.maxUphillSlope,
+                        maxDownhillSlope: latestPoint.maxDownhillSlope,
                         distance: latestPoint.distance,
                         personName: latestPoint.personName ||
                             (window.sessionPersonNames && window.sessionPersonNames[sessionId]) || "",

@@ -844,6 +844,10 @@ class TrackingServer:
                     "movingAverageSpeed": float(row['moving_average_speed']) if row['moving_average_speed'] else 0.0,
                     "averageSpeed": float(row['average_speed']) if row['average_speed'] else 0.0,
                     "distance": float(row['distance']) if row['distance'] else 0.0,
+                    "slope": float(row['slope']) if row['slope'] is not None else 0.0,
+                    "averageSlope": float(row['average_slope']) if row['average_slope'] is not None else 0.0,
+                    "maxUphillSlope": float(row['max_uphill_slope']) if row['max_uphill_slope'] is not None else 0.0,
+                    "maxDownhillSlope": float(row['max_downhill_slope']) if row['max_downhill_slope'] is not None else 0.0,
                     # Keep 'person' for backward compatibility
                     "person": row['firstname']
                 }
@@ -882,15 +886,7 @@ class TrackingServer:
                 if row['sea_level_pressure'] is not None:
                     tracking_point["seaLevelPressure"] = float(row['sea_level_pressure'])
 
-                # Add slope data if available
-                if row['slope'] is not None:
-                    tracking_point["slope"] = float(row['slope'])
-                if row['average_slope'] is not None:
-                    tracking_point["averageSlope"] = float(row['average_slope'])
-                if row['max_uphill_slope'] is not None:
-                    tracking_point["maxUphillSlope"] = float(row['max_uphill_slope'])
-                if row['max_downhill_slope'] is not None:
-                    tracking_point["maxDownhillSlope"] = float(row['max_downhill_slope'])
+                # Note: slope data is now added directly in tracking_point creation above
 
                 self.tracking_history[row['session_id']].append(tracking_point)
 
@@ -1711,7 +1707,11 @@ class TrackingServer:
             "currentSpeed": float(message_data["currentSpeed"]),
             "maxSpeed": float(message_data["maxSpeed"]),
             "movingAverageSpeed": float(message_data["movingAverageSpeed"]),
-            "averageSpeed": float(message_data["averageSpeed"])
+            "averageSpeed": float(message_data["averageSpeed"]),
+            "slope": float(message_data.get("slope", 0)),
+            "averageSlope": float(message_data.get("averageSlope", 0)),
+            "maxUphillSlope": float(message_data.get("maxUphillSlope", 0)),
+            "maxDownhillSlope": float(message_data.get("maxDownhillSlope", 0))
         }
 
         # Ensure backward compatibility with 'person' field
@@ -1759,18 +1759,7 @@ class TrackingServer:
         if "seaLevelPressure" in message_data:
             tracking_point["seaLevelPressure"] = float(message_data["seaLevelPressure"])
 
-        # Add slope data if available
-        if "slope" in message_data:
-            tracking_point["slope"] = float(message_data["slope"])
-
-        if "averageSlope" in message_data:
-            tracking_point["averageSlope"] = float(message_data["averageSlope"])
-
-        if "maxUphillSlope" in message_data:
-            tracking_point["maxUphillSlope"] = float(message_data["maxUphillSlope"])
-
-        if "maxDownhillSlope" in message_data:
-            tracking_point["maxDownhillSlope"] = float(message_data["maxDownhillSlope"])
+        # Note: slope data is now added directly in tracking_point creation above
 
         return tracking_point
 
