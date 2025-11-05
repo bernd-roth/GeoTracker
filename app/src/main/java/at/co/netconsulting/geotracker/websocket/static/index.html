@@ -22,8 +22,8 @@
         /* Keep only the essential controls */
         #essentialControls {
             position: absolute;
-            top: 12px;
-            left: 50px;
+            top: 220px;
+            left: 10px;
             z-index: 1000;
             background-color: white;
             padding: 5px;
@@ -309,7 +309,7 @@
 
         .control-panel {
             position: absolute;
-            top: 80px;
+            top: 25px;
             left: 10px;
             z-index: 1000;
             background-color: white;
@@ -638,10 +638,10 @@
 </head>
 <body>
 <!-- Keep only essential controls: Hide Stats and Debug -->
-<div id="essentialControls">
+<!-- <div id="essentialControls">
     <button id="toggleStatsBtn" onclick="toggleStatBoxes()">Hide Stats</button>
     <button id="debugToggle" onclick="toggleDebugPopup()">Show Debug Data</button>
-</div>
+</div> -->
 
 <div id="speedDisplay">
     <div class="stats-grid">
@@ -722,6 +722,11 @@
     </div>
 </div>
 
+<!-- Show/Hide Stats control -->
+<div id="essentialControls">
+    <button id="toggleStatsBtn" onclick="toggleStatBoxes()">Hide Stats</button>
+</div>
+
 <div id="map"></div>
 <div class="charts-container">
     <div id="altitudeChartContainer">
@@ -734,7 +739,7 @@
 <div id="sessionInfo" class="session-info"></div>
 
 <!-- Debug Popup -->
-<div id="debugOverlay" onclick="toggleDebugPopup()"></div>
+<!-- <div id="debugOverlay" onclick="toggleDebugPopup()"></div>
 <div id="debugPopup">
     <div id="debugPopupHeader">
         <h3 id="debugPopupTitle">Data Trace Debug</h3>
@@ -747,7 +752,7 @@
         <button onclick="exportDebugLog()">Export Log</button>
         <button onclick="pauseDebugLog()" id="pauseButton">Pause</button>
     </div>
-</div>
+</div> -->
 
 <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
