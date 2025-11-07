@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.13")} (04-11-2025: Rerun issue fixed because of bad calculation)"
+        versionName = "${getNextVersion("5.14")} (07-11-2025: Displaying more than one entry in detailed lap times analysis)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

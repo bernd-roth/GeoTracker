@@ -6,6 +6,8 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -58,9 +60,11 @@ class LapAnalysisActivity : ComponentActivity() {
 @Composable
 fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
     var event by remember { mutableStateOf<Event?>(null) }
+    var allPathPoints by remember { mutableStateOf<List<PathPoint>>(emptyList()) }
     var pathPoints by remember { mutableStateOf<List<PathPoint>>(emptyList()) }
     var lapTimes by remember { mutableStateOf<List<LapTime>>(emptyList()) }
     var selectedPoint by remember { mutableStateOf<PathPoint?>(null) }
+    var selectedLap by remember { mutableStateOf<LapTime?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
     // val context = LocalContext.current // Unused for now
@@ -141,6 +145,7 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
 
                 withContext(Dispatchers.Main) {
                     event = eventData
+                    allPathPoints = sortedPoints
                     pathPoints = sortedPoints
                     lapTimes = laps
                     isLoading = false
@@ -150,6 +155,21 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                     isLoading = false
                 }
             }
+        }
+    }
+
+    // Filter path points when a lap is selected
+    LaunchedEffect(selectedLap) {
+        if (selectedLap != null) {
+            // Filter points that fall within the selected lap's time range
+            val filteredPoints = allPathPoints.filter { point ->
+                point.timestamp >= selectedLap!!.startTime && point.timestamp <= selectedLap!!.endTime
+            }
+            pathPoints = filteredPoints
+            android.util.Log.d("LapAnalysis", "Filtered to ${filteredPoints.size} points for lap ${selectedLap!!.lapNumber}")
+        } else {
+            // Show all points when no lap is selected
+            pathPoints = allPathPoints
         }
     }
 
@@ -181,11 +201,11 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
-                // Map section (35% of screen)
+                // Map section (fixed at top)
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.35f)
+                        .height(300.dp)
                         .padding(8.dp),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                 ) {
@@ -193,6 +213,8 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                         InteractivePathMap(
                             pathPoints = pathPoints,
                             selectedPoint = selectedPoint,
+                            zoomToFit = selectedLap != null,
+                            key = selectedLap?.lapNumber,
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -205,73 +227,85 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                     }
                 }
 
-                // Speed Graph section (20% of screen)
-                Card(
+                // Scrollable content below the map
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.2f)
-                        .padding(8.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    if (pathPoints.isNotEmpty()) {
-                        SpeedDistanceGraph(
-                            pathPoints = pathPoints,
-                            onPointClick = { point: PathPoint -> selectedPoint = point },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No speed data available")
+                    // Speed Graph section (fixed height)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .padding(8.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        if (pathPoints.isNotEmpty()) {
+                            SpeedDistanceGraph(
+                                pathPoints = pathPoints,
+                                onPointClick = { point: PathPoint -> selectedPoint = point },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No speed data available")
+                            }
                         }
                     }
-                }
 
-                // Speed Color Legend (5% of screen)
-                SpeedColorLegend(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                )
-
-                // Altitude Profile Graph section (20% of screen)
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.2f)
-                        .padding(8.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    if (pathPoints.isNotEmpty()) {
-                        AltitudeProfileGraph(
-                            pathPoints = pathPoints,
-                            onPointClick = { point: PathPoint -> selectedPoint = point },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No altitude data available")
-                        }
-                    }
-                }
-
-                // Lap times table (20% of screen)
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.2f)
-                        .padding(8.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
-                ) {
-                    LapTimesTable(
-                        lapTimes = lapTimes,
-                        modifier = Modifier.fillMaxSize()
+                    // Speed Color Legend
+                    SpeedColorLegend(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
                     )
+
+                    // Altitude Profile Graph section (fixed height)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .padding(8.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        if (pathPoints.isNotEmpty()) {
+                            AltitudeProfileGraph(
+                                pathPoints = pathPoints,
+                                onPointClick = { point: PathPoint -> selectedPoint = point },
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("No altitude data available")
+                            }
+                        }
+                    }
+
+                    // Lap times table (fixed height to show ~10 entries)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(450.dp)
+                            .padding(8.dp),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    ) {
+                        LapTimesTable(
+                            lapTimes = lapTimes,
+                            selectedLap = selectedLap,
+                            onLapClick = { lap ->
+                                selectedLap = if (selectedLap == lap) null else lap
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
@@ -281,6 +315,8 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
 @Composable
 fun LapTimesTable(
     lapTimes: List<LapTime>,
+    selectedLap: LapTime?,
+    onLapClick: (LapTime) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -300,7 +336,9 @@ fun LapTimesTable(
                 modifier = Modifier.padding(8.dp)
             )
         } else {
-            LazyColumn {
+            LazyColumn(
+                modifier = Modifier.weight(1f)
+            ) {
                 // Header
                 item {
                     Row(
@@ -330,24 +368,35 @@ fun LapTimesTable(
 
                 // Lap data
                 items(lapTimes) { lapTime ->
-                    Row(
+                    val isSelected = selectedLap == lapTime
+                    Surface(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .fillMaxWidth(),
+                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                        onClick = { onLapClick(lapTime) }
                     ) {
-                        Text(
-                            text = "${lapTime.lapNumber}",
-                            modifier = Modifier.weight(0.3f)
-                        )
-                        Text(
-                            text = Tools().formatDuration(lapTime.endTime - lapTime.startTime),
-                            modifier = Modifier.weight(0.4f)
-                        )
-                        Text(
-                            text = calculatePace(lapTime.endTime - lapTime.startTime),
-                            modifier = Modifier.weight(0.3f)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "${lapTime.lapNumber}",
+                                modifier = Modifier.weight(0.3f),
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                            )
+                            Text(
+                                text = Tools().formatDuration(lapTime.endTime - lapTime.startTime),
+                                modifier = Modifier.weight(0.4f),
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                            )
+                            Text(
+                                text = calculatePace(lapTime.endTime - lapTime.startTime),
+                                modifier = Modifier.weight(0.3f),
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                            )
+                        }
                     }
                 }
             }

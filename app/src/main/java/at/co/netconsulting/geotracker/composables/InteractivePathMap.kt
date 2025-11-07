@@ -19,11 +19,15 @@ import org.osmdroid.views.overlay.Marker
 fun InteractivePathMap(
     pathPoints: List<PathPoint>,
     selectedPoint: PathPoint?,
-    modifier: Modifier = Modifier
+    zoomToFit: Boolean = false,
+    modifier: Modifier = Modifier,
+    key: Any? = null
 ) {
     // val context = LocalContext.current // Unused for now
-    AndroidView(
-        factory = { ctx ->
+    // Use key to force recomposition when it changes
+    key(key) {
+        AndroidView(
+            factory = { ctx ->
             // Initialize osmdroid configuration
             Configuration.getInstance().load(ctx, ctx.getSharedPreferences("osmdroid", 0))
 
@@ -60,6 +64,18 @@ fun InteractivePathMap(
             if (pathPoints.isNotEmpty()) {
                 // Create speed-colored path segments
                 createSpeedColoredPath(mapView, pathPoints)
+
+                // Zoom to fit all points if requested
+                if (zoomToFit) {
+                    mapView.post {
+                        val geoPoints = pathPoints.map { GeoPoint(it.latitude, it.longitude) }
+                        if (geoPoints.isNotEmpty()) {
+                            val boundingBox = org.osmdroid.util.BoundingBox.fromGeoPoints(geoPoints)
+                            mapView.zoomToBoundingBox(boundingBox, true, 50)
+                            android.util.Log.d("InteractivePathMap", "Zoomed to bounding box for ${geoPoints.size} points")
+                        }
+                    }
+                }
 
                 // Add selected point marker if any
                 selectedPoint?.let { point ->
@@ -113,7 +129,8 @@ fun InteractivePathMap(
             }
         },
         modifier = modifier.fillMaxSize()
-    )
+        )
+    }
 }
 
 private fun createSpeedColoredPath(mapView: MapView, pathPoints: List<PathPoint>) {
