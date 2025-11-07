@@ -1656,10 +1656,17 @@ fun MapScreen(
                         onClick = {
                             // Clear the displayed route
                             mapViewRef.value?.let { mapView ->
-                                routeOverlayRef.value?.let { overlay ->
+                                // Remove all Polyline overlays (for both single-color and slope-colored routes)
+                                val overlaysToRemove = mapView.overlays.filterIsInstance<Polyline>().toList()
+                                overlaysToRemove.forEach { overlay ->
                                     mapView.overlays.remove(overlay)
-                                    mapView.invalidate()
                                 }
+
+                                // Clear waypoints
+                                waypointOverlayRef.value?.updateWaypoints(emptyList())
+
+                                mapView.invalidate()
+                                Timber.d("Removed ${overlaysToRemove.size} polyline overlays and cleared waypoints")
                             }
                             displayedRoute = null
                             showRouteDisplayIndicator = false

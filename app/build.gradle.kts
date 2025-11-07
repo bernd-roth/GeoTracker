@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.14")} (07-11-2025: Displaying more than one entry in detailed lap times analysis)"
+        versionName = "${getNextVersion("5.15")} (07-11-2025: Clear map when rerouting and then closing the map)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
