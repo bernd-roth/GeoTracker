@@ -450,6 +450,14 @@ class CustomLocationListener: LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        // Validate coordinates first - reject placeholder/invalid GPS values
+        if (location.latitude == -999.0 || location.longitude == -999.0 ||
+            (location.latitude == 0.0 && location.longitude == 0.0)) {
+            Log.w("CustomLocationListener",
+                "Invalid GPS coordinates received and rejected: lat=${location.latitude}, lon=${location.longitude}")
+            return  // Skip this location update entirely
+        }
+
         if (startingAltitude == null) {
             startingAltitude = location.altitude
             Log.d("LocationTracker", "Starting altitude set: $startingAltitude meters")

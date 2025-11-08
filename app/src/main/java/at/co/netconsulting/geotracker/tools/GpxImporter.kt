@@ -147,7 +147,8 @@ class GpxImporter(private val context: Context) {
                                 currentWaypoint.lon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull() ?: 0.0
 
                                 // Validate coordinates
-                                if (currentWaypoint.lat == 0.0 && currentWaypoint.lon == 0.0) {
+                                if ((currentWaypoint.lat == 0.0 && currentWaypoint.lon == 0.0) ||
+                                    currentWaypoint.lat == -999.0 || currentWaypoint.lon == -999.0) {
                                     Log.w(TAG, "Invalid waypoint coordinates found: lat=${currentWaypoint.lat}, lon=${currentWaypoint.lon}")
                                 }
                             }
@@ -158,7 +159,8 @@ class GpxImporter(private val context: Context) {
                                 currentPoint.lon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull() ?: 0.0
 
                                 // Validate coordinates
-                                if (currentPoint.lat == 0.0 && currentPoint.lon == 0.0) {
+                                if ((currentPoint.lat == 0.0 && currentPoint.lon == 0.0) ||
+                                    currentPoint.lat == -999.0 || currentPoint.lon == -999.0) {
                                     Log.w(TAG, "Invalid coordinates found: lat=${currentPoint.lat}, lon=${currentPoint.lon}")
                                 }
                             }
@@ -204,19 +206,25 @@ class GpxImporter(private val context: Context) {
                             "wpt" -> {
                                 if (inWaypoint) {
                                     inWaypoint = false
-                                    // Only add valid waypoints
-                                    if (currentWaypoint.lat != 0.0 || currentWaypoint.lon != 0.0) {
+                                    // Only add valid waypoints (exclude 0.0,0.0 and -999.0 placeholder coordinates)
+                                    if ((currentWaypoint.lat != 0.0 || currentWaypoint.lon != 0.0) &&
+                                        currentWaypoint.lat != -999.0 && currentWaypoint.lon != -999.0) {
                                         waypoints.add(currentWaypoint)
                                         Log.d(TAG, "Added waypoint: ${currentWaypoint.name} at (${currentWaypoint.lat}, ${currentWaypoint.lon})")
+                                    } else {
+                                        Log.w(TAG, "Skipped invalid waypoint: ${currentWaypoint.name} at (${currentWaypoint.lat}, ${currentWaypoint.lon})")
                                     }
                                 }
                             }
                             "trkpt" -> {
                                 if (inTrackPoint) {
                                     inTrackPoint = false
-                                    // Only add valid track points
-                                    if (currentPoint.lat != 0.0 || currentPoint.lon != 0.0) {
+                                    // Only add valid track points (exclude 0.0,0.0 and -999.0 placeholder coordinates)
+                                    if ((currentPoint.lat != 0.0 || currentPoint.lon != 0.0) &&
+                                        currentPoint.lat != -999.0 && currentPoint.lon != -999.0) {
                                         trackPoints.add(currentPoint)
+                                    } else {
+                                        Log.w(TAG, "Skipped invalid track point at (${currentPoint.lat}, ${currentPoint.lon})")
                                     }
                                 }
                             }

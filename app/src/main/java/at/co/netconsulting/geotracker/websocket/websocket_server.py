@@ -2178,14 +2178,11 @@ class TrackingServer:
 
                     # Handle invalid coordinates case
                     if tracking_point.get('invalidCoordinates', False):
-                        logging.info(f"Received invalid coordinates for session {actual_session_id}: {tracking_point.get('reason', 'Unknown')}")
-                        
-                        # Still try to save to database (for non-GPS data like heart rate, speed, etc.)
-                        # But don't add to tracking history or update map
-                        db_success = await self.save_tracking_data_to_db(tracking_point)
-                        if not db_success:
-                            logging.warning("Failed to save invalid coordinate data to database")
-                        
+                        logging.info(f"Skipping invalid coordinates for session {actual_session_id}: {tracking_point.get('reason', 'Unknown')}")
+
+                        # DO NOT save to database - user wants to exclude -999.0 coordinates completely
+                        # This prevents invalid GPS data from polluting the database
+
                         # Send a special update to frontend indicating invalid coordinates
                         await self.broadcast_update({
                             'type': 'invalid_coordinates',
@@ -2198,7 +2195,7 @@ class TrackingServer:
                                 'timestamp': tracking_point.get('timestamp')
                             }
                         })
-                        
+
                         # Continue processing other messages, don't break the loop
                         continue
 
