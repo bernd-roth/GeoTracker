@@ -222,8 +222,11 @@ fun MapScreen(
     // Add reference to hold the FollowedUsersOverlay
     val followedUsersOverlayRef = remember { mutableStateOf<FollowedUsersOverlay?>(null) }
     
-    // Add reference to hold the WaypointOverlay
+    // Add reference to hold the WaypointOverlay (for database waypoints)
     val waypointOverlayRef = remember { mutableStateOf<WaypointOverlay?>(null) }
+
+    // Add reference to hold the GPX Waypoint Overlay (for imported GPX waypoints)
+    val gpxWaypointOverlayRef = remember { mutableStateOf<WaypointOverlay?>(null) }
 
     // New state for route display
     var displayedRoute by remember { mutableStateOf<RouteDisplayData?>(null) }
@@ -445,6 +448,27 @@ fun MapScreen(
             gpxTrackOverlayRef.value = gpxOverlay
             currentImportedTrack = track
 
+            // Display waypoints from the imported GPX track
+            if (track.waypoints.isNotEmpty()) {
+                // Convert GpxWaypoint to database Waypoint format for display
+                val displayWaypoints = track.waypoints.map { gpxWaypoint ->
+                    at.co.netconsulting.geotracker.domain.Waypoint(
+                        waypointId = 0,
+                        eventId = 0, // Not associated with any event
+                        latitude = gpxWaypoint.latitude,
+                        longitude = gpxWaypoint.longitude,
+                        name = gpxWaypoint.name,
+                        description = gpxWaypoint.description,
+                        elevation = gpxWaypoint.elevation
+                    )
+                }
+                gpxWaypointOverlayRef.value?.updateWaypoints(displayWaypoints)
+                Timber.d("Displayed ${track.waypoints.size} waypoints from imported GPX track")
+            } else {
+                gpxWaypointOverlayRef.value?.updateWaypoints(emptyList())
+                Timber.d("No waypoints in imported GPX track")
+            }
+
             // Center map on the imported track only if not recording or if it's a new track
             if (track.points.isNotEmpty() && (!isRecording || currentImportedTrack?.filename != track.filename)) {
                 val minLat = track.points.minOf { it.latitude }
@@ -538,8 +562,11 @@ fun MapScreen(
             // Clear live recording path
             pathTracker.clearPath(mapView)
 
-            // Clear waypoints
+            // Clear database waypoints
             waypointOverlayRef.value?.updateWaypoints(emptyList())
+
+            // Clear imported GPX waypoints
+            gpxWaypointOverlayRef.value?.updateWaypoints(emptyList())
 
             mapView.invalidate()
             Timber.d("Cleared all tracks, routes, and waypoints from map")
@@ -572,6 +599,7 @@ fun MapScreen(
                                 mapView.invalidate()
                             }
                             gpxTrackOverlayRef.value = null
+                            gpxWaypointOverlayRef.value?.updateWaypoints(emptyList())
                             currentImportedTrack = null
                         }
                         persistedTrack != null &&
@@ -1551,6 +1579,11 @@ fun MapScreen(
                     val waypointOverlay = WaypointOverlay(ctx)
                     overlays.add(waypointOverlay)
                     waypointOverlayRef.value = waypointOverlay
+
+                    // Create separate overlay for imported GPX waypoints
+                    val gpxWaypointOverlay = WaypointOverlay(ctx)
+                    overlays.add(gpxWaypointOverlay)
+                    gpxWaypointOverlayRef.value = gpxWaypointOverlay
 
                     mapViewRef.value = this
 

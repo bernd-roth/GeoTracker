@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.17")} (10-11-2025: invalid GPS points are not transmitted or saved anymore)"
+        versionName = "${getNextVersion("5.18")} (10-11-2025: implementation of waypoint display for imported GPX files and database-loaded tracks in Ghost Racer mode)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

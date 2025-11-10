@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.GpxImportProgress
+import at.co.netconsulting.geotracker.data.GpxWaypoint
 import at.co.netconsulting.geotracker.data.HeartRateSensorDevice
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.enums.GpsFixStatus
@@ -110,6 +111,7 @@ private suspend fun parseGpxFileStreamingWithSpeed(
 ): ImportedGpxTrack = withContext(Dispatchers.IO) {
 
     val points = mutableListOf<GeoPoint>()
+    val waypoints = mutableListOf<GpxWaypoint>()
     var pointsProcessed = 0
     val updateInterval = 1000 // Update progress every 1000 points
 
@@ -129,6 +131,12 @@ private suspend fun parseGpxFileStreamingWithSpeed(
         var eventType = parser.eventType
         var currentLat: String? = null
         var currentLon: String? = null
+        var inWaypoint = false
+        var currentWaypointLat = 0.0
+        var currentWaypointLon = 0.0
+        var currentWaypointName = ""
+        var currentWaypointDesc = ""
+        var currentWaypointEle: Double? = null
 
         onProgress(GpxImportProgress(
             isImporting = true,
@@ -139,7 +147,42 @@ private suspend fun parseGpxFileStreamingWithSpeed(
             when (eventType) {
                 XmlPullParser.START_TAG -> {
                     when (parser.name) {
-                        "trkpt" -> {  // Only parse track points, not waypoints
+                        "wpt" -> {
+                            inWaypoint = true
+                            currentWaypointLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull() ?: 0.0
+                            currentWaypointLon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull() ?: 0.0
+                            currentWaypointName = ""
+                            currentWaypointDesc = ""
+                            currentWaypointEle = null
+                        }
+                        "name" -> {
+                            parser.next()
+                            if (parser.eventType == XmlPullParser.TEXT) {
+                                if (inWaypoint) {
+                                    currentWaypointName = parser.text ?: ""
+                                }
+                                // Ignore track/metadata names in streaming parser
+                            }
+                        }
+                        "desc" -> {
+                            parser.next()
+                            if (parser.eventType == XmlPullParser.TEXT) {
+                                if (inWaypoint) {
+                                    currentWaypointDesc = parser.text ?: ""
+                                }
+                                // Ignore other descriptions
+                            }
+                        }
+                        "ele" -> {
+                            parser.next()
+                            if (parser.eventType == XmlPullParser.TEXT) {
+                                if (inWaypoint) {
+                                    currentWaypointEle = parser.text?.toDoubleOrNull()
+                                }
+                                // Ignore track point elevation in streaming parser (not needed)
+                            }
+                        }
+                        "trkpt" -> {
                             currentLat = parser.getAttributeValue(null, "lat")
                             currentLon = parser.getAttributeValue(null, "lon")
 
@@ -173,6 +216,29 @@ private suspend fun parseGpxFileStreamingWithSpeed(
                         }
                     }
                 }
+                XmlPullParser.END_TAG -> {
+                    when (parser.name) {
+                        "wpt" -> {
+                            if (inWaypoint) {
+                                // Validate and add waypoint (exclude invalid coordinates)
+                                if ((currentWaypointLat != 0.0 || currentWaypointLon != 0.0) &&
+                                    currentWaypointLat != -999.0 && currentWaypointLon != -999.0 &&
+                                    currentWaypointLat >= -90.0 && currentWaypointLat <= 90.0 &&
+                                    currentWaypointLon >= -180.0 && currentWaypointLon <= 180.0) {
+                                    waypoints.add(GpxWaypoint(
+                                        latitude = currentWaypointLat,
+                                        longitude = currentWaypointLon,
+                                        name = currentWaypointName,
+                                        description = currentWaypointDesc.takeIf { it.isNotEmpty() },
+                                        elevation = currentWaypointEle
+                                    ))
+                                    android.util.Log.d("GPX", "Added waypoint: $currentWaypointName at ($currentWaypointLat, $currentWaypointLon)")
+                                }
+                                inWaypoint = false
+                            }
+                        }
+                    }
+                }
             }
             eventType = parser.next()
         }
@@ -194,13 +260,15 @@ private suspend fun parseGpxFileStreamingWithSpeed(
     onProgress(GpxImportProgress(
         isImporting = false,
         pointsProcessed = points.size,
-        status = "Import completed"
+        status = "Import completed with ${waypoints.size} waypoints"
     ))
+
+    android.util.Log.d("GPX", "Parsed ${points.size} track points and ${waypoints.size} waypoints")
 
     // Generate synthetic timestamps based on distance and user-specified speed
     val syntheticTimestamps = generateSyntheticTimestamps(points, speedKmh)
 
-    ImportedGpxTrack(filename, points, syntheticTimestamps)
+    ImportedGpxTrack(filename, points, syntheticTimestamps, waypoints = waypoints)
 }
 
 /**

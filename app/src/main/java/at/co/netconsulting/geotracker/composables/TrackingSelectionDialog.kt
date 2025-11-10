@@ -46,11 +46,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import at.co.netconsulting.geotracker.data.GpxWaypoint
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModelFactory
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,6 +63,7 @@ fun TrackSelectionDialog(
 ) {
     val context = LocalContext.current
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
+    val coroutineScope = rememberCoroutineScope()
     val eventsViewModel: EventsViewModel = viewModel(
         factory = EventsViewModelFactory(database, context)
     )
@@ -128,30 +131,10 @@ fun TrackSelectionDialog(
                         items(eventsWithTracks) { eventWithDetails ->
                             TrackSelectionItem(
                                 eventWithDetails = eventWithDetails,
-                                onSelected = {
-                                    // Convert event data to ImportedGpxTrack format with timestamps
-                                    // Extract timestamps from metrics (assuming metrics and locations are in same order)
-                                    val absoluteTimestamps = if (eventWithDetails.metrics.isNotEmpty()) {
-                                        eventWithDetails.metrics.map { it.timeInMilliseconds }
-                                    } else {
-                                        // If no metrics, generate synthetic timestamps based on distance and user-specified speed
-                                        generateSyntheticTimestampsFromDistance(eventWithDetails.locationPoints, assumedSpeedKmh)
-                                    }
-
-                                    // Normalize timestamps to be relative elapsed times (start from 0)
-                                    val relativeTimestamps = if (absoluteTimestamps.isNotEmpty()) {
-                                        val startTime = absoluteTimestamps.first()
-                                        absoluteTimestamps.map { it - startTime }
-                                    } else {
-                                        emptyList()
-                                    }
-
-                                    val importedTrack = ImportedGpxTrack(
-                                        filename = "${eventWithDetails.event.eventName} (${eventWithDetails.event.eventDate})",
-                                        points = eventWithDetails.locationPoints,
-                                        timestamps = relativeTimestamps,
-                                        eventId = eventWithDetails.event.eventId
-                                    )
+                                database = database,
+                                coroutineScope = coroutineScope,
+                                assumedSpeedKmh = assumedSpeedKmh,
+                                onSelected = { importedTrack ->
                                     onTrackSelected(importedTrack)
                                 }
                             )
@@ -168,12 +151,58 @@ fun TrackSelectionDialog(
 @Composable
 fun TrackSelectionItem(
     eventWithDetails: EventWithDetails,
-    onSelected: () -> Unit
+    database: FitnessTrackerDatabase,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    assumedSpeedKmh: Double,
+    onSelected: (ImportedGpxTrack) -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onSelected() },
+            .clickable {
+                // Load waypoints and create ImportedGpxTrack asynchronously
+                coroutineScope.launch {
+                    // Load waypoints from database
+                    val dbWaypoints = database.waypointDao().getWaypointsForEvent(eventWithDetails.event.eventId)
+
+                    // Convert database Waypoint to GpxWaypoint
+                    val gpxWaypoints = dbWaypoints.map { waypoint ->
+                        GpxWaypoint(
+                            latitude = waypoint.latitude,
+                            longitude = waypoint.longitude,
+                            name = waypoint.name,
+                            description = waypoint.description,
+                            elevation = waypoint.elevation
+                        )
+                    }
+
+                    // Convert event data to ImportedGpxTrack format with timestamps
+                    // Extract timestamps from metrics (assuming metrics and locations are in same order)
+                    val absoluteTimestamps = if (eventWithDetails.metrics.isNotEmpty()) {
+                        eventWithDetails.metrics.map { it.timeInMilliseconds }
+                    } else {
+                        // If no metrics, generate synthetic timestamps based on distance and user-specified speed
+                        generateSyntheticTimestampsFromDistance(eventWithDetails.locationPoints, assumedSpeedKmh)
+                    }
+
+                    // Normalize timestamps to be relative elapsed times (start from 0)
+                    val relativeTimestamps = if (absoluteTimestamps.isNotEmpty()) {
+                        val startTime = absoluteTimestamps.first()
+                        absoluteTimestamps.map { it - startTime }
+                    } else {
+                        emptyList()
+                    }
+
+                    val importedTrack = ImportedGpxTrack(
+                        filename = "${eventWithDetails.event.eventName} (${eventWithDetails.event.eventDate})",
+                        points = eventWithDetails.locationPoints,
+                        timestamps = relativeTimestamps,
+                        eventId = eventWithDetails.event.eventId,
+                        waypoints = gpxWaypoints
+                    )
+                    onSelected(importedTrack)
+                }
+            },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface

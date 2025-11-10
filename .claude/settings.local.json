@@ -19,7 +19,8 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(.gradlew.bat assembleDebug)",
       "Bash(gradlew.bat assembleDebug)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(bash gradlew:*)"
     ],
     "deny": [],
     "ask": []
