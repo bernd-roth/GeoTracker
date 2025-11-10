@@ -102,9 +102,10 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 
-private suspend fun parseGpxFileStreaming(
+private suspend fun parseGpxFileStreamingWithSpeed(
     inputStream: InputStream,
     filename: String,
+    speedKmh: Double,
     onProgress: (GpxImportProgress) -> Unit
 ): ImportedGpxTrack = withContext(Dispatchers.IO) {
 
@@ -138,7 +139,7 @@ private suspend fun parseGpxFileStreaming(
             when (eventType) {
                 XmlPullParser.START_TAG -> {
                     when (parser.name) {
-                        "trkpt", "wpt" -> {
+                        "trkpt" -> {  // Only parse track points, not waypoints
                             currentLat = parser.getAttributeValue(null, "lat")
                             currentLon = parser.getAttributeValue(null, "lon")
 
@@ -196,14 +197,73 @@ private suspend fun parseGpxFileStreaming(
         status = "Import completed"
     ))
 
-    ImportedGpxTrack(filename, points)
+    // Generate synthetic timestamps based on distance and user-specified speed
+    val syntheticTimestamps = generateSyntheticTimestamps(points, speedKmh)
+
+    ImportedGpxTrack(filename, points, syntheticTimestamps)
+}
+
+/**
+ * Generate synthetic timestamps for a track based on distance and assumed average speed.
+ * @param points List of GPS points
+ * @param speedKmh Assumed average speed in km/h (default: 9 km/h)
+ * @return List of relative timestamps in milliseconds (starting from 0)
+ */
+private fun generateSyntheticTimestamps(points: List<GeoPoint>, speedKmh: Double = 9.0): List<Long> {
+    if (points.isEmpty()) return emptyList()
+    if (points.size == 1) return listOf(0L)
+
+    val timestamps = mutableListOf<Long>()
+    var cumulativeTime = 0L
+    timestamps.add(0L) // First point at time 0
+
+    // Speed in meters per second
+    val speedMs = (speedKmh * 1000.0) / 3600.0 // 9 km/h = 2.5 m/s
+
+    for (i in 1 until points.size) {
+        val prevPoint = points[i - 1]
+        val currentPoint = points[i]
+
+        // Calculate distance in meters using Haversine formula
+        val distance = calculateDistance(
+            prevPoint.latitude, prevPoint.longitude,
+            currentPoint.latitude, currentPoint.longitude
+        )
+
+        // Calculate time in milliseconds for this segment
+        val segmentTime = ((distance / speedMs) * 1000).toLong()
+        cumulativeTime += segmentTime
+
+        timestamps.add(cumulativeTime)
+    }
+
+    return timestamps
+}
+
+/**
+ * Calculate distance between two GPS points using Haversine formula.
+ * @return Distance in meters
+ */
+private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val earthRadius = 6371000.0 // Earth radius in meters
+
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+
+    val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2)
+
+    val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+    return earthRadius * c
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RecordingDialog(
     gpsStatus: GpsStatus,
-    onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?) -> Unit,
+    onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?, Boolean) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -217,6 +277,8 @@ fun RecordingDialog(
     var showHeartRateSensorDialog by remember { mutableStateOf(false) }
     var selectedHeartRateSensor by remember { mutableStateOf<HeartRateSensorDevice?>(null) }
     var importedGpxTrack by remember { mutableStateOf<ImportedGpxTrack?>(null) }
+    var enableGhostRacer by remember { mutableStateOf(false) }
+    var assumedSpeedKmh by remember { mutableStateOf("9.0") } // Default speed for tracks without timestamps
 
     // GPX import progress state
     var gpxImportProgress by remember { mutableStateOf(GpxImportProgress()) }
@@ -249,9 +311,12 @@ fun RecordingDialog(
                     inputStream?.let { stream ->
                         val filename = getFileNameFromUri(context, uri)
 
-                        val parsedTrack = parseGpxFileStreaming(
+                        // Parse with user-specified speed
+                        val speed = assumedSpeedKmh.toDoubleOrNull() ?: 9.0
+                        val parsedTrack = parseGpxFileStreamingWithSpeed(
                             inputStream = stream,
                             filename = filename,
+                            speedKmh = speed,
                             onProgress = { progress ->
                                 gpxImportProgress = progress
                             }
@@ -259,6 +324,10 @@ fun RecordingDialog(
 
                         importedGpxTrack = parsedTrack
                         showGpxImportDialog = false
+
+                        // Save to persistence immediately so MapScreen can display it
+                        GpxPersistenceUtil.saveImportedGpxTrack(context, parsedTrack)
+                        android.util.Log.d("RecordingDialog", "Saved imported track to persistence: ${parsedTrack.filename}")
 
                         android.widget.Toast.makeText(
                             context,
@@ -400,9 +469,15 @@ fun RecordingDialog(
     // Track Selection Dialog
     if (showTrackSelectionDialog) {
         TrackSelectionDialog(
+            assumedSpeedKmh = assumedSpeedKmh.toDoubleOrNull() ?: 9.0,
             onTrackSelected = { track ->
                 importedGpxTrack = track
                 showTrackSelectionDialog = false
+
+                // Save to persistence immediately so MapScreen can display it
+                GpxPersistenceUtil.saveImportedGpxTrack(context, track)
+                android.util.Log.d("RecordingDialog", "Saved selected track to persistence: ${track.filename}")
+
                 android.widget.Toast.makeText(
                     context,
                     "Track selected: ${track.filename}",
@@ -569,7 +644,12 @@ fun RecordingDialog(
                         if (importedGpxTrack != null) {
                             Spacer(modifier = Modifier.height(8.dp))
                             OutlinedButton(
-                                onClick = { importedGpxTrack = null },
+                                onClick = {
+                                    importedGpxTrack = null
+                                    // Clear from persistence so MapScreen removes it
+                                    GpxPersistenceUtil.clearImportedGpxTrack(context)
+                                    android.util.Log.d("RecordingDialog", "Cleared track from persistence")
+                                },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text("Remove Track", fontSize = 14.sp)
@@ -879,6 +959,140 @@ fun RecordingDialog(
                         onCheckedChange = { showPath = it }
                     )
                 }
+
+                // Assumed Speed for tracks without timing data
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Speed,
+                                contentDescription = "Assumed Speed",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Assumed Pace (for tracks without time data)",
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "Used to calculate ghost position timing",
+                                    fontSize = 11.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Speed input field
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            OutlinedTextField(
+                                value = assumedSpeedKmh,
+                                onValueChange = {
+                                    // Only allow valid decimal numbers
+                                    if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                        assumedSpeedKmh = it
+                                    }
+                                },
+                                label = { Text("Speed (km/h)", fontSize = 12.sp) },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                )
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Speed presets
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { assumedSpeedKmh = "5.0" },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Walk", fontSize = 11.sp)
+                                    Text("5 km/h", fontSize = 9.sp, color = Color.Gray)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { assumedSpeedKmh = "9.0" },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Jog", fontSize = 11.sp)
+                                    Text("9 km/h", fontSize = 9.sp, color = Color.Gray)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { assumedSpeedKmh = "12.0" },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Run", fontSize = 11.sp)
+                                    Text("12 km/h", fontSize = 9.sp, color = Color.Gray)
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = { assumedSpeedKmh = "20.0" },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Bike", fontSize = 11.sp)
+                                    Text("20 km/h", fontSize = 9.sp, color = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Ghost Racer option (only show if track is imported with timestamps)
+                if (importedGpxTrack != null && importedGpxTrack!!.timestamps.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Run Against Opponent", fontWeight = FontWeight.Medium)
+                            Text(
+                                "Show ghost position from reference track",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = enableGhostRacer,
+                            onCheckedChange = { enableGhostRacer = it }
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
@@ -913,7 +1127,8 @@ fun RecordingDialog(
                         showPath,
                         selectedHeartRateSensor,
                         enableWebSocketTransfer,
-                        importedGpxTrack
+                        importedGpxTrack,
+                        enableGhostRacer
                     )
                 }
             ) {

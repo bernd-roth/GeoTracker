@@ -60,6 +60,7 @@ object GpxPersistenceUtil {
                 track
             } catch (e: Exception) {
                 android.util.Log.e("GpxPersistence", "Error parsing GPX track: ${e.message}")
+                e.printStackTrace()
                 null
             }
         } else {

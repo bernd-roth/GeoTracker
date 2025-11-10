@@ -241,6 +241,15 @@ fun MapScreen(
     val gpxTrackOverlayRef = remember { mutableStateOf<Polyline?>(null) }
     var currentImportedTrack by remember { mutableStateOf<ImportedGpxTrack?>(null) }
 
+    // Ghost racer overlay and state (persisted to survive navigation)
+    val ghostRacerOverlayRef = remember { mutableStateOf<at.co.netconsulting.geotracker.location.GhostRacerOverlay?>(null) }
+    var isGhostRacerEnabled by remember {
+        mutableStateOf(
+            context.getSharedPreferences("GhostRacerState", Context.MODE_PRIVATE)
+                .getBoolean("ghost_racer_enabled", false)
+        )
+    }
+
     // Flag to track when map is fully initialized
     var isMapInitialized by remember { mutableStateOf(false) }
 
@@ -1002,6 +1011,55 @@ fun MapScreen(
                 mapViewRef.value?.let { mapView ->
                     Timber.d("Periodic path refresh during recording")
                     pathTracker.updatePathForViewport(mapView, forceUpdate = true)
+                }
+            }
+        }
+    }
+
+    // Periodic ghost position updates during recording
+    LaunchedEffect(isRecording, isGhostRacerEnabled) {
+        if (isRecording && isGhostRacerEnabled) {
+            while (isRecording && isGhostRacerEnabled) {
+                delay(1000) // Update ghost position every second
+
+                ghostRacerOverlayRef.value?.let { ghostOverlay ->
+                    ghostOverlay.updateGhostPosition(System.currentTimeMillis())
+                    mapViewRef.value?.invalidate() // Trigger map redraw
+                    Timber.d("Ghost position updated")
+                }
+            }
+        }
+    }
+
+    // Restore ghost racer overlay when returning to map during active recording
+    LaunchedEffect(isMapInitialized, isRecording, isGhostRacerEnabled) {
+        // Only restore if map is initialized, we're recording, ghost racer is enabled, but overlay is missing
+        if (isMapInitialized && isRecording && isGhostRacerEnabled && ghostRacerOverlayRef.value == null) {
+            Timber.d("Restoring ghost racer overlay after navigation")
+
+            mapViewRef.value?.let { mapView ->
+                // Load the track from persistence
+                val trackForRecording = GpxPersistenceUtil.loadImportedGpxTrack(context)
+
+                if (trackForRecording != null && trackForRecording.timestamps.isNotEmpty()) {
+                    // Create and add new ghost racer overlay
+                    val ghostOverlay = at.co.netconsulting.geotracker.location.GhostRacerOverlay(
+                        context,
+                        trackForRecording.points,
+                        trackForRecording.timestamps
+                    )
+                    mapView.overlays.add(ghostOverlay)
+                    ghostRacerOverlayRef.value = ghostOverlay
+
+                    // Calculate elapsed time since recording started
+                    val recordingStartTime = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .getLong("recording_start_time", System.currentTimeMillis())
+                    ghostOverlay.startGhostRacer(recordingStartTime)
+
+                    Timber.d("Ghost racer overlay restored with ${trackForRecording.points.size} points")
+                    mapView.invalidate()
+                } else {
+                    Timber.w("Could not restore ghost racer: track not found or no timestamps")
                 }
             }
         }
@@ -2124,6 +2182,23 @@ fun MapScreen(
                                 // Clear all tracks immediately
                                 clearAllTracksFromMap()
 
+                                // Stop and remove ghost racer overlay if active
+                                if (isGhostRacerEnabled) {
+                                    ghostRacerOverlayRef.value?.let { ghostOverlay ->
+                                        ghostOverlay.stopGhostRacer()
+                                        mapViewRef.value?.overlays?.remove(ghostOverlay)
+                                        Timber.d("Ghost racer overlay stopped and removed")
+                                    }
+                                    ghostRacerOverlayRef.value = null
+                                    isGhostRacerEnabled = false
+
+                                    // Persist ghost racer state
+                                    context.getSharedPreferences("GhostRacerState", Context.MODE_PRIVATE)
+                                        .edit()
+                                        .putBoolean("ghost_racer_enabled", false)
+                                        .apply()
+                                }
+
                                 // Update local state
                                 isRecording = false
 
@@ -2244,7 +2319,7 @@ fun MapScreen(
     if (showRecordingDialog) {
         RecordingDialog(
             gpsStatus = getCurrentGpsStatus(),
-            onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx ->
+            onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx, enableGhostRacer ->
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
 
@@ -2297,6 +2372,15 @@ fun MapScreen(
                 ContextCompat.startForegroundService(context, intent)
                 Timber.d("Started ForegroundService with event details")
 
+                // Enable ghost racer mode if requested
+                isGhostRacerEnabled = enableGhostRacer && importedGpx != null && importedGpx.timestamps.isNotEmpty()
+
+                // Persist ghost racer state
+                context.getSharedPreferences("GhostRacerState", Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("ghost_racer_enabled", isGhostRacerEnabled)
+                    .apply()
+
                 showRecordingDialog = false
 
                 // Post-recording setup with immediate path display
@@ -2333,8 +2417,52 @@ fun MapScreen(
                             }, 3000)
                         }
 
+                        // Load imported track from persistence if not already loaded
+                        var trackForRecording = importedGpx
+                        if (trackForRecording == null) {
+                            trackForRecording = GpxPersistenceUtil.loadImportedGpxTrack(context)
+                            Timber.d("Loaded track from persistence for recording: ${trackForRecording?.filename}")
+                        }
+
+                        // Display the imported track on the map (if not already displayed)
+                        if (trackForRecording != null && gpxTrackOverlayRef.value == null) {
+                            Timber.d("Displaying imported track during recording start")
+                            displayTrackOnMap(trackForRecording)
+                        }
+
+                        // Initialize ghost racer overlay if enabled
+                        if (isGhostRacerEnabled && trackForRecording != null && trackForRecording.timestamps.isNotEmpty()) {
+                            // Remove existing ghost racer overlay if present
+                            ghostRacerOverlayRef.value?.let { existingOverlay ->
+                                mapView.overlays.remove(existingOverlay)
+                                Timber.d("Removed existing ghost racer overlay")
+                            }
+
+                            // Create and add new ghost racer overlay
+                            val ghostOverlay = at.co.netconsulting.geotracker.location.GhostRacerOverlay(
+                                context,
+                                trackForRecording.points,
+                                trackForRecording.timestamps
+                            )
+                            mapView.overlays.add(ghostOverlay)
+                            ghostRacerOverlayRef.value = ghostOverlay
+
+                            // Start ghost racer with current system time and save it for restoration
+                            val startTime = System.currentTimeMillis()
+                            ghostOverlay.startGhostRacer(startTime)
+
+                            // Persist the recording start time for ghost racer restoration
+                            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                .edit()
+                                .putLong("recording_start_time", startTime)
+                                .apply()
+
+                            Timber.d("Ghost racer overlay initialized with ${trackForRecording.points.size} points")
+                            mapView.invalidate()
+                        }
+
                         // Restore map position if no track is imported
-                        if (importedGpx == null) {
+                        if (trackForRecording == null) {
                             mapView.controller.setZoom(currentZoomLevel)
                             currentCenter?.let { center ->
                                 mapView.controller.setCenter(center)

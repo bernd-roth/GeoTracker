@@ -2,6 +2,11 @@ package at.co.netconsulting.geotracker.composables
 
 import EventWithDetails
 import androidx.compose.foundation.clickable
+import org.osmdroid.util.GeoPoint
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +55,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TrackSelectionDialog(
+    assumedSpeedKmh: Double = 9.0,
     onTrackSelected: (ImportedGpxTrack) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -123,10 +129,28 @@ fun TrackSelectionDialog(
                             TrackSelectionItem(
                                 eventWithDetails = eventWithDetails,
                                 onSelected = {
-                                    // Convert event data to ImportedGpxTrack format
+                                    // Convert event data to ImportedGpxTrack format with timestamps
+                                    // Extract timestamps from metrics (assuming metrics and locations are in same order)
+                                    val absoluteTimestamps = if (eventWithDetails.metrics.isNotEmpty()) {
+                                        eventWithDetails.metrics.map { it.timeInMilliseconds }
+                                    } else {
+                                        // If no metrics, generate synthetic timestamps based on distance and user-specified speed
+                                        generateSyntheticTimestampsFromDistance(eventWithDetails.locationPoints, assumedSpeedKmh)
+                                    }
+
+                                    // Normalize timestamps to be relative elapsed times (start from 0)
+                                    val relativeTimestamps = if (absoluteTimestamps.isNotEmpty()) {
+                                        val startTime = absoluteTimestamps.first()
+                                        absoluteTimestamps.map { it - startTime }
+                                    } else {
+                                        emptyList()
+                                    }
+
                                     val importedTrack = ImportedGpxTrack(
                                         filename = "${eventWithDetails.event.eventName} (${eventWithDetails.event.eventDate})",
-                                        points = eventWithDetails.locationPoints
+                                        points = eventWithDetails.locationPoints,
+                                        timestamps = relativeTimestamps,
+                                        eventId = eventWithDetails.event.eventId
                                     )
                                     onTrackSelected(importedTrack)
                                 }
@@ -258,4 +282,60 @@ private fun formatDuration(durationMs: Long): String {
         hours > 0 -> String.format("%02d:%02d:%02d", hours, minutes, secs)
         else -> String.format("%02d:%02d", minutes, secs)
     }
+}
+
+/**
+ * Generate synthetic timestamps for a track based on distance and assumed average speed.
+ * @param points List of GPS points
+ * @param speedKmh Assumed average speed in km/h (default: 9 km/h)
+ * @return List of absolute timestamps in milliseconds (starting from 0)
+ */
+private fun generateSyntheticTimestampsFromDistance(points: List<GeoPoint>, speedKmh: Double = 9.0): List<Long> {
+    if (points.isEmpty()) return emptyList()
+    if (points.size == 1) return listOf(0L)
+
+    val timestamps = mutableListOf<Long>()
+    var cumulativeTime = 0L
+    timestamps.add(0L) // First point at time 0
+
+    // Speed in meters per second
+    val speedMs = (speedKmh * 1000.0) / 3600.0 // 9 km/h = 2.5 m/s
+
+    for (i in 1 until points.size) {
+        val prevPoint = points[i - 1]
+        val currentPoint = points[i]
+
+        // Calculate distance in meters using Haversine formula
+        val distance = calculateDistanceBetweenPoints(
+            prevPoint.latitude, prevPoint.longitude,
+            currentPoint.latitude, currentPoint.longitude
+        )
+
+        // Calculate time in milliseconds for this segment
+        val segmentTime = ((distance / speedMs) * 1000).toLong()
+        cumulativeTime += segmentTime
+
+        timestamps.add(cumulativeTime)
+    }
+
+    return timestamps
+}
+
+/**
+ * Calculate distance between two GPS points using Haversine formula.
+ * @return Distance in meters
+ */
+private fun calculateDistanceBetweenPoints(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+    val earthRadius = 6371000.0 // Earth radius in meters
+
+    val dLat = Math.toRadians(lat2 - lat1)
+    val dLon = Math.toRadians(lon2 - lon1)
+
+    val a = sin(dLat / 2) * sin(dLat / 2) +
+            cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+            sin(dLon / 2) * sin(dLon / 2)
+
+    val c = 2 * atan2(sqrt(a), sqrt(1 - a))
+
+    return earthRadius * c
 }
