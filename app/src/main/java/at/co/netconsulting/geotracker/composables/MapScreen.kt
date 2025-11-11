@@ -65,6 +65,7 @@ import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.location.CurrentLocationInfoOverlay
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
 import at.co.netconsulting.geotracker.location.WaypointOverlay
@@ -252,6 +253,9 @@ fun MapScreen(
                 .getBoolean("ghost_racer_enabled", false)
         )
     }
+
+    // Current location info overlay (for showing speed/distance/time popup)
+    val currentLocationInfoOverlayRef = remember { mutableStateOf<CurrentLocationInfoOverlay?>(null) }
 
     // Flag to track when map is fully initialized
     var isMapInitialized by remember { mutableStateOf(false) }
@@ -981,6 +985,16 @@ fun MapScreen(
                     )
                 }
 
+                // Update current location info overlay when recording
+                if (isRecording && metrics.latitude != 0.0 && metrics.longitude != 0.0) {
+                    currentLocationInfoOverlayRef.value?.updateMetrics(
+                        metrics.latitude,
+                        metrics.longitude,
+                        metrics.speed,
+                        metrics.coveredDistance
+                    )
+                }
+
                 // Handle auto-follow functionality - conditional based on following state and recording status
                 val shouldAutoFollow = if (followingState.isFollowing) {
                     // When following other users, only auto-follow if we're also recording our own event
@@ -1100,6 +1114,34 @@ fun MapScreen(
                     Timber.w("Could not restore ghost racer: track not found or no timestamps")
                 }
             }
+        }
+    }
+
+    // Enable/restore current location info overlay when recording
+    LaunchedEffect(isMapInitialized, isRecording) {
+        if (isMapInitialized && isRecording) {
+            currentLocationInfoOverlayRef.value?.let { overlay ->
+                // Retrieve the actual recording start time from SharedPreferences
+                val startTimeString = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                    .getString("recording_start_datetime", null)
+
+                val startTime = if (startTimeString != null) {
+                    try {
+                        java.time.LocalDateTime.parse(startTimeString)
+                    } catch (e: Exception) {
+                        Timber.e("Failed to parse recording start time: $e")
+                        java.time.LocalDateTime.now()
+                    }
+                } else {
+                    java.time.LocalDateTime.now()
+                }
+
+                overlay.enable(startTime)
+                Timber.d("Current location info overlay enabled/restored with start time: $startTime")
+            }
+        } else if (isMapInitialized && !isRecording) {
+            // Disable overlay when not recording
+            currentLocationInfoOverlayRef.value?.disable()
         }
     }
 
@@ -1594,6 +1636,11 @@ fun MapScreen(
                     val gpxWaypointOverlay = WaypointOverlay(ctx)
                     overlays.add(gpxWaypointOverlay)
                     gpxWaypointOverlayRef.value = gpxWaypointOverlay
+
+                    // Create current location info overlay
+                    val currentLocationInfoOverlay = CurrentLocationInfoOverlay(ctx)
+                    overlays.add(currentLocationInfoOverlay)
+                    currentLocationInfoOverlayRef.value = currentLocationInfoOverlay
 
                     mapViewRef.value = this
 
@@ -2242,6 +2289,17 @@ fun MapScreen(
                                         .apply()
                                 }
 
+                                // Disable current location info overlay
+                                currentLocationInfoOverlayRef.value?.disable()
+
+                                // Clear persisted recording start time
+                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .remove("recording_start_datetime")
+                                    .apply()
+
+                                Timber.d("Current location info overlay disabled")
+
                                 // Update local state
                                 isRecording = false
 
@@ -2503,6 +2561,18 @@ fun MapScreen(
                             Timber.d("Ghost racer overlay initialized with ${trackForRecording.points.size} points")
                             mapView.invalidate()
                         }
+
+                        // Enable current location info overlay
+                        val recordingStartDateTime = java.time.LocalDateTime.now()
+                        currentLocationInfoOverlayRef.value?.enable(recordingStartDateTime)
+
+                        // Persist the recording start time for restoration
+                        context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                            .edit()
+                            .putString("recording_start_datetime", recordingStartDateTime.toString())
+                            .apply()
+
+                        Timber.d("Current location info overlay enabled at $recordingStartDateTime")
 
                         // Restore map position if no track is imported
                         if (trackForRecording == null) {
