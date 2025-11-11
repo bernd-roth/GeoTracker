@@ -7,5 +7,6 @@ data class ImportedGpxTrack(
     val points: List<GeoPoint>,
     val timestamps: List<Long> = emptyList(), // Timestamps in milliseconds for each point (for ghost racer mode)
     val eventId: Int? = null, // Original event ID if loaded from database
-    val waypoints: List<GpxWaypoint> = emptyList() // Waypoints from GPX file
+    val waypoints: List<GpxWaypoint> = emptyList(), // Waypoints from GPX file
+    val hasSyntheticTimestamps: Boolean = false // True if timestamps were generated synthetically (no real time data)
 )

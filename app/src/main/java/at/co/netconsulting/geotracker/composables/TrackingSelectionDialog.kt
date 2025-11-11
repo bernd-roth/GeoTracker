@@ -178,7 +178,8 @@ fun TrackSelectionItem(
 
                     // Convert event data to ImportedGpxTrack format with timestamps
                     // Extract timestamps from metrics (assuming metrics and locations are in same order)
-                    val absoluteTimestamps = if (eventWithDetails.metrics.isNotEmpty()) {
+                    val hasRealTimestamps = eventWithDetails.metrics.isNotEmpty()
+                    val absoluteTimestamps = if (hasRealTimestamps) {
                         eventWithDetails.metrics.map { it.timeInMilliseconds }
                     } else {
                         // If no metrics, generate synthetic timestamps based on distance and user-specified speed
@@ -198,7 +199,8 @@ fun TrackSelectionItem(
                         points = eventWithDetails.locationPoints,
                         timestamps = relativeTimestamps,
                         eventId = eventWithDetails.event.eventId,
-                        waypoints = gpxWaypoints
+                        waypoints = gpxWaypoints,
+                        hasSyntheticTimestamps = !hasRealTimestamps // Mark as synthetic if we generated them
                     )
                     onSelected(importedTrack)
                 }

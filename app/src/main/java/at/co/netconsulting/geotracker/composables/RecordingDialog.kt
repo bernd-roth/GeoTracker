@@ -268,7 +268,13 @@ private suspend fun parseGpxFileStreamingWithSpeed(
     // Generate synthetic timestamps based on distance and user-specified speed
     val syntheticTimestamps = generateSyntheticTimestamps(points, speedKmh)
 
-    ImportedGpxTrack(filename, points, syntheticTimestamps, waypoints = waypoints)
+    ImportedGpxTrack(
+        filename = filename,
+        points = points,
+        timestamps = syntheticTimestamps,
+        waypoints = waypoints,
+        hasSyntheticTimestamps = true // Mark as synthetic since we generated them
+    )
 }
 
 /**
@@ -1028,109 +1034,135 @@ fun RecordingDialog(
                     )
                 }
 
-                // Assumed Speed for tracks without timing data
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
-                ) {
-                    Column(
+                // Assumed Speed for tracks without timing data (show only when track has synthetic timestamps)
+                val currentTrack = importedGpxTrack
+                if (currentTrack != null && currentTrack.hasSyntheticTimestamps) {
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp)
+                            .padding(vertical = 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Speed,
-                                contentDescription = "Assumed Speed",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Assumed Pace (for tracks without time data)",
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 13.sp
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Speed,
+                                    contentDescription = "Assumed Speed",
+                                    tint = Color.Gray,
+                                    modifier = Modifier.size(24.dp)
                                 )
-                                Text(
-                                    text = "Used to calculate ghost position timing",
-                                    fontSize = 11.sp,
-                                    color = Color.Gray
-                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Assumed Pace (for tracks without time data)",
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 13.sp
+                                    )
+                                    Text(
+                                        text = "Adjust pace and recalculate timing",
+                                        fontSize = 11.sp,
+                                        color = Color.Gray
+                                    )
+                                }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(12.dp))
 
-                        // Speed input field
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            OutlinedTextField(
-                                value = assumedSpeedKmh,
-                                onValueChange = {
-                                    // Only allow valid decimal numbers
-                                    if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
-                                        assumedSpeedKmh = it
+                            // Speed input field with recalculate button
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = assumedSpeedKmh,
+                                    onValueChange = {
+                                        // Only allow valid decimal numbers
+                                        if (it.isEmpty() || it.matches(Regex("^\\d*\\.?\\d*$"))) {
+                                            assumedSpeedKmh = it
+                                        }
+                                    },
+                                    label = { Text("Speed (km/h)", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f),
+                                    singleLine = true,
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
+                                    )
+                                )
+                                Button(
+                                    onClick = {
+                                        // Recalculate timestamps with new speed
+                                        val newSpeed = assumedSpeedKmh.toDoubleOrNull() ?: 9.0
+                                        val newTimestamps = generateSyntheticTimestamps(
+                                            currentTrack.points,
+                                            newSpeed
+                                        )
+                                        importedGpxTrack = currentTrack.copy(
+                                            timestamps = newTimestamps
+                                        )
+                                        // Update persistence
+                                        GpxPersistenceUtil.saveImportedGpxTrack(context, importedGpxTrack)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Timestamps recalculated for $newSpeed km/h",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    },
+                                    modifier = Modifier.height(56.dp)
+                                ) {
+                                    Text("Recalc", fontSize = 12.sp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Speed presets
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { assumedSpeedKmh = "5.0" },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Walk", fontSize = 11.sp)
+                                        Text("5 km/h", fontSize = 9.sp, color = Color.Gray)
                                     }
-                                },
-                                label = { Text("Speed (km/h)", fontSize = 12.sp) },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal
-                                )
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Speed presets
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { assumedSpeedKmh = "5.0" },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("Walk", fontSize = 11.sp)
-                                    Text("5 km/h", fontSize = 9.sp, color = Color.Gray)
                                 }
-                            }
-                            OutlinedButton(
-                                onClick = { assumedSpeedKmh = "9.0" },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("Jog", fontSize = 11.sp)
-                                    Text("9 km/h", fontSize = 9.sp, color = Color.Gray)
+                                OutlinedButton(
+                                    onClick = { assumedSpeedKmh = "9.0" },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Jog", fontSize = 11.sp)
+                                        Text("9 km/h", fontSize = 9.sp, color = Color.Gray)
+                                    }
                                 }
-                            }
-                            OutlinedButton(
-                                onClick = { assumedSpeedKmh = "12.0" },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("Run", fontSize = 11.sp)
-                                    Text("12 km/h", fontSize = 9.sp, color = Color.Gray)
+                                OutlinedButton(
+                                    onClick = { assumedSpeedKmh = "12.0" },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Run", fontSize = 11.sp)
+                                        Text("12 km/h", fontSize = 9.sp, color = Color.Gray)
+                                    }
                                 }
-                            }
-                            OutlinedButton(
-                                onClick = { assumedSpeedKmh = "20.0" },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("Bike", fontSize = 11.sp)
-                                    Text("20 km/h", fontSize = 9.sp, color = Color.Gray)
+                                OutlinedButton(
+                                    onClick = { assumedSpeedKmh = "20.0" },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text("Bike", fontSize = 11.sp)
+                                        Text("20 km/h", fontSize = 9.sp, color = Color.Gray)
+                                    }
                                 }
                             }
                         }

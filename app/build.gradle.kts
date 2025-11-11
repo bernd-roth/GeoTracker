@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.20")} (11-11-2025: popup info window over current location icon to see current stats)"
+        versionName = "${getNextVersion("5.21")} (11-11-2025: Assumed Pace card is not shown anymore; card is shown, if GPX track is imported and without timestamps)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
