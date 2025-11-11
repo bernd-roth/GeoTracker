@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.18")} (10-11-2025: implementation of waypoint display for imported GPX files and database-loaded tracks in Ghost Racer mode)"
+        versionName = "${getNextVersion("5.19")} (11-11-2025: popup info window with important details hoovering over ghost racer icon or current location)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

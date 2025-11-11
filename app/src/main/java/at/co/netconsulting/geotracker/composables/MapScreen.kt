@@ -971,6 +971,16 @@ fun MapScreen(
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
                 }
 
+                // Update ghost racer overlay with current user metrics if enabled
+                if (isGhostRacerEnabled && isRecording) {
+                    ghostRacerOverlayRef.value?.updateUserMetrics(
+                        metrics.latitude,
+                        metrics.longitude,
+                        metrics.speed,
+                        metrics.coveredDistance
+                    )
+                }
+
                 // Handle auto-follow functionality - conditional based on following state and recording status
                 val shouldAutoFollow = if (followingState.isFollowing) {
                     // When following other users, only auto-follow if we're also recording our own event
