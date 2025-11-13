@@ -21,8 +21,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -31,13 +35,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -67,9 +74,11 @@ fun TrackSelectionDialog(
     val eventsViewModel: EventsViewModel = viewModel(
         factory = EventsViewModelFactory(database, context)
     )
-    val events by eventsViewModel.eventsWithDetails.collectAsState(initial = emptyList())
+    // Use filteredEvents which supports search across all loaded events
+    val events by eventsViewModel.filteredEventsWithDetails.collectAsState(initial = emptyList())
+    val searchQuery by eventsViewModel.searchQuery.collectAsState()
 
-    // Load events when dialog opens
+    // Load events with larger page size for better search coverage
     LaunchedEffect(Unit) {
         eventsViewModel.loadEvents()
     }
@@ -92,52 +101,87 @@ fun TrackSelectionDialog(
             }
         },
         text = {
-            if (events.isEmpty()) {
-                Box(
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                // Search field
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { eventsViewModel.setSearchQuery(it) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        CircularProgressIndicator()
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text("Loading events...")
-                    }
-                }
-            } else {
-                val eventsWithTracks = events.filter { it.locationPoints.isNotEmpty() }
+                        .padding(bottom = 16.dp),
+                    placeholder = { Text("Search by name, date, or sport...") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search"
+                        )
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { eventsViewModel.setSearchQuery("") }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                    singleLine = true
+                )
 
-                if (eventsWithTracks.isEmpty()) {
+                // Content
+                if (events.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(200.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "No events with track data found",
-                            color = Color.Gray,
-                            fontSize = 16.sp
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator()
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text("Loading events...")
+                        }
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(400.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(eventsWithTracks) { eventWithDetails ->
-                            TrackSelectionItem(
-                                eventWithDetails = eventWithDetails,
-                                database = database,
-                                coroutineScope = coroutineScope,
-                                assumedSpeedKmh = assumedSpeedKmh,
-                                onSelected = { importedTrack ->
-                                    onTrackSelected(importedTrack)
-                                }
+                    // MEMORY FIX: Use locationPointCount instead of checking locationPoints list
+                    // ViewModel already handles search filtering via setSearchQuery()
+                    val eventsWithTracks = events.filter { it.locationPointCount > 0 }
+
+                    if (eventsWithTracks.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(200.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (searchQuery.isBlank()) {
+                                    "No events with track data found"
+                                } else {
+                                    "No tracks match your search"
+                                },
+                                color = Color.Gray,
+                                fontSize = 16.sp
                             )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(400.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(eventsWithTracks) { eventWithDetails ->
+                                TrackSelectionItem(
+                                    eventWithDetails = eventWithDetails,
+                                    database = database,
+                                    coroutineScope = coroutineScope,
+                                    assumedSpeedKmh = assumedSpeedKmh,
+                                    onSelected = { importedTrack ->
+                                        onTrackSelected(importedTrack)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -156,71 +200,79 @@ fun TrackSelectionItem(
     assumedSpeedKmh: Double,
     onSelected: (ImportedGpxTrack) -> Unit
 ) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    val selectTrack = {
+        // Load waypoints and create ImportedGpxTrack asynchronously
+        coroutineScope.launch {
+            // MEMORY FIX: Load location points from database (not preloaded in memory)
+            val dbLocations = database.locationDao().getLocationsForEvent(eventWithDetails.event.eventId)
+            val locationPoints = dbLocations.map { GeoPoint(it.latitude, it.longitude) }
+
+            // Load waypoints from database
+            val dbWaypoints = database.waypointDao().getWaypointsForEvent(eventWithDetails.event.eventId)
+
+            // Convert database Waypoint to GpxWaypoint
+            val gpxWaypoints = dbWaypoints.map { waypoint ->
+                GpxWaypoint(
+                    latitude = waypoint.latitude,
+                    longitude = waypoint.longitude,
+                    name = waypoint.name,
+                    description = waypoint.description,
+                    elevation = waypoint.elevation
+                )
+            }
+
+            // Convert event data to ImportedGpxTrack format with timestamps
+            // Extract timestamps from metrics (assuming metrics and locations are in same order)
+            val hasRealTimestamps = eventWithDetails.metrics.isNotEmpty()
+            val absoluteTimestamps = if (hasRealTimestamps) {
+                eventWithDetails.metrics.map { it.timeInMilliseconds }
+            } else {
+                // If no metrics, generate synthetic timestamps based on distance and user-specified speed
+                generateSyntheticTimestampsFromDistance(locationPoints, assumedSpeedKmh)
+            }
+
+            // Normalize timestamps to be relative elapsed times (start from 0)
+            val relativeTimestamps = if (absoluteTimestamps.isNotEmpty()) {
+                val startTime = absoluteTimestamps.first()
+                absoluteTimestamps.map { it - startTime }
+            } else {
+                emptyList()
+            }
+
+            val importedTrack = ImportedGpxTrack(
+                filename = "${eventWithDetails.event.eventName} (${eventWithDetails.event.eventDate})",
+                points = locationPoints,
+                timestamps = relativeTimestamps,
+                eventId = eventWithDetails.event.eventId,
+                waypoints = gpxWaypoints,
+                hasSyntheticTimestamps = !hasRealTimestamps // Mark as synthetic if we generated them
+            )
+            onSelected(importedTrack)
+        }
+    }
+
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                // Load waypoints and create ImportedGpxTrack asynchronously
-                coroutineScope.launch {
-                    // Load waypoints from database
-                    val dbWaypoints = database.waypointDao().getWaypointsForEvent(eventWithDetails.event.eventId)
-
-                    // Convert database Waypoint to GpxWaypoint
-                    val gpxWaypoints = dbWaypoints.map { waypoint ->
-                        GpxWaypoint(
-                            latitude = waypoint.latitude,
-                            longitude = waypoint.longitude,
-                            name = waypoint.name,
-                            description = waypoint.description,
-                            elevation = waypoint.elevation
-                        )
-                    }
-
-                    // Convert event data to ImportedGpxTrack format with timestamps
-                    // Extract timestamps from metrics (assuming metrics and locations are in same order)
-                    val hasRealTimestamps = eventWithDetails.metrics.isNotEmpty()
-                    val absoluteTimestamps = if (hasRealTimestamps) {
-                        eventWithDetails.metrics.map { it.timeInMilliseconds }
-                    } else {
-                        // If no metrics, generate synthetic timestamps based on distance and user-specified speed
-                        generateSyntheticTimestampsFromDistance(eventWithDetails.locationPoints, assumedSpeedKmh)
-                    }
-
-                    // Normalize timestamps to be relative elapsed times (start from 0)
-                    val relativeTimestamps = if (absoluteTimestamps.isNotEmpty()) {
-                        val startTime = absoluteTimestamps.first()
-                        absoluteTimestamps.map { it - startTime }
-                    } else {
-                        emptyList()
-                    }
-
-                    val importedTrack = ImportedGpxTrack(
-                        filename = "${eventWithDetails.event.eventName} (${eventWithDetails.event.eventDate})",
-                        points = eventWithDetails.locationPoints,
-                        timestamps = relativeTimestamps,
-                        eventId = eventWithDetails.event.eventId,
-                        waypoints = gpxWaypoints,
-                        hasSyntheticTimestamps = !hasRealTimestamps // Mark as synthetic if we generated them
-                    )
-                    onSelected(importedTrack)
-                }
-            },
+        modifier = Modifier.fillMaxWidth(),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp)
+            modifier = Modifier.fillMaxWidth()
         ) {
-            // Header with event name and track indicator
+            // Always visible: Header with event name, track indicator, and expand/collapse button
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { isExpanded = !isExpanded }
+                    .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Event name
                 Text(
                     text = eventWithDetails.event.eventName,
                     fontSize = 16.sp,
@@ -230,6 +282,9 @@ fun TrackSelectionItem(
                     overflow = TextOverflow.Ellipsis
                 )
 
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Track indicator
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -241,62 +296,87 @@ fun TrackSelectionItem(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "${eventWithDetails.locationPoints.size} pts",
+                        text = "${eventWithDetails.locationPointCount} pts",
                         fontSize = 12.sp,
                         color = Color.Green,
                         fontWeight = FontWeight.Medium
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Expand/Collapse icon
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (isExpanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Event details
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Date: ${eventWithDetails.event.eventDate}",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = "Sport: ${eventWithDetails.event.artOfSport}",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
-                }
-
+            // Expanded details - only shown when expanded
+            if (isExpanded) {
                 Column(
-                    horizontalAlignment = Alignment.End
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, bottom = 16.dp)
                 ) {
-                    if (eventWithDetails.totalDistance > 10) {
-                        Text(
-                            text = String.format("%.2f km", eventWithDetails.totalDistance / 1000),
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                    // Event details
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Date: ${eventWithDetails.event.eventDate}",
+                                fontSize = 14.sp,
+                                color = Color.Gray
+                            )
+                            Text(
+                                text = "Sport: ${eventWithDetails.event.artOfSport}",
+                                fontSize = 14.sp,
+                                color = Color.Gray
+                            )
+                        }
+
+                        Column(
+                            horizontalAlignment = Alignment.End
+                        ) {
+                            if (eventWithDetails.totalDistance > 10) {
+                                Text(
+                                    text = String.format("%.2f km", eventWithDetails.totalDistance / 1000),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                            if (eventWithDetails.averageSpeed > 0.1) {
+                                Text(
+                                    text = String.format("%.1f km/h", eventWithDetails.averageSpeed),
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
                     }
-                    if (eventWithDetails.averageSpeed > 0.1) {
+
+                    // Duration if available
+                    if (eventWithDetails.startTime > 0 && eventWithDetails.endTime > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = String.format("%.1f km/h", eventWithDetails.averageSpeed),
+                            text = "Duration: ${formatDuration(eventWithDetails.endTime - eventWithDetails.startTime)}",
                             fontSize = 12.sp,
                             color = Color.Gray
                         )
                     }
-                }
-            }
 
-            // Duration if available
-            if (eventWithDetails.startTime > 0 && eventWithDetails.endTime > 0) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Duration: ${formatDuration(eventWithDetails.endTime - eventWithDetails.startTime)}",
-                    fontSize = 12.sp,
-                    color = Color.Gray
-                )
+                    // Select button - only visible when expanded
+                    Spacer(modifier = Modifier.height(12.dp))
+                    androidx.compose.material3.Button(
+                        onClick = { selectTrack() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Select This Track")
+                    }
+                }
             }
         }
     }

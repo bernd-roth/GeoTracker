@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -624,7 +626,8 @@ fun EventsScreen(
                             onViewSlopeOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId, showSlopeColors = true, metrics = eventWithDetails.metrics))
                             },
-                            canViewOnMap = !isRecordingThisEvent // Only allow when not recording this event
+                            canViewOnMap = !isRecordingThisEvent, // Only allow when not recording this event
+                            database = FitnessTrackerDatabase.getInstance(context)
                         )
                     }
 
@@ -717,11 +720,28 @@ fun EventCard(
     onViewOnMap: (List<GeoPoint>) -> Unit = {},
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     onViewSlopeOnMap: (List<GeoPoint>) -> Unit = {},
-    canViewOnMap: Boolean = true
+    canViewOnMap: Boolean = true,
+    database: FitnessTrackerDatabase? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     var showExportDropdown by remember { mutableStateOf(false) }
+
+    // Helper function to load location points on-demand
+    fun loadAndExecute(callback: (List<GeoPoint>) -> Unit) {
+        if (database != null && event.locationPointCount > 0) {
+            coroutineScope.launch {
+                try {
+                    val locations = database.locationDao().getLocationsForEvent(event.event.eventId)
+                    val geoPoints = locations.map { GeoPoint(it.latitude, it.longitude) }
+                    callback(geoPoints)
+                } catch (e: Exception) {
+                    Log.e("EventCard", "Error loading location points: ${e.message}")
+                    Toast.makeText(context, "Error loading route data", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -900,25 +920,39 @@ fun EventCard(
             }
 
             // Clickable area for expanding/collapsing details
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable(onClick = onClick)
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // Basic info when collapsed: Date and Sport only
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = event.event.eventDate,
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = event.event.artOfSport,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                // Expand/Collapse icon
+                Icon(
+                    imageVector = if (selected) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (selected) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            // If event is selected, show all details
+            if (selected) {
                 Column {
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Basic event info (always shown)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            InfoRow("Date:", event.event.eventDate)
-                            InfoRow("Sport:", event.event.artOfSport)
-                        }
-                    }
-
                     // Stats section - only show if there's actual data
                     if (event.totalDistance > 10 || event.averageSpeed > 0.1) { // Only show if meaningful data exists
                         Spacer(modifier = Modifier.height(8.dp))
@@ -1021,7 +1055,7 @@ fun EventCard(
                 }
             }
 
-            // If event is selected, show additional details
+            // If event is selected, show additional details beyond stats
             if (selected) {
                 // Minimized space here - changed to 4.dp
                 Spacer(modifier = Modifier.height(4.dp))
@@ -1680,11 +1714,11 @@ fun EventCard(
                         )
 
                         // "View on Map" button for slope analysis - only show when not recording and has location data
-                        if (canViewOnMap && event.locationPoints.isNotEmpty()) {
+                        if (canViewOnMap && event.locationPointCount > 0) {
                             Surface(
                                 modifier = Modifier
                                     .clickable {
-                                        onViewSlopeOnMap(event.locationPoints)
+                                        loadAndExecute(onViewSlopeOnMap)
                                     }
                                     .padding(4.dp),
                                 shape = RoundedCornerShape(16.dp),
@@ -1766,11 +1800,11 @@ fun EventCard(
                     }
 
                     // Slope visualization map
-                    if (event.locationPoints.isNotEmpty()) {
+                    if (event.locationPointCount > 0) {
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
-                            text = "Slope Profile Map",
+                            text = "Slope Profile Map (tap 'View on Map' to see full)",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
                             color = Color.Gray
@@ -1778,19 +1812,12 @@ fun EventCard(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(180.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.LightGray)
-                        ) {
-                            SlopeColoredMap(
-                                metrics = event.metrics,
-                                locationPoints = event.locationPoints,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        }
+                        Text(
+                            text = "Map preview not available in list view to save memory",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            fontStyle = FontStyle.Italic
+                        )
 
                         Spacer(modifier = Modifier.height(8.dp))
 
@@ -1894,11 +1921,11 @@ fun EventCard(
                     )
 
                     // "View on Map" button - only show when not recording and has location data
-                    if (canViewOnMap && event.locationPoints.isNotEmpty()) {
+                    if (canViewOnMap && event.locationPointCount > 0) {
                         Surface(
                             modifier = Modifier
                                 .clickable {
-                                    onViewOnMap(event.locationPoints)
+                                    loadAndExecute(onViewOnMap)
                                 }
                                 .padding(4.dp),
                             shape = RoundedCornerShape(16.dp),
@@ -1928,27 +1955,19 @@ fun EventCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                if (event.locationPoints.isNotEmpty()) {
-                    // The height needs to be explicitly defined to make the map visible
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp) // slightly reduced height
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.LightGray)
-                    ) {
-                        SlopeColoredMap(
-                            metrics = event.metrics,
-                            locationPoints = event.locationPoints,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                if (event.locationPointCount > 0) {
+                    // MEMORY FIX: Don't render map preview in list view
+                    Text(
+                        text = "Route with ${event.locationPointCount} GPS points available",
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
 
                     // Add a hint for the "View on Map" feature
                     if (canViewOnMap) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap 'View on Map' to see the full route",
+                            text = "Tap 'View on Map' button above to see the full route",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.primary,
                             fontStyle = FontStyle.Italic,
@@ -1957,29 +1976,29 @@ fun EventCard(
                     }
                 } else {
                     Text(
-                        text = "No route data available for preview",
+                        text = "No route data available",
                         fontSize = 14.sp,
                         color = Color.Gray
                     )
                 }
 
                 // Route rerun section
-                if (canViewOnMap && event.locationPoints.isNotEmpty()) {
+                if (canViewOnMap && event.locationPointCount > 0) {
                     Spacer(modifier = Modifier.height(8.dp))
-                    
+
                     Text(
                         text = "Route Rerun",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold
                     )
-                    
+
                     Spacer(modifier = Modifier.height(4.dp))
-                    
+
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onViewOnMapRerun(event.locationPoints)
+                                loadAndExecute(onViewOnMapRerun)
                             }
                             .padding(4.dp),
                         shape = RoundedCornerShape(16.dp),

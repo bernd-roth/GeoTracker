@@ -20,7 +20,8 @@
       "Bash(.gradlew.bat assembleDebug)",
       "Bash(gradlew.bat assembleDebug)",
       "Bash(python3:*)",
-      "Bash(bash gradlew:*)"
+      "Bash(bash gradlew:*)",
+      "Bash(adb install:*)"
     ],
     "deny": [],
     "ask": []

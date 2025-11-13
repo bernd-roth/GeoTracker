@@ -232,12 +232,12 @@ class EventsViewModel(
     }
 
 
-    private suspend fun loadEventsWithDetails(offset: Int, limit: Int): List<EventWithDetails> {
+    private suspend fun loadEventsWithDetails(offset: Int, limit: Int, loadLocationPoints: Boolean = false): List<EventWithDetails> {
         return withContext(Dispatchers.IO) {
             try {
                 val events = database.eventDao().getEventsPaged(limit, offset)
 
-                processEvents(events)
+                processEvents(events, loadLocationPoints)
             } catch (e: Exception) {
                 Log.e("EventsViewModel", "Error in loadEventsWithDetails: ${e.message}")
                 emptyList()
@@ -245,7 +245,7 @@ class EventsViewModel(
         }
     }
 
-    private suspend fun processEvents(events: List<Event>): List<EventWithDetails> {
+    private suspend fun processEvents(events: List<Event>, loadLocationPoints: Boolean = false): List<EventWithDetails> {
         return events.map { event ->
             val eventId = event.eventId
 
@@ -360,10 +360,19 @@ class EventsViewModel(
             // Calculate slope statistics
             val (averageSlope, maxSlope, minSlope) = calculateSlope(metrics)
 
-            // Get weather, locations, and other data
+            // Get weather and other data
             val weather = database.eventDao().getLatestWeatherForEvent(eventId)
-            val locations = database.locationDao().getLocationsForEvent(eventId)
-            val geoPoints = locations.map { GeoPoint(it.latitude, it.longitude) }
+
+            // MEMORY FIX: Get location point count and only load actual points when explicitly requested
+            // This prevents OutOfMemoryError when loading many events
+            val locationPointCount = database.locationDao().getLocationCountForEvent(eventId)
+            val geoPoints = if (loadLocationPoints) {
+                val locations = database.locationDao().getLocationsForEvent(eventId)
+                locations.map { GeoPoint(it.latitude, it.longitude) }
+            } else {
+                emptyList()
+            }
+
             val lapTimes = try {
                 database.lapTimeDao().getLapTimesForEvent(eventId).map { it.endTime - it.startTime }
             } catch (e: Exception) {
@@ -385,6 +394,7 @@ class EventsViewModel(
                 weather = weather,
                 laps = lapTimes,
                 locationPoints = geoPoints,
+                locationPointCount = locationPointCount,
                 // Updated satellite fields
                 minSatellites = minSatellites,
                 maxSatellites = maxSatellites,

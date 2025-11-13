@@ -17,6 +17,7 @@ data class EventWithDetails(
     val weather: Weather? = null,
     val laps: List<Long> = emptyList(),
     val locationPoints: List<GeoPoint> = emptyList(),
+    val locationPointCount: Int = 0, // Number of location points (for memory efficiency)
 
     // min/max/avg number of satellites
     val minSatellites: Int = 0,

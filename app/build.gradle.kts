@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.21")} (11-11-2025: Assumed Pace card is not shown anymore; card is shown, if GPX track is imported and without timestamps)"
+        versionName = "${getNextVersion("5.22")} (13-11-2025: Event details are folded in the beginning; SearchField implemented in selected track when recording)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
