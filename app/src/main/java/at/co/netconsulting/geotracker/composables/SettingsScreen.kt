@@ -455,6 +455,12 @@ fun SettingsScreen() {
                         checked = autoBackupEnabled,
                         onCheckedChange = { isEnabled ->
                             autoBackupEnabled = isEnabled
+
+                            // Save immediately to SharedPreferences
+                            sharedPreferences.edit()
+                                .putBoolean("autoBackupEnabled", isEnabled)
+                                .apply()
+
                             // Schedule or cancel based on toggle
                             if (isEnabled) {
                                 // Schedule using our receiver's companion function

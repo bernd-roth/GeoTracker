@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.23")} (14-11-2025: Precalculaton is disabled for all events. Only selected event gets calculated.)"
+        versionName = "${getNextVersion("5.24")} (14-11-2025: Switch buttons in settings have not saved their state)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
