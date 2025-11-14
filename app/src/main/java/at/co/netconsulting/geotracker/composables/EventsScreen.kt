@@ -568,7 +568,21 @@ fun EventsScreen(
                             event = eventWithDetails,
                             selected = selectedEventId == eventWithDetails.event.eventId,
                             onClick = {
-                                selectedEventId = if (selectedEventId == eventWithDetails.event.eventId) null else eventWithDetails.event.eventId
+                                val isCurrentlySelected = selectedEventId == eventWithDetails.event.eventId
+                                if (isCurrentlySelected) {
+                                    // Collapsing - just unselect
+                                    selectedEventId = null
+                                } else {
+                                    // Expanding - select and load full details if needed
+                                    selectedEventId = eventWithDetails.event.eventId
+
+                                    // Load full details on-demand if not already loaded
+                                    if (!eventWithDetails.hasFullDetails) {
+                                        coroutineScope.launch {
+                                            eventsViewModel.loadFullDetailsForEvent(eventWithDetails.event.eventId)
+                                        }
+                                    }
+                                }
                             },
                             onEdit = {
                                 // Only allow edit if not currently recording
@@ -953,8 +967,34 @@ fun EventCard(
             // If event is selected, show all details
             if (selected) {
                 Column {
-                    // Stats section - only show if there's actual data
-                    if (event.totalDistance > 10 || event.averageSpeed > 0.1) { // Only show if meaningful data exists
+                    // Show loading indicator if full details haven't been loaded yet
+                    if (!event.hasFullDetails) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(32.dp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Loading event details...",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray,
+                                    fontStyle = FontStyle.Italic
+                                )
+                            }
+                        }
+                    }
+                    // Stats section - only show if full details are loaded
+                    else if (event.totalDistance > 10 || event.averageSpeed > 0.1) { // Only show if meaningful data exists
                         Spacer(modifier = Modifier.height(8.dp))
 
                         // First row: Distance and Heart Rate info
@@ -1041,8 +1081,8 @@ fun EventCard(
                                 }
                             }
                         }
-                    } else {
-                        // Show a compact message for new events with no metrics yet
+                    } else if (event.hasFullDetails) {
+                        // Show a compact message for new events with no metrics yet (only if details are loaded)
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "No activity data recorded yet",
@@ -1055,8 +1095,8 @@ fun EventCard(
                 }
             }
 
-            // If event is selected, show additional details beyond stats
-            if (selected) {
+            // If event is selected and has full details, show additional details beyond stats
+            if (selected && event.hasFullDetails) {
                 // Minimized space here - changed to 4.dp
                 Spacer(modifier = Modifier.height(4.dp))
 

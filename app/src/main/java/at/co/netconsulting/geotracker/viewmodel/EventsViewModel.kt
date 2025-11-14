@@ -232,12 +232,12 @@ class EventsViewModel(
     }
 
 
-    private suspend fun loadEventsWithDetails(offset: Int, limit: Int, loadLocationPoints: Boolean = false): List<EventWithDetails> {
+    private suspend fun loadEventsWithDetails(offset: Int, limit: Int, loadLocationPoints: Boolean = false, loadFullDetails: Boolean = false): List<EventWithDetails> {
         return withContext(Dispatchers.IO) {
             try {
                 val events = database.eventDao().getEventsPaged(limit, offset)
 
-                processEvents(events, loadLocationPoints)
+                processEvents(events, loadLocationPoints, loadFullDetails)
             } catch (e: Exception) {
                 Log.e("EventsViewModel", "Error in loadEventsWithDetails: ${e.message}")
                 emptyList()
@@ -245,10 +245,23 @@ class EventsViewModel(
         }
     }
 
-    private suspend fun processEvents(events: List<Event>, loadLocationPoints: Boolean = false): List<EventWithDetails> {
+    private suspend fun processEvents(events: List<Event>, loadLocationPoints: Boolean = false, loadFullDetails: Boolean = false): List<EventWithDetails> {
         return events.map { event ->
             val eventId = event.eventId
 
+            // ALWAYS load location point count (minimal data)
+            val locationPointCount = database.locationDao().getLocationCountForEvent(eventId)
+
+            // If NOT loading full details, return minimal EventWithDetails
+            if (!loadFullDetails) {
+                return@map EventWithDetails(
+                    event = event,
+                    hasFullDetails = false,
+                    locationPointCount = locationPointCount
+                )
+            }
+
+            // FULL DETAILS MODE - Calculate all statistics
             // Calculate heart rate statistics
             val metrics = database.metricDao().getMetricsForEvent(eventId)
             val heartRates = metrics.filter { it.heartRate > 0 }.map { it.heartRate }
@@ -363,9 +376,7 @@ class EventsViewModel(
             // Get weather and other data
             val weather = database.eventDao().getLatestWeatherForEvent(eventId)
 
-            // MEMORY FIX: Get location point count and only load actual points when explicitly requested
-            // This prevents OutOfMemoryError when loading many events
-            val locationPointCount = database.locationDao().getLocationCountForEvent(eventId)
+            // Load actual location points if requested
             val geoPoints = if (loadLocationPoints) {
                 val locations = database.locationDao().getLocationsForEvent(eventId)
                 locations.map { GeoPoint(it.latitude, it.longitude) }
@@ -379,9 +390,10 @@ class EventsViewModel(
                 emptyList<Long>()
             }
 
-            // Create and return EventWithDetails
+            // Create and return EventWithDetails with full details
             EventWithDetails(
                 event = event,
+                hasFullDetails = true,
                 totalDistance = totalDistance,
                 averageSpeed = avgSpeed,
                 maxElevation = maxElevation,
@@ -429,6 +441,41 @@ class EventsViewModel(
                 }
             } catch (e: Exception) {
                 Log.e("EventsViewModel", "Error deleting event: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Load full details for a specific event (on-demand when user expands event card)
+     * This replaces the minimal event data with full statistics
+     */
+    suspend fun loadFullDetailsForEvent(eventId: Int): EventWithDetails? {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Get the event from database
+                val event = database.eventDao().getEventById(eventId)
+                if (event != null) {
+                    // Process this single event with full details
+                    val eventWithDetails = processEvents(listOf(event), loadLocationPoints = false, loadFullDetails = true).firstOrNull()
+
+                    if (eventWithDetails != null) {
+                        // Update the event in our lists
+                        _eventsWithDetails.value = _eventsWithDetails.value.map {
+                            if (it.event.eventId == eventId) eventWithDetails else it
+                        }
+                        updateFilteredEvents()
+
+                        Log.d("EventsViewModel", "Loaded full details for event $eventId")
+                    }
+
+                    eventWithDetails
+                } else {
+                    Log.w("EventsViewModel", "Event with ID $eventId not found")
+                    null
+                }
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error loading full details for event $eventId: ${e.message}")
+                null
             }
         }
     }

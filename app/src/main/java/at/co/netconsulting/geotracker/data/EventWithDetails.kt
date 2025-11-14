@@ -5,6 +5,14 @@ import org.osmdroid.util.GeoPoint
 
 data class EventWithDetails(
     val event: Event,
+
+    // Flag to indicate if full details have been loaded
+    val hasFullDetails: Boolean = false,
+
+    // Always loaded (minimal data)
+    val locationPointCount: Int = 0, // Number of location points (for memory efficiency)
+
+    // Lazy-loaded fields (only calculated when event card is expanded)
     val totalDistance: Double = 0.0,
     val averageSpeed: Double = 0.0,
     val maxElevation: Double = 0.0,
@@ -17,7 +25,6 @@ data class EventWithDetails(
     val weather: Weather? = null,
     val laps: List<Long> = emptyList(),
     val locationPoints: List<GeoPoint> = emptyList(),
-    val locationPointCount: Int = 0, // Number of location points (for memory efficiency)
 
     // min/max/avg number of satellites
     val minSatellites: Int = 0,

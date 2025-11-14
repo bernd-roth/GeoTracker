@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.22")} (13-11-2025: Event details are folded in the beginning; SearchField implemented in selected track when recording)"
+        versionName = "${getNextVersion("5.23")} (14-11-2025: Precalculaton is disabled for all events. Only selected event gets calculated.)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
