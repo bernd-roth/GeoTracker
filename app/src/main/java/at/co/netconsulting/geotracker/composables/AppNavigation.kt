@@ -49,6 +49,15 @@ fun AppNavigation() {
                 onNavigateToMapWithRouteRerun = { locationPoints ->
                     // Handle map navigation with route rerun - you might need to store this data
                     // and navigate to a map route
+                },
+                onNavigateToRouteComparison = { eventId, eventName ->
+                    android.util.Log.d("AppNavigation", "Navigating to route comparison for eventId: $eventId")
+                    try {
+                        navController.navigate("routeComparison/$eventId")
+                        android.util.Log.d("AppNavigation", "Navigation command sent successfully")
+                    } catch (e: Exception) {
+                        android.util.Log.e("AppNavigation", "Navigation failed", e)
+                    }
                 }
             )
         }
@@ -64,6 +73,24 @@ fun AppNavigation() {
         ) { backStackEntry ->
             val eventId = backStackEntry.arguments?.getInt("eventId") ?: -1
             EditEventScreen(
+                eventId = eventId,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // Route comparison screen
+        composable(
+            route = "routeComparison/{eventId}",
+            arguments = listOf(
+                navArgument("eventId") {
+                    type = NavType.IntType
+                }
+            )
+        ) { backStackEntry ->
+            val eventId = backStackEntry.arguments?.getInt("eventId") ?: -1
+            RouteComparisonScreen(
                 eventId = eventId,
                 onNavigateBack = {
                     navController.popBackStack()

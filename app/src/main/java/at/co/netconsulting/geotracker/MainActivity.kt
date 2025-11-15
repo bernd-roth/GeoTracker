@@ -49,6 +49,7 @@ import at.co.netconsulting.geotracker.composables.CompetitionsScreen
 import at.co.netconsulting.geotracker.composables.EditEventScreen
 import at.co.netconsulting.geotracker.composables.EventsScreen
 import at.co.netconsulting.geotracker.composables.MapScreen
+import at.co.netconsulting.geotracker.composables.RouteComparisonScreen
 import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
 import at.co.netconsulting.geotracker.data.LocationData
@@ -106,6 +107,7 @@ class MainActivity : ComponentActivity() {
         const val WEATHER_DETAIL = "weather_detail"
         const val BAROMETER_DETAIL = "barometer_detail"
         const val ALTITUDE_DETAIL = "altitude_detail"
+        const val ROUTE_COMPARISON = "route_comparison/{eventId}"
 
         // Create actual navigation path with parameters
         fun editEvent(eventId: Int) = "edit_event/$eventId"
@@ -113,6 +115,7 @@ class MainActivity : ComponentActivity() {
         fun weatherDetail() = "weather_detail"
         fun barometerDetail() = "barometer_detail"
         fun altitudeDetail() = "altitude_detail"
+        fun routeComparison(eventId: Int) = "route_comparison/$eventId"
     }
 
     // Permission constants
@@ -571,7 +574,11 @@ class MainActivity : ComponentActivity() {
                         navController.navigate(Routes.altitudeDetail())
                     },
                     onNavigateToMapWithRoute = onNavigateToMapWithRoute,
-                    onNavigateToMapWithRouteRerun = onNavigateToMapWithRouteRerun
+                    onNavigateToMapWithRouteRerun = onNavigateToMapWithRouteRerun,
+                    onNavigateToRouteComparison = { eventId, eventName ->
+                        Log.d("MainActivity", "Navigating to route comparison for event: $eventName (ID: $eventId)")
+                        navController.navigate(Routes.routeComparison(eventId))
+                    }
                 )
             }
 
@@ -663,6 +670,27 @@ class MainActivity : ComponentActivity() {
                         // Clear the data when navigating back
                         altitudeEventName = ""
                         altitudeMetrics = emptyList()
+                    }
+                )
+            }
+
+            // Route comparison screen
+            composable(
+                route = Routes.ROUTE_COMPARISON,
+                arguments = listOf(
+                    navArgument("eventId") {
+                        type = NavType.IntType
+                    }
+                )
+            ) { backStackEntry ->
+                val eventId = backStackEntry.arguments?.getInt("eventId") ?: 0
+                Log.d("MainActivity", "Showing route comparison screen for eventId: $eventId")
+
+                RouteComparisonScreen(
+                    eventId = eventId,
+                    onNavigateBack = {
+                        Log.d("MainActivity", "Navigating back from route comparison")
+                        navController.popBackStack()
                     }
                 )
             }

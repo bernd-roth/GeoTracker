@@ -1,6 +1,6 @@
 package at.co.netconsulting.geotracker.composables
 
-import EventWithDetails
+import at.co.netconsulting.geotracker.data.EventWithDetails
 import androidx.compose.foundation.clickable
 import org.osmdroid.util.GeoPoint
 import kotlin.math.atan2

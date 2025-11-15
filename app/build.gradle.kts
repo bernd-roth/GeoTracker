@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("5.24")} (14-11-2025: Switch buttons in settings have not saved their state)"
+        versionName = "${getNextVersion("6.00")} (15-11-2025: Route comparison implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

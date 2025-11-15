@@ -1,3 +1,5 @@
+package at.co.netconsulting.geotracker.data
+
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.Weather

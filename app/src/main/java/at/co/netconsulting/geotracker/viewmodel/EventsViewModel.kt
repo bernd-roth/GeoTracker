@@ -1,6 +1,6 @@
 package at.co.netconsulting.geotracker.viewmodel
 
-import EventWithDetails
+import at.co.netconsulting.geotracker.data.EventWithDetails
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.ViewModel

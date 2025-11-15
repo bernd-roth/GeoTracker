@@ -1,6 +1,5 @@
 package at.co.netconsulting.geotracker.composables
 
-import EventWithDetails
 import HeartRateGraph
 import android.app.Activity
 import android.content.Context
@@ -43,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
@@ -100,6 +100,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import at.co.netconsulting.geotracker.data.AltitudeSpeedInfo
+import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
@@ -126,7 +127,8 @@ fun EventsScreen(
     onNavigateToBarometerDetail: (String, List<Metric>) -> Unit,
     onNavigateToAltitudeDetail: (String, List<Metric>) -> Unit,
     onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
-    onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit
+    onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit,
+    onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val eventsViewModel: EventsViewModel = viewModel(
@@ -640,6 +642,11 @@ fun EventsScreen(
                             onViewSlopeOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId, showSlopeColors = true, metrics = eventWithDetails.metrics))
                             },
+                            onCompareRoutes = {
+                                Log.d("EventsScreen", "Compare Routes clicked for event: ${eventWithDetails.event.eventName} (ID: ${eventWithDetails.event.eventId})")
+                                Toast.makeText(context, "Loading route comparison...", Toast.LENGTH_SHORT).show()
+                                onNavigateToRouteComparison(eventWithDetails.event.eventId, eventWithDetails.event.eventName)
+                            },
                             canViewOnMap = !isRecordingThisEvent, // Only allow when not recording this event
                             database = FitnessTrackerDatabase.getInstance(context)
                         )
@@ -734,6 +741,7 @@ fun EventCard(
     onViewOnMap: (List<GeoPoint>) -> Unit = {},
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     onViewSlopeOnMap: (List<GeoPoint>) -> Unit = {},
+    onCompareRoutes: () -> Unit = {},
     canViewOnMap: Boolean = true,
     database: FitnessTrackerDatabase? = null
 ) {
@@ -861,6 +869,20 @@ fun EventCard(
                                         )
                                     }
                                 }
+                            )
+                        }
+                    }
+
+                    // Compare Routes button - only show if event has location data
+                    if (event.locationPointCount > 0) {
+                        IconButton(
+                            onClick = onCompareRoutes,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CompareArrows,
+                                contentDescription = "Compare Routes",
+                                tint = MaterialTheme.colorScheme.tertiary
                             )
                         }
                     }
