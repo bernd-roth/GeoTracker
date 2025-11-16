@@ -86,21 +86,46 @@ suspend fun export(eventId: Int, contextActivity: Context) {
         |      <trkpt lat="${location.latitude}" lon="${location.longitude}">
         |        <ele>${location.altitude}</ele>
         |        <time>${timestamp}</time>
-        |        <extensions>
-        |          <custom:distance>${metric.distance}</custom:distance>""")
+        |        <extensions>""")
 
-                    // Add heart rate if available
-                    if (metric.heartRate > 0) {
-                        gpxBuilder.append("""
-        |          <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>""")
-                    }
-
-                    // Add air temperature if available (from weather data or metric)
+                    // Check if we have any Garmin-standard extensions (hr, atemp, cadence)
+                    val hasHeartRate = metric.heartRate > 0
                     val temperature = weatherInfo?.temperature ?: getMetricTemperature(metric)
-                    temperature?.let { temp ->
+                    val cadence = metric.cadence
+                    val hasGarminExtensions = hasHeartRate || temperature != null || (cadence != null && cadence > 0)
+
+                    // Add Garmin TrackPointExtension wrapper if we have standard Garmin data
+                    if (hasGarminExtensions) {
                         gpxBuilder.append("""
-        |          <gpxtpx:atemp>${temp}</gpxtpx:atemp>""")
+        |          <gpxtpx:TrackPointExtension>""")
+
+                        // Add heart rate
+                        if (hasHeartRate) {
+                            gpxBuilder.append("""
+        |            <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>""")
+                        }
+
+                        // Add air temperature
+                        temperature?.let { temp ->
+                            gpxBuilder.append("""
+        |            <gpxtpx:atemp>${temp}</gpxtpx:atemp>""")
+                        }
+
+                        // Add cadence (use Garmin standard format)
+                        cadence?.let { cad ->
+                            if (cad > 0) {
+                                gpxBuilder.append("""
+        |            <gpxtpx:cad>${cad}</gpxtpx:cad>""")
+                            }
+                        }
+
+                        gpxBuilder.append("""
+        |          </gpxtpx:TrackPointExtension>""")
                     }
+
+                    // Add custom extensions (outside TrackPointExtension)
+                    gpxBuilder.append("""
+        |          <custom:distance>${metric.distance}</custom:distance>""")
 
                     // Add lap number
                     gpxBuilder.append("""
@@ -122,14 +147,6 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                     if (metric.speed > 0) {
                         gpxBuilder.append("""
         |          <custom:speed>${metric.speed}</custom:speed>""")
-                    }
-
-                    // Add cadence if available
-                    metric.cadence?.let { cadence ->
-                        if (cadence > 0) {
-                            gpxBuilder.append("""
-        |          <custom:cadence>${cadence}</custom:cadence>""")
-                        }
                     }
 
                     // Add GPS accuracy if available

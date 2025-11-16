@@ -204,6 +204,15 @@ class ExportSyncManager(private val context: Context) {
             val tempFile = File(context.cacheDir, filename)
             tempFile.writeText(gpxBuilder.toString())
 
+            // DEBUG: Also save to external storage for inspection
+            try {
+                val debugFile = File(context.getExternalFilesDir(null), "debug_sync_$filename")
+                debugFile.writeText(gpxBuilder.toString())
+                Log.d(TAG, "DEBUG: Saved sync GPX to: ${debugFile.absolutePath}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to save debug GPX", e)
+            }
+
             tempFile
         } catch (e: Exception) {
             Log.e(TAG, "Error generating GPX file", e)

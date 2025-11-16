@@ -2243,8 +2243,14 @@ private fun SyncEventDialog(
                                 when (result) {
                                     is at.co.netconsulting.geotracker.sync.SyncResult.Success ->
                                         Text("Success!", style = MaterialTheme.typography.bodySmall, color = Color.Green)
-                                    is at.co.netconsulting.geotracker.sync.SyncResult.Failure ->
-                                        Text(result.error, style = MaterialTheme.typography.bodySmall, color = Color.Red)
+                                    is at.co.netconsulting.geotracker.sync.SyncResult.Failure -> {
+                                        // Clean up HTML from error message and make it more readable
+                                        val cleanError = result.error
+                                            .replace(Regex("<a href='[^']*'>"), "")
+                                            .replace("</a>", "")
+                                            .replace(Regex("\\.gpx duplicate of"), " is a duplicate of")
+                                        Text(cleanError, style = MaterialTheme.typography.bodySmall, color = Color.Red)
+                                    }
                                 }
                             }
                         }

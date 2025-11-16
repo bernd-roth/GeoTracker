@@ -34,7 +34,14 @@
       "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"ls -la /sdcard/ | grep -i backup\")",
       "Bash(export MSYS_NO_PATHCONV=1)",
       "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"am start -n at.co.netconsulting.geotracker/.MainActivity\")",
-      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" install -r app/build/outputs/apk/debug/geotracker.apk)"
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" install -r app/build/outputs/apk/debug/geotracker.apk)",
+      "Bash(sort:*)",
+      "Bash(timeout 180 bash:*)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" pull \"/sdcard/Android/data/at.co.netconsulting.geotracker/files/debug_sync_Walk_to_gym_2025-11-15.gpx\" .)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker sqlite3 /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db \"\"SELECT eventName, artOfSport, eventDate FROM event WHERE eventName LIKE ''%gym%'' OR eventName LIKE ''%seminar%'' ORDER BY eventDate DESC LIMIT 5;\"\"\")",
+      "Bash(xmllint:*)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" logcat -c)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" logcat -s StravaApiClient:* ExportSyncManager:*)"
     ],
     "deny": [],
     "ask": []

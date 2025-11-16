@@ -36,8 +36,8 @@ class StravaApiClient(private val context: Context) {
         private const val UPLOAD_ENDPOINT = "https://www.strava.com/api/v3/uploads"
 
         private const val PREF_NAME = "strava_auth"
-        private const val KEY_ACCESS_TOKEN = "access_token"
-        private const val KEY_REFRESH_TOKEN = "refresh_token"
+        private const val KEY_ACCESS_TOKEN = "key_access_token"
+        private const val KEY_REFRESH_TOKEN = "key_refresh_token"
         private const val KEY_TOKEN_EXPIRY = "token_expiry"
     }
 
@@ -310,8 +310,11 @@ class StravaApiClient(private val context: Context) {
             if (response.isSuccessful) {
                 val json = JSONObject(response.body?.string() ?: "")
                 val uploadId = json.optString("id_str", json.optString("id", "unknown"))
-                Log.d(TAG, "Upload successful! Upload ID: $uploadId")
-                Result.success(uploadId)
+                Log.d(TAG, "Upload accepted! Upload ID: $uploadId - checking status...")
+
+                // Poll upload status to check if Strava accepted it
+                val statusResult = checkUploadStatus(uploadId)
+                return@withContext statusResult
             } else {
                 val errorBody = response.body?.string() ?: "Unknown error"
                 Log.e(TAG, "Upload failed: ${response.code} - $errorBody")
@@ -322,6 +325,66 @@ class StravaApiClient(private val context: Context) {
             Result.failure(e)
         } catch (e: Exception) {
             Log.e(TAG, "Error uploading activity", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Check upload status by polling Strava's upload endpoint
+     * Strava processes uploads asynchronously, so we need to check the status
+     */
+    private suspend fun checkUploadStatus(uploadId: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val accessToken = getAccessToken()
+                ?: return@withContext Result.failure(Exception("Not authenticated"))
+
+            // Poll up to 30 times with 2 second intervals (60 seconds total)
+            repeat(30) { attempt ->
+                kotlinx.coroutines.delay(2000) // Wait 2 seconds between checks
+
+                val request = Request.Builder()
+                    .url("$UPLOAD_ENDPOINT/$uploadId")
+                    .addHeader("Authorization", "Bearer $accessToken")
+                    .get()
+                    .build()
+
+                val response = okHttpClient.newCall(request).execute()
+
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string() ?: "")
+                    val status = json.optString("status", "")
+                    val activityId = json.optString("activity_id", "")
+                    val error = json.optString("error", "")
+
+                    Log.d(TAG, "Upload status check #$attempt: status=$status, activityId=$activityId, error=$error")
+
+                    when (status) {
+                        "Your activity is ready." -> {
+                            Log.d(TAG, "Upload successful! Activity ID: $activityId")
+                            return@withContext Result.success(activityId)
+                        }
+                        "Your activity is still being processed." -> {
+                            // Continue polling
+                            Log.d(TAG, "Still processing... (attempt ${attempt + 1}/30)")
+                        }
+                        "There was an error processing your activity." -> {
+                            val errorMsg = if (error.isNotEmpty()) error else "Strava rejected the activity during processing"
+                            Log.e(TAG, "Strava processing error: $errorMsg")
+                            return@withContext Result.failure(Exception("Strava error: $errorMsg"))
+                        }
+                        else -> {
+                            Log.w(TAG, "Unknown status: $status")
+                        }
+                    }
+                } else {
+                    Log.e(TAG, "Failed to check status: ${response.code}")
+                }
+            }
+
+            // Timeout after 30 attempts
+            Result.failure(Exception("Upload status check timed out after 60 seconds"))
+        } catch (e: Exception) {
+            Log.e(TAG, "Error checking upload status", e)
             Result.failure(e)
         }
     }
