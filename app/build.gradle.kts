@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.01")} (16-11-2025: Implementation of uploading events to Strava, Garmin, TrainingPeaks account)"
+        versionName = "${getNextVersion("6.02")} (16-11-2025: xmlschema missing fixed, if heart rate data is included in syncing data with Strava)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -146,7 +146,8 @@ class ExportSyncManager(private val context: Context) {
                 |    xmlns="http://www.topografix.com/GPX/1/1"
                 |    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
                 |    xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"
-                |    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
+                |    xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd
+                |                        http://www.garmin.com/xmlschemas/TrackPointExtension/v1 http://www.garmin.com/xmlschemas/TrackPointExtensionv1.xsd">
                 |  <metadata>
                 |    <name>${event.eventName}</name>
                 |    <time>${event.eventDate}T00:00:00Z</time>
