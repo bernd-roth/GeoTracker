@@ -73,7 +73,9 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-fun SettingsScreen() {
+fun SettingsScreen(
+    onNavigateToExportSync: () -> Unit = {}
+) {
     val context = LocalContext.current
     val sharedPreferences = remember {
         context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
@@ -416,6 +418,39 @@ fun SettingsScreen() {
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
+
+        // Export & Sync section
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Export & Sync",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                Text(
+                    text = "Connect to Strava, Garmin Connect, or TrainingPeaks to automatically sync your activities.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                OutlinedButton(
+                    onClick = onNavigateToExportSync,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Configure Export & Sync")
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()

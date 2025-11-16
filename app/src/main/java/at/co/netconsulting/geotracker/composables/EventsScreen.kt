@@ -41,10 +41,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
@@ -58,9 +61,11 @@ import androidx.compose.material.icons.filled.TrendingUp
 import at.co.netconsulting.geotracker.YearlyStatisticsActivity
 import at.co.netconsulting.geotracker.LapAnalysisActivity
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DividerDefaults
@@ -268,6 +273,9 @@ fun EventsScreen(
     var selectedEventId by remember { mutableStateOf<Int?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
+
+    var showSyncDialog by remember { mutableStateOf(false) }
+    var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
 
     // Import progress dialog
@@ -366,6 +374,17 @@ fun EventsScreen(
         )
     }
 
+    // Sync dialog
+    if (showSyncDialog && eventToSync != null) {
+        SyncEventDialog(
+            event = eventToSync!!,
+            onDismiss = {
+                showSyncDialog = false
+                eventToSync = null
+            },
+            context = context
+        )
+    }
 
     Scaffold(
         floatingActionButton = {
@@ -647,6 +666,10 @@ fun EventsScreen(
                                 Toast.makeText(context, "Loading route comparison...", Toast.LENGTH_SHORT).show()
                                 onNavigateToRouteComparison(eventWithDetails.event.eventId, eventWithDetails.event.eventName)
                             },
+                            onSync = {
+                                eventToSync = eventWithDetails
+                                showSyncDialog = true
+                            },
                             canViewOnMap = !isRecordingThisEvent, // Only allow when not recording this event
                             database = FitnessTrackerDatabase.getInstance(context)
                         )
@@ -742,6 +765,7 @@ fun EventCard(
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     onViewSlopeOnMap: (List<GeoPoint>) -> Unit = {},
     onCompareRoutes: () -> Unit = {},
+    onSync: () -> Unit = {},
     canViewOnMap: Boolean = true,
     database: FitnessTrackerDatabase? = null
 ) {
@@ -883,6 +907,20 @@ fun EventCard(
                                 imageVector = Icons.Default.CompareArrows,
                                 contentDescription = "Compare Routes",
                                 tint = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+                    }
+
+                    // Sync button - only show if event has location data
+                    if (event.locationPointCount > 0) {
+                        IconButton(
+                            onClick = onSync,
+                            modifier = Modifier.size(40.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = "Sync to Cloud",
+                                tint = MaterialTheme.colorScheme.secondary
                             )
                         }
                     }
@@ -2140,4 +2178,205 @@ private fun CompactLegendItem(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
         )
     }
+}
+
+@Composable
+private fun SyncEventDialog(
+    event: EventWithDetails,
+    onDismiss: () -> Unit,
+    context: Context
+) {
+    val syncManager = remember { at.co.netconsulting.geotracker.sync.ExportSyncManager(context) }
+    val authStatus = remember { syncManager.getAuthenticationStatus() }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Selected platforms
+    var selectedStrava by remember { mutableStateOf(authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.STRAVA] == true) }
+    var selectedGarmin by remember { mutableStateOf(authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.GARMIN] == true) }
+    var selectedTrainingPeaks by remember { mutableStateOf(authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.TRAINING_PEAKS] == true) }
+
+    // Sync state
+    var isSyncing by remember { mutableStateOf(false) }
+    var syncResults by remember { mutableStateOf<Map<at.co.netconsulting.geotracker.sync.SyncPlatform, at.co.netconsulting.geotracker.sync.SyncResult>>(emptyMap()) }
+
+    AlertDialog(
+        onDismissRequest = { if (!isSyncing) onDismiss() },
+        title = { Text("Sync to Cloud") },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (isSyncing) {
+                    // Show sync progress
+                    Text("Syncing activity...", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
+                } else if (syncResults.isNotEmpty()) {
+                    // Show sync results
+                    Text("Sync Results:", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    syncResults.forEach { (platform, result) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (result is at.co.netconsulting.geotracker.sync.SyncResult.Success)
+                                    Icons.Default.CheckCircle
+                                else
+                                    Icons.Default.Error,
+                                contentDescription = null,
+                                tint = if (result is at.co.netconsulting.geotracker.sync.SyncResult.Success)
+                                    Color.Green
+                                else
+                                    Color.Red,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = platform.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                when (result) {
+                                    is at.co.netconsulting.geotracker.sync.SyncResult.Success ->
+                                        Text("Success!", style = MaterialTheme.typography.bodySmall, color = Color.Green)
+                                    is at.co.netconsulting.geotracker.sync.SyncResult.Failure ->
+                                        Text(result.error, style = MaterialTheme.typography.bodySmall, color = Color.Red)
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Show platform selection
+                    Text(
+                        text = "Select platforms to sync '${event.event.eventName}':",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Strava checkbox
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedStrava,
+                            onCheckedChange = { selectedStrava = it },
+                            enabled = authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.STRAVA] == true
+                        )
+                        Text(
+                            text = "Strava",
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.STRAVA] == false) {
+                            Text(
+                                text = "Not connected",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
+                    // Garmin checkbox
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedGarmin,
+                            onCheckedChange = { selectedGarmin = it },
+                            enabled = authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.GARMIN] == true
+                        )
+                        Text(
+                            text = "Garmin Connect",
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.GARMIN] == false) {
+                            Text(
+                                text = "Not connected",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
+                    // TrainingPeaks checkbox
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = selectedTrainingPeaks,
+                            onCheckedChange = { selectedTrainingPeaks = it },
+                            enabled = authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.TRAINING_PEAKS] == true
+                        )
+                        Text(
+                            text = "TrainingPeaks",
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (authStatus[at.co.netconsulting.geotracker.sync.SyncPlatform.TRAINING_PEAKS] == false) {
+                            Text(
+                                text = "Not connected",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Connect accounts in Settings > Export & Sync",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (syncResults.isEmpty()) {
+                Button(
+                    onClick = {
+                        val platforms = mutableListOf<at.co.netconsulting.geotracker.sync.SyncPlatform>()
+                        if (selectedStrava) platforms.add(at.co.netconsulting.geotracker.sync.SyncPlatform.STRAVA)
+                        if (selectedGarmin) platforms.add(at.co.netconsulting.geotracker.sync.SyncPlatform.GARMIN)
+                        if (selectedTrainingPeaks) platforms.add(at.co.netconsulting.geotracker.sync.SyncPlatform.TRAINING_PEAKS)
+
+                        if (platforms.isNotEmpty()) {
+                            isSyncing = true
+                            coroutineScope.launch {
+                                val results = syncManager.syncEvent(event.event.eventId, platforms)
+                                syncResults = results
+                                isSyncing = false
+                            }
+                        } else {
+                            Toast.makeText(context, "Please select at least one platform", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    enabled = !isSyncing && (selectedStrava || selectedGarmin || selectedTrainingPeaks)
+                ) {
+                    Text("Sync")
+                }
+            } else {
+                Button(onClick = onDismiss) {
+                    Text("Done")
+                }
+            }
+        },
+        dismissButton = {
+            if (syncResults.isEmpty()) {
+                TextButton(onClick = onDismiss, enabled = !isSyncing) {
+                    Text("Cancel")
+                }
+            }
+        }
+    )
 }

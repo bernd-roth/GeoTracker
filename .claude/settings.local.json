@@ -22,7 +22,19 @@
       "Bash(python3:*)",
       "Bash(bash gradlew:*)",
       "Bash(adb install:*)",
-      "Bash(adb logcat:*)"
+      "Bash(adb logcat:*)",
+      "Bash(adb shell:*)",
+      "Bash(where:*)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell:*)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"ls /sdcard/Download/*geotracker* 2>/dev/null\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"am force-stop at.co.netconsulting.geotracker\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" push:*)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker cp /sdcard/temp_backup.db /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"cp /sdcard/temp_backup.db /data/local/tmp/temp_backup.db && run-as at.co.netconsulting.geotracker cp /data/local/tmp/temp_backup.db /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"ls -la /sdcard/ | grep -i backup\")",
+      "Bash(export MSYS_NO_PATHCONV=1)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"am start -n at.co.netconsulting.geotracker/.MainActivity\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" install -r app/build/outputs/apk/debug/geotracker.apk)"
     ],
     "deny": [],
     "ask": []

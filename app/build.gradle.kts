@@ -31,10 +31,13 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.00")} (15-11-2025: Route comparison implemented)"
+        versionName = "${getNextVersion("6.01")} (16-11-2025: Implementation of uploading events to Strava, Garmin, TrainingPeaks account)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+
+        // AppAuth redirect scheme for OAuth
+        manifestPlaceholders["appAuthRedirectScheme"] = "http"
     }
 
     buildTypes {
@@ -127,6 +130,10 @@ dependencies {
     // Network dependencies - consolidated versions
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
+
+    // OAuth and authentication
+    implementation("net.openid:appauth:0.11.1")
+    implementation("androidx.browser:browser:1.7.0")
 
     // EventBus
     implementation("org.greenrobot:eventbus:3.3.1")

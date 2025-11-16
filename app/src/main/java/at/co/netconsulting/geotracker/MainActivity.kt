@@ -52,6 +52,7 @@ import at.co.netconsulting.geotracker.composables.MapScreen
 import at.co.netconsulting.geotracker.composables.RouteComparisonScreen
 import at.co.netconsulting.geotracker.composables.SettingsScreen
 import at.co.netconsulting.geotracker.composables.StatisticsScreen
+import at.co.netconsulting.geotracker.ui.ExportSyncScreen
 import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.GpsStatus
@@ -108,6 +109,7 @@ class MainActivity : ComponentActivity() {
         const val BAROMETER_DETAIL = "barometer_detail"
         const val ALTITUDE_DETAIL = "altitude_detail"
         const val ROUTE_COMPARISON = "route_comparison/{eventId}"
+        const val EXPORT_SYNC = "export_sync"
 
         // Create actual navigation path with parameters
         fun editEvent(eventId: Int) = "edit_event/$eventId"
@@ -116,6 +118,7 @@ class MainActivity : ComponentActivity() {
         fun barometerDetail() = "barometer_detail"
         fun altitudeDetail() = "altitude_detail"
         fun routeComparison(eventId: Int) = "route_comparison/$eventId"
+        fun exportSync() = "export_sync"
     }
 
     // Permission constants
@@ -393,6 +396,9 @@ class MainActivity : ComponentActivity() {
         // Remember the selected tab index
         var selectedTabIndex by remember { mutableStateOf(0) }
 
+        // State to trigger navigation to Export Sync screen
+        var pendingNavigationToExportSync by remember { mutableStateOf(false) }
+
         // Main navigation controller for edit event navigation
         val mainNavController = rememberNavController()
 
@@ -507,6 +513,8 @@ class MainActivity : ComponentActivity() {
                             1 -> StatisticsScreen()
                             2 -> AppNavHost(
                                 mainNavController,
+                                pendingNavigationToExportSync = pendingNavigationToExportSync,
+                                onNavigationHandled = { pendingNavigationToExportSync = false },
                                 onNavigateToMapWithRoute = { routeDisplayData ->
                                     // Set the route to display and switch to map tab
                                     routeToDisplay.value = routeDisplayData
@@ -519,7 +527,13 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                             3 -> CompetitionsScreen()
-                            4 -> SettingsScreen()
+                            4 -> SettingsScreen(
+                                onNavigateToExportSync = {
+                                    // Set flag to trigger navigation and switch to Events tab
+                                    pendingNavigationToExportSync = true
+                                    selectedTabIndex = 2
+                                }
+                            )
                         }
                     }
                 }
@@ -530,9 +544,19 @@ class MainActivity : ComponentActivity() {
     @Composable
     fun AppNavHost(
         navController: NavHostController,
+        pendingNavigationToExportSync: Boolean = false,
+        onNavigationHandled: () -> Unit = {},
         onNavigateToMapWithRoute: (RouteDisplayData) -> Unit = {},
         onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit = {}
     ) {
+        // Handle pending navigation to Export Sync screen
+        LaunchedEffect(pendingNavigationToExportSync) {
+            if (pendingNavigationToExportSync) {
+                navController.navigate(Routes.exportSync())
+                onNavigationHandled()
+            }
+        }
+
         NavHost(
             navController = navController,
             startDestination = Routes.EVENTS
@@ -690,6 +714,15 @@ class MainActivity : ComponentActivity() {
                     eventId = eventId,
                     onNavigateBack = {
                         Log.d("MainActivity", "Navigating back from route comparison")
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            // Export sync screen
+            composable(route = Routes.EXPORT_SYNC) {
+                ExportSyncScreen(
+                    onNavigateBack = {
                         navController.popBackStack()
                     }
                 )
