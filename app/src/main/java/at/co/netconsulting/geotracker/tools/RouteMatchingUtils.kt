@@ -18,7 +18,8 @@ object RouteMatchingUtils {
 
     private const val START_END_PROXIMITY_THRESHOLD = 200.0 // meters (increased from 100m)
     private const val DISTANCE_RATIO_THRESHOLD = 0.3 // ±30% (increased from ±20%)
-    private const val MIN_SIMILARITY_SCORE = 0.5 // Minimum score to consider routes similar (reduced from 0.6)
+    private const val MIN_SIMILARITY_SCORE = 0.3 // Minimum score to consider routes similar (30% match required)
+    private const val POINT_MATCH_THRESHOLD = 30.0 // meters - points within this distance are considered matching
 
     /**
      * Calculate similarity between a reference route and a list of candidate routes
@@ -96,34 +97,48 @@ object RouteMatchingUtils {
     }
 
     /**
-     * Calculate path similarity between two routes using simplified comparison
+     * Calculate path similarity between two routes by comparing all points
      * Returns a score from 0.0 (completely different) to 1.0 (identical)
+     *
+     * Algorithm:
+     * - Compares ALL points from both routes (no simplification)
+     * - A point matches if there's a point in the other route within 30 meters
+     * - Returns the percentage of matching points (0.0 to 1.0)
+     * - Requires ~90% match (MIN_SIMILARITY_SCORE) for routes to be considered similar
      */
     private fun calculatePathSimilarity(
         route1: List<Location>,
         route2: List<Location>
     ): Double {
-        // Simplify both routes to ~20 points for comparison
-        val simplified1 = simplifyRoute(route1, targetPoints = 20)
-        val simplified2 = simplifyRoute(route2, targetPoints = 20)
+        if (route1.isEmpty() || route2.isEmpty()) return 0.0
 
-        if (simplified1.isEmpty() || simplified2.isEmpty()) return 0.0
+        // Convert to GeoLocation for distance calculations
+        val geoRoute1 = route1.map { it.toGeoLocation() }
+        val geoRoute2 = route2.map { it.toGeoLocation() }
 
-        // Calculate average minimum distance from each point in route1 to closest point in route2
-        val avgDistance1to2 = simplified1.map { p1 ->
-            simplified2.minOf { p2 -> p1.distanceTo(p2) }
-        }.average()
+        // Count how many points in route1 have a matching point in route2 (within 30m)
+        val matchingPointsFromRoute1 = geoRoute1.count { p1 ->
+            geoRoute2.any { p2 -> p1.distanceTo(p2) <= POINT_MATCH_THRESHOLD }
+        }
 
-        val avgDistance2to1 = simplified2.map { p2 ->
-            simplified1.minOf { p1 -> p1.distanceTo(p2) }
-        }.average()
+        // Count how many points in route2 have a matching point in route1 (within 30m)
+        val matchingPointsFromRoute2 = geoRoute2.count { p2 ->
+            geoRoute1.any { p1 -> p1.distanceTo(p2) <= POINT_MATCH_THRESHOLD }
+        }
 
-        val avgDistance = (avgDistance1to2 + avgDistance2to1) / 2.0
+        // Calculate bidirectional match percentage
+        val matchPercentage1 = matchingPointsFromRoute1.toDouble() / geoRoute1.size
+        val matchPercentage2 = matchingPointsFromRoute2.toDouble() / geoRoute2.size
 
-        // Convert distance to similarity score (closer = higher score)
-        // If average distance is 0, similarity is 1.0
-        // If average distance is 100m or more, similarity is 0.0
-        return max(0.0, 1.0 - (avgDistance / 100.0))
+        // Use the average of both directions for the final score
+        val similarityScore = (matchPercentage1 + matchPercentage2) / 2.0
+
+        android.util.Log.d("RouteMatching",
+            "Point matching: route1=${geoRoute1.size} points (${matchingPointsFromRoute1} matched, ${String.format("%.1f", matchPercentage1 * 100)}%), " +
+            "route2=${geoRoute2.size} points (${matchingPointsFromRoute2} matched, ${String.format("%.1f", matchPercentage2 * 100)}%), " +
+            "final score=${String.format("%.3f", similarityScore)}")
+
+        return similarityScore
     }
 
     /**
