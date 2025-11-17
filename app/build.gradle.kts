@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.03")} (16-11-2025: Strava error reporting - polls upload status and displays duplicate detection errors in UI)"
+        versionName = "${getNextVersion("6.04")} (17-11-2025: Bearing implemented in bottom sheet)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

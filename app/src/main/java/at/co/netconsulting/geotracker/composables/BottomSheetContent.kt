@@ -26,7 +26,8 @@ fun BottomSheetContent(
     horizontalAccuracyInMeters: Float,
     numberOfSatellites: Int,
     usedNumberOfSatellites: Int,
-    coveredDistance: Double
+    coveredDistance: Double,
+    bearing: Float
 ) {
     Column(
         modifier = Modifier
@@ -77,6 +78,11 @@ fun BottomSheetContent(
             fontSize = 14.sp,
             color = Color.Black
         )
+        Text(
+            text = "Bearing: ${"%.1f".format(bearing)}° ${getCardinalDirection(bearing)}",
+            fontSize = 14.sp,
+            color = Color.Black
+        )
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -101,5 +107,20 @@ fun BottomSheetContent(
                 trackColor = Color(0xFFAA0303),
             )
         }
+    }
+}
+
+private fun getCardinalDirection(bearing: Float): String {
+    val normalizedBearing = ((bearing % 360) + 360) % 360
+    return when {
+        normalizedBearing >= 337.5 || normalizedBearing < 22.5 -> "N"
+        normalizedBearing >= 22.5 && normalizedBearing < 67.5 -> "NE"
+        normalizedBearing >= 67.5 && normalizedBearing < 112.5 -> "E"
+        normalizedBearing >= 112.5 && normalizedBearing < 157.5 -> "SE"
+        normalizedBearing >= 157.5 && normalizedBearing < 202.5 -> "S"
+        normalizedBearing >= 202.5 && normalizedBearing < 247.5 -> "SW"
+        normalizedBearing >= 247.5 && normalizedBearing < 292.5 -> "W"
+        normalizedBearing >= 292.5 && normalizedBearing < 337.5 -> "NW"
+        else -> "N"
     }
 }

@@ -77,6 +77,7 @@ class MainActivity : ComponentActivity() {
     private var speedAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var verticalAccuracyInMetersState = mutableFloatStateOf(0.0f)
     private var coveredDistanceState = mutableDoubleStateOf(0.0)
+    private var bearingState = mutableFloatStateOf(0.0f)
     private val locationEventState = mutableStateOf<Metrics?>(null)
     private lateinit var satelliteInfoManager: SatelliteInfoManager
 
@@ -444,7 +445,8 @@ class MainActivity : ComponentActivity() {
                         horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
                         numberOfSatellites = satelliteInfo.totalSatellites,
                         usedNumberOfSatellites = satelliteInfo.visibleSatellites,
-                        coveredDistance = coveredDistanceState.value
+                        coveredDistance = coveredDistanceState.value,
+                        bearing = bearingState.value
                     )
                 } else {
                     BottomSheetContent(
@@ -457,7 +459,8 @@ class MainActivity : ComponentActivity() {
                         horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
                         numberOfSatellites = satelliteInfo.totalSatellites,
                         usedNumberOfSatellites = satelliteInfo.visibleSatellites,
-                        coveredDistance = coveredDistanceState.value
+                        coveredDistance = coveredDistanceState.value,
+                        bearing = bearingState.value
                     )
                 }
             },
@@ -787,6 +790,7 @@ class MainActivity : ComponentActivity() {
         horizontalAccuracyInMetersState.value = locationData.horizontalAccuracy
         verticalAccuracyInMetersState.value = locationData.verticalAccuracy
         coveredDistanceState.value = locationData.coveredDistance
+        bearingState.value = locationData.bearing
     }
 
     private fun isServiceRunning(serviceName: String): Boolean {

@@ -205,6 +205,7 @@ class BackgroundLocationService : Service(), LocationListener {
                 horizontalAccuracy = location.accuracy,
                 verticalAccuracy = location.verticalAccuracyMeters,
                 coveredDistance = coveredDistance,
+                bearing = location.bearing,
                 numberOfSatellites = numberOfSatellites,
                 usedNumberOfSatellites = usedNumberOfSatellites
             )

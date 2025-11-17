@@ -9,6 +9,7 @@ data class LocationData(
     val horizontalAccuracy: Float = 0f,
     val verticalAccuracy: Float = 0f,
     val coveredDistance: Double = 0.0,
+    val bearing: Float = 0f,
     val numberOfSatellites: Int = 0,
     val usedNumberOfSatellites: Int = 0
 )
