@@ -420,10 +420,19 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Export & Sync section
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(vertical = 8.dp)
+                .background(
+                    color = Color.Transparent,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
         ) {
             Column(
                 modifier = Modifier
@@ -433,7 +442,6 @@ fun SettingsScreen(
                 Text(
                     text = "Export & Sync",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Text(

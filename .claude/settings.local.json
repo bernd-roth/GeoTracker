@@ -41,7 +41,20 @@
       "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker sqlite3 /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db \"\"SELECT eventName, artOfSport, eventDate FROM event WHERE eventName LIKE ''%gym%'' OR eventName LIKE ''%seminar%'' ORDER BY eventDate DESC LIMIT 5;\"\"\")",
       "Bash(xmllint:*)",
       "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" logcat -c)",
-      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" logcat -s StravaApiClient:* ExportSyncManager:*)"
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" logcat -s StravaApiClient:* ExportSyncManager:*)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker ls -la /data/data/at.co.netconsulting.geotracker/databases/\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker mv /data/data/at.co.netconsulting.geotracker/databases/geotracker_backup_2025-11-16_18-28-56.db /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker sqlite3 /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db \"\"SELECT COUNT(*) FROM event;\"\"\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker sqlite3 /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db \"\"SELECT eventName, artOfSport, eventDate FROM event ORDER BY eventDate DESC LIMIT 5;\"\"\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" logcat -d)",
+      "Bash(/c/Users/$USER/AppData/Local/Android/Sdk/platform-tools/adb.exe logcat -d -s GeoTracker:* EventsViewModel:* RoomDatabase:*)",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker find /data/data/at.co.netconsulting.geotracker/databases -name ''fitness_tracker*''\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker ls -l /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker rm -f /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db*\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"run-as at.co.netconsulting.geotracker cp /data/data/at.co.netconsulting.geotracker/databases/geotracker_backup_2025-11-16_18-28-56.db /data/data/at.co.netconsulting.geotracker/databases/fitness_tracker.db\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"ls -la /sdcard/Download/*geotracker* 2>/dev/null\")",
+      "Bash(\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\" shell \"ls -la /sdcard/*backup* 2>/dev/null | grep -i geo\")",
+      "Bash(timeout 10 bash -c '\"\"$USERPROFILE/AppData/Local/Android/Sdk/platform-tools/adb.exe\"\" logcat -s FitnessTrackerDB:* EventsViewModel:*')"
     ],
     "deny": [],
     "ask": []
