@@ -85,6 +85,7 @@ class ForegroundService : Service() {
     private var eventId: Int = 0
     private var distance: Double = 0.0
     private var altitude: Double = 0.0
+    private var bearing: Float = 0.0f
     private var latitude: Double = -999.0
     private var longitude: Double = -999.0
     private var oldLatitude: Double = -999.0
@@ -1193,6 +1194,7 @@ class ForegroundService : Service() {
             speed = metrics.speed
             distance = metrics.coveredDistance
             altitude = metrics.altitude
+            bearing = metrics.bearing
             lap = metrics.lap
             satellites = (metrics.satellites ?: 0).toString()
 
@@ -1795,6 +1797,7 @@ class ForegroundService : Service() {
                     longitude = longitude,
                     speed = speed,
                     altitude = altitude,
+                    bearing = bearing,
                     slope = currentSlope,                      // Real-time slope percentage
                     coveredDistance = distance,
                     lap = lap,

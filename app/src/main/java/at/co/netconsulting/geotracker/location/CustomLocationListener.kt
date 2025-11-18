@@ -1032,6 +1032,7 @@ class CustomLocationListener: LocationListener {
             altitude = startingAltitude ?: 0.0,
             horizontalAccuracy = 0f,
             verticalAccuracyMeters = 0f,
+            bearing = 0f,
             slope = currentSlope, // Use current slope data
             averageSlope = averageSlope,
             maxUphillSlope = maxUphillSlope,
@@ -1216,6 +1217,7 @@ class CustomLocationListener: LocationListener {
             longitude = oldLongitude,
             speed = if (isCurrentlyTracking) (movingAverageSpeed * 3.6).toFloat() else 0f,
             altitude = startingAltitude ?: 0.0,
+            bearing = 0f,
             slope = currentSlope, // Use current slope data
             averageSlope = averageSlope,
             maxUphillSlope = maxUphillSlope,
@@ -1271,6 +1273,7 @@ class CustomLocationListener: LocationListener {
             altitude = smoothedAltitude,
             horizontalAccuracy = location.accuracy,
             verticalAccuracyMeters = location.verticalAccuracyMeters,
+            bearing = location.bearing,
             slope = slope,
             averageSlope = averageSlope,
             maxUphillSlope = maxUphillSlope,

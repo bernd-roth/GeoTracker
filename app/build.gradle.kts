@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.05")} (17-11-2025: Export & Sync card adapted)"
+        versionName = "${getNextVersion("6.06")} (17-11-2025: Bearing not shown in BottomSheetContent when recording)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

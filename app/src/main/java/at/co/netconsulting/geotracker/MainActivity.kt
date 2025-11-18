@@ -764,6 +764,7 @@ class MainActivity : ComponentActivity() {
         horizontalAccuracyInMetersState.value = metrics.horizontalAccuracy
         verticalAccuracyInMetersState.value = metrics.verticalAccuracyMeters
         coveredDistanceState.value = metrics.coveredDistance
+        bearingState.value = metrics.bearing
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
