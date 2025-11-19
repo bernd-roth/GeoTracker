@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.06")} (17-11-2025: Bearing not shown in BottomSheetContent when recording)"
+        versionName = "${getNextVersion("6.07")} (19-11-2025: Enhancement of route comparison)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

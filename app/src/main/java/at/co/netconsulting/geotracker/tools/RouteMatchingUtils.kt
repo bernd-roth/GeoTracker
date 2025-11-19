@@ -20,16 +20,95 @@ object RouteMatchingUtils {
     private const val DISTANCE_RATIO_THRESHOLD = 0.3 // ±30% (increased from ±20%)
     private const val MIN_SIMILARITY_SCORE = 0.3 // Minimum score to consider routes similar (30% match required)
     private const val POINT_MATCH_THRESHOLD = 30.0 // meters - points within this distance are considered matching
+    private const val EVENT_NAME_SIMILARITY_THRESHOLD = 0.9 // 90% name similarity required for match
+
+    /**
+     * Calculate similarity between two event names
+     * Uses a sophisticated algorithm to handle word order differences and spelling errors:
+     * 1. Normalize: convert to lowercase, remove special characters
+     * 2. Tokenize: split into individual words
+     * 3. Sort: order words alphabetically (so "Morning Run" and "Run Morning" match)
+     * 4. Apply Levenshtein distance on the sorted token string
+     *
+     * Returns a score from 0.0 (completely different) to 1.0 (identical)
+     */
+    private fun calculateEventNameSimilarity(name1: String, name2: String): Double {
+        // Step 1: Normalize - convert to lowercase and remove special characters (keep only letters, numbers, and spaces)
+        val normalized1 = name1.lowercase().replace("[^a-z0-9\\s]".toRegex(), "")
+        val normalized2 = name2.lowercase().replace("[^a-z0-9\\s]".toRegex(), "")
+
+        if (normalized1 == normalized2) return 1.0
+        if (normalized1.isEmpty() || normalized2.isEmpty()) return 0.0
+
+        // Step 2: Tokenize - split into words
+        val tokens1 = normalized1.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+        val tokens2 = normalized2.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+
+        if (tokens1.isEmpty() || tokens2.isEmpty()) return 0.0
+
+        // Step 3: Sort - order words alphabetically to handle different word orders
+        val sortedTokens1 = tokens1.sorted().joinToString(" ")
+        val sortedTokens2 = tokens2.sorted().joinToString(" ")
+
+        if (sortedTokens1 == sortedTokens2) return 1.0
+
+        // Step 4: Apply Levenshtein distance on sorted token strings
+        val distance = levenshteinDistance(sortedTokens1, sortedTokens2)
+        val maxLength = max(sortedTokens1.length, sortedTokens2.length)
+
+        val similarity = 1.0 - (distance.toDouble() / maxLength)
+
+        android.util.Log.d("RouteMatching", "Name comparison: '$name1' vs '$name2' -> " +
+                "normalized: '$sortedTokens1' vs '$sortedTokens2' -> similarity: ${String.format("%.3f", similarity)}")
+
+        return similarity
+    }
+
+    /**
+     * Calculate Levenshtein distance between two strings
+     * Returns the minimum number of single-character edits (insertions, deletions, substitutions)
+     * required to change one string into the other
+     */
+    private fun levenshteinDistance(s1: String, s2: String): Int {
+        val len1 = s1.length
+        val len2 = s2.length
+
+        // Create a matrix to store distances
+        val matrix = Array(len1 + 1) { IntArray(len2 + 1) }
+
+        // Initialize first column and row
+        for (i in 0..len1) matrix[i][0] = i
+        for (j in 0..len2) matrix[0][j] = j
+
+        // Calculate distances
+        for (i in 1..len1) {
+            for (j in 1..len2) {
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                matrix[i][j] = minOf(
+                    matrix[i - 1][j] + 1,      // deletion
+                    matrix[i][j - 1] + 1,      // insertion
+                    matrix[i - 1][j - 1] + cost // substitution
+                )
+            }
+        }
+        return matrix[len1][len2]
+    }
 
     /**
      * Calculate similarity between a reference route and a list of candidate routes
      * Returns list of similar routes sorted by similarity score (highest first)
+     *
+     * Performance optimization: If event names are provided, name comparison is performed first.
+     * If names match to 90%, the expensive lat/lon comparison is performed. Otherwise,
+     * lat/lon comparison is still performed as a fallback.
      */
     fun findSimilarRoutes(
         referenceLocations: List<Location>,
         referenceTotalDistance: Double,
         candidateRoutes: List<Pair<Int, List<Location>>>, // eventId to locations
-        candidateDistances: Map<Int, Double>
+        candidateDistances: Map<Int, Double>,
+        referenceEventName: String? = null, // Optional: reference event name for optimization
+        candidateEventNames: Map<Int, String> = emptyMap() // Optional: candidate event names for optimization
     ): List<RouteSimilarity> {
         if (referenceLocations.isEmpty()) return emptyList()
 
@@ -38,6 +117,26 @@ object RouteMatchingUtils {
 
         val similarities = candidateRoutes.mapNotNull { (eventId, locations) ->
             if (locations.isEmpty()) return@mapNotNull null
+
+            // OPTIMIZATION: Check event name similarity first (if names are provided)
+            // This is much faster than lat/lon comparison for large routes with thousands of points
+            if (!referenceEventName.isNullOrEmpty() && candidateEventNames.containsKey(eventId)) {
+                val candidateEventName = candidateEventNames[eventId] ?: ""
+                if (candidateEventName.isNotEmpty()) {
+                    val nameSimilarity = calculateEventNameSimilarity(referenceEventName, candidateEventName)
+
+                    if (nameSimilarity >= EVENT_NAME_SIMILARITY_THRESHOLD) {
+                        // Names match to 90%+ - proceed with lat/lon comparison
+                        android.util.Log.d("RouteMatching", "Event $eventId: name similarity ${String.format("%.2f", nameSimilarity)} >= 0.9, proceeding with lat/lon comparison")
+                    } else {
+                        // Names don't match to 90% - skip expensive lat/lon comparison
+                        android.util.Log.d("RouteMatching", "Event $eventId rejected: name similarity ${String.format("%.2f", nameSimilarity)} < 0.9, skipping lat/lon comparison")
+                        return@mapNotNull null
+                    }
+                }
+                // If candidate event name is empty, fall through to lat/lon comparison
+            }
+            // If no event names provided, fall through to lat/lon comparison
 
             val candidateStart = locations.first().toGeoLocation()
             val candidateEnd = locations.last().toGeoLocation()

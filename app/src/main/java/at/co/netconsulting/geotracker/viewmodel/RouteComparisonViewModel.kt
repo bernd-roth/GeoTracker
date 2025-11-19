@@ -41,14 +41,28 @@ class RouteComparisonViewModel(application: Application) : AndroidViewModel(appl
     private val _eventName = MutableStateFlow("")
     val eventName: StateFlow<String> = _eventName.asStateFlow()
 
+    // Live comparison progress
+    private val _comparisonProgress = MutableStateFlow<ComparisonProgress?>(null)
+    val comparisonProgress: StateFlow<ComparisonProgress?> = _comparisonProgress.asStateFlow()
+
+    data class ComparisonProgress(
+        val currentEventId: Int,
+        val currentEventName: String,
+        val currentIndex: Int,
+        val totalCandidates: Int,
+        val matchesFound: List<RouteSimilarity>
+    )
+
     /**
      * Find routes similar to the given event
+     * Emits live progress updates as routes are compared
      */
     fun findSimilarRoutes(eventId: Int) {
         android.util.Log.d("RouteComparisonVM", "Finding similar routes for eventId: $eventId")
         viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
+            _comparisonProgress.value = null
 
             try {
                 withContext(Dispatchers.IO) {
@@ -76,42 +90,133 @@ class RouteComparisonViewModel(application: Application) : AndroidViewModel(appl
                     val allEvents = eventDao.getEventsPaged(limit = 1000, offset = 0)
                         .filter { it.eventId != eventId && it.artOfSport == referenceEvent.artOfSport }
 
-                    // Load locations for all candidate events
-                    val candidateRoutes = allEvents.map { event ->
-                        event.eventId to locationDao.getLocationsForEvent(event.eventId)
-                    }
+                    android.util.Log.d("RouteComparisonVM", "Comparing '${referenceEvent.eventName}' against ${allEvents.size} candidates")
 
-                    // Calculate distances for all candidates
-                    val candidateDistances = allEvents.associate { event ->
-                        val metrics = metricDao.getMetricsForEvent(event.eventId)
-                        event.eventId to (metrics.lastOrNull()?.distance ?: 0.0)
-                    }
+                    val referenceStart = referenceLocations.first().toGeoLocation()
+                    val referenceEnd = referenceLocations.last().toGeoLocation()
+                    val matchesFound = mutableListOf<RouteSimilarity>()
 
-                    // Find similar routes
-                    val similarities = RouteMatchingUtils.findSimilarRoutes(
-                        referenceLocations = referenceLocations,
-                        referenceTotalDistance = referenceTotalDistance,
-                        candidateRoutes = candidateRoutes,
-                        candidateDistances = candidateDistances
-                    )
-
-                    // Enrich with event details
-                    val enrichedSimilarities = similarities.map { similarity ->
-                        val event = allEvents.find { it.eventId == similarity.eventId }
-                        similarity.copy(
-                            eventName = event?.eventName ?: "",
-                            eventDate = event?.eventDate ?: ""
+                    // Process each candidate event one by one and emit progress
+                    allEvents.forEachIndexed { index, candidateEvent ->
+                        // Emit progress update
+                        _comparisonProgress.value = ComparisonProgress(
+                            currentEventId = candidateEvent.eventId,
+                            currentEventName = candidateEvent.eventName,
+                            currentIndex = index + 1,
+                            totalCandidates = allEvents.size,
+                            matchesFound = matchesFound.toList()
                         )
+
+                        // Load locations and metrics for this candidate
+                        val candidateLocations = locationDao.getLocationsForEvent(candidateEvent.eventId)
+                        if (candidateLocations.isEmpty()) return@forEachIndexed
+
+                        val candidateMetrics = metricDao.getMetricsForEvent(candidateEvent.eventId)
+                        val candidateDistance = candidateMetrics.lastOrNull()?.distance ?: 0.0
+
+                        // Check event name similarity first (optimization)
+                        val nameSimilarity = calculateEventNameSimilarity(referenceEvent.eventName, candidateEvent.eventName)
+                        if (nameSimilarity < 0.9) {
+                            android.util.Log.d("RouteComparisonVM", "Event ${candidateEvent.eventId} rejected: name similarity ${String.format("%.2f", nameSimilarity)} < 0.9")
+                            return@forEachIndexed
+                        }
+
+                        // Perform route comparison
+                        val similarity = RouteMatchingUtils.findSimilarRoutes(
+                            referenceLocations = referenceLocations,
+                            referenceTotalDistance = referenceTotalDistance,
+                            candidateRoutes = listOf(candidateEvent.eventId to candidateLocations),
+                            candidateDistances = mapOf(candidateEvent.eventId to candidateDistance),
+                            referenceEventName = referenceEvent.eventName,
+                            candidateEventNames = mapOf(candidateEvent.eventId to candidateEvent.eventName)
+                        ).firstOrNull()
+
+                        // If match found, add to results
+                        if (similarity != null) {
+                            val enrichedSimilarity = similarity.copy(
+                                eventName = candidateEvent.eventName,
+                                eventDate = candidateEvent.eventDate
+                            )
+                            matchesFound.add(enrichedSimilarity)
+
+                            // Update progress with new match
+                            _comparisonProgress.value = ComparisonProgress(
+                                currentEventId = candidateEvent.eventId,
+                                currentEventName = candidateEvent.eventName,
+                                currentIndex = index + 1,
+                                totalCandidates = allEvents.size,
+                                matchesFound = matchesFound.toList()
+                            )
+                        }
                     }
 
-                    _similarRoutes.value = enrichedSimilarities
+                    _similarRoutes.value = matchesFound.sortedByDescending { it.similarityScore }
                 }
             } catch (e: Exception) {
                 _errorMessage.value = "Error finding similar routes: ${e.message}"
             } finally {
                 _isLoading.value = false
+                _comparisonProgress.value = null
             }
         }
+    }
+
+    /**
+     * Helper function to calculate event name similarity
+     */
+    private fun calculateEventNameSimilarity(name1: String, name2: String): Double {
+        val normalized1 = name1.lowercase().replace("[^a-z0-9\\s]".toRegex(), "")
+        val normalized2 = name2.lowercase().replace("[^a-z0-9\\s]".toRegex(), "")
+
+        if (normalized1 == normalized2) return 1.0
+        if (normalized1.isEmpty() || normalized2.isEmpty()) return 0.0
+
+        val tokens1 = normalized1.split("\\s+".toRegex()).filter { it.isNotEmpty() }.sorted()
+        val tokens2 = normalized2.split("\\s+".toRegex()).filter { it.isNotEmpty() }.sorted()
+
+        if (tokens1.isEmpty() || tokens2.isEmpty()) return 0.0
+
+        val sortedTokens1 = tokens1.joinToString(" ")
+        val sortedTokens2 = tokens2.joinToString(" ")
+
+        if (sortedTokens1 == sortedTokens2) return 1.0
+
+        val distance = levenshteinDistance(sortedTokens1, sortedTokens2)
+        val maxLength = Math.max(sortedTokens1.length, sortedTokens2.length)
+
+        return 1.0 - (distance.toDouble() / maxLength)
+    }
+
+    /**
+     * Helper function to calculate Levenshtein distance
+     */
+    private fun levenshteinDistance(s1: String, s2: String): Int {
+        val len1 = s1.length
+        val len2 = s2.length
+        val matrix = Array(len1 + 1) { IntArray(len2 + 1) }
+
+        for (i in 0..len1) matrix[i][0] = i
+        for (j in 0..len2) matrix[0][j] = j
+
+        for (i in 1..len1) {
+            for (j in 1..len2) {
+                val cost = if (s1[i - 1] == s2[j - 1]) 0 else 1
+                matrix[i][j] = minOf(
+                    matrix[i - 1][j] + 1,
+                    matrix[i][j - 1] + 1,
+                    matrix[i - 1][j - 1] + cost
+                )
+            }
+        }
+
+        return matrix[len1][len2]
+    }
+
+    /**
+     * Helper extension function
+     */
+    private fun Location.toGeoLocation(): at.co.netconsulting.geotracker.data.GeoLocation {
+        return at.co.netconsulting.geotracker.data.GeoLocation(latitude, longitude, altitude)
     }
 
     /**

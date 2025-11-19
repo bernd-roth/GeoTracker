@@ -36,6 +36,7 @@ fun RouteComparisonScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val eventName by viewModel.eventName.collectAsState()
+    val comparisonProgress by viewModel.comparisonProgress.collectAsState()
 
     // Load similar routes when screen opens
     LaunchedEffect(eventId) {
@@ -64,11 +65,24 @@ fun RouteComparisonScreen(
                 .padding(paddingValues)
         ) {
             when {
-                isLoading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center)
+                // Show comparison detail first (highest priority - user clicked on a match)
+                currentComparison != null -> {
+                    RouteComparisonDetail(
+                        comparison = currentComparison!!,
+                        onBack = { viewModel.clearComparison() }
                     )
                 }
+                // Show live progress view
+                comparisonProgress != null -> {
+                    LiveComparisonProgress(
+                        progress = comparisonProgress!!,
+                        onRouteSelected = { similarRoute ->
+                            viewModel.compareRoutes(eventId, similarRoute.eventId)
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+                // Show errors
                 errorMessage != null -> {
                     Column(
                         modifier = Modifier
@@ -94,10 +108,10 @@ fun RouteComparisonScreen(
                         }
                     }
                 }
-                currentComparison != null -> {
-                    RouteComparisonDetail(
-                        comparison = currentComparison!!,
-                        onBack = { viewModel.clearComparison() }
+                // Fallback loading indicator
+                isLoading -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center)
                     )
                 }
                 similarRoutes.isEmpty() -> {
@@ -754,5 +768,143 @@ private fun formatDurationDifference(millis: Long): String {
     return when {
         hours > 0 -> String.format("%s%d:%02d:%02d", sign, hours, minutes, seconds)
         else -> String.format("%s%d:%02d", sign, minutes, seconds)
+    }
+}
+
+@Composable
+private fun LiveComparisonProgress(
+    progress: RouteComparisonViewModel.ComparisonProgress,
+    onRouteSelected: (RouteSimilarity) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Header with progress
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Comparing Routes",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${progress.currentIndex}/${progress.totalCandidates}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Progress bar
+                    LinearProgressIndicator(
+                        progress = progress.currentIndex.toFloat() / progress.totalCandidates.toFloat(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Current event being compared
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Checking: ${progress.currentEventName}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+
+                    if (progress.matchesFound.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "${progress.matchesFound.size} match${if (progress.matchesFound.size == 1) "" else "es"} found so far",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+
+        // Matches found so far
+        if (progress.matchesFound.isNotEmpty()) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Matches Found",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Tap to compare now",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            items(progress.matchesFound) { similarRoute ->
+                SimilarRouteCard(
+                    similarRoute = similarRoute,
+                    onClick = { onRouteSelected(similarRoute) }
+                )
+            }
+        } else {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Searching for similar routes...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
     }
 }
