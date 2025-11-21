@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.07")} (19-11-2025: Enhancement of route comparison)"
+        versionName = "${getNextVersion("6.08")} (21-11-2025: Show all events button introduced when week statistics is activated)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

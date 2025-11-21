@@ -277,6 +277,7 @@ fun EventsScreen(
     var showSyncDialog by remember { mutableStateOf(false) }
     var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
+    var isDateFilterActive by remember { mutableStateOf(false) } // Track if date filter is active
 
     // Import progress dialog
     if (showImportingDialog) {
@@ -511,9 +512,76 @@ fun EventsScreen(
 
                             // Set filter in the ViewModel
                             eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
+
+                            // Mark filter as active
+                            isDateFilterActive = true
                         }
                     }
                 )
+            }
+
+            // Show "Clear Filter" button when date filter is active
+            AnimatedVisibility(
+                visible = isDateFilterActive,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically()
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Filter Active",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Showing filtered events by week",
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                coroutineScope.launch {
+                                    // Clear the date filter
+                                    eventsViewModel.filterByDateRange(null, null)
+                                    isDateFilterActive = false
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text(
+                                text = "Show All Events",
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
             }
 
             if (events.isEmpty() && isLoading) {
