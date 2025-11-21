@@ -2592,6 +2592,8 @@ fun MapScreen(
             },
             onDismiss = {
                 showRecordingDialog = false
+                // Clear overlay track when recording dialog is cancelled without starting recording
+                GpxPersistenceUtil.clearImportedGpxTrack(context)
             }
         )
     }
