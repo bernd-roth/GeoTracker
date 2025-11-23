@@ -1133,8 +1133,10 @@ fun EventCard(
                             Column(modifier = Modifier.weight(1f)) {
                                 // Left column with distance and speed
                                 InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
+                                InfoRow("", String.format(""))
                                 InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed))
                                 InfoRow("Max. Speed:", String.format("%.1f km/h", event.maxSpeed))
+                                InfoRow("", String.format(""))
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
@@ -1148,6 +1150,11 @@ fun EventCard(
                                     label = "Max HR:",
                                     value = if (event.maxHeartRate > 0) "${event.maxHeartRate} bpm" else "N/A",
                                     textColor = if (event.maxHeartRate > 0) Color.Red else Color.Gray
+                                )
+                                InfoRowWithColor(
+                                    label = "Avg HR:",
+                                    value = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else "N/A",
+                                    textColor = if (event.avgHeartRate > 0) MaterialTheme.colorScheme.primary else Color.Gray
                                 )
                             }
                         }
@@ -1165,14 +1172,6 @@ fun EventCard(
                                 if (elevationGain > 0) {
                                     InfoRow("Max. Elevation Gain:", "$elevationGain m")
                                 }
-                            }
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                InfoRowWithColor(
-                                    label = "Avg HR:",
-                                    value = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else "N/A",
-                                    textColor = if (event.avgHeartRate > 0) MaterialTheme.colorScheme.primary else Color.Gray
-                                )
                             }
                         }
 
