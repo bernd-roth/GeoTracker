@@ -293,6 +293,10 @@ class EventsViewModel(
                 0.0
             }
 
+            // Calculate max and min speed from metrics
+            val speeds = metrics.map { it.speed.toDouble() }
+            val maxSpeed = speeds.maxOrNull() ?: 0.0
+
             // Get elevation data
             val elevations = metrics.map { it.elevation.toDouble() }
             val maxElevation = elevations.maxOrNull() ?: 0.0
@@ -395,6 +399,7 @@ class EventsViewModel(
                 event = event,
                 hasFullDetails = true,
                 totalDistance = totalDistance,
+                maxSpeed = maxSpeed,
                 averageSpeed = avgSpeed,
                 maxElevation = maxElevation,
                 minElevation = minElevation,

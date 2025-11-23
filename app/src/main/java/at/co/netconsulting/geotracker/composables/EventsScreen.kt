@@ -1134,6 +1134,7 @@ fun EventCard(
                                 // Left column with distance and speed
                                 InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
                                 InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed))
+                                InfoRow("Max. Speed:", String.format("%.1f km/h", event.maxSpeed))
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
