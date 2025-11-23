@@ -5,7 +5,9 @@
       "Bash(./gradlew.bat assembleDebug:*)",
       "Bash(git checkout:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nWIP: Current changes in progress\n\nSaving current work on modified files before switching to version 6.09\nfor Max/Min Speed feature implementation.\n\nModified files:\n- app/build.gradle.kts\n- MapScreen.kt\n- CustomLocationListener.kt\n- ForegroundService.kt\n- StravaApiClient.kt\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git commit -m \"$(cat <<''EOF''\nWIP: Current changes in progress\n\nSaving current work on modified files before switching to version 6.09\nfor Max/Min Speed feature implementation.\n\nModified files:\n- app/build.gradle.kts\n- MapScreen.kt\n- CustomLocationListener.kt\n- ForegroundService.kt\n- StravaApiClient.kt\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git merge:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
