@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.10")} (22-11-2025: pause functionality implemented)"
+        versionName = "${getNextVersion("6.11")} (23-11-2025: pause functionality implemented; added max. speed field to events overview)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

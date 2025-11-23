@@ -17,6 +17,7 @@ data class EventWithDetails(
     // Lazy-loaded fields (only calculated when event card is expanded)
     val totalDistance: Double = 0.0,
     val averageSpeed: Double = 0.0,
+    val maxSpeed: Double = 0.0,
     val maxElevation: Double = 0.0,
     val minElevation: Double = 0.0,
     val maxElevationGain: Double = 0.0,
