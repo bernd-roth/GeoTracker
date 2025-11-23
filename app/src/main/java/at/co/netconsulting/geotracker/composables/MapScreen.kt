@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.AlertDialog
@@ -166,6 +167,13 @@ fun MapScreen(
         mutableStateOf(
             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .getBoolean("is_recording", false)
+        )
+    }
+
+    var isPaused by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getBoolean("is_paused", false)
         )
     }
 
@@ -2231,6 +2239,48 @@ fun MapScreen(
                     }
                 }
             } else if (isRecording && !followingState.isFollowing) {
+                // Pause/Resume button
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = if (isPaused) Color(0xFF4CAF50) else Color(0xFFFFA726), // Green when paused (resume), Orange when recording (pause)
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                if (isPaused) {
+                                    // Resume recording
+                                    val resumeIntent = Intent(context, ForegroundService::class.java)
+                                    resumeIntent.putExtra("action", "resume_recording")
+                                    ContextCompat.startForegroundService(context, resumeIntent)
+
+                                    isPaused = false
+                                    Toast.makeText(context, "Recording Resumed", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    // Pause recording
+                                    val pauseIntent = Intent(context, ForegroundService::class.java)
+                                    pauseIntent.putExtra("action", "pause_recording")
+                                    ContextCompat.startForegroundService(context, pauseIntent)
+
+                                    isPaused = true
+                                    Toast.makeText(context, "Recording Paused", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                    ) {
+                        Icon(
+                            imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                            contentDescription = if (isPaused) "Resume Recording" else "Pause Recording",
+                            tint = Color.White
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Stop button
                 Surface(
                     modifier = Modifier.size(56.dp),
                     shape = CircleShape,
@@ -2257,6 +2307,8 @@ fun MapScreen(
                                 context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                                     .edit()
                                     .putBoolean("is_recording", false)
+                                    .putBoolean("is_paused", false)
+                                    .remove("pause_start_time")
                                     .apply()
 
                                 // Stop the service
@@ -2302,6 +2354,7 @@ fun MapScreen(
 
                                 // Update local state
                                 isRecording = false
+                                isPaused = false
 
                                 val intent = Intent(context, BackgroundLocationService::class.java)
                                 context.startService(intent)
@@ -2440,10 +2493,13 @@ fun MapScreen(
                 context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean("is_recording", true)
+                    .putBoolean("is_paused", false)
+                    .remove("pause_start_time")
                     .apply()
 
                 isRecording = true
-                Timber.d("Recording started, set isRecording=true")
+                isPaused = false
+                Timber.d("Recording started, set isRecording=true, isPaused=false")
 
                 val stopIntent = Intent(context, BackgroundLocationService::class.java)
                 context.stopService(stopIntent)

@@ -172,6 +172,11 @@ class ForegroundService : Service() {
     // WebSocket transfer setting
     private var enableWebSocketTransfer: Boolean = true
 
+    // Pause/Resume functionality
+    private var isPaused = false
+    private var pauseStartTime: Long = 0
+    private var totalPausedDurationMs: Long = 0
+
     // Session data management methods
     private fun saveSessionDataToPreferences(
         eventName: String,
@@ -727,17 +732,20 @@ class ForegroundService : Service() {
                         resetValues()
                     }
 
-                    if (speed >= MIN_SPEED_THRESHOLD) {
-                        showStopWatch()
-                    } else {
-                        showLazyStopWatch()
+                    // Only update stopwatches if not paused
+                    if (!isPaused) {
+                        if (speed >= MIN_SPEED_THRESHOLD) {
+                            showStopWatch()
+                        } else {
+                            showLazyStopWatch()
+                        }
                     }
 
                     showNotification()
 
                     // save data to database as long as we have valid coordinates,
-                    // regardless of speed or duplicate coordinates
-                    if(checkLatitudeLongitude()) {
+                    // regardless of speed or duplicate coordinates (but not when paused)
+                    if(checkLatitudeLongitude() && !isPaused) {
                         insertDatabase(database)
                     }
                     delay(1000)
@@ -844,6 +852,10 @@ class ForegroundService : Service() {
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
+                // Save pause state
+                .putBoolean("is_paused", isPaused)
+                .putLong("total_paused_duration_ms", totalPausedDurationMs)
+                .putLong("pause_start_time_saved", pauseStartTime)
                 .apply()
         } catch (e: Exception) {
             Log.e(TAG, "Error updating service state preferences", e)
@@ -1041,8 +1053,20 @@ class ForegroundService : Service() {
             ""
         }
 
-        // Calculate total recording time since startDateTime
-        val totalRecordingDuration = Duration.between(startDateTime, LocalDateTime.now())
+        // Calculate total recording time since startDateTime, accounting for paused time
+        var totalRecordingDuration = Duration.between(startDateTime, LocalDateTime.now())
+
+        // Subtract total paused duration from total recording time
+        val totalPausedDuration = Duration.ofMillis(totalPausedDurationMs)
+
+        // If currently paused, also subtract the current pause duration
+        if (isPaused && pauseStartTime > 0) {
+            val currentPauseDuration = Duration.ofMillis(System.currentTimeMillis() - pauseStartTime)
+            totalRecordingDuration = totalRecordingDuration.minus(totalPausedDuration).minus(currentPauseDuration)
+        } else {
+            totalRecordingDuration = totalRecordingDuration.minus(totalPausedDuration)
+        }
+
         val totalHours = totalRecordingDuration.toHours()
         val totalMinutes = (totalRecordingDuration.toMinutes() % 60)
         val totalSeconds = (totalRecordingDuration.seconds % 60)
@@ -1247,6 +1271,59 @@ class ForegroundService : Service() {
                 Log.d(TAG, "Service is being stopped intentionally")
             }
 
+            // Handle pause/resume actions
+            val action = intent?.getStringExtra("action")
+            when (action) {
+                "pause_recording" -> {
+                    customLocationListener?.pauseTracking()
+                    isPaused = true
+                    pauseStartTime = System.currentTimeMillis()
+
+                    // Stop the current stopwatch segments to freeze the time
+                    if (isCurrentlyMoving) {
+                        movementState.stop()
+                    } else {
+                        lazyState.stop()
+                    }
+
+                    getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("is_paused", true)
+                        .putLong("pause_start_time", pauseStartTime)
+                        .apply()
+                    Log.d(TAG, "Recording paused - stopwatches frozen")
+                    return START_STICKY
+                }
+                "resume_recording" -> {
+                    customLocationListener?.resumeTracking()
+
+                    // Calculate how long we were paused and add to total
+                    if (pauseStartTime > 0) {
+                        val pauseDuration = System.currentTimeMillis() - pauseStartTime
+                        totalPausedDurationMs += pauseDuration
+                        Log.d(TAG, "Pause duration: ${pauseDuration}ms, Total paused: ${totalPausedDurationMs}ms")
+                    }
+
+                    isPaused = false
+                    pauseStartTime = 0
+
+                    // Resume the appropriate stopwatch segment
+                    if (isCurrentlyMoving) {
+                        movementState.start()
+                    } else {
+                        lazyState.start()
+                    }
+
+                    getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean("is_paused", false)
+                        .remove("pause_start_time")
+                        .apply()
+                    Log.d(TAG, "Recording resumed - stopwatches restarted")
+                    return START_STICKY
+                }
+            }
+
             // Check if this is a restored session
             isRestoredSession = intent?.getBooleanExtra("is_restored_session", false) ?: false
 
@@ -1285,8 +1362,14 @@ class ForegroundService : Service() {
                     )
                 }
 
+                // Restore pause state
+                isPaused = prefs.getBoolean("is_paused", false)
+                totalPausedDurationMs = prefs.getLong("total_paused_duration_ms", 0)
+                pauseStartTime = prefs.getLong("pause_start_time_saved", 0)
+
                 Log.d(TAG, "Restored service state: eventId=$eventId, sessionId=$sessionId, " +
-                        "distance=$distance, lap=$lap, startTime=$startDateTime")
+                        "distance=$distance, lap=$lap, startTime=$startDateTime, isPaused=$isPaused, " +
+                        "totalPausedDuration=${totalPausedDurationMs}ms")
 
                 // Extract heart rate information from previous state
                 heartRateDeviceAddress = prefs.getString("heart_rate_device_address", null)
@@ -1641,6 +1724,10 @@ class ForegroundService : Service() {
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
+                // Save pause state
+                .putBoolean("is_paused", isPaused)
+                .putLong("total_paused_duration_ms", totalPausedDurationMs)
+                .putLong("pause_start_time_saved", pauseStartTime)
                 .apply()
 
             // Force a final state save to the database

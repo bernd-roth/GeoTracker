@@ -27,8 +27,8 @@ class StravaApiClient(private val context: Context) {
         private const val TAG = "StravaApiClient"
 
         // TODO: Replace these with your Strava app credentials from https://www.strava.com/settings/api
-        private const val CLIENT_ID = "client_id"
-        private const val CLIENT_SECRET = "client_secret"
+        private const val CLIENT_ID = "185662"
+        private const val CLIENT_SECRET = "d66f914e8840deaea63bfc116b05858db5854512"
         private const val REDIRECT_URI = "http://localhost/exchange_token"
 
         private const val AUTH_ENDPOINT = "https://www.strava.com/oauth/authorize"
@@ -36,8 +36,8 @@ class StravaApiClient(private val context: Context) {
         private const val UPLOAD_ENDPOINT = "https://www.strava.com/api/v3/uploads"
 
         private const val PREF_NAME = "strava_auth"
-        private const val KEY_ACCESS_TOKEN = "key_access_token"
-        private const val KEY_REFRESH_TOKEN = "key_refresh_token"
+        private const val KEY_ACCESS_TOKEN = "9dc49b4e2480970bd7c7c09e0b3915b3e6a00d21"
+        private const val KEY_REFRESH_TOKEN = "997d5c47904fc8035ebdc4e62a050051887548f4"
         private const val KEY_TOKEN_EXPIRY = "token_expiry"
     }
 

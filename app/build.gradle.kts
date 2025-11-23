@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.09")} (21-11-2025: track overlay is cleared, if no recording is started)"
+        versionName = "${getNextVersion("6.10")} (22-11-2025: pause functionality implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
