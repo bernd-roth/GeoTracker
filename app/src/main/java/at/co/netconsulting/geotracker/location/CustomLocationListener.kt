@@ -108,6 +108,9 @@ class CustomLocationListener: LocationListener {
     private var isCurrentlyTracking = false
     private val THRESHOLD_TIMEOUT_MS = 3000 // 3 seconds
 
+    // Pause/Resume functionality
+    private var isPaused = false
+
     // heartrate
     private var currentHeartRate: Int = 0
     private var heartRateDeviceName: String = ""
@@ -293,6 +296,16 @@ class CustomLocationListener: LocationListener {
         }
     }
 
+    fun pauseTracking() {
+        isPaused = true
+        Log.d("CustomLocationListener", "Tracking paused")
+    }
+
+    fun resumeTracking() {
+        isPaused = false
+        Log.d("CustomLocationListener", "Tracking resumed")
+    }
+
     private fun loadSharedPreferences() {
         val sharedPreferences = this.context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
 
@@ -450,6 +463,12 @@ class CustomLocationListener: LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        // Skip all metrics calculations if tracking is paused
+        if (isPaused) {
+            Log.d("CustomLocationListener", "Location update received but tracking is paused - skipping")
+            return
+        }
+
         // Validate coordinates first - reject placeholder/invalid GPS values
         if (location.latitude == -999.0 || location.longitude == -999.0 ||
             (location.latitude == 0.0 && location.longitude == 0.0)) {
