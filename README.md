@@ -2,6 +2,25 @@
 
 GeoTracker is a professional-grade Android fitness tracking application designed for serious athletes and fitness enthusiasts. Whether you're running, cycling, hiking, or training for competitions, GeoTracker provides comprehensive GPS tracking, real-time analysis, and advanced data visualization capabilities. With its integrated WebSocket server, you can share your activities with others and follow their progress in real-time.
 
+> **📖 For end users**: See the [User Manual](USER_MANUAL.md) for detailed step-by-step instructions, tips, and troubleshooting.
+> **👨‍💻 For developers**: Continue reading below for technical specifications, installation, and contributing guidelines.
+
+---
+
+## ✨ Latest Features (Version 6.12)
+
+- **🆕 Pause/Resume Functionality** - Pause activities without losing data
+- **🆕 Max Speed Tracking** - Real-time maximum speed with historical comparison
+- **🆕 Ghost Racer** - Import GPX files and race against previous performances
+- **🆕 Third-Party Integration** - Sync with Strava, Garmin Connect, and TrainingPeaks
+- **🆕 Following System** - Track multiple athletes in real-time on your map
+- **🆕 Auto Backup Service** - Scheduled automatic database backups
+- **🆕 Bicycle Configuration** - Wheel size and sprocket settings for accurate cycling metrics
+- **🆕 Planned Events & Reminders** - Schedule competitions with customizable notifications
+- **🆕 Clothing Logging** - Track gear worn during activities
+- **🆕 Route Matching Engine** - Automatic detection of similar routes with similarity scoring
+- **🆕 Enhanced Database** - 7 new tables for expanded functionality
+
 ---
 
 ## 🚀 Core Features
@@ -93,8 +112,17 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 #### Import Features
 - **GPX Import** - Full track parsing with metadata preservation
 - **Route Visualization** - Imported track display and analysis
+- **🆕 Ghost Racer** - Race against imported GPX tracks with real-time comparison
 - **Progress Tracking** - Import operation monitoring
 - **Data Validation** - Integrity checking for imported data
+- **Event Customization** - Configure sport type and event name during import
+
+#### Third-Party Platform Integration
+- **🆕 Strava Sync** - Automatic activity upload to Strava
+- **🆕 Garmin Connect Integration** - Export to Garmin ecosystem
+- **🆕 TrainingPeaks Support** - Training data synchronization
+- **Multi-Platform Export** - Batch sync to multiple services
+- **Authentication Management** - Secure credential storage
 
 ### 🌐 Real-Time Sharing & Web Interface
 
@@ -110,6 +138,13 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Live Metrics Display** - Speed, elevation, and distance streaming
 - **Following System** - Track friends and training partners
 - **Mobile-Responsive Design** - Optimized for all devices
+
+#### Following System
+- **🆕 Real-Time User Following** - Track multiple athletes simultaneously
+- **🆕 Live Position Overlay** - See followed users on your map
+- **🆕 Metrics Streaming** - View followed users' speed, HR, and elevation
+- **🆕 User Selection Dialog** - Easy management of followed connections
+- **🆕 Following Service** - Background service for persistent tracking
 
 ### 📱 User Interface & Navigation
 
@@ -127,6 +162,32 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Location-Based Events** - GPS-based event triggers
 - **Activity History** - Comprehensive event database with search
 
+### 🎯 Special Features
+
+#### Activity Control
+- **🆕 Pause/Resume Functionality** - Pause recording without losing session
+- **🆕 Max Speed Tracking** - Real-time maximum speed with historical comparison
+- **🆕 Session Recovery** - Automatic crash recovery and data preservation
+- **Lap Management** - Manual and automatic lap detection
+
+#### Route Analysis & Comparison
+- **🆕 Route Matching** - Automatic detection of similar routes
+- **🆕 Route Similarity Scoring** - Quantify how similar two routes are
+- **🆕 Speed Differential Analysis** - Compare performance across route attempts
+- **🆕 Waypoint System** - Create custom markers and points of interest
+
+#### Activity Planning
+- **🆕 Planned Events** - Schedule races and competitions
+- **🆕 Event Reminders** - Customizable notifications with recurring schedules
+- **🆕 Location-Based Events** - GPS-triggered event notifications
+- **Event History** - Track entered and finished competitions
+
+#### Equipment & Configuration
+- **🆕 Bicycle Configuration** - Wheel size and sprocket settings for accurate metrics
+- **🆕 Clothing Logging** - Track gear worn during activities
+- **Multiple Bike Profiles** - Switch between different bicycle configurations
+- **Equipment History** - Correlate performance with equipment choices
+
 ### ⚙️ Advanced Configuration
 
 #### User Profile & Settings
@@ -142,6 +203,9 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Battery Management** - Intelligent power usage optimization
 - **WebSocket Configuration** - Server settings and connection management
 - **Notification Preferences** - Granular notification control
+- **🆕 Auto Backup Scheduling** - Automated database backups with configurable timing
+- **🆕 Database Cleanup** - Manual maintenance and storage optimization
+- **🆕 Data Retention** - Selective event deletion and cleanup results
 
 ### 🔧 Hardware Integration & Services
 
@@ -153,11 +217,20 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Temperature Sensors** - Environmental monitoring
 
 #### Background Services
-- **Foreground Tracking Service** - Persistent location tracking
-- **Session Recovery** - Automatic crash recovery and data preservation
-- **Background Sync** - Data synchronization and backup
-- **Weather Service** - Automatic weather data collection
-- **Database Management** - Intelligent data management and cleanup
+- **Foreground Tracking Service** - Persistent location tracking with notification
+- **Background Location Service** - Location tracking in background mode
+- **🆕 Barometer Sensor Service** - Continuous pressure data collection
+- **🆕 Auto Backup Service** - Scheduled automatic database backups
+- **🆕 Following Service** - Real-time user following and position tracking
+- **Weather Service** - Automatic weather data collection via API
+- **Database Backup Service** - Manual and automated backup operations
+- **GPX Export Service** - Background GPX file generation
+
+#### Broadcast Receivers
+- **🆕 Auto Backup Receiver** - Triggers scheduled backups
+- **🆕 Boot Completed Receiver** - Restarts services on device boot
+- **🆕 Reminder Broadcast Receiver** - Event reminder notifications
+- **🆕 Package Update Receiver** - Handles app updates
 
 ---
 
@@ -185,6 +258,73 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Schema Version**: 17 (with automatic migrations)
 - **Data Types**: GPS tracks, metrics, weather data, user preferences
 - **Backup**: Automatic local and manual export options
+
+#### Database Entities (13 Tables)
+- **User Table** - Profile data (height, weight, birth date, max HR)
+- **Event Table** - Activity records with sport type, name, date, comments
+- **Metric Table** - Time-series data (HR, speed, distance, cadence, elevation, pressure, etc.)
+- **Location Table** - GPS coordinates linked to events
+- **Weather Table** - Weather API data with temperature, wind, humidity
+- **DeviceStatus Table** - Satellite count, signal strength, battery level
+- **🆕 CurrentRecording Table** - Session state for crash recovery
+- **🆕 LapTime Table** - Lap timing with start/end times and distance
+- **🆕 PlannedEvent Table** - Competitions and scheduled events
+- **🆕 Clothing Table** - Gear worn during activities
+- **🆕 WheelSprocket Table** - Bicycle configuration data
+- **🆕 Network Table** - WebSocket and REST API configuration
+- **🆕 Waypoint Table** - Custom markers with coordinates and descriptions
+
+### Architecture & Codebase Structure
+
+The project follows **MVVM (Model-View-ViewModel)** architecture with clean separation of concerns:
+
+- **Composables (42+ files)** - Jetpack Compose UI components and screens
+  - Main screens: Map, Statistics, Events, Competitions, Settings
+  - Detail screens: HeartRate, Barometer, Altitude, Weather, Lap Analysis
+  - Dialogs: Recording, Sensor pairing, Tracking selection
+
+- **ViewModels (4 files)** - State management and business logic
+  - MVVM pattern implementation
+  - LiveData/StateFlow for reactive UI updates
+
+- **Domain Layer (13 entities)** - Database schema and data models
+  - Room database entities
+  - Data Transfer Objects (DTOs)
+
+- **Data Layer (80+ files)** - Repository pattern implementation
+  - 12 DAO (Data Access Object) interfaces
+  - Repository classes for data access abstraction
+  - State management classes
+
+- **Services (10+ files)** - Background processing
+  - Foreground/Background location tracking
+  - Sensor data collection
+  - WebSocket communication
+  - Automatic backups
+
+- **Tools & Utilities (15+ files)** - Helper functions
+  - GPS calculations and smoothing algorithms
+  - Route matching engine
+  - Distance/speed conversions
+  - Date/time formatting
+
+- **Export/Import (5 files)** - File format handling
+  - GPX parser and generator
+  - KML export functionality
+  - Data validation
+
+- **Sync (3 files)** - Third-party platform integration
+  - Strava API integration
+  - Garmin Connect support
+  - TrainingPeaks sync
+
+- **Receivers (5 files)** - System event handling
+  - Boot completion
+  - Backup scheduling
+  - Event reminders
+  - Package updates
+
+**Total Codebase**: 165+ Kotlin files organized in a scalable, maintainable architecture
 
 ---
 
@@ -293,11 +433,28 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Background Processing**: Efficient multi-threaded location processing
 - **Session Recovery**: Automatic crash protection and data preservation
 
+### Advanced Data Processing
+- **🆕 Elevation Smoothing Algorithm**: Weighted moving average filter with configurable sensitivity
+- **🆕 GPS Anomaly Detection**: Automatic outlier filtering and signal correction
+- **🆕 Moving Average Calculations**: Real-time smoothing for speed and pace
+- **🆕 Route Matching Engine**: Intelligent similarity detection and scoring
+- **🆕 Distance Normalization**: Time-based comparison across different route lengths
+- **🆕 Multi-Threaded Processing**: Parallel data collection and analysis
+
 ### Comprehensive Analysis
 - **Multi-Dimensional Visualization**: Speed, elevation, and slope-colored route mapping
 - **Statistical Dashboards**: Weekly, monthly, and yearly performance trends
 - **Interactive Charts**: Heart rate, altitude, and performance correlation analysis
 - **Export Flexibility**: GPX, KML, and database backup options
+
+### Extensive Feature Set
+- **52+ Major Features** across all categories
+- **42 Composable UI Screens** for comprehensive user interface
+- **13 Database Tables** for complete data management
+- **10+ Background Services** for reliable operation
+- **165+ Kotlin Files** (composables, viewmodels, services, utilities)
+- **Multi-Platform Integration** (Strava, Garmin, TrainingPeaks)
+- **Professional Architecture** with MVVM pattern and Room ORM
 
 ---
 
@@ -322,6 +479,11 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Set up WebSocket sharing** to track friends in real-time
 - **Export data regularly** for backup and analysis in other tools
 - **Calibrate max heart rate** for accurate zone calculations
+- **🆕 Configure auto backups** to protect your activity data
+- **🆕 Import GPX tracks** to use Ghost Racer for performance comparison
+- **🆕 Sync to Strava/Garmin** for multi-platform activity sharing
+- **🆕 Set up bicycle configuration** for accurate cycling metrics
+- **🆕 Use pause/resume** during activities without losing data
 
 ### Troubleshooting Common Issues
 - **GPS Accuracy**: Ensure clear sky view and allow 1-2 minutes for satellite lock

@@ -12,7 +12,8 @@
       "Bash(git restore:*)",
       "Bash(git stash:*)",
       "Bash(git stash drop:*)",
-      "Bash(git stash pop:*)"
+      "Bash(git stash pop:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
