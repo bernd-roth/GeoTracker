@@ -134,7 +134,7 @@ fun BarometerDetailScreen(
 
                 // Pressure vs Time Graph
                 BarometerGraphCard(
-                    title = "Pressure vs Time",
+                    title = "Time vs Pressure",
                     description = "Tap on the graph to see pressure at any point in time"
                 ) {
                     InteractivePressureVsTimeGraph(
@@ -147,7 +147,7 @@ fun BarometerDetailScreen(
 
                 // Pressure vs Distance Graph
                 BarometerGraphCard(
-                    title = "Pressure vs Distance",
+                    title = "Distance vs Pressure",
                     description = "Tap on the graph to see pressure at any distance"
                 ) {
                     InteractivePressureVsDistanceGraph(
@@ -160,7 +160,7 @@ fun BarometerDetailScreen(
 
                 // Pressure vs Altitude Scatter Plot
                 BarometerGraphCard(
-                    title = "Pressure vs Altitude",
+                    title = "Elevation vs Pressure",
                     description = "Tap on the graph to see pressure at different elevations"
                 ) {
                     InteractivePressureVsAltitudeScatterPlot(

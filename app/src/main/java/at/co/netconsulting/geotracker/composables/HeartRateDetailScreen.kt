@@ -132,7 +132,7 @@ fun HeartRateDetailScreen(
 
                 // Heart Rate vs Distance Graph
                 GraphCard(
-                    title = "Heart Rate vs Distance",
+                    title = "Distance vs Heart Rate",
                     description = "Tap on the graph to see detailed information at any point"
                 ) {
                     InteractiveHeartRateVsDistanceGraph(
@@ -145,7 +145,7 @@ fun HeartRateDetailScreen(
 
                 // Heart Rate vs Time Graph
                 GraphCard(
-                    title = "Heart Rate vs Time",
+                    title = "Time vs Heart Rate",
                     description = "Tap on the graph to see detailed information at any point"
                 ) {
                     InteractiveHeartRateVsTimeGraph(
@@ -158,7 +158,7 @@ fun HeartRateDetailScreen(
 
                 // Heart Rate vs Altitude Scatter Plot
                 GraphCard(
-                    title = "Heart Rate vs Altitude",
+                    title = "Elevation vs Heart Rate",
                     description = "Tap on the graph to see detailed information at any point"
                 ) {
                     InteractiveHeartRateVsAltitudeScatterPlot(

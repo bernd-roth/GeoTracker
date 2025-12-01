@@ -133,7 +133,7 @@ fun WeatherDetailScreen(
 
                 // Temperature vs Time Graph
                 WeatherGraphCard(
-                    title = "Temperature vs Time",
+                    title = "Time vs Temperature",
                     description = "Tap on the graph to see temperature at any point in time"
                 ) {
                     InteractiveTemperatureVsTimeGraph(
@@ -146,7 +146,7 @@ fun WeatherDetailScreen(
 
                 // Temperature vs Distance Graph
                 WeatherGraphCard(
-                    title = "Temperature vs Distance",
+                    title = "Distance vs Temperature",
                     description = "Tap on the graph to see temperature at any distance"
                 ) {
                     InteractiveTemperatureVsDistanceGraph(
@@ -159,7 +159,7 @@ fun WeatherDetailScreen(
 
                 // Temperature vs Altitude Scatter Plot
                 WeatherGraphCard(
-                    title = "Temperature vs Altitude",
+                    title = "Elevation vs Temperature",
                     description = "Tap on the graph to see temperature at different elevations"
                 ) {
                     InteractiveTemperatureVsAltitudeScatterPlot(

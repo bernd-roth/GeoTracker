@@ -5,7 +5,14 @@
       "Bash(./gradlew.bat assembleDebug:*)",
       "Bash(git checkout:*)",
       "Bash(echo:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git merge:*)",
+      "Bash(git push:*)",
+      "Bash(git restore:*)",
+      "Bash(git stash:*)",
+      "Bash(git stash drop:*)",
+      "Bash(git stash pop:*)"
     ],
     "deny": [],
     "ask": []

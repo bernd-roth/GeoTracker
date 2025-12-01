@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.11")} (23-11-2025: pause functionality implemented; added max. speed field to events overview)"
+        versionName = "${getNextVersion("6.12")} (01-12-2025: title changes in barometer, weather, and heart rate cards)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
