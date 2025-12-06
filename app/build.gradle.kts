@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.12")} (01-12-2025: title changes in barometer, weather, and heart rate cards)"
+        versionName = "${getNextVersion("6.13")} (06-12-2025: FIT file export implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

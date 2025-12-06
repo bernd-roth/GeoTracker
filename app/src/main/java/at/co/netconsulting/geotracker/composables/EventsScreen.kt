@@ -962,6 +962,34 @@ fun EventCard(
                                     }
                                 }
                             )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.TrendingUp,
+                                            contentDescription = "FIT",
+                                            tint = MaterialTheme.colorScheme.tertiary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Text(
+                                            text = "Export as FIT",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    showExportDropdown = false
+                                    coroutineScope.launch {
+                                        at.co.netconsulting.geotracker.fit.export(
+                                            eventId = event.event.eventId,
+                                            contextActivity = context
+                                        )
+                                    }
+                                }
+                            )
                         }
                     }
 
