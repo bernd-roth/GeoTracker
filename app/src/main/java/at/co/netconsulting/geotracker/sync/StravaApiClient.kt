@@ -46,11 +46,27 @@ class StravaApiClient(private val context: Context) {
 
     /**
      * Check if user is authenticated with Strava
+     * Returns true if we have a valid access token OR a refresh token that can get a new one
      */
     fun isAuthenticated(): Boolean {
         val accessToken = prefs.getString(KEY_ACCESS_TOKEN, null)
+        val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
         val expiry = prefs.getLong(KEY_TOKEN_EXPIRY, 0L)
-        return !accessToken.isNullOrEmpty() && System.currentTimeMillis() < expiry
+
+        // If access token is still valid, we're good
+        if (!accessToken.isNullOrEmpty() && System.currentTimeMillis() < expiry) {
+            return true
+        }
+
+        // If access token expired but we have a refresh token, we're still authenticated
+        // The refresh will happen automatically when getAccessToken() is called during sync
+        if (!refreshToken.isNullOrEmpty()) {
+            Log.d(TAG, "Access token expired but refresh token available - still authenticated")
+            return true
+        }
+
+        Log.d(TAG, "Not authenticated - no valid access token or refresh token")
+        return false
     }
 
     /**
@@ -59,13 +75,26 @@ class StravaApiClient(private val context: Context) {
     suspend fun getAccessToken(): String? {
         val token = prefs.getString(KEY_ACCESS_TOKEN, null)
         val expiry = prefs.getLong(KEY_TOKEN_EXPIRY, 0L)
+        val now = System.currentTimeMillis()
+
+        if (token == null) {
+            Log.w(TAG, "No access token stored")
+            return null
+        }
 
         // If token is expired, try to refresh
-        if (token != null && System.currentTimeMillis() >= expiry) {
+        if (now >= expiry) {
+            Log.d(TAG, "Access token expired (expired ${(now - expiry) / 1000 / 60} minutes ago), attempting refresh...")
             val refreshToken = prefs.getString(KEY_REFRESH_TOKEN, null)
-            if (refreshToken != null) {
+            if (refreshToken != null && refreshToken.isNotEmpty()) {
                 return refreshAccessToken(refreshToken)
+            } else {
+                Log.e(TAG, "Cannot refresh expired token: refresh token is ${if (refreshToken == null) "null" else "empty"}. User must re-authorize.")
+                return null
             }
+        } else {
+            val minutesUntilExpiry = (expiry - now) / 1000 / 60
+            Log.d(TAG, "Access token is valid (expires in $minutesUntilExpiry minutes)")
         }
 
         return token
@@ -134,10 +163,14 @@ class StravaApiClient(private val context: Context) {
      */
     suspend fun handleManualAuthorizationUrl(url: String): Result<String> = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "Handling manual authorization URL")
+
             // Parse the URL to extract the authorization code
             val uri = Uri.parse(url)
             val code = uri.getQueryParameter("code")
                 ?: return@withContext Result.failure(Exception("No authorization code found in URL"))
+
+            Log.d(TAG, "Authorization code extracted (length: ${code.length})")
 
             // Exchange code for access token using direct HTTP request
             val requestBody = FormBody.Builder()
@@ -155,13 +188,16 @@ class StravaApiClient(private val context: Context) {
             val response = okHttpClient.newCall(request).execute()
 
             if (response.isSuccessful) {
-                val json = JSONObject(response.body?.string() ?: "")
+                val responseBody = response.body?.string() ?: ""
+                Log.d(TAG, "Token exchange response: $responseBody")
+
+                val json = JSONObject(responseBody)
                 val accessToken = json.getString("access_token")
                 val refreshToken = json.optString("refresh_token", "")
                 val expiresAt = json.getLong("expires_at") * 1000 // Convert to milliseconds
 
+                Log.d(TAG, "Manual authorization successful - Refresh token ${if (refreshToken.isEmpty()) "NOT RECEIVED" else "received"}")
                 saveTokens(accessToken, refreshToken, expiresAt)
-                Log.d(TAG, "Manual authorization successful")
                 Result.success(accessToken)
             } else {
                 val errorBody = response.body?.string() ?: "Unknown error"
@@ -211,6 +247,13 @@ class StravaApiClient(private val context: Context) {
      */
     private suspend fun refreshAccessToken(refreshToken: String): String? = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "Attempting to refresh access token (refresh token length: ${refreshToken.length})")
+
+            if (refreshToken.isEmpty()) {
+                Log.e(TAG, "Cannot refresh: refresh token is empty!")
+                return@withContext null
+            }
+
             val requestBody = FormBody.Builder()
                 .add("client_id", CLIENT_ID)
                 .add("client_secret", CLIENT_SECRET)
@@ -231,10 +274,12 @@ class StravaApiClient(private val context: Context) {
                 val newRefreshToken = json.optString("refresh_token", refreshToken)
                 val expiresAt = json.getLong("expires_at") * 1000 // Convert to milliseconds
 
+                Log.d(TAG, "Token refresh successful! New token expires at: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(expiresAt))}")
                 saveTokens(accessToken, newRefreshToken, expiresAt)
                 accessToken
             } else {
-                Log.e(TAG, "Token refresh failed: ${response.code}")
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Token refresh failed: HTTP ${response.code} - $errorBody")
                 null
             }
         } catch (e: Exception) {
@@ -247,9 +292,17 @@ class StravaApiClient(private val context: Context) {
      * Save authentication tokens to SharedPreferences
      */
     private fun saveTokens(accessToken: String, refreshToken: String?, expiryTime: Long) {
+        Log.d(TAG, "Saving tokens - Access token length: ${accessToken.length}, " +
+                "Refresh token: ${if (refreshToken.isNullOrEmpty()) "MISSING/EMPTY" else "present (${refreshToken.length} chars)"}, " +
+                "Expiry: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(expiryTime))}")
+
         prefs.edit().apply {
             putString(KEY_ACCESS_TOKEN, accessToken)
-            refreshToken?.let { putString(KEY_REFRESH_TOKEN, it) }
+            if (!refreshToken.isNullOrEmpty()) {
+                putString(KEY_REFRESH_TOKEN, refreshToken)
+            } else {
+                Log.w(TAG, "WARNING: Refresh token is null or empty! Token refresh will fail when access token expires.")
+            }
             putLong(KEY_TOKEN_EXPIRY, expiryTime)
             apply()
         }
