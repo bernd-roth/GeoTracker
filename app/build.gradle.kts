@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.14")} (24-12-2025: save Strava link for upload)"
+        versionName = "${getNextVersion("6.15")} (26-12-2025: import/export database with settings)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

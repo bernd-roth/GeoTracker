@@ -67,6 +67,11 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.app.Activity
+import at.co.netconsulting.geotracker.tools.DatabaseImporter
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -138,6 +143,11 @@ fun SettingsScreen(
     var selectedEventIds by remember { mutableStateOf(setOf<Int>()) }
     val coroutineScope = rememberCoroutineScope()
 
+    // Database import state
+    var showImportConfirmation by remember { mutableStateOf(false) }
+    var selectedDbFileUri by remember { mutableStateOf<Uri?>(null) }
+    var isImportInProgress by remember { mutableStateOf(false) }
+
     // Update last backup time display
     LaunchedEffect(Unit) {
         val lastBackupTimeMs = backupPrefs.getLong("lastBackupTime", 0L)
@@ -186,6 +196,19 @@ fun SettingsScreen(
         birthDateCalendar.get(Calendar.MONTH),
         birthDateCalendar.get(Calendar.DAY_OF_MONTH)
     )
+
+    // Database file picker launcher
+    val dbFileLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (uri != null) {
+                selectedDbFileUri = uri
+                showImportConfirmation = true
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -606,6 +629,27 @@ fun SettingsScreen(
                 ) {
                     Text(if (isCleanupInProgress) "Checking..." else "Clean Up Invalid Events")
                 }
+
+                // Database import button
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(Intent.CATEGORY_OPENABLE)
+                            type = "*/*"
+                            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(
+                                "application/octet-stream",
+                                "application/x-sqlite3",
+                                "application/zip"
+                            ))
+                        }
+                        dbFileLauncher.launch(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isImportInProgress
+                ) {
+                    Text(if (isImportInProgress) "Importing..." else "Import Database Backup")
+                }
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
@@ -848,6 +892,58 @@ fun SettingsScreen(
                         selectedEventIds = emptySet()
                     }
                 ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Database import confirmation dialog
+    if (showImportConfirmation && selectedDbFileUri != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showImportConfirmation = false
+                selectedDbFileUri = null
+            },
+            title = { Text("Import Database Backup?") },
+            text = {
+                Text(
+                    "This will replace all current data with the backup file.\n\n" +
+                    "• A safety backup will be created first\n" +
+                    "• The app will restart after import\n\n" +
+                    "Continue?"
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showImportConfirmation = false
+                    isImportInProgress = true
+                    coroutineScope.launch {
+                        try {
+                            val result = DatabaseImporter.importDatabase(context, selectedDbFileUri!!)
+                            if (result.isSuccess) {
+                                Toast.makeText(context, "Import successful. Restarting...", Toast.LENGTH_SHORT).show()
+                                delay(1500)
+                                DatabaseImporter.restartApp(context)
+                            } else {
+                                Toast.makeText(context, "Import failed: ${result.error}", Toast.LENGTH_LONG).show()
+                            }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
+                        } finally {
+                            isImportInProgress = false
+                            selectedDbFileUri = null
+                        }
+                    }
+                }) {
+                    Text("Import")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = {
+                    showImportConfirmation = false
+                    selectedDbFileUri = null
+                }) {
                     Text("Cancel")
                 }
             }
