@@ -1518,9 +1518,9 @@ fun EventCard(
 
                     Spacer(modifier = Modifier.height(4.dp))
 
-                    if (event.weather != null && event.weather.temperature > 0f) {
+                    if (event.weather != null && !event.weather.temperature.isNaN()) {
                         // Calculate temperature statistics from metrics if available
-                        val temperatures = event.metrics.mapNotNull { it.temperature }.filter { it > 0f }
+                        val temperatures = event.metrics.mapNotNull { it.temperature }.filter { !it.isNaN() }
 
                         if (temperatures.isNotEmpty() && temperatures.size > 1) {
                             // Show min/max/avg only if we have multiple temperature readings

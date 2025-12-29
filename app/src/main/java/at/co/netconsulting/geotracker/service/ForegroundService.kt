@@ -1163,7 +1163,7 @@ class ForegroundService : Service() {
                     elevationGain = elevGain,
                     elevationLoss = elevLoss,
                     slope = currentSlope,                      // Real-time slope percentage
-                    temperature = if (currentTemperature > 0) currentTemperature.toFloat() else null,
+                    temperature = if (currentTemperature != 0.0) currentTemperature.toFloat() else null,
                     accuracy = null,
 
                     // Include barometer data

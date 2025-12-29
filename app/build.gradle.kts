@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.15")} (26-12-2025: import/export database with settings)"
+        versionName = "${getNextVersion("6.16")} (30-12-2025: negative temperature was not saved to database, fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
