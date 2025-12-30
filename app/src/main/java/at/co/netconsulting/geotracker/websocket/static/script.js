@@ -835,7 +835,7 @@ function showInfoPopup(event, point, sessionId, chartType) {
 }
 
 function extractWeatherData(point) {
-    const hasTemperature = point.temperature !== undefined && point.temperature !== null && point.temperature > 0;
+    const hasTemperature = point.temperature !== undefined && point.temperature !== null;
     const hasWindSpeed = point.windSpeed !== undefined && point.windSpeed !== null && point.windSpeed > 0;
     const hasHumidity = point.relativeHumidity !== undefined && point.relativeHumidity !== null && point.relativeHumidity > 0;
     const hasWeatherCode = point.weatherCode !== undefined && point.weatherCode !== null && point.weatherCode > 0;
@@ -1209,6 +1209,12 @@ function finalizeBatchProcessing() {
                             relativeHumidity: latestPoint.relativeHumidity,
                             weatherCode: latestPoint.weatherCode,
                             weatherTime: latestPoint.weatherTime
+                        },
+                        barometer: {
+                            pressure: latestPoint.pressure,
+                            altitudeFromPressure: latestPoint.altitudeFromPressure,
+                            seaLevelPressure: latestPoint.seaLevelPressure,
+                            pressureAccuracy: latestPoint.pressureAccuracy
                         }
                     });
                 }
@@ -1671,6 +1677,18 @@ function getSlopeColor(slope) {
 }
 
 function updateSpeedDisplay(sessionId, speed, data) {
+    // Extract temperature and pressure from nested objects for easier access
+    const temperature = data.weather?.temperature ?? data.temperature;
+    const pressure = data.barometer?.pressure ?? data.pressure;
+
+    console.log(`[DEBUG] updateSpeedDisplay called for session ${sessionId}`, {
+        temperature: temperature,
+        pressure: pressure,
+        hasTemperature: temperature !== undefined && temperature !== null,
+        hasPressure: pressure !== undefined && pressure !== null,
+        rawData: data
+    });
+
     if (!shouldDisplaySession(sessionId)) {
         addDebugMessage(`Skipping speed display update for filtered session: ${sessionId}`, 'system');
         return;
@@ -1752,25 +1770,25 @@ function updateSpeedDisplay(sessionId, speed, data) {
         }
 
         // Track weather data even when stats are hidden
-        if (data.temperature !== undefined && data.temperature !== null) {
-            history.temperatures.push(data.temperature);
-            if (history.minTemperature === null || data.temperature < history.minTemperature) {
-                history.minTemperature = data.temperature;
+        if (temperature !== undefined && temperature !== null) {
+            history.temperatures.push(temperature);
+            if (history.minTemperature === null || temperature < history.minTemperature) {
+                history.minTemperature = temperature;
             }
-            if (history.maxTemperature === null || data.temperature > history.maxTemperature) {
-                history.maxTemperature = data.temperature;
+            if (history.maxTemperature === null || temperature > history.maxTemperature) {
+                history.maxTemperature = temperature;
             }
             history.avgTemperature = history.temperatures.reduce((a, b) => a + b, 0) / history.temperatures.length;
         }
 
         // Track barometer data even when stats are hidden
-        if (data.pressure !== undefined && data.pressure !== null && data.pressure !== 0) {
-            history.pressures.push(data.pressure);
-            if (history.minPressure === null || data.pressure < history.minPressure) {
-                history.minPressure = data.pressure;
+        if (pressure !== undefined && pressure !== null && pressure !== 0) {
+            history.pressures.push(pressure);
+            if (history.minPressure === null || pressure < history.minPressure) {
+                history.minPressure = pressure;
             }
-            if (history.maxPressure === null || data.pressure > history.maxPressure) {
-                history.maxPressure = data.pressure;
+            if (history.maxPressure === null || pressure > history.maxPressure) {
+                history.maxPressure = pressure;
             }
             history.avgPressure = history.pressures.reduce((a, b) => a + b, 0) / history.pressures.length;
         }
@@ -1992,27 +2010,32 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
     // Update weather statistics (temperature)
     // Note: We allow 0 and negative temperatures as they are valid values
-    if (data.temperature !== undefined && data.temperature !== null) {
-        history.temperatures.push(data.temperature);
+    if (temperature !== undefined && temperature !== null) {
+        console.log(`[DEBUG] Temperature data received: ${temperature}°C for session ${sessionId}`);
+        history.temperatures.push(temperature);
 
         // Update min temperature
-        if (history.minTemperature === null || data.temperature < history.minTemperature) {
-            history.minTemperature = data.temperature;
+        if (history.minTemperature === null || temperature < history.minTemperature) {
+            history.minTemperature = temperature;
         }
 
         // Update max temperature
-        if (history.maxTemperature === null || data.temperature > history.maxTemperature) {
-            history.maxTemperature = data.temperature;
+        if (history.maxTemperature === null || temperature > history.maxTemperature) {
+            history.maxTemperature = temperature;
         }
 
         // Calculate average temperature
         history.avgTemperature = history.temperatures.reduce((a, b) => a + b, 0) / history.temperatures.length;
+        console.log(`[DEBUG] Temperature stats - Min: ${history.minTemperature}, Max: ${history.maxTemperature}, Avg: ${history.avgTemperature}`);
 
         // Update DOM elements
         const avgTempElement = document.getElementById(`avgTemperature-${sessionId}`);
         if (avgTempElement) {
             avgTempElement.textContent = history.avgTemperature.toFixed(1);
             avgTempElement.style.color = getTemperatureColor(history.avgTemperature);
+            console.log(`[DEBUG] Updated avgTemperature DOM element to ${history.avgTemperature.toFixed(1)}`);
+        } else {
+            console.log(`[DEBUG] avgTemperature DOM element not found for session ${sessionId}`);
         }
 
         const maxTempElement = document.getElementById(`maxTemperature-${sessionId}`);
@@ -2026,30 +2049,37 @@ function updateSpeedDisplay(sessionId, speed, data) {
             minTempElement.textContent = history.minTemperature.toFixed(1);
             minTempElement.style.color = getTemperatureColor(history.minTemperature);
         }
+    } else {
+        console.log(`[DEBUG] No temperature data in message for session ${sessionId}. temperature: ${temperature}`);
     }
 
     // Update barometer statistics (pressure)
-    if (data.pressure !== undefined && data.pressure !== null && data.pressure !== 0) {
-        history.pressures.push(data.pressure);
+    if (pressure !== undefined && pressure !== null && pressure !== 0) {
+        console.log(`[DEBUG] Pressure data received: ${pressure} hPa for session ${sessionId}`);
+        history.pressures.push(pressure);
 
         // Update min pressure
-        if (history.minPressure === null || data.pressure < history.minPressure) {
-            history.minPressure = data.pressure;
+        if (history.minPressure === null || pressure < history.minPressure) {
+            history.minPressure = pressure;
         }
 
         // Update max pressure
-        if (history.maxPressure === null || data.pressure > history.maxPressure) {
-            history.maxPressure = data.pressure;
+        if (history.maxPressure === null || pressure > history.maxPressure) {
+            history.maxPressure = pressure;
         }
 
         // Calculate average pressure
         history.avgPressure = history.pressures.reduce((a, b) => a + b, 0) / history.pressures.length;
+        console.log(`[DEBUG] Pressure stats - Min: ${history.minPressure}, Max: ${history.maxPressure}, Avg: ${history.avgPressure}`);
 
         // Update DOM elements
         const avgPressureElement = document.getElementById(`avgPressure-${sessionId}`);
         if (avgPressureElement) {
             avgPressureElement.textContent = history.avgPressure.toFixed(1);
             avgPressureElement.style.color = getPressureColor(history.avgPressure);
+            console.log(`[DEBUG] Updated avgPressure DOM element to ${history.avgPressure.toFixed(1)}`);
+        } else {
+            console.log(`[DEBUG] avgPressure DOM element not found for session ${sessionId}`);
         }
 
         const maxPressureElement = document.getElementById(`maxPressure-${sessionId}`);
@@ -2063,6 +2093,8 @@ function updateSpeedDisplay(sessionId, speed, data) {
             minPressureElement.textContent = history.minPressure.toFixed(1);
             minPressureElement.style.color = getPressureColor(history.minPressure);
         }
+    } else {
+        console.log(`[DEBUG] No pressure data in message for session ${sessionId}. pressure: ${pressure}`);
     }
 
     cleanupOldSessions();
@@ -2754,7 +2786,7 @@ function exportDebugLog() {
 }
 
 function logWeatherData(data) {
-    if (data.temperature !== undefined && data.temperature > 0) {
+    if (data.temperature !== undefined && data.temperature !== null) {
         const weatherDesc = getWeatherDescription(data.weatherCode || 0);
         const windDir = getWindDirectionText(data.windDirection || 0);
 
@@ -2787,7 +2819,7 @@ function validateWeatherData(point) {
 }
 
 function updateWeatherStats(point) {
-    if (point.temperature !== undefined && point.temperature > 0) {
+    if (point.temperature !== undefined && point.temperature !== null) {
         weatherStats.totalUpdates++;
         weatherStats.lastTemperature = point.temperature;
         weatherStats.lastUpdate = new Date();
