@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.16")} (30-12-2025: negative temperature was not saved to database, fixed)"
+        versionName = "${getNextVersion("6.17")} (30-12-2025: weather data (temperature), barometer data (pressure), and altitude is shown)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

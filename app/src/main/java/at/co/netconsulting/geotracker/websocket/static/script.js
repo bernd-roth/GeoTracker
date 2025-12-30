@@ -1685,6 +1685,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
             maxSpeed: 0,
             avgSpeed: 0,
             movingAvg: 0,
+            currentAltitude: 0,
             elevationGain: 0,
             heartRate: 0,
             slope: 0,
@@ -1693,7 +1694,17 @@ function updateSpeedDisplay(sessionId, speed, data) {
             maxDownhillSlope: 0,
             totalDistance: 0,
             lastUpdate: new Date(),
-            personName: personName
+            personName: personName,
+            // Weather tracking
+            temperatures: [],
+            minTemperature: null,
+            maxTemperature: null,
+            avgTemperature: null,
+            // Barometer tracking
+            pressures: [],
+            minPressure: null,
+            maxPressure: null,
+            avgPressure: null
         };
     } else if (personName && !speedHistory[sessionId].personName) {
         speedHistory[sessionId].personName = personName;
@@ -1710,6 +1721,10 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         if (data.cumulativeElevationGain !== undefined) {
             history.elevationGain = data.cumulativeElevationGain;
+        }
+
+        if (data.altitude !== undefined) {
+            history.currentAltitude = data.altitude;
         }
 
         if (data.heartRate !== undefined) {
@@ -1734,6 +1749,30 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         if (data.distance !== undefined) {
             history.totalDistance = data.distance;
+        }
+
+        // Track weather data even when stats are hidden
+        if (data.temperature !== undefined && data.temperature !== null) {
+            history.temperatures.push(data.temperature);
+            if (history.minTemperature === null || data.temperature < history.minTemperature) {
+                history.minTemperature = data.temperature;
+            }
+            if (history.maxTemperature === null || data.temperature > history.maxTemperature) {
+                history.maxTemperature = data.temperature;
+            }
+            history.avgTemperature = history.temperatures.reduce((a, b) => a + b, 0) / history.temperatures.length;
+        }
+
+        // Track barometer data even when stats are hidden
+        if (data.pressure !== undefined && data.pressure !== null && data.pressure !== 0) {
+            history.pressures.push(data.pressure);
+            if (history.minPressure === null || data.pressure < history.minPressure) {
+                history.minPressure = data.pressure;
+            }
+            if (history.maxPressure === null || data.pressure > history.maxPressure) {
+                history.maxPressure = data.pressure;
+            }
+            history.avgPressure = history.pressures.reduce((a, b) => a + b, 0) / history.pressures.length;
         }
 
         cleanupOldSessions();
@@ -1790,6 +1829,11 @@ function updateSpeedDisplay(sessionId, speed, data) {
                 <div class="speed-unit">km/h</div>
             </div>
             <div class="stat-box">
+                <div class="elevation-label">Current Altitude</div>
+                <div class="elevation-value" id="currentAltitude-${sessionId}">0.0</div>
+                <div class="elevation-unit">m</div>
+            </div>
+            <div class="stat-box">
                 <div class="elevation-label">Elevation Gain</div>
                 <div class="elevation-value" id="elevationGain-${sessionId}">0.0</div>
                 <div class="elevation-unit">m</div>
@@ -1824,6 +1868,36 @@ function updateSpeedDisplay(sessionId, speed, data) {
                 <div class="elevation-value" id="maxDownhillSlope-${sessionId}">0.0</div>
                 <div class="elevation-unit">%</div>
             </div>
+            <div class="stat-box">
+                <div class="speed-label">Temp Avg</div>
+                <div class="speed-value" id="avgTemperature-${sessionId}">--</div>
+                <div class="speed-unit">°C</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Temp Max</div>
+                <div class="speed-value" id="maxTemperature-${sessionId}">--</div>
+                <div class="speed-unit">°C</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Temp Min</div>
+                <div class="speed-value" id="minTemperature-${sessionId}">--</div>
+                <div class="speed-unit">°C</div>
+            </div>
+            <div class="stat-box">
+                <div class="elevation-label">Pressure Avg</div>
+                <div class="elevation-value" id="avgPressure-${sessionId}">--</div>
+                <div class="elevation-unit">hPa</div>
+            </div>
+            <div class="stat-box">
+                <div class="elevation-label">Pressure Max</div>
+                <div class="elevation-value" id="maxPressure-${sessionId}">--</div>
+                <div class="elevation-unit">hPa</div>
+            </div>
+            <div class="stat-box">
+                <div class="elevation-label">Pressure Min</div>
+                <div class="elevation-value" id="minPressure-${sessionId}">--</div>
+                <div class="elevation-unit">hPa</div>
+            </div>
         `;
 
         speedDisplay.scrollTop = speedDisplay.scrollHeight;
@@ -1857,6 +1931,13 @@ function updateSpeedDisplay(sessionId, speed, data) {
     if (movingAvgElement && data.movingAverageSpeed !== undefined) {
         movingAvgElement.textContent = data.movingAverageSpeed.toFixed(1);
         movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
+    }
+
+    const currentAltitudeElement = document.getElementById(`currentAltitude-${sessionId}`);
+    if (currentAltitudeElement && data.altitude !== undefined) {
+        history.currentAltitude = data.altitude;
+        currentAltitudeElement.textContent = history.currentAltitude.toFixed(1);
+        currentAltitudeElement.style.color = getElevationColor(history.currentAltitude);
     }
 
     const elevationGainElement = document.getElementById(`elevationGain-${sessionId}`);
@@ -1909,6 +1990,81 @@ function updateSpeedDisplay(sessionId, speed, data) {
         maxDownhillSlopeElement.style.color = getSlopeColor(-history.maxDownhillSlope);
     }
 
+    // Update weather statistics (temperature)
+    // Note: We allow 0 and negative temperatures as they are valid values
+    if (data.temperature !== undefined && data.temperature !== null) {
+        history.temperatures.push(data.temperature);
+
+        // Update min temperature
+        if (history.minTemperature === null || data.temperature < history.minTemperature) {
+            history.minTemperature = data.temperature;
+        }
+
+        // Update max temperature
+        if (history.maxTemperature === null || data.temperature > history.maxTemperature) {
+            history.maxTemperature = data.temperature;
+        }
+
+        // Calculate average temperature
+        history.avgTemperature = history.temperatures.reduce((a, b) => a + b, 0) / history.temperatures.length;
+
+        // Update DOM elements
+        const avgTempElement = document.getElementById(`avgTemperature-${sessionId}`);
+        if (avgTempElement) {
+            avgTempElement.textContent = history.avgTemperature.toFixed(1);
+            avgTempElement.style.color = getTemperatureColor(history.avgTemperature);
+        }
+
+        const maxTempElement = document.getElementById(`maxTemperature-${sessionId}`);
+        if (maxTempElement) {
+            maxTempElement.textContent = history.maxTemperature.toFixed(1);
+            maxTempElement.style.color = getTemperatureColor(history.maxTemperature);
+        }
+
+        const minTempElement = document.getElementById(`minTemperature-${sessionId}`);
+        if (minTempElement) {
+            minTempElement.textContent = history.minTemperature.toFixed(1);
+            minTempElement.style.color = getTemperatureColor(history.minTemperature);
+        }
+    }
+
+    // Update barometer statistics (pressure)
+    if (data.pressure !== undefined && data.pressure !== null && data.pressure !== 0) {
+        history.pressures.push(data.pressure);
+
+        // Update min pressure
+        if (history.minPressure === null || data.pressure < history.minPressure) {
+            history.minPressure = data.pressure;
+        }
+
+        // Update max pressure
+        if (history.maxPressure === null || data.pressure > history.maxPressure) {
+            history.maxPressure = data.pressure;
+        }
+
+        // Calculate average pressure
+        history.avgPressure = history.pressures.reduce((a, b) => a + b, 0) / history.pressures.length;
+
+        // Update DOM elements
+        const avgPressureElement = document.getElementById(`avgPressure-${sessionId}`);
+        if (avgPressureElement) {
+            avgPressureElement.textContent = history.avgPressure.toFixed(1);
+            avgPressureElement.style.color = getPressureColor(history.avgPressure);
+        }
+
+        const maxPressureElement = document.getElementById(`maxPressure-${sessionId}`);
+        if (maxPressureElement) {
+            maxPressureElement.textContent = history.maxPressure.toFixed(1);
+            maxPressureElement.style.color = getPressureColor(history.maxPressure);
+        }
+
+        const minPressureElement = document.getElementById(`minPressure-${sessionId}`);
+        if (minPressureElement) {
+            minPressureElement.textContent = history.minPressure.toFixed(1);
+            minPressureElement.style.color = getPressureColor(history.minPressure);
+        }
+    }
+
     cleanupOldSessions();
 }
 
@@ -1916,6 +2072,22 @@ function getDistanceColor(distance) {
     if (distance < 1) return '#2196F3';
     if (distance < 5) return '#4CAF50';
     return '#FF9800';
+}
+
+function getTemperatureColor(temperature) {
+    if (temperature < 0) return '#2196F3';    // Freezing - blue
+    if (temperature < 10) return '#00BCD4';   // Cold - cyan
+    if (temperature < 20) return '#4CAF50';   // Cool - green
+    if (temperature < 25) return '#FF9800';   // Warm - orange
+    return '#FF5722';                         // Hot - deep orange
+}
+
+function getPressureColor(pressure) {
+    if (pressure < 980) return '#F44336';     // Very low pressure - red
+    if (pressure < 1000) return '#FF9800';    // Low pressure - orange
+    if (pressure < 1020) return '#4CAF50';    // Normal pressure - green
+    if (pressure < 1030) return '#2196F3';    // High pressure - blue
+    return '#9C27B0';                         // Very high pressure - purple
 }
 
 function cleanupOldSessions() {
