@@ -1146,14 +1146,14 @@ function handleHistoryBatch(points) {
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
             personName: personName,
 
-            temperature: parseFloat(point.temperature || 0),
+            temperature: point.temperature !== undefined && point.temperature !== null ? parseFloat(point.temperature) : null,
             windSpeed: parseFloat(point.windSpeed || 0),
             windDirection: parseFloat(point.windDirection || 0),
             relativeHumidity: parseInt(point.relativeHumidity || point.humidity || 0),
             weatherCode: parseInt(point.weatherCode || 0),
             weatherTime: point.weatherTime || "",
 
-            pressure: parseFloat(point.pressure || 0),
+            pressure: point.pressure !== undefined && point.pressure !== null ? parseFloat(point.pressure) : null,
             altitudeFromPressure: parseFloat(point.altitudeFromPressure || 0),
             seaLevelPressure: parseFloat(point.seaLevelPressure || 0),
             pressureAccuracy: parseInt(point.pressureAccuracy || 0)
@@ -1169,6 +1169,63 @@ function handleHistoryBatch(points) {
 
         validateWeatherData(processedPoint);
         updateWeatherStats(processedPoint);
+
+        // Update per-session temperature and pressure statistics during batch processing
+        if (!speedHistory[sessionId]) {
+            speedHistory[sessionId] = {
+                speeds: [],
+                maxSpeed: 0,
+                avgSpeed: 0,
+                movingAvg: 0,
+                currentAltitude: 0,
+                elevationGain: 0,
+                heartRate: 0,
+                slope: 0,
+                averageSlope: 0,
+                maxUphillSlope: 0,
+                maxDownhillSlope: 0,
+                totalDistance: 0,
+                lastUpdate: new Date(),
+                personName: personName,
+                // Weather tracking
+                temperatures: [],
+                minTemperature: null,
+                maxTemperature: null,
+                avgTemperature: null,
+                // Barometer tracking
+                pressures: [],
+                minPressure: null,
+                maxPressure: null,
+                avgPressure: null
+            };
+        }
+
+        const history = speedHistory[sessionId];
+
+        // Update temperature statistics
+        // Note: We allow 0 and negative temperatures as they are valid values
+        if (processedPoint.temperature !== undefined && processedPoint.temperature !== null) {
+            history.temperatures.push(processedPoint.temperature);
+            if (history.minTemperature === null || processedPoint.temperature < history.minTemperature) {
+                history.minTemperature = processedPoint.temperature;
+            }
+            if (history.maxTemperature === null || processedPoint.temperature > history.maxTemperature) {
+                history.maxTemperature = processedPoint.temperature;
+            }
+            history.avgTemperature = history.temperatures.reduce((a, b) => a + b, 0) / history.temperatures.length;
+        }
+
+        // Update pressure statistics
+        if (processedPoint.pressure !== undefined && processedPoint.pressure !== null) {
+            history.pressures.push(processedPoint.pressure);
+            if (history.minPressure === null || processedPoint.pressure < history.minPressure) {
+                history.minPressure = processedPoint.pressure;
+            }
+            if (history.maxPressure === null || processedPoint.pressure > history.maxPressure) {
+                history.maxPressure = processedPoint.pressure;
+            }
+            history.avgPressure = history.pressures.reduce((a, b) => a + b, 0) / history.pressures.length;
+        }
 
         trackPoints[sessionId].push(processedPoint);
     });
