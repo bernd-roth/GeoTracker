@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.18")} (01-01-2026: show all recorded/imported events)"
+        versionName = "${getNextVersion("6.19")} (01-01-2026: overlapping yearly stats and events fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

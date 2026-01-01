@@ -401,251 +401,261 @@ fun EventsScreen(
             }
         }
     ) { paddingValues ->
-        Column(
+        LazyColumn(
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues),
+            contentPadding = PaddingValues(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Events",
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            // Header with Events title and buttons
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Events",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold
+                    )
 
-                Row {
-                    // Detailed Statistics button
-                    TextButton(
-                        onClick = {
-                            val intent = Intent(context, YearlyStatisticsActivity::class.java)
-                            context.startActivity(intent)
-                        },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.secondary
-                        )
-                    ) {
-                        Text("Detailed Stats")
-                        Icon(
-                            imageVector = Icons.Default.TrendingUp,
-                            contentDescription = "Detailed Statistics",
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
-                    }
+                    Row {
+                        // Detailed Statistics button
+                        TextButton(
+                            onClick = {
+                                val intent = Intent(context, YearlyStatisticsActivity::class.java)
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.secondary
+                            )
+                        ) {
+                            Text("Detailed Stats")
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "Detailed Statistics",
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
 
-                    // Toggle button for quick stats
-                    TextButton(
-                        onClick = { showYearlyStats = !showYearlyStats },
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
-                        Icon(
-                            imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = "Toggle stats",
-                            modifier = Modifier.padding(start = 4.dp)
-                        )
+                        // Toggle button for quick stats
+                        TextButton(
+                            onClick = { showYearlyStats = !showYearlyStats },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
+                            Icon(
+                                imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Toggle stats",
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
                     }
                 }
             }
 
             // Search bar
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { eventsViewModel.setSearchQuery(it) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                placeholder = { Text("Search events...") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { eventsViewModel.setSearchQuery("") }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear search")
-                        }
-                    }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(8.dp)
-            )
-
-            // Add the Yearly Stats Overview between search and event list with animation
-            // Pass the refresh trigger to force recomposition when an event is deleted
-            AnimatedVisibility(
-                visible = showYearlyStats,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                YearlyStatsOverview(
-                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
-                    eventsViewModel = eventsViewModel,
-                    onWeekSelected = { year, week ->
-                        // Filter events for the selected week
-                        coroutineScope.launch {
-                            // Calculate date range for the selected week
-                            val calendar = Calendar.getInstance().apply {
-                                firstDayOfWeek = Calendar.MONDAY
-                                minimalDaysInFirstWeek = 4
-                                set(Calendar.YEAR, year)
-                                set(Calendar.WEEK_OF_YEAR, week)
-                                set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+            item {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { eventsViewModel.setSearchQuery(it) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    placeholder = { Text("Search events...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { eventsViewModel.setSearchQuery("") }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
                             }
-
-                            // Format start date (Monday)
-                            val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                    String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                    String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                            // Move to end of week (Sunday)
-                            calendar.add(Calendar.DAY_OF_MONTH, 6)
-
-                            // Format end date (Sunday)
-                            val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                    String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                    String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                            Log.d("EventsScreen", "Week selected: Year=$year, Week=$week, " +
-                                    "DateRange: $startDateStr to $endDateStr")
-
-                            // Set filter in the ViewModel
-                            eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
-
-                            // Mark filter as active
-                            isDateFilterActive = true
                         }
-                    }
+                    },
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp)
                 )
             }
 
+            // Yearly Stats Overview (conditionally shown)
+            if (showYearlyStats) {
+                item {
+                    YearlyStatsOverview(
+                        modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
+                        eventsViewModel = eventsViewModel,
+                        onWeekSelected = { year, week ->
+                            // Filter events for the selected week
+                            coroutineScope.launch {
+                                // Calculate date range for the selected week
+                                val calendar = Calendar.getInstance().apply {
+                                    firstDayOfWeek = Calendar.MONDAY
+                                    minimalDaysInFirstWeek = 4
+                                    set(Calendar.YEAR, year)
+                                    set(Calendar.WEEK_OF_YEAR, week)
+                                    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                                }
+
+                                // Format start date (Monday)
+                                val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                                // Move to end of week (Sunday)
+                                calendar.add(Calendar.DAY_OF_MONTH, 6)
+
+                                // Format end date (Sunday)
+                                val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                                Log.d("EventsScreen", "Week selected: Year=$year, Week=$week, " +
+                                        "DateRange: $startDateStr to $endDateStr")
+
+                                // Set filter in the ViewModel
+                                eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
+
+                                // Mark filter as active
+                                isDateFilterActive = true
+                            }
+                        }
+                    )
+                }
+            }
+
             // Show "Clear Filter" button when date filter is active
-            AnimatedVisibility(
-                visible = isDateFilterActive,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer
-                    ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-                ) {
-                    Row(
+            if (isDateFilterActive) {
+                item {
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Filter Active",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Showing filtered events by week",
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Filter Active",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Showing filtered events by week",
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
 
-                        Button(
-                            onClick = {
-                                coroutineScope.launch {
-                                    // Clear the date filter
-                                    eventsViewModel.filterByDateRange(null, null)
-                                    isDateFilterActive = false
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
-                            modifier = Modifier.height(36.dp)
-                        ) {
-                            Text(
-                                text = "Show All Events",
-                                fontSize = 12.sp
-                            )
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        // Clear the date filter
+                                        eventsViewModel.filterByDateRange(null, null)
+                                        isDateFilterActive = false
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = MaterialTheme.colorScheme.onPrimary
+                                ),
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Text(
+                                    text = "Show All Events",
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
                 }
             }
 
+            // Loading state
             if (events.isEmpty() && isLoading) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            } else if (events.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(32.dp)
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(400.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = if (searchQuery.isEmpty()) "No activities found" else "No events match your search",
-                            fontSize = 18.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-                        
-                        if (searchQuery.isEmpty()) {
-                            // Show different messages based on whether this might be after a database upgrade
+                        CircularProgressIndicator()
+                    }
+                }
+            }
+            // Empty state
+            else if (events.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(400.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(32.dp)
+                        ) {
                             Text(
-                                text = "This could be because:",
-                                fontSize = 14.sp,
-                                color = Color.Gray,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                            
-                            Text(
-                                text = "• No activities have been recorded yet\n" +
-                                      "• Database upgrade may have affected data\n" +
-                                      "• Try importing a GPX file to get started",
-                                fontSize = 14.sp,
+                                text = if (searchQuery.isEmpty()) "No activities found" else "No events match your search",
+                                fontSize = 18.sp,
                                 color = Color.Gray,
                                 modifier = Modifier.padding(bottom = 16.dp)
                             )
-                            
-                            Text(
-                                text = "Tip: Use the '+' button to import a GPX file",
-                                fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontStyle = FontStyle.Italic
-                            )
+
+                            if (searchQuery.isEmpty()) {
+                                // Show different messages based on whether this might be after a database upgrade
+                                Text(
+                                    text = "This could be because:",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+
+                                Text(
+                                    text = "• No activities have been recorded yet\n" +
+                                          "• Database upgrade may have affected data\n" +
+                                          "• Try importing a GPX file to get started",
+                                    fontSize = 14.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(bottom = 16.dp)
+                                )
+
+                                Text(
+                                    text = "Tip: Use the '+' button to import a GPX file",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontStyle = FontStyle.Italic
+                                )
+                            }
                         }
                     }
                 }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(events) { eventWithDetails ->
+            }
+            // Event items
+            else {
+                items(events) { eventWithDetails ->
                         // Double-check recording status from both values to be extra safe
                         val isRecordingThisEvent = eventWithDetails.event.eventId == activeEventId &&
                                 (isRecording || context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
@@ -745,19 +755,18 @@ fun EventsScreen(
                             database = FitnessTrackerDatabase.getInstance(context)
                         )
                     }
+                }
 
-                    // Show loading indicator at bottom when loading more
-                    if (isLoading && events.isNotEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
-                            }
-                        }
+            // Show loading indicator at bottom when loading more
+            if (isLoading && events.isNotEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
                     }
                 }
             }

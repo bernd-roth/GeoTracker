@@ -277,17 +277,15 @@ fun WeeklyBreakdown(
                     color = Color.Gray
                 )
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 250.dp)
+                Column(
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     // Sort weeks in descending order
                     val sortedWeeks = weeklyStats.keys
                         .sortedWith(compareByDescending<Pair<Int, Int>> { it.first }
                             .thenByDescending { it.second })
 
-                    items(sortedWeeks) { (_, week) ->
+                    sortedWeeks.forEach { (_, week) ->
                         // Set calendar to the week in question
                         calendar.set(Calendar.WEEK_OF_YEAR, week)
                         calendar.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY) // Start of week
