@@ -130,8 +130,19 @@ class EventsViewModel(
         startDateFilter = startDate
         endDateFilter = endDate
         currentPage = 0
+
         viewModelScope.launch {
-            updateFilteredEvents()
+            if (startDate != null && endDate != null) {
+                // When filtering by date range, load all events to ensure we don't miss any
+                Log.d("EventsViewModel", "Loading all events for date range filter: $startDate to $endDate")
+                loadEventsWithCustomPageSize(maxPageSize)
+            } else {
+                // Clear filter - return to normal pagination
+                Log.d("EventsViewModel", "Clearing date filter, returning to normal pagination")
+                isSearchMode = false
+                currentPageSize = normalPageSize
+                loadEvents()
+            }
         }
     }
 
@@ -168,7 +179,9 @@ class EventsViewModel(
             val endDate = sdf.parse(endDateStr)
 
             if (date != null && startDate != null && endDate != null) {
-                return !date.before(startDate) && !date.after(endDate)
+                val inRange = !date.before(startDate) && !date.after(endDate)
+                Log.d("EventsViewModel", "Date check: $dateStr in range [$startDateStr, $endDateStr] = $inRange")
+                return inRange
             }
         } catch (e: Exception) {
             Log.e("EventsViewModel", "Error parsing dates: ${e.message}")

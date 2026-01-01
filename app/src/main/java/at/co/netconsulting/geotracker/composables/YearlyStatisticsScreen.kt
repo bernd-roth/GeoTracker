@@ -837,14 +837,6 @@ private suspend fun getMaxDistancesForEvents(database: FitnessTrackerDatabase, e
     }
 }
 
-private suspend fun MetricDao.getMetricsByEventId(eventId: Int): List<Metric> {
-    return getMetricsForEvent(eventId)
-}
-
-private suspend fun MetricDao.getMetricsForEvent(eventId: Int): List<Metric> {
-    return emptyList()
-}
-
 private suspend fun calculateHeartRateStats(year: Int, events: List<EventWithTotalDistance>, database: FitnessTrackerDatabase): HeartRateYearlyStats? {
     return withContext(Dispatchers.IO) {
         try {

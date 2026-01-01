@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("6.17")} (30-12-2025: weather data (temperature), barometer data (pressure), and altitude is shown)"
+        versionName = "${getNextVersion("6.18")} (01-01-2026: show all recorded/imported events)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

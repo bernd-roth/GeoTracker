@@ -510,6 +510,9 @@ fun EventsScreen(
                                     String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
                                     String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
 
+                            Log.d("EventsScreen", "Week selected: Year=$year, Week=$week, " +
+                                    "DateRange: $startDateStr to $endDateStr")
+
                             // Set filter in the ViewModel
                             eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
 

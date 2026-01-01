@@ -95,6 +95,8 @@ fun YearlyStatsOverview(
                         }
 
                         val week = calendar.get(Calendar.WEEK_OF_YEAR)
+                        Log.d("YearlyStatsOverview", "Event: ${event.eventName}, Date: ${event.eventDate}, " +
+                                "Week: $week, Distance: ${"%.2f".format(event.totalDistance/1000.0)} km")
                         Pair(year, week)
                     }
                     .mapValues { (_, eventsInWeek) ->
@@ -408,12 +410,4 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
         }
         result
     }
-}
-
-private suspend fun MetricDao.getMetricsByEventId(eventId: Int): List<Metric> {
-    return getMetricsForEvent(eventId)
-}
-
-private suspend fun MetricDao.getMetricsForEvent(eventId: Int): List<Metric> {
-    return emptyList() // Default implementation
 }
