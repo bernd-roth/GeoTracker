@@ -781,6 +781,196 @@ class TrackingServer:
             logging.error(f"Data that failed to save: {json.dumps(message_data, indent=2)}")
             return False
 
+    async def bulk_upload_tracking_points(self, session_id: str, points: List[Dict[str, Any]], allow_append: bool = False) -> Dict[str, Any]:
+        """
+        Bulk upload tracking points for a locally recorded session.
+
+        Args:
+            session_id: The session identifier
+            points: List of tracking point dictionaries
+            allow_append: If True, append points to existing session (for batched uploads)
+
+        Returns:
+            Dict with success status, points_inserted count, and any errors
+        """
+        if not self.db_pool:
+            return {
+                'success': False,
+                'error': 'Database not available'
+            }
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                async with conn.transaction():
+                    # Check if session already exists in database
+                    existing_session = await conn.fetchrow("""
+                        SELECT session_id, start_date_time
+                        FROM tracking_sessions
+                        WHERE session_id = $1
+                    """, session_id)
+
+                    if existing_session:
+                        # Session already exists - check if we should skip upload
+                        if not allow_append:
+                            # First batch - check if session already has points
+                            point_count = await conn.fetchval("""
+                                SELECT COUNT(*) FROM gps_tracking_points
+                                WHERE session_id = $1
+                            """, session_id)
+
+                            if point_count > 0:
+                                logging.warning(f"Session {session_id} already has {point_count} points in database")
+                                return {
+                                    'success': False,
+                                    'error': f'Session already exists with {point_count} points. Delete existing session first to re-upload.',
+                                    'points_skipped': len(points)
+                                }
+                        else:
+                            # Subsequent batch - appending is allowed
+                            logging.info(f"Appending {len(points)} points to existing session {session_id}")
+
+                    # Process first point to get user and session info
+                    if len(points) == 0:
+                        return {
+                            'success': False,
+                            'error': 'No points provided'
+                        }
+
+                    first_point = points[0]
+                    logging.info(f"First point type: {type(first_point)}, keys: {first_point.keys() if isinstance(first_point, dict) else 'not a dict'}")
+
+                    # Get or create user - extract fields from first_point
+                    user_id = await self.get_or_create_user(
+                        conn,
+                        firstname=first_point.get('firstname') or first_point.get('person', 'Unknown'),
+                        lastname=first_point.get('lastname', ''),
+                        birthdate=first_point.get('birthdate', '')
+                    )
+
+                    # Get or create session
+                    await self.get_or_create_session(conn, session_id, user_id, first_point)
+
+                    # Get or create heart rate device if present
+                    heart_rate_device_id = None
+                    if first_point.get('heartRateDevice'):
+                        heart_rate_device_id = await self.get_or_create_heart_rate_device(
+                            conn, first_point.get('heartRateDevice')
+                        )
+
+                    # Prepare bulk insert data
+                    insert_values = []
+                    points_inserted = 0
+                    points_skipped = 0
+
+                    for point in points:
+                        # Validate coordinates
+                        lat = float(point.get('latitude', -999))
+                        lng = float(point.get('longitude', -999))
+
+                        # Skip invalid coordinates
+                        if lat == -999.0 or lng == -999.0 or lat == 0.0 or lng == 0.0:
+                            points_skipped += 1
+                            continue
+
+                        # Extract all fields for insert
+                        values = (
+                            session_id,
+                            lat,
+                            lng,
+                            float(point.get('altitude', 0)),
+                            float(point.get('accuracy', 0)),
+                            float(point.get('verticalAccuracyMeters', 0)),
+                            int(point.get('numberOfSatellites', 0)),
+                            int(point.get('usedNumberOfSatellites', 0)),
+                            float(point.get('currentSpeed', 0)),
+                            float(point.get('averageSpeed', 0)),
+                            float(point.get('maxSpeed', 0)),
+                            float(point.get('movingAverageSpeed', 0)),
+                            float(point.get('speed', 0)),
+                            float(point.get('speedAccuracyMetersPerSecond', 0)),
+                            float(point.get('distance', 0)),
+                            float(point.get('coveredDistance', 0)),
+                            float(point.get('cumulativeElevationGain', 0)),
+                            int(point.get('heartRate', 0)) if point.get('heartRate') else None,
+                            heart_rate_device_id,
+                            int(point.get('lap', 0)),
+                            float(point.get('temperature', 0)) if point.get('temperature') else None,
+                            float(point.get('windSpeed', 0)) if point.get('windSpeed') else None,
+                            float(point.get('windDirection', 0)) if point.get('windDirection') else None,
+                            int(point.get('relativeHumidity', 0)) if point.get('relativeHumidity') else None,
+                            point.get('weatherTimestamp'),
+                            int(point.get('weatherCode', 0)) if point.get('weatherCode') else None,
+                            float(point.get('pressure', 0)) if point.get('pressure') else None,
+                            int(point.get('pressureAccuracy', 0)) if point.get('pressureAccuracy') else None,
+                            float(point.get('altitudeFromPressure', 0)) if point.get('altitudeFromPressure') else None,
+                            float(point.get('seaLevelPressure', 0)) if point.get('seaLevelPressure') else None,
+                            float(point.get('slope', 0)),
+                            float(point.get('averageSlope', 0)),
+                            float(point.get('maxUphillSlope', 0)),
+                            float(point.get('maxDownhillSlope', 0))
+                        )
+
+                        insert_values.append(values)
+                        points_inserted += 1
+
+                    # Bulk insert all points
+                    if insert_values:
+                        logging.info(f"About to insert {len(insert_values)} points. First value type: {type(insert_values[0])}, first element of first value: {type(insert_values[0][0]) if insert_values else 'empty'}")
+                        await conn.executemany("""
+                            INSERT INTO gps_tracking_points (
+                                session_id, latitude, longitude, altitude, horizontal_accuracy,
+                                vertical_accuracy_meters, number_of_satellites, used_number_of_satellites,
+                                current_speed, average_speed, max_speed, moving_average_speed, speed,
+                                speed_accuracy_meters_per_second, distance, covered_distance,
+                                cumulative_elevation_gain, heart_rate, heart_rate_device_id, lap,
+                                temperature, wind_speed, wind_direction, humidity, weather_timestamp, weather_code,
+                                pressure, pressure_accuracy, altitude_from_pressure, sea_level_pressure,
+                                slope, average_slope, max_uphill_slope, max_downhill_slope
+                            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+                                      $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30,
+                                      $31, $32, $33, $34)
+                        """, insert_values)
+
+                        logging.info(f"Bulk inserted {points_inserted} points for session {session_id}")
+
+                    # Process lap times if present in any point
+                    lap_times_processed = 0
+                    for point in points:
+                        if point.get('lapTimes'):
+                            for lap_time in point['lapTimes']:
+                                try:
+                                    await conn.execute("""
+                                        INSERT INTO lap_times (session_id, lap_number, start_time, end_time, distance, duration)
+                                        VALUES ($1, $2, to_timestamp($3/1000.0), to_timestamp($4/1000.0), $5, $6)
+                                        ON CONFLICT (session_id, lap_number)
+                                        DO UPDATE SET
+                                            start_time = EXCLUDED.start_time,
+                                            end_time = EXCLUDED.end_time,
+                                            distance = EXCLUDED.distance,
+                                            duration = EXCLUDED.duration
+                                    """, session_id, lap_time['lapNumber'], lap_time['startTime'],
+                                         lap_time['endTime'], lap_time['distance'], lap_time['duration'])
+                                    lap_times_processed += 1
+                                except Exception as e:
+                                    logging.error(f"Error inserting lap time: {e}")
+
+                    logging.info(f"Processed {lap_times_processed} lap times for session {session_id}")
+
+                    return {
+                        'success': True,
+                        'points_inserted': points_inserted,
+                        'points_skipped': points_skipped,
+                        'lap_times_processed': lap_times_processed,
+                        'message': f'Successfully uploaded {points_inserted} points'
+                    }
+
+        except Exception as e:
+            logging.error(f"Error in bulk upload for session {session_id}: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+
     async def load_tracking_history_from_db(self) -> None:
         """Load recent tracking history from normalized database using configurable retention period."""
         if not self.db_pool:
@@ -1893,8 +2083,8 @@ class TrackingServer:
             self.connected_clients.add(websocket)
             logging.info(f"New client connected from {client_address}")
 
-            # Send historical data
-            await self.send_history(websocket)
+            # Don't send historical data automatically
+            # Client must request it with 'request_history' message
 
             # Handle incoming messages
             async for message in websocket:
@@ -1913,6 +2103,12 @@ class TrackingServer:
                             'message': 'Connection successful',
                             'timestamp': datetime.datetime.now().isoformat()
                         }))
+                        continue
+
+                    # Handle request for historical data
+                    if message_data.get('type') == 'request_history':
+                        logging.info(f"Client requested historical data")
+                        await self.send_history(websocket)
                         continue
 
                     # Handle memory cleanup request
@@ -2120,6 +2316,79 @@ class TrackingServer:
                                 'success': result["success"],
                                 'reason': result.get("reason", "")
                             }))
+                        continue
+
+                    # Handle bulk upload of locally recorded session
+                    if message_data.get('type') == 'upload_session':
+                        session_id = message_data.get('sessionId')
+                        points = message_data.get('points', [])
+                        batch_index = message_data.get('batchIndex', 0)
+                        total_batches = message_data.get('totalBatches', 1)
+
+                        logging.info(f"Received upload_session: sessionId type={type(session_id)}, points type={type(points)}, points length={len(points) if isinstance(points, list) else 'not a list'}")
+                        if points and len(points) > 0:
+                            logging.info(f"First point in points: type={type(points[0])}")
+
+                        if not session_id:
+                            await websocket.send(json.dumps({
+                                'type': 'upload_response',
+                                'success': False,
+                                'error': 'sessionId is required'
+                            }))
+                            continue
+
+                        if not points or len(points) == 0:
+                            await websocket.send(json.dumps({
+                                'type': 'upload_response',
+                                'success': False,
+                                'error': 'No tracking points provided'
+                            }))
+                            continue
+
+                        logging.info(f"Received bulk upload batch {batch_index + 1}/{total_batches} for session {session_id} with {len(points)} points")
+
+                        try:
+                            # For batched uploads, allow appending to existing sessions
+                            is_first_batch = batch_index == 0
+                            result = await self.bulk_upload_tracking_points(session_id, points, allow_append=(not is_first_batch))
+
+                            await websocket.send(json.dumps({
+                                'type': 'upload_response',
+                                'sessionId': session_id,
+                                'success': result['success'],
+                                'pointsInserted': result.get('points_inserted', 0),
+                                'pointsSkipped': result.get('points_skipped', 0),
+                                'message': result.get('message', ''),
+                                'error': result.get('error')
+                            }))
+
+                            if result['success']:
+                                logging.info(f"Successfully uploaded {result.get('points_inserted', 0)} points for session {session_id}")
+
+                                # Add to tracking history for real-time display
+                                if session_id not in self.tracking_history:
+                                    self.tracking_history[session_id] = []
+
+                                # Add points to memory (limited to avoid memory issues)
+                                for point in points[:1000]:  # Limit to first 1000 points in memory
+                                    self.tracking_history[session_id].append(point)
+
+                                # Broadcast new session to connected clients
+                                await self.broadcast_update({
+                                    'type': 'session_uploaded',
+                                    'sessionId': session_id
+                                })
+                            else:
+                                logging.error(f"Failed to upload session {session_id}: {result.get('error')}")
+
+                        except Exception as e:
+                            logging.error(f"Error handling bulk upload: {str(e)}")
+                            await websocket.send(json.dumps({
+                                'type': 'upload_response',
+                                'success': False,
+                                'error': f'Server error: {str(e)}'
+                            }))
+
                         continue
 
                     # Handle session status request

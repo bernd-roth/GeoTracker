@@ -25,7 +25,7 @@ import android.util.Log
         Network::class,
         Waypoint::class
     ],
-    version = 17, // ✅ INCREMENTED FROM 16 TO 17
+    version = 18, // ✅ INCREMENTED FROM 17 TO 18 for upload tracking fields
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -564,6 +564,24 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 17->18 - adding upload tracking fields to events table")
+
+                try {
+                    // Add upload tracking columns to events table
+                    database.execSQL("ALTER TABLE events ADD COLUMN sessionId TEXT")
+                    database.execSQL("ALTER TABLE events ADD COLUMN isUploaded INTEGER NOT NULL DEFAULT 0")
+                    database.execSQL("ALTER TABLE events ADD COLUMN uploadedAt INTEGER")
+
+                    Log.d(TAG, "Migration 17->18 completed - upload tracking fields added to events table")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 17->18", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -588,7 +606,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_13_14,
                             MIGRATION_14_15,
                             MIGRATION_15_16,
-                            MIGRATION_16_17
+                            MIGRATION_16_17,
+                            MIGRATION_17_18
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

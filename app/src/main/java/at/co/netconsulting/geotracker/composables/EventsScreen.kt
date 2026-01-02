@@ -156,6 +156,9 @@ fun EventsScreen(
     var isImporting by remember { mutableStateOf(false) }
     var showImportingDialog by remember { mutableStateOf(false) }
 
+    // State for upload dialog
+    var showUploadDialog by remember { mutableStateOf(false) }
+
 
     // Result launcher for file picking
     val gpxFileLauncher = rememberLauncherForActivityResult(
@@ -387,6 +390,13 @@ fun EventsScreen(
         )
     }
 
+    // Upload dialog
+    if (showUploadDialog) {
+        UploadEventsDialog(
+            onDismiss = { showUploadDialog = false }
+        )
+    }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
@@ -455,6 +465,18 @@ fun EventsScreen(
                                 imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                                 contentDescription = "Toggle stats",
                                 modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+
+                        // Upload events button
+                        IconButton(
+                            onClick = { showUploadDialog = true },
+                            modifier = Modifier.padding(start = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = "Upload Events",
+                                tint = MaterialTheme.colorScheme.tertiary
                             )
                         }
                     }

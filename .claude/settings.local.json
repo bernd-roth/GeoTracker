@@ -15,7 +15,9 @@
       "Bash(git stash pop:*)",
       "Bash(find:*)",
       "Bash(./gradlew.bat compileDebugKotlin:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(python3:*)",
+      "Bash(docker logs:*)"
     ],
     "deny": [],
     "ask": []

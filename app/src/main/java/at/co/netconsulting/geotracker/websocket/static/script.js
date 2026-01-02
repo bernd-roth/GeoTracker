@@ -1001,6 +1001,10 @@ function connectToWebSocket() {
     websocket.onopen = () => {
         console.log('Connected to WebSocket server');
         addDebugMessage('WebSocket connection established', 'connection');
+
+        // Request historical data from server
+        websocket.send(JSON.stringify({ type: 'request_history' }));
+
         requestSessionList();
     };
 

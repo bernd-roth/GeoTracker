@@ -21,5 +21,8 @@ data class Event(
     val eventName: String,
     val eventDate: String, // Store as ISO date (YYYY-MM-DD)
     val artOfSport: String,
-    val comment: String
+    val comment: String,
+    val sessionId: String? = null, // Server session ID for uploaded events
+    val isUploaded: Boolean = false, // Track if event has been uploaded to server
+    val uploadedAt: Long? = null // Timestamp when event was uploaded (epoch millis)
 )

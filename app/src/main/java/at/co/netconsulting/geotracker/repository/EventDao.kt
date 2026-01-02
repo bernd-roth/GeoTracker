@@ -127,4 +127,25 @@ interface EventDao {
     // Delete specific events by their IDs
     @Query("DELETE FROM events WHERE eventId IN (:eventIds)")
     suspend fun deleteEventsByIds(eventIds: List<Int>): Int
+
+    // Upload tracking methods
+    @Query("SELECT * FROM events WHERE isUploaded = 0 ORDER BY eventDate DESC")
+    suspend fun getUnuploadedEvents(): List<Event>
+
+    @Query("""
+        UPDATE events
+        SET sessionId = :sessionId,
+            isUploaded = :isUploaded,
+            uploadedAt = :uploadedAt
+        WHERE eventId = :eventId
+    """)
+    suspend fun updateEventUploadStatus(
+        eventId: Int,
+        sessionId: String?,
+        isUploaded: Boolean,
+        uploadedAt: Long?
+    )
+
+    @Query("SELECT COUNT(*) FROM events WHERE isUploaded = 0")
+    suspend fun getUnuploadedEventCount(): Int
 }
