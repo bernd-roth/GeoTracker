@@ -158,8 +158,9 @@ class SessionUploadService(private val context: Context) {
                     point.addProperty("temperature", metric.temperature ?: 0.0)
                 } else {
                     // Default values if no metric found
-                    // Use current time as timestamp if metric is missing
-                    val timestamp = java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                    // Use event date as base timestamp if metric is missing (not current time!)
+                    val eventDateParsed = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).parse(event.eventDate)
+                    val timestamp = java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss", java.util.Locale.getDefault()).format(eventDateParsed ?: java.util.Date())
                     point.addProperty("timestamp", timestamp)
 
                     point.addProperty("speed", 0.0)
@@ -201,6 +202,10 @@ class SessionUploadService(private val context: Context) {
                 point.addProperty("eventName", event.eventName)
                 point.addProperty("sportType", event.artOfSport)
                 point.addProperty("comment", event.comment)
+
+                // Add event date as startDateTime for proper filtering on server
+                // Convert event.eventDate from "YYYY-MM-DD" to ISO format
+                point.addProperty("startDateTime", "${event.eventDate}T00:00:00")
 
                 points.add(point)
             }

@@ -999,7 +999,7 @@ class TrackingServer:
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
                 JOIN users u ON s.user_id = u.user_id
                 LEFT JOIN heart_rate_devices hrd ON gtp.heart_rate_device_id = hrd.device_id
-                WHERE gtp.received_at >= $1
+                WHERE s.start_date_time >= $1
                 ORDER BY gtp.session_id, gtp.received_at
             """
 
@@ -2365,19 +2365,37 @@ class TrackingServer:
                             if result['success']:
                                 logging.info(f"Successfully uploaded {result.get('points_inserted', 0)} points for session {session_id}")
 
-                                # Add to tracking history for real-time display
-                                if session_id not in self.tracking_history:
-                                    self.tracking_history[session_id] = []
+                                # Add to tracking history ONLY if points are within retention period
+                                cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=self.data_retention_hours)
+                                recent_points = []
 
-                                # Add points to memory (limited to avoid memory issues)
-                                for point in points[:1000]:  # Limit to first 1000 points in memory
-                                    self.tracking_history[session_id].append(point)
+                                for point in points[:1000]:  # Limit to first 1000 points
+                                    try:
+                                        # Parse point timestamp
+                                        point_time = datetime.datetime.strptime(point['timestamp'], self.timestamp_format)
 
-                                # Broadcast new session to connected clients
-                                await self.broadcast_update({
-                                    'type': 'session_uploaded',
-                                    'sessionId': session_id
-                                })
+                                        # Only add if within retention period
+                                        if point_time >= cutoff_time:
+                                            recent_points.append(point)
+                                    except Exception as e:
+                                        logging.warning(f"Error parsing timestamp for uploaded point: {e}")
+                                        # Skip points with invalid timestamps
+                                        continue
+
+                                # Only add to tracking history if there are recent points
+                                if recent_points:
+                                    if session_id not in self.tracking_history:
+                                        self.tracking_history[session_id] = []
+                                    self.tracking_history[session_id].extend(recent_points)
+                                    logging.info(f"Added {len(recent_points)} recent points to tracking history (filtered from {len(points[:1000])} uploaded points)")
+
+                                    # Broadcast new session to connected clients ONLY if recent points were added
+                                    await self.broadcast_update({
+                                        'type': 'session_uploaded',
+                                        'sessionId': session_id
+                                    })
+                                else:
+                                    logging.info(f"No recent points to add to tracking history for session {session_id} (all points are older than {self.data_retention_hours} hours)")
                             else:
                                 logging.error(f"Failed to upload session {session_id}: {result.get('error')}")
 
