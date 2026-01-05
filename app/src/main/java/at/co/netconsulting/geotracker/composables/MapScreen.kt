@@ -64,12 +64,16 @@ import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.data.RouteDisplayData
+import at.co.netconsulting.geotracker.data.RouteWeatherData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.location.CurrentLocationInfoOverlay
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
 import at.co.netconsulting.geotracker.location.WaypointOverlay
+import at.co.netconsulting.geotracker.location.WeatherOverlay
+import at.co.netconsulting.geotracker.location.WeatherIconsOverlay
+import org.osmdroid.views.overlay.Marker
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.FollowingService
 import at.co.netconsulting.geotracker.service.ForegroundService
@@ -236,6 +240,11 @@ fun MapScreen(
 
     // Add reference to hold the GPX Waypoint Overlay (for imported GPX waypoints)
     val gpxWaypointOverlayRef = remember { mutableStateOf<WaypointOverlay?>(null) }
+
+    // Weather overlay references
+    val weatherPolylineOverlays = remember { mutableStateOf<List<Polyline>?>(null) }
+    val weatherIconMarkers = remember { mutableStateOf<List<Marker>?>(null) }
+    var showWeatherLegend by remember { mutableStateOf(false) }
 
     // New state for route display
     var displayedRoute by remember { mutableStateOf<RouteDisplayData?>(null) }
@@ -639,6 +648,54 @@ fun MapScreen(
                 Timber.d("Loading persisted track on initialization: ${persistedTrack.filename}")
                 delay(200)
                 displayTrackOnMap(persistedTrack)
+            }
+        }
+    }
+
+    // Load and display weather overlay when map is initialized
+    LaunchedEffect(isMapInitialized) {
+        if (isMapInitialized) {
+            delay(300) // Small delay to ensure map is ready
+            val weatherData = GpxPersistenceUtil.loadWeatherOverlay(context)
+            if (weatherData != null) {
+                try {
+                    mapViewRef.value?.let { mapView ->
+                        Timber.d("Loading weather overlay with ${weatherData.weatherForecasts.size} forecasts")
+
+                        // Remove existing weather overlays
+                        weatherPolylineOverlays.value?.forEach { mapView.overlays.remove(it) }
+                        weatherIconMarkers.value?.forEach { mapView.overlays.remove(it) }
+
+                        // Create temperature heatmap overlay
+                        val tempOverlay = WeatherOverlay(weatherData)
+                        val polylines = tempOverlay.createTemperatureOverlay(mapView)
+
+                        // Add polylines at the beginning (so they're below other overlays)
+                        polylines.forEach { polyline ->
+                            mapView.overlays.add(0, polyline)
+                        }
+                        weatherPolylineOverlays.value = polylines
+                        Timber.d("Added ${polylines.size} temperature polyline segments")
+
+                        // Create weather condition icon markers
+                        val iconsOverlay = WeatherIconsOverlay(context, weatherData)
+                        val markers = iconsOverlay.createWeatherMarkers(mapView)
+
+                        // Add markers to map
+                        markers.forEach { marker ->
+                            mapView.overlays.add(marker)
+                        }
+                        weatherIconMarkers.value = markers
+                        Timber.d("Added ${markers.size} weather condition markers")
+
+                        showWeatherLegend = markers.isNotEmpty() || polylines.isNotEmpty()
+                        mapView.invalidate()
+
+                        Timber.d("Weather overlay loaded successfully")
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "Error loading weather overlay")
+                }
             }
         }
     }

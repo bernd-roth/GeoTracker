@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.DirectionsBike
@@ -58,6 +59,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,9 +68,13 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -86,6 +92,8 @@ import at.co.netconsulting.geotracker.data.GpxImportProgress
 import at.co.netconsulting.geotracker.data.GpxWaypoint
 import at.co.netconsulting.geotracker.data.HeartRateSensorDevice
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
+import at.co.netconsulting.geotracker.data.RouteWeatherData
+import at.co.netconsulting.geotracker.service.WeatherForecastService
 import at.co.netconsulting.geotracker.enums.GpsFixStatus
 import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
 import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
@@ -98,10 +106,10 @@ import org.osmdroid.util.GeoPoint
 import org.xmlpull.v1.XmlPullParser
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.BufferedInputStream
-import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import java.io.InputStream
 
 private suspend fun parseGpxFileStreamingWithSpeed(
     inputStream: InputStream,
@@ -356,6 +364,18 @@ fun RecordingDialog(
 
     // GPX import progress state
     var gpxImportProgress by remember { mutableStateOf(GpxImportProgress()) }
+
+    // Weather overlay state
+    var weatherData by remember { mutableStateOf<RouteWeatherData?>(null) }
+    var showWeatherOverlay by remember { mutableStateOf(false) }
+    var isWeatherLoading by remember { mutableStateOf(false) }
+    var weatherErrorMessage by remember { mutableStateOf<String?>(null) }
+    var useScheduledTime by remember { mutableStateOf(false) }
+    val timePickerState = rememberTimePickerState(
+        initialHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
+        initialMinute = Calendar.getInstance().get(Calendar.MINUTE)
+    )
+    var showTimePicker by remember { mutableStateOf(false) }
     var showGpxImportDialog by remember { mutableStateOf(false) }
 
     // Track selection dialog state
@@ -769,6 +789,26 @@ fun RecordingDialog(
                             }
                         }
                     }
+                }
+
+                // Weather Forecast Card - only show when track is selected
+                if (importedGpxTrack != null) {
+                    WeatherPreviewCard(
+                        track = importedGpxTrack!!,
+                        weatherData = weatherData,
+                        isLoading = isWeatherLoading,
+                        errorMessage = weatherErrorMessage,
+                        showWeatherOverlay = showWeatherOverlay,
+                        useScheduledTime = useScheduledTime,
+                        timePickerState = timePickerState,
+                        showTimePicker = showTimePicker,
+                        onWeatherDataChange = { weatherData = it },
+                        onLoadingChange = { isWeatherLoading = it },
+                        onErrorChange = { weatherErrorMessage = it },
+                        onOverlayToggle = { showWeatherOverlay = it },
+                        onScheduledTimeToggle = { useScheduledTime = it },
+                        onTimePickerToggle = { showTimePicker = it }
+                    )
                 }
 
                 // Event name field
@@ -1255,6 +1295,338 @@ fun RecordingDialog(
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun WeatherPreviewCard(
+    track: ImportedGpxTrack,
+    weatherData: RouteWeatherData?,
+    isLoading: Boolean,
+    errorMessage: String?,
+    showWeatherOverlay: Boolean,
+    useScheduledTime: Boolean,
+    timePickerState: TimePickerState,
+    showTimePicker: Boolean,
+    onWeatherDataChange: (RouteWeatherData?) -> Unit,
+    onLoadingChange: (Boolean) -> Unit,
+    onErrorChange: (String?) -> Unit,
+    onOverlayToggle: (Boolean) -> Unit,
+    onScheduledTimeToggle: (Boolean) -> Unit,
+    onTimePickerToggle: (Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val weatherService = remember { WeatherForecastService(context) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = when {
+                weatherData != null -> Color(0xFFE3F2FD) // Light blue
+                errorMessage != null -> Color(0xFFFFEBEE) // Light red
+                else -> Color(0xFFF5F5F5) // Gray
+            }
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Cloud,
+                    contentDescription = "Weather",
+                    tint = if (weatherData != null) Color(0xFF2196F3) else Color.Gray,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Weather Forecast",
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = when {
+                            isLoading -> "Fetching weather data..."
+                            weatherData != null -> "Weather loaded (${weatherData.weatherForecasts.size} points)"
+                            errorMessage != null -> errorMessage
+                            else -> "Fetch weather for this route"
+                        },
+                        fontSize = 12.sp,
+                        color = if (errorMessage != null) Color.Red else Color.Gray
+                    )
+                }
+            }
+
+            // Time selection
+            if (weatherData == null) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "Forecast Time",
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.sp
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Radio buttons for Now/Scheduled
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onScheduledTimeToggle(false) }
+                    ) {
+                        RadioButton(
+                            selected = !useScheduledTime,
+                            onClick = { onScheduledTimeToggle(false) }
+                        )
+                        Text("Now", fontSize = 14.sp)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onScheduledTimeToggle(true) }
+                    ) {
+                        RadioButton(
+                            selected = useScheduledTime,
+                            onClick = { onScheduledTimeToggle(true) }
+                        )
+                        Text("Scheduled:", fontSize = 14.sp)
+                    }
+                }
+
+                // Time picker button when scheduled is selected
+                if (useScheduledTime) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = { onTimePickerToggle(true) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "${String.format("%02d", timePickerState.hour)}:${String.format("%02d", timePickerState.minute)}",
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
+
+            // Weather summary
+            if (weatherData != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                val temps = weatherData.weatherForecasts.map { it.temperature }
+                val avgTemp = temps.average()
+                val minTemp = temps.minOrNull() ?: 0.0
+                val maxTemp = temps.maxOrNull() ?: 0.0
+
+                Column {
+                    Text(
+                        "Temperature: ${String.format("%.1f", avgTemp)}°C (${String.format("%.1f", minTemp)}°C - ${String.format("%.1f", maxTemp)}°C)",
+                        fontSize = 13.sp
+                    )
+
+                    val winds = weatherData.weatherForecasts.map { it.windSpeed }
+                    val avgWind = winds.average()
+                    Text(
+                        "Wind: ${String.format("%.1f", avgWind)} km/h avg",
+                        fontSize = 13.sp
+                    )
+
+                    val humidities = weatherData.weatherForecasts.map { it.relativeHumidity }
+                    val avgHumidity = humidities.average()
+                    Text(
+                        "Humidity: ${String.format("%.0f", avgHumidity)}%",
+                        fontSize = 13.sp
+                    )
+
+                    // Count notable conditions
+                    val rainCount = weatherData.weatherForecasts.count { it.precipitation > 1.0 }
+                    val snowCount = weatherData.weatherForecasts.count { it.snowfall > 0.5 }
+                    if (rainCount > 0 || snowCount > 0) {
+                        val conditions = mutableListOf<String>()
+                        if (rainCount > 0) conditions.add("$rainCount rain zones")
+                        if (snowCount > 0) conditions.add("$snowCount snow zones")
+                        Text(
+                            "Conditions: ${conditions.joinToString(", ")}",
+                            fontSize = 13.sp,
+                            color = Color(0xFFFF6F00)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Overlay toggle
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Show overlay on map", modifier = Modifier.weight(1f), fontSize = 14.sp)
+                    Switch(
+                        checked = showWeatherOverlay,
+                        onCheckedChange = { checked ->
+                            onOverlayToggle(checked)
+                            // Save or clear weather overlay
+                            if (checked) {
+                                GpxPersistenceUtil.saveWeatherOverlay(context, weatherData)
+                            } else {
+                                GpxPersistenceUtil.clearWeatherOverlay(context)
+                            }
+                        }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Action buttons
+            if (weatherData != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = {
+                            onWeatherDataChange(null)
+                            onOverlayToggle(false)
+                            onErrorChange(null)
+                            GpxPersistenceUtil.clearWeatherOverlay(context)
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Clear", fontSize = 14.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            CoroutineScope(Dispatchers.Main).launch {
+                                onLoadingChange(true)
+                                onErrorChange(null)
+                                try {
+                                    val targetTime = if (useScheduledTime) {
+                                        val calendar = Calendar.getInstance()
+                                        calendar.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                                        calendar.set(Calendar.MINUTE, timePickerState.minute)
+                                        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
+                                        sdf.format(calendar.time)
+                                    } else null
+
+                                    val newData = weatherService.fetchRouteWeatherForecast(track.points, targetTime)
+                                    if (newData != null) {
+                                        onWeatherDataChange(newData)
+                                        if (showWeatherOverlay) {
+                                            GpxPersistenceUtil.saveWeatherOverlay(context, newData)
+                                        }
+                                    } else {
+                                        onErrorChange("No weather data available")
+                                    }
+                                } catch (e: Exception) {
+                                    onErrorChange("Error: ${e.message}")
+                                } finally {
+                                    onLoadingChange(false)
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        enabled = !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                color = Color.White,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        Text("Refresh", fontSize = 14.sp)
+                    }
+                }
+            } else {
+                Button(
+                    onClick = {
+                        CoroutineScope(Dispatchers.Main).launch {
+                            onLoadingChange(true)
+                            onErrorChange(null)
+                            try {
+                                val targetTime = if (useScheduledTime) {
+                                    val calendar = Calendar.getInstance()
+                                    calendar.set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                                    calendar.set(Calendar.MINUTE, timePickerState.minute)
+                                    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
+                                    sdf.format(calendar.time)
+                                } else null
+
+                                val newData = weatherService.fetchRouteWeatherForecast(track.points, targetTime)
+                                if (newData != null) {
+                                    onWeatherDataChange(newData)
+                                } else {
+                                    onErrorChange("No weather data available")
+                                }
+                            } catch (e: Exception) {
+                                onErrorChange("Error: ${e.message}")
+                            } finally {
+                                onLoadingChange(false)
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !isLoading
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Fetching...")
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = "Fetch Weather",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Fetch Weather Forecast")
+                    }
+                }
+            }
+        }
+    }
+
+    // Time picker dialog
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { onTimePickerToggle(false) },
+            confirmButton = {
+                TextButton(onClick = { onTimePickerToggle(false) }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onTimePickerToggle(false) }) {
+                    Text("Cancel")
+                }
+            },
+            text = {
+                TimePicker(state = timePickerState)
+            }
+        )
+    }
 }
 
 private fun getCurrentFormattedDate(): String {

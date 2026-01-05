@@ -17,7 +17,9 @@
       "Bash(./gradlew.bat compileDebugKotlin:*)",
       "Bash(cat:*)",
       "Bash(python3:*)",
-      "Bash(docker logs:*)"
+      "Bash(docker logs:*)",
+      "Bash(grep:*)",
+      "Bash(.gradlew.bat compileDebugKotlin:*)"
     ],
     "deny": [],
     "ask": []

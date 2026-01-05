@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.google.gson.Gson
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
+import at.co.netconsulting.geotracker.data.RouteWeatherData
 
 object GpxPersistenceUtil {
     private const val PREF_NAME = "GpxRecordingData"
@@ -11,6 +12,8 @@ object GpxPersistenceUtil {
     private const val KEY_IS_RECORDING = "is_recording_with_gpx"
     private const val KEY_TRACK_ACTIVE = "track_active"
     private const val KEY_TRACK_TIMESTAMP = "track_timestamp" // Add timestamp for change detection
+    private const val KEY_WEATHER_OVERLAY = "weather_overlay_data"
+    private const val KEY_WEATHER_ACTIVE = "weather_active"
 
     private fun getPrefs(context: Context): SharedPreferences {
         return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -150,5 +153,77 @@ object GpxPersistenceUtil {
         } else {
             null
         }
+    }
+
+    // ========== Weather Overlay Persistence ==========
+
+    /**
+     * Save weather overlay data for display on map
+     */
+    fun saveWeatherOverlay(context: Context, weatherData: RouteWeatherData?) {
+        val prefs = getPrefs(context)
+        val editor = prefs.edit()
+
+        if (weatherData != null) {
+            val jsonString = gson.toJson(weatherData)
+            editor.putString(KEY_WEATHER_OVERLAY, jsonString)
+            editor.putBoolean(KEY_WEATHER_ACTIVE, true)
+            android.util.Log.d("GpxPersistence", "Saved weather overlay: ${weatherData.weatherForecasts.size} forecasts")
+        } else {
+            editor.remove(KEY_WEATHER_OVERLAY)
+            editor.putBoolean(KEY_WEATHER_ACTIVE, false)
+            android.util.Log.d("GpxPersistence", "Cleared weather overlay data")
+        }
+
+        editor.apply()
+    }
+
+    /**
+     * Load weather overlay data if available
+     */
+    fun loadWeatherOverlay(context: Context): RouteWeatherData? {
+        val prefs = getPrefs(context)
+        val isWeatherActive = prefs.getBoolean(KEY_WEATHER_ACTIVE, false)
+
+        if (!isWeatherActive) {
+            return null
+        }
+
+        val jsonString = prefs.getString(KEY_WEATHER_OVERLAY, null)
+        return if (jsonString != null) {
+            try {
+                val weatherData = gson.fromJson(jsonString, RouteWeatherData::class.java)
+                android.util.Log.d("GpxPersistence", "Loaded weather overlay: ${weatherData.weatherForecasts.size} forecasts")
+                weatherData
+            } catch (e: Exception) {
+                android.util.Log.e("GpxPersistence", "Error parsing weather overlay: ${e.message}")
+                e.printStackTrace()
+                null
+            }
+        } else {
+            null
+        }
+    }
+
+    /**
+     * Clear weather overlay data
+     */
+    fun clearWeatherOverlay(context: Context) {
+        val prefs = getPrefs(context)
+        prefs.edit()
+            .remove(KEY_WEATHER_OVERLAY)
+            .putBoolean(KEY_WEATHER_ACTIVE, false)
+            .apply()
+        android.util.Log.d("GpxPersistence", "Cleared weather overlay")
+    }
+
+    /**
+     * Check if we have weather overlay data
+     */
+    fun hasWeatherOverlay(context: Context): Boolean {
+        val prefs = getPrefs(context)
+        val isWeatherActive = prefs.getBoolean(KEY_WEATHER_ACTIVE, false)
+        val hasWeather = prefs.contains(KEY_WEATHER_OVERLAY)
+        return isWeatherActive && hasWeather
     }
 }
