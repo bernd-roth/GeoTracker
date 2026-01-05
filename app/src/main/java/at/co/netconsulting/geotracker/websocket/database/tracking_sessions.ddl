@@ -20,6 +20,7 @@ CREATE TABLE public.tracking_sessions (
 	CONSTRAINT tracking_sessions_pkey PRIMARY KEY (session_id)
 );
 CREATE INDEX idx_sessions_user_id ON public.tracking_sessions USING btree (user_id);
+CREATE INDEX idx_sessions_user_start_time ON public.tracking_sessions USING btree (user_id, start_date_time DESC);
 
 -- Table Triggers
 

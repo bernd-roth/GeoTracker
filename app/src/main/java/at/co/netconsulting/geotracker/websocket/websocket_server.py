@@ -142,6 +142,17 @@ class TrackingServer:
 
         logging.info(f"Memory cleanup configuration: retention={self.data_retention_hours}h, interval={self.cleanup_interval_seconds}s, auto_cleanup={self.enable_automatic_cleanup}")
 
+        # Duplicate detection configuration
+        self.duplicate_check_enabled = os.getenv('DUPLICATE_CHECK_ENABLED', 'true').lower() == 'true'
+        self.duplicate_time_tolerance_seconds = int(os.getenv('DUPLICATE_TIME_TOLERANCE_SECONDS', '5'))
+        self.duplicate_coordinate_tolerance = float(os.getenv('DUPLICATE_COORDINATE_TOLERANCE', '0.0001'))
+        self.duplicate_search_window_days = int(os.getenv('DUPLICATE_SEARCH_WINDOW_DAYS', '1'))
+
+        logging.info(f"Duplicate detection: enabled={self.duplicate_check_enabled}, "
+                    f"time_tolerance={self.duplicate_time_tolerance_seconds}s, "
+                    f"coord_tolerance={self.duplicate_coordinate_tolerance} degrees, "
+                    f"search_window={self.duplicate_search_window_days} days")
+
     def validate_gps_coordinates(self, latitude: float, longitude: float) -> tuple:
         """Validate GPS coordinates and return (is_valid, reason)"""
         try:
@@ -592,7 +603,214 @@ class TrackingServer:
                            int(message_data.get('voiceAnnouncementInterval', 0)) if message_data.get('voiceAnnouncementInterval') else None
                            )
 
-        logging.info(f"Created session: {session_id} for user: {user_id}")
+    async def _compare_gps_samples(
+        self,
+        upload_points: List[Dict[str, Any]],
+        existing_sample_points: List[Any],
+        coordinate_tolerance_degrees: float = None
+    ) -> bool:
+        """
+        Compare GPS sample points to detect if they represent the same route.
+
+        Args:
+            upload_points: Full list of points from upload
+            existing_sample_points: Sample points (first, middle, last) from existing session
+            coordinate_tolerance_degrees: Tolerance for coordinate matching (~11m = 0.0001 degrees)
+
+        Returns:
+            True if GPS samples match within tolerance, False otherwise
+        """
+        if coordinate_tolerance_degrees is None:
+            coordinate_tolerance_degrees = self.duplicate_coordinate_tolerance
+
+        # Extract sample points from upload (first, middle, last)
+        if len(upload_points) < 3:
+            return False
+
+        upload_samples = [
+            upload_points[0],  # first
+            upload_points[len(upload_points) // 2],  # middle
+            upload_points[-1]  # last
+        ]
+
+        # Must have exactly 3 samples from existing session
+        if len(existing_sample_points) != 3:
+            return False
+
+        # Compare each sample point
+        for i in range(3):
+            upload_lat = float(upload_samples[i].get('latitude', -999))
+            upload_lng = float(upload_samples[i].get('longitude', -999))
+            existing_lat = float(existing_sample_points[i]['latitude'])
+            existing_lng = float(existing_sample_points[i]['longitude'])
+
+            # Skip if invalid coordinates
+            if upload_lat == -999.0 or upload_lng == -999.0:
+                return False
+
+            # Calculate coordinate difference
+            lat_diff = abs(upload_lat - existing_lat)
+            lng_diff = abs(upload_lng - existing_lng)
+
+            # Check tolerance
+            if lat_diff > coordinate_tolerance_degrees or lng_diff > coordinate_tolerance_degrees:
+                return False
+
+            logging.debug(f"GPS sample {i}: lat_diff={lat_diff:.6f}, lng_diff={lng_diff:.6f}")
+
+        return True  # All samples matched
+
+    async def check_duplicate_session(
+        self,
+        conn,
+        user_id: int,
+        points: List[Dict[str, Any]],
+        time_tolerance_seconds: int = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Check if a duplicate session already exists for this user.
+
+        Args:
+            conn: Database connection
+            user_id: User ID to check against
+            points: List of GPS tracking points from upload
+            time_tolerance_seconds: Tolerance for start/end time matching (default: from config)
+
+        Returns:
+            Dict with duplicate session details if found, None otherwise
+            {
+                'session_id': str,
+                'start_date_time': datetime,
+                'event_name': str,
+                'created_at': datetime,
+                'point_count': int
+            }
+        """
+        if time_tolerance_seconds is None:
+            time_tolerance_seconds = self.duplicate_time_tolerance_seconds
+
+        # Validate points array
+        if not points or len(points) == 0:
+            return None
+
+        # Parse timestamps from points (format: "dd-MM-yyyy HH:mm:ss")
+        timestamps = []
+        for point in points:
+            try:
+                timestamp_str = point.get('timestamp')
+                if timestamp_str:
+                    timestamp = datetime.datetime.strptime(timestamp_str, '%d-%m-%Y %H:%M:%S')
+                    timestamps.append(timestamp)
+            except Exception as e:
+                logging.warning(f"Could not parse timestamp: {e}")
+                continue
+
+        if not timestamps:
+            logging.warning("No valid timestamps found in points")
+            return None
+
+        # Calculate session characteristics
+        upload_start_time = min(timestamps)
+        upload_end_time = max(timestamps)
+        upload_duration_seconds = (upload_end_time - upload_start_time).total_seconds()
+
+        logging.info(f"Checking for duplicates: user_id={user_id}, "
+                    f"start={upload_start_time}, end={upload_end_time}, "
+                    f"duration={upload_duration_seconds}s")
+
+        # Create time window for candidates (±N days from start time for efficiency)
+        search_window_start = upload_start_time - datetime.timedelta(days=self.duplicate_search_window_days)
+        search_window_end = upload_start_time + datetime.timedelta(days=self.duplicate_search_window_days)
+
+        # Query tracking_sessions for potential matches
+        candidate_sessions = await conn.fetch("""
+            SELECT
+                ts.session_id,
+                ts.start_date_time,
+                ts.event_name,
+                ts.sport_type,
+                ts.comment,
+                ts.created_at,
+                COUNT(gtp.id) as point_count
+            FROM tracking_sessions ts
+            LEFT JOIN gps_tracking_points gtp ON ts.session_id = gtp.session_id
+            WHERE ts.user_id = $1
+                AND ts.start_date_time >= $2
+                AND ts.start_date_time <= $3
+            GROUP BY ts.session_id, ts.start_date_time, ts.event_name,
+                     ts.sport_type, ts.comment, ts.created_at
+            HAVING COUNT(gtp.id) > 0
+        """, user_id, search_window_start, search_window_end)
+
+        if not candidate_sessions:
+            logging.info(f"No candidate sessions found for duplicate check")
+            return None
+
+        logging.info(f"Found {len(candidate_sessions)} candidate sessions for duplicate check")
+
+        # For each candidate, perform detailed comparison
+        for candidate in candidate_sessions:
+            session_id = candidate['session_id']
+
+            # Fetch GPS points for this candidate (first, middle, last)
+            existing_points = await conn.fetch("""
+                WITH numbered_points AS (
+                    SELECT
+                        latitude, longitude, received_at,
+                        ROW_NUMBER() OVER (ORDER BY received_at) as rn,
+                        COUNT(*) OVER () as total_count
+                    FROM gps_tracking_points
+                    WHERE session_id = $1
+                    ORDER BY received_at
+                )
+                SELECT latitude, longitude, received_at
+                FROM numbered_points
+                WHERE rn = 1
+                    OR rn = (total_count / 2)::integer
+                    OR rn = total_count
+                ORDER BY rn
+            """, session_id)
+
+            if not existing_points or len(existing_points) < 3:
+                continue
+
+            # Extract existing session temporal data
+            existing_timestamps = [pt['received_at'] for pt in existing_points]
+            existing_start = min(existing_timestamps)
+            existing_end = max(existing_timestamps)
+            existing_duration = (existing_end - existing_start).total_seconds()
+
+            # Compare temporal characteristics
+            start_diff = abs((upload_start_time - existing_start).total_seconds())
+            end_diff = abs((upload_end_time - existing_end).total_seconds())
+            duration_diff = abs(upload_duration_seconds - existing_duration)
+
+            logging.debug(f"Checking candidate session {session_id}: "
+                         f"start_diff={start_diff}s, end_diff={end_diff}s, "
+                         f"duration_diff={duration_diff}s")
+
+            # Check time tolerance
+            if (start_diff > time_tolerance_seconds or
+                end_diff > time_tolerance_seconds or
+                duration_diff > time_tolerance_seconds):
+                continue  # Times don't match
+
+            # Compare GPS sample points (first, middle, last)
+            if await self._compare_gps_samples(points, existing_points):
+                # DUPLICATE FOUND!
+                logging.warning(f"Duplicate session detected! Existing: {session_id}, "
+                               f"start_diff: {start_diff}s, end_diff: {end_diff}s")
+                return {
+                    'session_id': session_id,
+                    'start_date_time': candidate['start_date_time'],
+                    'event_name': candidate['event_name'],
+                    'sport_type': candidate['sport_type'],
+                    'created_at': candidate['created_at'],
+                    'point_count': candidate['point_count']
+                }
+
+        logging.info(f"No duplicate found for user {user_id}, upload allowed")
+        return None  # No duplicate found
 
     async def save_waypoint_to_db(self, message_data: Dict[str, Any]) -> bool:
         """Save waypoint data to PostgreSQL database."""
@@ -846,6 +1064,35 @@ class TrackingServer:
                         lastname=first_point.get('lastname', ''),
                         birthdate=first_point.get('birthdate', '')
                     )
+
+                    # Check for duplicate session (only on first batch, not append)
+                    if self.duplicate_check_enabled and not allow_append:
+                        duplicate_info = await self.check_duplicate_session(
+                            conn,
+                            user_id,
+                            points,
+                            time_tolerance_seconds=self.duplicate_time_tolerance_seconds
+                        )
+
+                        if duplicate_info:
+                            # Format the upload date for user-friendly error message
+                            uploaded_at = duplicate_info['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+
+                            error_msg = (
+                                f"Duplicate session detected! This activity was already uploaded on {uploaded_at}. "
+                                f"Existing session: '{duplicate_info['event_name'] or 'Unnamed'}' "
+                                f"({duplicate_info['sport_type']}) with {duplicate_info['point_count']} points. "
+                                f"Session ID: {duplicate_info['session_id']}"
+                            )
+
+                            logging.warning(f"Duplicate upload rejected: {error_msg}")
+
+                            return {
+                                'success': False,
+                                'error': error_msg,
+                                'duplicate_session_id': duplicate_info['session_id'],
+                                'points_skipped': len(points)
+                            }
 
                     # Get or create session
                     await self.get_or_create_session(conn, session_id, user_id, first_point)
