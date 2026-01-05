@@ -555,6 +555,23 @@ fun MapScreen(
         }
     }
 
+    // Helper function to clear weather overlays from map
+    fun clearWeatherOverlays() {
+        mapViewRef.value?.let { mapView ->
+            weatherPolylineOverlays.value?.forEach { polyline ->
+                mapView.overlays.remove(polyline)
+            }
+            weatherIconMarkers.value?.forEach { marker ->
+                mapView.overlays.remove(marker)
+            }
+            weatherPolylineOverlays.value = null
+            weatherIconMarkers.value = null
+            showWeatherLegend = false
+            mapView.invalidate()
+            Timber.d("Cleared weather overlays from map")
+        }
+    }
+
     // Function to clear all tracks from map
     fun clearAllTracksFromMap() {
         mapViewRef.value?.let { mapView ->
@@ -595,6 +612,10 @@ fun MapScreen(
 
         // Clear persistence
         GpxPersistenceUtil.clearImportedGpxTrack(context)
+        GpxPersistenceUtil.clearWeatherOverlay(context)
+
+        // Clear weather overlays from map
+        clearWeatherOverlays()
     }
 
     // Efficient track monitoring using timestamp
@@ -622,12 +643,20 @@ fun MapScreen(
                             gpxTrackOverlayRef.value = null
                             gpxWaypointOverlayRef.value?.updateWaypoints(emptyList())
                             currentImportedTrack = null
+
+                            // Clear weather overlays when track is removed
+                            clearWeatherOverlays()
+                            GpxPersistenceUtil.clearWeatherOverlay(context)
                         }
                         persistedTrack != null &&
                                 (currentImportedTrack == null ||
                                         persistedTrack.filename != currentImportedTrack!!.filename) -> {
                             // New or different track, load it
                             Timber.d("Loading/updating track: ${persistedTrack.filename}")
+
+                            // Clear old weather overlay before loading new track
+                            clearWeatherOverlays()
+
                             displayTrackOnMap(persistedTrack)
                         }
                     }
@@ -652,50 +681,62 @@ fun MapScreen(
         }
     }
 
-    // Load and display weather overlay when map is initialized
-    LaunchedEffect(isMapInitialized) {
+    // Load and display weather overlay reactively
+    LaunchedEffect(isMapInitialized, currentImportedTrack) {
         if (isMapInitialized) {
             delay(300) // Small delay to ensure map is ready
-            val weatherData = GpxPersistenceUtil.loadWeatherOverlay(context)
-            if (weatherData != null) {
-                try {
-                    mapViewRef.value?.let { mapView ->
-                        Timber.d("Loading weather overlay with ${weatherData.weatherForecasts.size} forecasts")
 
-                        // Remove existing weather overlays
-                        weatherPolylineOverlays.value?.forEach { mapView.overlays.remove(it) }
-                        weatherIconMarkers.value?.forEach { mapView.overlays.remove(it) }
+            // Check if we have weather overlay data
+            val hasWeatherOverlay = GpxPersistenceUtil.hasWeatherOverlay(context)
 
-                        // Create temperature heatmap overlay
-                        val tempOverlay = WeatherOverlay(weatherData)
-                        val polylines = tempOverlay.createTemperatureOverlay(mapView)
+            if (hasWeatherOverlay) {
+                val weatherData = GpxPersistenceUtil.loadWeatherOverlay(context)
+                if (weatherData != null) {
+                    try {
+                        mapViewRef.value?.let { mapView ->
+                            Timber.d("Loading weather overlay with ${weatherData.weatherForecasts.size} forecasts")
 
-                        // Add polylines at the beginning (so they're below other overlays)
-                        polylines.forEach { polyline ->
-                            mapView.overlays.add(0, polyline)
+                            // Remove existing weather overlays
+                            weatherPolylineOverlays.value?.forEach { mapView.overlays.remove(it) }
+                            weatherIconMarkers.value?.forEach { mapView.overlays.remove(it) }
+
+                            // Create temperature heatmap overlay
+                            val tempOverlay = WeatherOverlay(weatherData)
+                            val polylines = tempOverlay.createTemperatureOverlay(mapView)
+
+                            // Add polylines at the beginning (so they're below other overlays)
+                            polylines.forEach { polyline ->
+                                mapView.overlays.add(0, polyline)
+                            }
+                            weatherPolylineOverlays.value = polylines
+                            Timber.d("Added ${polylines.size} temperature polyline segments")
+
+                            // Create weather condition icon markers
+                            val iconsOverlay = WeatherIconsOverlay(context, weatherData)
+                            val markers = iconsOverlay.createWeatherMarkers(mapView)
+
+                            // Add markers to map
+                            markers.forEach { marker ->
+                                mapView.overlays.add(marker)
+                            }
+                            weatherIconMarkers.value = markers
+                            Timber.d("Added ${markers.size} weather condition markers")
+
+                            showWeatherLegend = markers.isNotEmpty() || polylines.isNotEmpty()
+                            mapView.invalidate()
+
+                            Timber.d("Weather overlay loaded successfully")
                         }
-                        weatherPolylineOverlays.value = polylines
-                        Timber.d("Added ${polylines.size} temperature polyline segments")
-
-                        // Create weather condition icon markers
-                        val iconsOverlay = WeatherIconsOverlay(context, weatherData)
-                        val markers = iconsOverlay.createWeatherMarkers(mapView)
-
-                        // Add markers to map
-                        markers.forEach { marker ->
-                            mapView.overlays.add(marker)
-                        }
-                        weatherIconMarkers.value = markers
-                        Timber.d("Added ${markers.size} weather condition markers")
-
-                        showWeatherLegend = markers.isNotEmpty() || polylines.isNotEmpty()
-                        mapView.invalidate()
-
-                        Timber.d("Weather overlay loaded successfully")
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error loading weather overlay")
                     }
-                } catch (e: Exception) {
-                    Timber.e(e, "Error loading weather overlay")
+                } else {
+                    // No weather data, clear overlays
+                    clearWeatherOverlays()
                 }
+            } else {
+                // No weather overlay in persistence, clear any existing overlays
+                clearWeatherOverlays()
             }
         }
     }
