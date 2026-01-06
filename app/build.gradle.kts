@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.04")} (06-01-2026: choose backup type (gpx files and/or db)"
+        versionName = "${getNextVersion("7.05")} (06-01-2026: fixed wrong temperature)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

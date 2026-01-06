@@ -1207,7 +1207,7 @@ function handleHistoryBatch(points) {
         const history = speedHistory[sessionId];
 
         // Update temperature statistics
-        // Note: We allow 0 and negative temperatures as they are valid values
+        // Note: We allow negative temperatures and 0.0°C as valid values
         if (processedPoint.temperature !== undefined && processedPoint.temperature !== null) {
             history.temperatures.push(processedPoint.temperature);
             if (history.minTemperature === null || processedPoint.temperature < history.minTemperature) {
@@ -2070,7 +2070,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
     }
 
     // Update weather statistics (temperature)
-    // Note: We allow 0 and negative temperatures as they are valid values
+    // Note: We allow negative temperatures and 0.0°C as valid values
     if (temperature !== undefined && temperature !== null) {
         console.log(`[DEBUG] Temperature data received: ${temperature}°C for session ${sessionId}`);
         history.temperatures.push(temperature);

@@ -126,7 +126,7 @@ class ForegroundService : Service() {
     //Weather
     private var weatherJob: Job? = null
     private val weatherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private var currentTemperature: Double = 0.0
+    private var currentTemperature: Double? = null
     private var currentWindSpeed: Double = 0.0
     private var currentWindDirection: Double = 0.0
     private var currentRelativeHumidity: Int = 0
@@ -1163,7 +1163,7 @@ class ForegroundService : Service() {
                     elevationGain = elevGain,
                     elevationLoss = elevLoss,
                     slope = currentSlope,                      // Real-time slope percentage
-                    temperature = if (currentTemperature != 0.0) currentTemperature.toFloat() else null,
+                    temperature = currentTemperature?.toFloat(),
                     accuracy = null,
 
                     // Include barometer data

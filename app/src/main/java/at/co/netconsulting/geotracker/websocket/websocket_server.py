@@ -1635,7 +1635,7 @@ class TrackingServer:
         try:
             async with self.db_pool.acquire() as conn:
                 row = await conn.fetchrow("""
-                    SELECT 
+                    SELECT
                         COUNT(*) as weather_point_count,
                         AVG(temperature) as avg_temp,
                         MIN(temperature) as min_temp,

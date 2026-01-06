@@ -131,7 +131,7 @@ class CustomLocationListener: LocationListener {
     private var minTimeSeconds: Int = 1
 
     // Weather data fields
-    private var currentTemperature: Double = 0.0
+    private var currentTemperature: Double? = null
     private var currentWindSpeed: Double = 0.0
     private var currentWindDirection: Double = 0.0
     private var currentRelativeHumidity: Int = 0

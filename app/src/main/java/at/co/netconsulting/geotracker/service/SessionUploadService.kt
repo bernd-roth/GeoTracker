@@ -154,8 +154,10 @@ class SessionUploadService(private val context: Context) {
                     point.addProperty("maxUphillSlope", metric.slope)
                     point.addProperty("maxDownhillSlope", 0.0)
 
-                    // Temperature (from metrics)
-                    point.addProperty("temperature", metric.temperature ?: 0.0)
+                    // Temperature (from metrics) - only include if not null
+                    if (metric.temperature != null) {
+                        point.addProperty("temperature", metric.temperature.toDouble())
+                    }
                 } else {
                     // Default values if no metric found
                     // Use event date as base timestamp if metric is missing (not current time!)
@@ -183,7 +185,7 @@ class SessionUploadService(private val context: Context) {
                     point.addProperty("averageSlope", 0.0)
                     point.addProperty("maxUphillSlope", 0.0)
                     point.addProperty("maxDownhillSlope", 0.0)
-                    point.addProperty("temperature", 0.0)
+                    // Temperature omitted - no metric data available
                 }
 
                 // Weather data (optional - defaults to null/0)

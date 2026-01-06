@@ -65,7 +65,7 @@ data class Metrics(
     val heartRateDevice: String = "",
 
     // Weather data
-    val temperature: Double = 0.0,
+    val temperature: Double? = null,
     val windSpeed: Double = 0.0,
     val windDirection: Double = 0.0,
     val relativeHumidity: Int = 0,
