@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.02")} (06-01-2026: showing/clearing weather heatmap overlay fixed)"
+        versionName = "${getNextVersion("7.03")} (06-01-2026: sorting of recorded events fixed; newest first)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

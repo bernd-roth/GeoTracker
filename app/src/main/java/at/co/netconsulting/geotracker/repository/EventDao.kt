@@ -24,14 +24,40 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE eventId = :eventId")
     suspend fun getEventById(eventId: Int): Event?
 
-    @Query("SELECT * FROM events ORDER BY eventDate DESC")
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId, MIN(timeInMilliseconds) as startTime
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+    """)
     fun getAllEvents(): Flow<List<Event>>
 
-    @Query("SELECT * FROM events WHERE userId = :userId ORDER BY eventDate DESC")
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId, MIN(timeInMilliseconds) as startTime
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        WHERE e.userId = :userId
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+    """)
     fun getEventsForUser(userId: Long): Flow<List<Event>>
 
     // Method for pagination
-    @Query("SELECT * FROM events ORDER BY eventDate DESC LIMIT :limit OFFSET :offset")
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId, MIN(timeInMilliseconds) as startTime
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+        LIMIT :limit OFFSET :offset
+    """)
     suspend fun getEventsPaged(limit: Int, offset: Int): List<Event>
 
     // Count total events
@@ -129,7 +155,16 @@ interface EventDao {
     suspend fun deleteEventsByIds(eventIds: List<Int>): Int
 
     // Upload tracking methods
-    @Query("SELECT * FROM events WHERE isUploaded = 0 ORDER BY eventDate DESC")
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId, MIN(timeInMilliseconds) as startTime
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        WHERE e.isUploaded = 0
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+    """)
     suspend fun getUnuploadedEvents(): List<Event>
 
     @Query("""
