@@ -346,7 +346,8 @@ private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Do
 fun RecordingDialog(
     gpsStatus: GpsStatus,
     onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?, Boolean) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onWeatherOverlayChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var eventName by remember { mutableStateOf("") }
@@ -807,7 +808,8 @@ fun RecordingDialog(
                         onErrorChange = { weatherErrorMessage = it },
                         onOverlayToggle = { showWeatherOverlay = it },
                         onScheduledTimeToggle = { useScheduledTime = it },
-                        onTimePickerToggle = { showTimePicker = it }
+                        onTimePickerToggle = { showTimePicker = it },
+                        onWeatherOverlayChanged = onWeatherOverlayChanged
                     )
                 }
 
@@ -1313,7 +1315,8 @@ private fun WeatherPreviewCard(
     onErrorChange: (String?) -> Unit,
     onOverlayToggle: (Boolean) -> Unit,
     onScheduledTimeToggle: (Boolean) -> Unit,
-    onTimePickerToggle: (Boolean) -> Unit
+    onTimePickerToggle: (Boolean) -> Unit,
+    onWeatherOverlayChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val weatherService = remember { WeatherForecastService(context) }
@@ -1482,9 +1485,13 @@ private fun WeatherPreviewCard(
                             onOverlayToggle(checked)
                             // Save or clear weather overlay
                             if (checked) {
+                                android.util.Log.d("RecordingDialog", "Weather overlay toggle ON - saving to persistence: ${weatherData?.weatherForecasts?.size} forecasts")
                                 GpxPersistenceUtil.saveWeatherOverlay(context, weatherData)
+                                onWeatherOverlayChanged() // Notify MapScreen to reload
                             } else {
+                                android.util.Log.d("RecordingDialog", "Weather overlay toggle OFF - clearing from persistence")
                                 GpxPersistenceUtil.clearWeatherOverlay(context)
+                                onWeatherOverlayChanged() // Notify MapScreen to reload
                             }
                         }
                     )

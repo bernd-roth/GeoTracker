@@ -157,6 +157,8 @@ fun MapScreen(
     importedGpxTrack: ImportedGpxTrack? = null,
     onGpxTrackDisplayed: () -> Unit = {}
 ) {
+    android.util.Log.d("MapScreen", "MapScreen composable recomposing...")
+
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var hasInitializedMapCenter by remember { mutableStateOf(false) }
@@ -245,6 +247,7 @@ fun MapScreen(
     val weatherPolylineOverlays = remember { mutableStateOf<List<Polyline>?>(null) }
     val weatherIconMarkers = remember { mutableStateOf<List<Marker>?>(null) }
     var showWeatherLegend by remember { mutableStateOf(false) }
+    var weatherOverlayTrigger by remember { mutableStateOf(0) }
 
     // New state for route display
     var displayedRoute by remember { mutableStateOf<RouteDisplayData?>(null) }
@@ -620,15 +623,19 @@ fun MapScreen(
 
     // Efficient track monitoring using timestamp
     LaunchedEffect(Unit) {
+        android.util.Log.d("MapScreen", "Track monitoring LaunchedEffect started")
         while (true) {
             if (isMapInitialized) {
+                android.util.Log.d("MapScreen", "Track monitoring: map is initialized, checking timestamp...")
                 val currentTimestamp = GpxPersistenceUtil.getTrackTimestamp(context)
 
                 // Only check for changes if timestamp has changed
                 if (currentTimestamp != lastTrackTimestamp.value) {
+                    android.util.Log.d("MapScreen", "Track timestamp changed from ${lastTrackTimestamp.value} to $currentTimestamp")
                     lastTrackTimestamp.value = currentTimestamp
 
                     val persistedTrack = GpxPersistenceUtil.loadImportedGpxTrack(context)
+                    android.util.Log.d("MapScreen", "Loaded persisted track: ${persistedTrack?.filename}, current track: ${currentImportedTrack?.filename}")
 
                     when {
                         persistedTrack == null && currentImportedTrack != null -> {
@@ -652,12 +659,17 @@ fun MapScreen(
                                 (currentImportedTrack == null ||
                                         persistedTrack.filename != currentImportedTrack!!.filename) -> {
                             // New or different track, load it
-                            Timber.d("Loading/updating track: ${persistedTrack.filename}")
+                            android.util.Log.d("MapScreen", "Loading/updating track: ${persistedTrack.filename}, currentTrack: ${currentImportedTrack?.filename}")
 
                             // Clear old weather overlay before loading new track
+                            android.util.Log.d("MapScreen", "Clearing weather overlays before loading new track")
                             clearWeatherOverlays()
 
                             displayTrackOnMap(persistedTrack)
+                        }
+                        persistedTrack != null && persistedTrack.filename == currentImportedTrack?.filename -> {
+                            // Same track, timestamp updated but track didn't change
+                            android.util.Log.d("MapScreen", "Track timestamp updated but same track: ${persistedTrack.filename}, NOT clearing weather overlay")
                         }
                     }
                 }
@@ -668,6 +680,8 @@ fun MapScreen(
 
     // Simplified initial loading
     LaunchedEffect(isMapInitialized) {
+        android.util.Log.d("MapScreen", "Initial loading LaunchedEffect - isMapInitialized: $isMapInitialized")
+
         if (isMapInitialized) {
             // Initialize the timestamp tracking
             lastTrackTimestamp.value = GpxPersistenceUtil.getTrackTimestamp(context)
@@ -682,19 +696,24 @@ fun MapScreen(
     }
 
     // Load and display weather overlay reactively
-    LaunchedEffect(isMapInitialized, currentImportedTrack) {
+    LaunchedEffect(isMapInitialized, currentImportedTrack, weatherOverlayTrigger) {
+        android.util.Log.d("MapScreen", "Weather overlay LaunchedEffect ENTRY - isMapInitialized: $isMapInitialized, currentImportedTrack: ${currentImportedTrack?.filename}, trigger: $weatherOverlayTrigger")
+
         if (isMapInitialized) {
             delay(300) // Small delay to ensure map is ready
 
+            android.util.Log.d("MapScreen", "Weather overlay LaunchedEffect triggered - currentImportedTrack: ${currentImportedTrack?.filename}")
+
             // Check if we have weather overlay data
             val hasWeatherOverlay = GpxPersistenceUtil.hasWeatherOverlay(context)
+            android.util.Log.d("MapScreen", "hasWeatherOverlay check result: $hasWeatherOverlay")
 
             if (hasWeatherOverlay) {
                 val weatherData = GpxPersistenceUtil.loadWeatherOverlay(context)
                 if (weatherData != null) {
                     try {
                         mapViewRef.value?.let { mapView ->
-                            Timber.d("Loading weather overlay with ${weatherData.weatherForecasts.size} forecasts")
+                            android.util.Log.d("MapScreen", "Loading weather overlay with ${weatherData.weatherForecasts.size} forecasts")
 
                             // Remove existing weather overlays
                             weatherPolylineOverlays.value?.forEach { mapView.overlays.remove(it) }
@@ -709,7 +728,7 @@ fun MapScreen(
                                 mapView.overlays.add(0, polyline)
                             }
                             weatherPolylineOverlays.value = polylines
-                            Timber.d("Added ${polylines.size} temperature polyline segments")
+                            android.util.Log.d("MapScreen", "Added ${polylines.size} temperature polyline segments")
 
                             // Create weather condition icon markers
                             val iconsOverlay = WeatherIconsOverlay(context, weatherData)
@@ -720,15 +739,15 @@ fun MapScreen(
                                 mapView.overlays.add(marker)
                             }
                             weatherIconMarkers.value = markers
-                            Timber.d("Added ${markers.size} weather condition markers")
+                            android.util.Log.d("MapScreen", "Added ${markers.size} weather condition markers")
 
                             showWeatherLegend = markers.isNotEmpty() || polylines.isNotEmpty()
                             mapView.invalidate()
 
-                            Timber.d("Weather overlay loaded successfully")
+                            android.util.Log.d("MapScreen", "Weather overlay loaded successfully")
                         }
                     } catch (e: Exception) {
-                        Timber.e(e, "Error loading weather overlay")
+                        android.util.Log.e("MapScreen", "Error loading weather overlay", e)
                     }
                 } else {
                     // No weather data, clear overlays
@@ -1526,13 +1545,11 @@ fun MapScreen(
                 .getInt("active_event_id", -1)
 
             if (isRecording != newIsRecording) {
-                Timber.d("Recording state changed from $isRecording to $newIsRecording")
+                android.util.Log.d("MapScreen", "Recording state changed from $isRecording to $newIsRecording")
 
-                // If recording stopped, clear all tracks
-                if (isRecording && !newIsRecording) {
-                    Timber.d("Recording stopped - clearing all tracks")
-                    clearAllTracksFromMap()
-                }
+                // Don't clear imported tracks/weather when recording stops - user might want to keep them
+                // Only clear the live recording path
+                // Note: clearAllTracksFromMap() is called when user manually stops via stop button
 
                 isRecording = newIsRecording
                 pathTracker.setRecording(newIsRecording)
@@ -2571,6 +2588,11 @@ fun MapScreen(
     if (showRecordingDialog) {
         RecordingDialog(
             gpsStatus = getCurrentGpsStatus(),
+            onWeatherOverlayChanged = {
+                // Trigger weather overlay reload
+                weatherOverlayTrigger++
+                android.util.Log.d("MapScreen", "Weather overlay changed, triggering reload: $weatherOverlayTrigger")
+            },
             onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx, enableGhostRacer ->
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
@@ -2746,8 +2768,16 @@ fun MapScreen(
             },
             onDismiss = {
                 showRecordingDialog = false
-                // Clear overlay track when recording dialog is cancelled without starting recording
-                GpxPersistenceUtil.clearImportedGpxTrack(context)
+
+                // Only clear overlay track if recording did NOT start (i.e., user cancelled)
+                // If recording started, isRecording will be true, so don't clear the track
+                if (!isRecording) {
+                    android.util.Log.d("MapScreen", "Recording dialog dismissed without starting - clearing track and weather overlay")
+                    GpxPersistenceUtil.clearImportedGpxTrack(context)
+                    GpxPersistenceUtil.clearWeatherOverlay(context)
+                } else {
+                    android.util.Log.d("MapScreen", "Recording dialog dismissed after starting recording - keeping track and weather overlay")
+                }
             }
         )
     }

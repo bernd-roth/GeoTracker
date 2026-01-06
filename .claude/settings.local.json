@@ -19,7 +19,10 @@
       "Bash(python3:*)",
       "Bash(docker logs:*)",
       "Bash(grep:*)",
-      "Bash(.gradlew.bat compileDebugKotlin:*)"
+      "Bash(.gradlew.bat compileDebugKotlin:*)",
+      "Bash(git show:*)",
+      "Bash(.gradlew.bat assembleDebug:*)",
+      "Bash(cmd.exe /c \"gradlew.bat assembleDebug\")"
     ],
     "deny": [],
     "ask": []
