@@ -176,74 +176,92 @@ class AutoBackupService : Service() {
 
     private suspend fun performAutoBackup() {
         try {
-            // Step 1: Backup the database (30% of progress)
-            val dbProgress = BackupProgress(
-                isBackingUp = true,
-                overallProgress = 0.1f,
-                currentPhase = BackupPhase.BACKING_UP_DATABASE,
-                status = "Starting database backup..."
-            )
-            updateNotificationProgress(dbProgress)
-            
-            val backupSuccess = backupDatabaseWithProgress { progress ->
-                val updatedProgress = dbProgress.copy(
-                    overallProgress = 0.1f + (progress * 0.2f), // 10% to 30%
-                    databaseProgress = progress,
-                    status = "Backing up database: ${(progress * 100).toInt()}%"
-                )
-                updateNotificationProgress(updatedProgress)
-            }
-            
-            val dbCompleteProgress = dbProgress.copy(overallProgress = 0.3f)
-            updateNotificationProgress(dbCompleteProgress)
+            // Read export type preference
+            val sharedPrefs = getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+            val exportType = sharedPrefs.getString("autoExportType", "both") ?: "both"
 
-            if (!backupSuccess) {
-                Timber.e("Database backup failed")
-                val failedProgress = BackupProgress(currentPhase = BackupPhase.FAILED)
-                updateNotificationProgress(failedProgress)
-                showCompletionNotification(false, "Database backup failed")
-                return
-            }
+            var backupSuccess = true
+            var gpxExportSuccess = true
 
-            // Step 2: Clear existing GPX files before export (40% of progress)
-            val clearProgress = BackupProgress(
-                isBackingUp = true,
-                overallProgress = 0.4f,
-                currentPhase = BackupPhase.CLEARING_OLD_FILES,
-                status = "Clearing old GPX files..."
-            )
-            updateNotificationProgress(clearProgress)
-            val clearSuccess = clearGpxFiles()
-
-            if (!clearSuccess) {
-                Timber.w("Warning: Could not clear some existing GPX files")
-            }
-
-            // Step 3: Export all runs to GPX files. We are using the same logic as we do for the manual export
-            val exportStartProgress = BackupProgress(
-                isBackingUp = true,
-                overallProgress = 0.5f,
-                currentPhase = BackupPhase.EXPORTING_GPX_FILES,
-                status = "Starting GPX export..."
-            )
-            updateNotificationProgress(exportStartProgress)
-            
-            val gpxExportSuccess = exportAllEventsToGpxWithProgress { processed, total, fileName ->
-                val progress = if (total > 0) processed.toFloat() / total else 0f
-                val updatedProgress = BackupProgress(
+            // Step 1: Backup the database (if enabled)
+            if (exportType == "both" || exportType == "database") {
+                val dbProgress = BackupProgress(
                     isBackingUp = true,
-                    overallProgress = 0.5f + (progress * 0.5f), // 50% to 100%
-                    currentPhase = BackupPhase.EXPORTING_GPX_FILES,
-                    filesProcessed = processed,
-                    totalFiles = total,
-                    currentFileName = fileName,
-                    status = "Exporting GPX files: $processed/$total"
+                    overallProgress = 0.1f,
+                    currentPhase = BackupPhase.BACKING_UP_DATABASE,
+                    status = "Starting database backup..."
                 )
-                updateNotificationProgress(updatedProgress)
+                updateNotificationProgress(dbProgress)
+
+                backupSuccess = backupDatabaseWithProgress { progress ->
+                    val updatedProgress = dbProgress.copy(
+                        overallProgress = 0.1f + (progress * 0.2f), // 10% to 30%
+                        databaseProgress = progress,
+                        status = "Backing up database: ${(progress * 100).toInt()}%"
+                    )
+                    updateNotificationProgress(updatedProgress)
+                }
+
+                val dbCompleteProgress = dbProgress.copy(overallProgress = 0.3f)
+                updateNotificationProgress(dbCompleteProgress)
+
+                if (!backupSuccess) {
+                    Timber.e("Database backup failed")
+                    val failedProgress = BackupProgress(currentPhase = BackupPhase.FAILED)
+                    updateNotificationProgress(failedProgress)
+                    showCompletionNotification(false, "Database backup failed")
+                    return
+                }
+            }
+
+            // Steps 2 & 3: Clear and export GPX files (if enabled)
+            if (exportType == "both" || exportType == "files") {
+                // Step 2: Clear existing GPX files before export
+                val clearProgress = BackupProgress(
+                    isBackingUp = true,
+                    overallProgress = if (exportType == "files") 0.1f else 0.4f,
+                    currentPhase = BackupPhase.CLEARING_OLD_FILES,
+                    status = "Clearing old GPX files..."
+                )
+                updateNotificationProgress(clearProgress)
+                val clearSuccess = clearGpxFiles()
+
+                if (!clearSuccess) {
+                    Timber.w("Warning: Could not clear some existing GPX files")
+                }
+
+                // Step 3: Export all runs to GPX files
+                val exportStartProgress = BackupProgress(
+                    isBackingUp = true,
+                    overallProgress = if (exportType == "files") 0.2f else 0.5f,
+                    currentPhase = BackupPhase.EXPORTING_GPX_FILES,
+                    status = "Starting GPX export..."
+                )
+                updateNotificationProgress(exportStartProgress)
+
+                gpxExportSuccess = exportAllEventsToGpxWithProgress { processed, total, fileName ->
+                    val progress = if (total > 0) processed.toFloat() / total else 0f
+                    val baseProgress = if (exportType == "files") 0.2f else 0.5f
+                    val progressRange = if (exportType == "files") 0.8f else 0.5f
+                    val updatedProgress = BackupProgress(
+                        isBackingUp = true,
+                        overallProgress = baseProgress + (progress * progressRange),
+                        currentPhase = BackupPhase.EXPORTING_GPX_FILES,
+                        filesProcessed = processed,
+                        totalFiles = total,
+                        currentFileName = fileName,
+                        status = "Exporting GPX files: $processed/$total"
+                    )
+                    updateNotificationProgress(updatedProgress)
+                }
             }
 
             // Final notification
-            val allSuccess = backupSuccess && gpxExportSuccess
+            val allSuccess = when (exportType) {
+                "database" -> backupSuccess
+                "files" -> gpxExportSuccess
+                else -> backupSuccess && gpxExportSuccess
+            }
             val finalPhase = if (allSuccess) BackupPhase.COMPLETED else BackupPhase.FAILED
             val finalProgress = BackupProgress(
                 isBackingUp = false,
@@ -251,13 +269,17 @@ class AutoBackupService : Service() {
                 currentPhase = finalPhase
             )
             updateNotificationProgress(finalProgress)
-            
-            val message = if (allSuccess) {
-                "Database and GPX files backed up successfully"
-            } else if (backupSuccess) {
-                "Database backed up but GPX export had issues"
-            } else {
-                "Backup process encountered errors"
+
+            val message = when (exportType) {
+                "database" -> if (backupSuccess) "Database backed up successfully" else "Database backup failed"
+                "files" -> if (gpxExportSuccess) "GPX files exported successfully" else "GPX export failed"
+                else -> if (allSuccess) {
+                    "Database and GPX files backed up successfully"
+                } else if (backupSuccess) {
+                    "Database backed up but GPX export had issues"
+                } else {
+                    "Backup process encountered errors"
+                }
             }
 
             showCompletionNotification(allSuccess, message)

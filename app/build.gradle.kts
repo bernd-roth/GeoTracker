@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.03")} (06-01-2026: sorting of recorded events fixed; newest first)"
+        versionName = "${getNextVersion("7.04")} (06-01-2026: choose backup type (gpx files and/or db)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

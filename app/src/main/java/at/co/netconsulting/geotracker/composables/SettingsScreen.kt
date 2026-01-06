@@ -129,6 +129,9 @@ fun SettingsScreen(
     var backupMinute by remember {
         mutableStateOf(sharedPreferences.getInt("backupMinute", 0))
     }
+    var autoExportType by remember {
+        mutableStateOf(sharedPreferences.getString("autoExportType", "both") ?: "both")
+    }
     var showTimePickerDialog by remember { mutableStateOf(false) }
     var showBirthDatePickerDialog by remember { mutableStateOf(false) }
 
@@ -178,6 +181,7 @@ fun SettingsScreen(
             autoBackupEnabled,
             backupHour,
             backupMinute,
+            autoExportType,
             voiceAnnouncementInterval,
             darkModeEnabled
         )
@@ -543,7 +547,79 @@ fun SettingsScreen(
                         }
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Export type selection
+                Text(
+                    text = "Export type:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                // Radio button: Both database and files
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.RadioButton(
+                        selected = autoExportType == "both",
+                        onClick = {
+                            autoExportType = "both"
+                            sharedPreferences.edit()
+                                .putString("autoExportType", "both")
+                                .apply()
+                        },
+                        enabled = autoBackupEnabled
+                    )
+                    Text(
+                        text = "Database and GPX files",
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+
+                // Radio button: Database only
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.RadioButton(
+                        selected = autoExportType == "database",
+                        onClick = {
+                            autoExportType = "database"
+                            sharedPreferences.edit()
+                                .putString("autoExportType", "database")
+                                .apply()
+                        },
+                        enabled = autoBackupEnabled
+                    )
+                    Text(
+                        text = "Database only",
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+
+                // Radio button: Files only
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.RadioButton(
+                        selected = autoExportType == "files",
+                        onClick = {
+                            autoExportType = "files"
+                            sharedPreferences.edit()
+                                .putString("autoExportType", "files")
+                                .apply()
+                        },
+                        enabled = autoBackupEnabled
+                    )
+                    Text(
+                        text = "GPX files only",
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Time picker
                 Row(
@@ -561,7 +637,12 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "Database and GPX files will be backed up daily to Downloads/GeoTracker",
+                    text = when (autoExportType) {
+                        "both" -> "Database and GPX files will be backed up daily to Downloads/GeoTracker"
+                        "database" -> "Database will be backed up daily to Downloads/GeoTracker/DatabaseBackups"
+                        "files" -> "GPX files will be exported daily to Downloads/GeoTracker"
+                        else -> "Backup will be performed daily to Downloads/GeoTracker"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp)
                 )
@@ -963,6 +1044,7 @@ fun saveAllSettings(
     autoBackupEnabled: Boolean,
     backupHour: Int,
     backupMinute: Int,
+    autoExportType: String,
 //    minDistanceMeters: Int,
 //    minTimeSeconds: Int,
     voiceAnnouncementInterval: Int,
@@ -979,6 +1061,7 @@ fun saveAllSettings(
         putBoolean("autoBackupEnabled", autoBackupEnabled)
         putInt("backupHour", backupHour)
         putInt("backupMinute", backupMinute)
+        putString("autoExportType", autoExportType)
 //        putInt("minDistanceMeters", minDistanceMeters)
 //        putInt("minTimeSeconds", minTimeSeconds)
         putInt("voiceAnnouncementInterval", voiceAnnouncementInterval)
