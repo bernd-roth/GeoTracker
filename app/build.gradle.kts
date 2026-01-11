@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.07")} (11-01-2026: stationary/indoor activity tracking implemented with Weight Training support)"
+        versionName = "${getNextVersion("7.08")} (11-01-2026: stationary/indoor sync with Strava; disabling weather updates, pressure, altitude)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

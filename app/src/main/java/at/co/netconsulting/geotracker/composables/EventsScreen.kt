@@ -1027,8 +1027,8 @@ fun EventCard(
                         }
                     }
 
-                    // Compare Routes button - only show if event has location data
-                    if (event.locationPointCount > 0) {
+                    // Compare Routes button - only show if event has location data and is GPS-based
+                    if (event.locationPointCount > 0 && at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
                         IconButton(
                             onClick = onCompareRoutes,
                             modifier = Modifier.size(40.dp)
@@ -1041,18 +1041,17 @@ fun EventCard(
                         }
                     }
 
-                    // Sync button - only show if event has location data
-                    if (event.locationPointCount > 0) {
-                        IconButton(
-                            onClick = onSync,
-                            modifier = Modifier.size(40.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudUpload,
-                                contentDescription = "Sync to Cloud",
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                        }
+                    // Sync button - show for all activities (GPS and stationary)
+                    // Strava supports weight training and other indoor activities without GPS data
+                    IconButton(
+                        onClick = onSync,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = "Sync to Cloud",
+                            tint = MaterialTheme.colorScheme.secondary
+                        )
                     }
 
                     // Edit button - disabled if currently recording
@@ -1187,18 +1186,23 @@ fun EventCard(
                     else if (event.totalDistance > 10 || event.averageSpeed > 0.1) { // Only show if meaningful data exists
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // First row: Distance and Heart Rate info
+                        // Check if this is a stationary activity (no GPS tracking)
+                        val isStationaryActivity = !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)
+
+                        // First row: Distance and Heart Rate info (or just Heart Rate for stationary activities)
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                // Left column with distance and speed
-                                InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
-                                InfoRow("", String.format(""))
-                                InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed))
-                                InfoRow("Max. Speed:", String.format("%.1f km/h", event.maxSpeed))
-                                InfoRow("", String.format(""))
+                            if (!isStationaryActivity) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    // Left column with distance and speed (only for GPS-based activities)
+                                    InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
+                                    InfoRow("", String.format(""))
+                                    InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed))
+                                    InfoRow("Max. Speed:", String.format("%.1f km/h", event.maxSpeed))
+                                    InfoRow("", String.format(""))
+                                }
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
@@ -1221,24 +1225,26 @@ fun EventCard(
                             }
                         }
 
-                        // Second row: Elevation and Avg Heart Rate
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                // Only show elevation gain if it's greater than 0
-                                val elevationGain = event.maxElevationGain.toInt()
-                                Log.d("TAG_EVENT_ID", "Event id: ${event.event.eventId}")
-                                Log.d("TAG_MAX_ELEVATION_GAIN", "Max. Elevation Gain: $elevationGain")
-                                if (elevationGain > 0) {
-                                    InfoRow("Max. Elevation Gain:", "$elevationGain m")
+                        // Second row: Elevation (only for GPS-based activities)
+                        if (!isStationaryActivity) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    // Only show elevation gain if it's greater than 0
+                                    val elevationGain = event.maxElevationGain.toInt()
+                                    Log.d("TAG_EVENT_ID", "Event id: ${event.event.eventId}")
+                                    Log.d("TAG_MAX_ELEVATION_GAIN", "Max. Elevation Gain: $elevationGain")
+                                    if (elevationGain > 0) {
+                                        InfoRow("Max. Elevation Gain:", "$elevationGain m")
+                                    }
                                 }
                             }
                         }
 
-                        // Third row: Slope information
-                        if (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0) {
+                        // Third row: Slope information (only for GPS-based activities)
+                        if (!isStationaryActivity && (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0)) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1326,18 +1332,21 @@ fun EventCard(
                     )
                 }
 
-                // GPS Signal Quality and Satellite info
-                Spacer(modifier = Modifier.height(4.dp))
+                // GPS Signal Quality and Satellite info (only for GPS-based activities)
+                val isStationaryActivity = !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)
 
-                Text(
-                    text = "GPS Signal Quality",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                if (!isStationaryActivity) {
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "GPS Signal Quality",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
 
-                if (event.maxSatellites > 0) {
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    if (event.maxSatellites > 0) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -1393,12 +1402,13 @@ fun EventCard(
                             )
                         }
                     }
-                } else {
-                    Text(
-                        text = "No GPS signal data available",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
+                    } else {
+                        Text(
+                            text = "No GPS signal data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
                 }
 
                 // Heart Rate Details Section - Made clickable
@@ -1509,25 +1519,26 @@ fun EventCard(
                     }
                 }
 
-                // Weather information - Make this section clickable
-                Spacer(modifier = Modifier.height(4.dp))
+                // Weather information - Make this section clickable (only for GPS-based activities)
+                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                // Check if we have temperature data in metrics for consistent behavior
-                val hasTemperatureData = event.metrics.any { it.temperature != null && it.temperature!! > 0f }
+                    // Check if we have temperature data in metrics for consistent behavior
+                    val hasTemperatureData = event.metrics.any { it.temperature != null && it.temperature!! > 0f }
 
-                // Make the weather section clickable similar to heart rate
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (hasTemperatureData) {
-                                Modifier.clickable { onWeatherClick() }
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .padding(vertical = 4.dp)
-                ) {
+                    // Make the weather section clickable similar to heart rate
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (hasTemperatureData) {
+                                    Modifier.clickable { onWeatherClick() }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(vertical = 4.dp)
+                    ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1627,19 +1638,21 @@ fun EventCard(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    }
                 }
 
-                // Barometer Data section - Make this section clickable
-                Spacer(modifier = Modifier.height(4.dp))
+                // Barometer Data section - Make this section clickable (only for GPS-based activities)
+                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                // Check if we have pressure data in metrics for consistent behavior
-                val hasPressureData = event.metrics.any { it.pressure != null && it.pressure!! > 0f }
+                    // Check if we have pressure data in metrics for consistent behavior
+                    val hasPressureData = event.metrics.any { it.pressure != null && it.pressure!! > 0f }
 
-                // Make the barometer section clickable similar to heart rate and weather
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
+                    // Make the barometer section clickable similar to heart rate and weather
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
                             if (hasPressureData) {
                                 Modifier.clickable { onBarometerClick() }
                             } else {
@@ -1830,26 +1843,28 @@ fun EventCard(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
+                    }
                 }
 
-                // Altitude information
-                Spacer(modifier = Modifier.height(4.dp))
+                // Altitude information (only for GPS-based activities)
+                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                // Check if we have elevation data
-                val hasElevationData = event.metrics.any { it.elevation > 0 }
+                    // Check if we have elevation data
+                    val hasElevationData = event.metrics.any { it.elevation > 0 }
 
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (hasElevationData) {
-                                Modifier.clickable { onAltitudeClick() }
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .padding(vertical = 4.dp)
-                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (hasElevationData) {
+                                    Modifier.clickable { onAltitudeClick() }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(vertical = 4.dp)
+                    ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1925,10 +1940,12 @@ fun EventCard(
                             color = Color.Gray
                         )
                     }
+                    }
                 }
 
-                // Slope information section
-                if (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0) {
+                // Slope information section (only for GPS-based activities)
+                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport) &&
+                    (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0)) {
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // Enhanced Slope Analysis header with map navigation option
@@ -2056,19 +2073,20 @@ fun EventCard(
                     }
                 }
 
-                // Lap information with highlighting
-                Spacer(modifier = Modifier.height(4.dp))
+                // Lap information with highlighting (only for GPS-based activities)
+                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Lap Information",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Lap Information",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
                     if (event.laps.isNotEmpty()) {
                         TextButton(
@@ -2127,31 +2145,33 @@ fun EventCard(
                             textColor = textColor
                         )
                     }
-                } else {
-                    Text(
-                        text = "No lap data available",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
+                    } else {
+                        Text(
+                            text = "No lap data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
                 }
 
-                // Map preview section with enhanced header
-                Spacer(modifier = Modifier.height(4.dp))
+                // Map preview section with enhanced header (only for GPS-based activities)
+                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                    Spacer(modifier = Modifier.height(4.dp))
 
-                // Enhanced Route Preview header with map navigation option
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Route Preview",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    // Enhanced Route Preview header with map navigation option
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Route Preview",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
-                    // "View on Map" button - only show when not recording and has location data
-                    if (canViewOnMap && event.locationPointCount > 0) {
+                        // "View on Map" button - only show when not recording and has location data
+                        if (canViewOnMap && event.locationPointCount > 0) {
                         Surface(
                             modifier = Modifier
                                 .clickable {
@@ -2204,60 +2224,61 @@ fun EventCard(
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
-                } else {
-                    Text(
-                        text = "No route data available",
-                        fontSize = 14.sp,
-                        color = Color.Gray
-                    )
-                }
+                    } else {
+                        Text(
+                            text = "No route data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
 
-                // Route rerun section
-                if (canViewOnMap && event.locationPointCount > 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
+                    // Route rerun section
+                    if (canViewOnMap && event.locationPointCount > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = "Route Rerun",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                        Text(
+                            text = "Route Rerun",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
 
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                loadAndExecute(onViewOnMapRerun)
-                            }
-                            .padding(4.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    loadAndExecute(onViewOnMapRerun)
+                                }
+                                .padding(4.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Rerun Route",
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = "Rerun Route on Map",
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.secondary,
-                                    fontWeight = FontWeight.Medium
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = "Rerun Route",
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Text(
-                                    text = "Animated playback: 1 second per kilometer",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f),
-                                    fontStyle = FontStyle.Italic
-                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "Rerun Route on Map",
+                                        fontSize = 14.sp,
+                                        color = MaterialTheme.colorScheme.secondary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "Animated playback: 1 second per kilometer",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.7f),
+                                        fontStyle = FontStyle.Italic
+                                    )
+                                }
                             }
                         }
                     }

@@ -77,14 +77,19 @@ class ExportSyncManager(private val context: Context) {
                 }
 
             val locations = database.locationDao().getLocationsByEventId(eventId)
-            if (locations.isEmpty()) {
+
+            // Check if this is a stationary activity (no GPS tracking)
+            val isStationaryActivity = !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.artOfSport)
+
+            // For GPS-based activities, require location data
+            if (!isStationaryActivity && locations.isEmpty()) {
                 platforms.forEach { platform ->
                     results[platform] = SyncResult.Failure("No location data to sync")
                 }
                 return@withContext results
             }
 
-            // Generate GPX file
+            // Generate GPX file (works for both GPS and stationary activities)
             val gpxFile = generateGpxFile(eventId)
             if (gpxFile == null || !gpxFile.exists()) {
                 platforms.forEach { platform ->
@@ -127,7 +132,11 @@ class ExportSyncManager(private val context: Context) {
             val locations = database.locationDao().getLocationsByEventId(eventId)
             val metrics = database.metricDao().getMetricsByEventId(eventId)
 
-            if (locations.isEmpty()) return@withContext null
+            // Check if this is a stationary activity
+            val isStationaryActivity = !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.artOfSport)
+
+            // For GPS-based activities, require location data
+            if (!isStationaryActivity && locations.isEmpty()) return@withContext null
 
             // Map sport type to GPX activity type
             val activityType = when (event.artOfSport.lowercase()) {
@@ -135,6 +144,7 @@ class ExportSyncManager(private val context: Context) {
                 "cycling", "bicycle", "bike", "biking", "gravel bike", "racing bicycle", "mountain bike" -> "bike"
                 "hiking", "walking", "trekking", "mountain hiking", "forest hiking" -> "hike"
                 "swimming - open water", "swimming - pool" -> "swim"
+                "weight training" -> "weight_training"
                 else -> event.artOfSport.lowercase().replace(" ", "_")
             }
 
@@ -158,34 +168,70 @@ class ExportSyncManager(private val context: Context) {
                 |    <trkseg>
                 """.trimMargin())
 
-            locations.forEachIndexed { index, location ->
-                val metric = metrics.getOrNull(index)
+            // For stationary activities, use metrics with dummy coordinates
+            // For GPS activities, use actual location data
+            if (isStationaryActivity && metrics.isNotEmpty()) {
+                // Stationary activity: use dummy coordinates with time and heart rate
+                metrics.forEach { metric ->
+                    if (metric.timeInMilliseconds > 0) {
+                        val timestamp = Instant.ofEpochMilli(metric.timeInMilliseconds)
+                            .atZone(ZoneId.systemDefault())
+                            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
-                if (metric != null && metric.timeInMilliseconds > 0) {
-                    val timestamp = Instant.ofEpochMilli(metric.timeInMilliseconds)
-                        .atZone(ZoneId.systemDefault())
-                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
-
-                    gpxBuilder.append("""
-                        |      <trkpt lat="${location.latitude}" lon="${location.longitude}">
-                        |        <ele>${location.altitude}</ele>
-                        |        <time>${timestamp}</time>
-                        """.trimMargin())
-
-                    // Add heart rate if available
-                    if (metric.heartRate > 0) {
+                        // Use a dummy coordinate (0,0) for stationary activities
                         gpxBuilder.append("""
-                            |        <extensions>
-                            |          <gpxtpx:TrackPointExtension>
-                            |            <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>
-                            |          </gpxtpx:TrackPointExtension>
-                            |        </extensions>
+                            |      <trkpt lat="0.0" lon="0.0">
+                            |        <ele>0</ele>
+                            |        <time>${timestamp}</time>
+                            """.trimMargin())
+
+                        // Add heart rate if available
+                        if (metric.heartRate > 0) {
+                            gpxBuilder.append("""
+                                |        <extensions>
+                                |          <gpxtpx:TrackPointExtension>
+                                |            <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>
+                                |          </gpxtpx:TrackPointExtension>
+                                |        </extensions>
+                                """.trimMargin())
+                        }
+
+                        gpxBuilder.append("""
+                            |      </trkpt>
                             """.trimMargin())
                     }
+                }
+            } else {
+                // GPS-based activity: use actual location data
+                locations.forEachIndexed { index, location ->
+                    val metric = metrics.getOrNull(index)
 
-                    gpxBuilder.append("""
-                        |      </trkpt>
-                        """.trimMargin())
+                    if (metric != null && metric.timeInMilliseconds > 0) {
+                        val timestamp = Instant.ofEpochMilli(metric.timeInMilliseconds)
+                            .atZone(ZoneId.systemDefault())
+                            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+
+                        gpxBuilder.append("""
+                            |      <trkpt lat="${location.latitude}" lon="${location.longitude}">
+                            |        <ele>${location.altitude}</ele>
+                            |        <time>${timestamp}</time>
+                            """.trimMargin())
+
+                        // Add heart rate if available
+                        if (metric.heartRate > 0) {
+                            gpxBuilder.append("""
+                                |        <extensions>
+                                |          <gpxtpx:TrackPointExtension>
+                                |            <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>
+                                |          </gpxtpx:TrackPointExtension>
+                                |        </extensions>
+                                """.trimMargin())
+                        }
+
+                        gpxBuilder.append("""
+                            |      </trkpt>
+                            """.trimMargin())
+                    }
                 }
             }
 

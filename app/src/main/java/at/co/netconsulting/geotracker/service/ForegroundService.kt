@@ -256,6 +256,12 @@ class ForegroundService : Service() {
     }
 
     private fun startWeatherUpdates() {
+        // Skip weather updates for stationary activities (indoor workouts)
+        if (isStationaryActivity) {
+            Log.d(TAG, "Skipping weather updates for stationary activity: $artofsport")
+            return
+        }
+
         stopWeatherUpdates()
 
         Log.d(TAG, "Starting weather updates with coordinates: lat=$latitude, lon=$longitude")
@@ -1260,6 +1266,7 @@ class ForegroundService : Service() {
         withContext(Dispatchers.IO) {
             try {
                 // For stationary activities, only save heart rate and time data
+                // No GPS, weather, or barometer data for indoor workouts
                 val metric = Metric(
                     eventId = eventId,
                     heartRate = currentHeartRate,
@@ -1274,20 +1281,21 @@ class ForegroundService : Service() {
                     elevationGain = 0f,
                     elevationLoss = 0f,
                     slope = 0.0,
-                    temperature = currentTemperature?.toFloat(),
+                    temperature = null,  // No weather data for indoor activities
                     accuracy = null,
 
-                    // Barometer data can still be collected if available
-                    pressure = if (currentPressure > 0) currentPressure else null,
-                    pressureAccuracy = if (currentPressureAccuracy > 0) currentPressureAccuracy else null,
-                    altitudeFromPressure = if (currentAltitudeFromPressure != 0f) currentAltitudeFromPressure else null,
-                    seaLevelPressure = if (currentSeaLevelPressure > 0) currentSeaLevelPressure else null
+                    // No barometer data for indoor activities (fixed altitude)
+                    pressure = null,
+                    pressureAccuracy = null,
+                    altitudeFromPressure = null,
+                    seaLevelPressure = null
                 )
                 database.metricDao().insertMetric(metric)
                 Log.d(TAG, "Stationary activity metric saved: heart rate=$currentHeartRate, time=${currentTimeMillis()}")
 
                 // Don't save Location data for stationary activities
                 // Don't save DeviceStatus with GPS satellites for stationary activities
+                // Don't save Weather data for stationary activities
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error inserting stationary data to database", e)
@@ -1555,30 +1563,34 @@ class ForegroundService : Service() {
                 }
             }
 
-            // Start barometer sensor if available
-            barometerSensorService?.let { service ->
-                if (service.isAvailable()) {
-                    val started = service.startListening()
-                    if (started) {
-                        Log.d(TAG, "Barometer sensor started successfully")
+            // Start barometer sensor if available (skip for stationary activities)
+            if (!isStationaryActivity) {
+                barometerSensorService?.let { service ->
+                    if (service.isAvailable()) {
+                        val started = service.startListening()
+                        if (started) {
+                            Log.d(TAG, "Barometer sensor started successfully")
 
-                        // Try to calibrate with GPS altitude when we have a good fix
-                        if (altitude > 0 && altitude != -999.0) {
-                            val calibrated = service.calibrateWithGpsAltitude(altitude.toFloat())
-                            if (calibrated) {
-                                Log.d(TAG, "Barometer sensor calibrated with GPS altitude: ${altitude}m")
+                            // Try to calibrate with GPS altitude when we have a good fix
+                            if (altitude > 0 && altitude != -999.0) {
+                                val calibrated = service.calibrateWithGpsAltitude(altitude.toFloat())
+                                if (calibrated) {
+                                    Log.d(TAG, "Barometer sensor calibrated with GPS altitude: ${altitude}m")
+                                } else {
+                                    Log.w(TAG, "Failed to calibrate barometer sensor with GPS altitude")
+                                }
                             } else {
-                                Log.w(TAG, "Failed to calibrate barometer sensor with GPS altitude")
+                                Log.d(TAG, "No valid GPS altitude for barometer calibration yet")
                             }
                         } else {
-                            Log.d(TAG, "No valid GPS altitude for barometer calibration yet")
+                            Log.w(TAG, "Failed to start barometer sensor")
                         }
                     } else {
-                        Log.w(TAG, "Failed to start barometer sensor")
+                        Log.w(TAG, "Barometer sensor not available on this device")
                     }
-                } else {
-                    Log.w(TAG, "Barometer sensor not available on this device")
                 }
+            } else {
+                Log.d(TAG, "Skipping barometer sensor for stationary activity: $artofsport")
             }
 
             Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport, comment: $comment, clothing: $clothing, websocketTransfer: $enableWebSocketTransfer")
@@ -1944,8 +1956,8 @@ class ForegroundService : Service() {
                         heartRateSensorService?.connectToDevice(heartRateDeviceAddress!!)
                     }
 
-                    // Check barometer sensor connection if needed
-                    if (barometerSensorService?.isAvailable() == true && !barometerSensorService?.isListening()!!) {
+                    // Check barometer sensor connection if needed (skip for stationary activities)
+                    if (!isStationaryActivity && barometerSensorService?.isAvailable() == true && !barometerSensorService?.isListening()!!) {
                         Log.d(TAG, "Restarting barometer sensor")
                         barometerSensorService?.startListening()
                     }
