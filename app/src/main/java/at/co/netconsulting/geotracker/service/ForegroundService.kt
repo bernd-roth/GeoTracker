@@ -79,6 +79,7 @@ class ForegroundService : Service() {
     private lateinit var eventname: String
     private lateinit var eventdate: String
     private lateinit var artofsport: String
+    private var isStationaryActivity: Boolean = false
     private lateinit var comment: String
     private lateinit var clothing: String
     private var speed: Float = 0.0f
@@ -701,7 +702,16 @@ class ForegroundService : Service() {
 
                     // Make sure we wait until sessionId is created and saved
                     delay(100) // Short delay to ensure sessionId is saved to SharedPreferences
-                    it.startListener()
+
+                    // Only start GPS listener if not a stationary activity
+                    if (!isStationaryActivity) {
+                        it.startListener()
+                    } else {
+                        Log.d(TAG, "Stationary activity - GPS tracking disabled")
+                        // Still need to load session data but skip GPS
+                        it.loadSharedPreferences()
+                        it.loadSessionId()
+                    }
 
                     // If we have restored position and distance, initialize the location listener with them
                     if (isRestoredSession && distance > 0) {
@@ -734,19 +744,32 @@ class ForegroundService : Service() {
 
                     // Only update stopwatches if not paused
                     if (!isPaused) {
-                        if (speed >= MIN_SPEED_THRESHOLD) {
-                            showStopWatch()
+                        if (isStationaryActivity) {
+                            // For stationary activities, use continuous timer only
+                            showContinuousStopWatch()
                         } else {
-                            showLazyStopWatch()
+                            // For GPS-based activities, use movement-based tracking
+                            if (speed >= MIN_SPEED_THRESHOLD) {
+                                showStopWatch()
+                            } else {
+                                showLazyStopWatch()
+                            }
                         }
                     }
 
                     showNotification()
 
-                    // save data to database as long as we have valid coordinates,
-                    // regardless of speed or duplicate coordinates (but not when paused)
-                    if(checkLatitudeLongitude() && !isPaused) {
-                        insertDatabase(database)
+                    // Save data to database (but skip GPS coordinates for stationary activities)
+                    if (!isPaused) {
+                        if (isStationaryActivity) {
+                            // For stationary activities, save without GPS coordinates
+                            insertDatabaseStationary(database)
+                        } else {
+                            // For GPS-based activities, only save when we have valid coordinates
+                            if (checkLatitudeLongitude()) {
+                                insertDatabase(database)
+                            }
+                        }
                     }
                     delay(1000)
                 }
@@ -1032,6 +1055,23 @@ class ForegroundService : Service() {
         lazyFormattedTime = String.format("%02d:%02d:%02d", lazyHours, lazyMinutes, lazySeconds)
     }
 
+    private fun showContinuousStopWatch() {
+        // For stationary activities, always count as movement time
+        if (!isCurrentlyMoving) {
+            movementState.start()
+            isCurrentlyMoving = true
+        }
+
+        val duration = movementState.getTotalDuration()
+        val movementHours = duration.toHours()
+        val movementMinutes = (duration.toMinutes() % 60)
+        val movementSeconds = (duration.seconds % 60)
+        movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
+
+        // Keep lazy time at zero for stationary activities
+        lazyFormattedTime = "00:00:00"
+    }
+
     private fun resetValues() {
         speed = 0.0F
         showNotification()
@@ -1072,21 +1112,34 @@ class ForegroundService : Service() {
         val totalSeconds = (totalRecordingDuration.seconds % 60)
         val totalRecordingFormattedTime = String.format("%02d:%02d:%02d", totalHours, totalMinutes, totalSeconds)
 
-        // Create Strava-style notification title with sport, time, and distance
-        val notificationTitle = "${String.format("%.2f", distance / 1000)} km • $totalRecordingFormattedTime"
+        if (isStationaryActivity) {
+            // Simplified notification for stationary activities (weight training, etc.)
+            // Show only activity time and heart rate - no distance, speed, or GPS data
+            val notificationTitle = "$artofsport • $totalRecordingFormattedTime"
 
-        updateNotification(
-            notificationTitle,
-            "Total Recording: " + totalRecordingFormattedTime +
-                    "\nActivity: " + movementFormattedTime +
-                    "\nInactivity: " + lazyFormattedTime +
-                    "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
-                    "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
-                    "\nGPS Altitude: " + String.format("%.2f", altitude) + " m" +
-                    "\nLap: " + String.format("%2d", lap) +
-                    heartRateText +
-                    barometerText
-        )
+            updateNotification(
+                notificationTitle,
+                "Activity Time: " + totalRecordingFormattedTime +
+                        heartRateText +
+                        (if (currentPressure > 0) barometerText else "")
+            )
+        } else {
+            // Full notification for GPS-based activities
+            val notificationTitle = "${String.format("%.2f", distance / 1000)} km • $totalRecordingFormattedTime"
+
+            updateNotification(
+                notificationTitle,
+                "Total Recording: " + totalRecordingFormattedTime +
+                        "\nActivity: " + movementFormattedTime +
+                        "\nInactivity: " + lazyFormattedTime +
+                        "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
+                        "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
+                        "\nGPS Altitude: " + String.format("%.2f", altitude) + " m" +
+                        "\nLap: " + String.format("%2d", lap) +
+                        heartRateText +
+                        barometerText
+            )
+        }
     }
 
     private suspend fun createNewEvent(database: FitnessTrackerDatabase, userId: Long): Int {
@@ -1199,6 +1252,45 @@ class ForegroundService : Service() {
                 Log.d("ForegroundService: ", "Device status saved with sessionId: $sessionId and satellites: $satellites")
             } catch (e: Exception) {
                 Log.e(TAG, "Error inserting data to database", e)
+            }
+        }
+    }
+
+    private suspend fun insertDatabaseStationary(database: FitnessTrackerDatabase) {
+        withContext(Dispatchers.IO) {
+            try {
+                // For stationary activities, only save heart rate and time data
+                val metric = Metric(
+                    eventId = eventId,
+                    heartRate = currentHeartRate,
+                    heartRateDevice = heartRateDeviceName ?: "None",
+                    speed = 0f,  // No GPS speed
+                    distance = 0.0,  // No distance tracking
+                    cadence = 0,
+                    lap = 0,  // No laps for stationary activities
+                    timeInMilliseconds = currentTimeMillis(),
+                    unity = "metric",
+                    elevation = 0f,  // No GPS elevation
+                    elevationGain = 0f,
+                    elevationLoss = 0f,
+                    slope = 0.0,
+                    temperature = currentTemperature?.toFloat(),
+                    accuracy = null,
+
+                    // Barometer data can still be collected if available
+                    pressure = if (currentPressure > 0) currentPressure else null,
+                    pressureAccuracy = if (currentPressureAccuracy > 0) currentPressureAccuracy else null,
+                    altitudeFromPressure = if (currentAltitudeFromPressure != 0f) currentAltitudeFromPressure else null,
+                    seaLevelPressure = if (currentSeaLevelPressure > 0) currentSeaLevelPressure else null
+                )
+                database.metricDao().insertMetric(metric)
+                Log.d(TAG, "Stationary activity metric saved: heart rate=$currentHeartRate, time=${currentTimeMillis()}")
+
+                // Don't save Location data for stationary activities
+                // Don't save DeviceStatus with GPS satellites for stationary activities
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error inserting stationary data to database", e)
             }
         }
     }
@@ -1441,6 +1533,10 @@ class ForegroundService : Service() {
                     enableWebSocketTransfer = enableWebSocketTransfer
                 )
             }
+
+            // Check if this is a stationary activity (weight training, indoor sports, etc.)
+            isStationaryActivity = at.co.netconsulting.geotracker.utils.ActivityTypeUtils.isStationaryActivity(artofsport)
+            Log.d(TAG, "Activity type: $artofsport, isStationary: $isStationaryActivity")
 
             // Connect to heart rate sensor if address is available
             if (!heartRateDeviceAddress.isNullOrEmpty()) {

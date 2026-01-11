@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.05")} (06-01-2026: fixed wrong temperature)"
+        versionName = "${getNextVersion("7.07")} (11-01-2026: stationary/indoor activity tracking implemented with Weight Training support)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -23,7 +23,9 @@
       "Bash(git show:*)",
       "Bash(.gradlew.bat assembleDebug:*)",
       "Bash(cmd.exe /c \"gradlew.bat assembleDebug\")",
-      "Bash(gradlew.bat compileDebugKotlin:*)"
+      "Bash(gradlew.bat compileDebugKotlin:*)",
+      "Bash(cmd //c gradlew.bat assembleDebug:*)",
+      "Bash(./gradlew assembleDebug:*)"
     ],
     "deny": [],
     "ask": []
