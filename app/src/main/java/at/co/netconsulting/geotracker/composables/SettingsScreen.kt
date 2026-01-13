@@ -101,9 +101,15 @@ fun SettingsScreen(
     var birthDate by remember {
         mutableStateOf(sharedPreferences.getString("birthdate", "") ?: "")
     }
-    var height by remember { mutableStateOf(sharedPreferences.getFloat("height", 0f)) }
-    var weight by remember { mutableStateOf(sharedPreferences.getFloat("weight", 0f)) }
-    var maxHeartRate by remember { 
+    var height by remember {
+        val savedHeight = sharedPreferences.getFloat("height", 0f)
+        mutableStateOf(if (savedHeight > 0f) savedHeight.toString() else "")
+    }
+    var weight by remember {
+        val savedWeight = sharedPreferences.getFloat("weight", 0f)
+        mutableStateOf(if (savedWeight > 0f) savedWeight.toString() else "")
+    }
+    var maxHeartRate by remember {
         mutableStateOf(sharedPreferences.getInt("maxHeartRate", 180))
     }
     var websocketserver by remember {
@@ -174,8 +180,8 @@ fun SettingsScreen(
             firstName.trim(),
             lastName.trim(),
             birthDate,
-            height,
-            weight,
+            height.toFloatOrNull() ?: 0f,
+            weight.toFloatOrNull() ?: 0f,
             maxHeartRate,
             websocketserver.trim(),
             autoBackupEnabled,
@@ -293,10 +299,8 @@ fun SettingsScreen(
         }
 
         OutlinedTextField(
-            value = height.toString(),
-            onValueChange = { input ->
-                height = input.toFloatOrNull() ?: height
-            },
+            value = height,
+            onValueChange = { height = it },
             label = { Text("Height (cm)") },
             keyboardOptions = FoundationKeyboardOptions(
                 keyboardType = KeyboardType.Number,
@@ -311,15 +315,14 @@ fun SettingsScreen(
                     if (!focusState.isFocused) {
                         autoSaveSettings()
                     }
-                }
+                },
+            singleLine = true
         )
         Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
-            value = weight.toString(),
-            onValueChange = { input ->
-                weight = input.toFloatOrNull() ?: weight
-            },
+            value = weight,
+            onValueChange = { weight = it },
             label = { Text("Weight (kg)") },
             keyboardOptions = FoundationKeyboardOptions(
                 keyboardType = KeyboardType.Number,
@@ -334,7 +337,8 @@ fun SettingsScreen(
                     if (!focusState.isFocused) {
                         autoSaveSettings()
                     }
-                }
+                },
+            singleLine = true
         )
         Spacer(modifier = Modifier.height(8.dp))
 

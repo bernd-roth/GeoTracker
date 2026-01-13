@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.08")} (11-01-2026: stationary/indoor sync with Strava; disabling weather updates, pressure, altitude)"
+        versionName = "${getNextVersion("7.09")} (13-01-2026: height and weight input type changed to string for better readability)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
