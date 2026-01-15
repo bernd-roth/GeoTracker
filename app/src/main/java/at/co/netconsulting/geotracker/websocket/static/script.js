@@ -1,3 +1,7 @@
+// Keycloak instance
+let keycloak;
+let keycloakInitialized = false;  // Prevent double initialization
+
 // Global variables
 let map;
 let websocket;
@@ -994,7 +998,12 @@ function toggleMapElementsVisibility(sessionId, visible) {
 
 function connectToWebSocket() {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.host}/geotracker`;
+    let wsUrl = `${wsProtocol}//${window.location.host}/geotracker`;
+
+    // Add JWT token as query parameter if Keycloak is initialized
+    if (keycloak && keycloak.token) {
+        wsUrl += `?token=${encodeURIComponent(keycloak.token)}`;
+    }
 
     websocket = new WebSocket(wsUrl);
 
@@ -2907,26 +2916,220 @@ function shouldDisplaySession(sessionId) {
     return !sessionId.includes('_reset_') && !sessionId.includes('_archived_');
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    try {
-        console.log("DOM content loaded, initializing application...");
-
-        initMap();
-
-        addDebugMessage('Running Tracker application initialized with MapLibre GL JS, session management and weather data support', 'system');
-
-        setupChartEventListeners();
-
-        setTimeout(() => {
-            if (altitudeChart && speedChart) {
-                addDebugMessage('Charts initialized successfully with hover support', 'system');
-            } else {
-                addDebugMessage('Chart initialization may have failed', 'error');
-            }
-        }, 1000);
-
-    } catch (error) {
-        console.error("Error during application initialization:", error);
-        alert("There was an error initializing the application. Please check the console for details.");
+// Initialize Keycloak
+function initKeycloak() {
+    // Prevent double initialization
+    if (keycloakInitialized) {
+        console.log('Keycloak already initialized, skipping...');
+        return;
     }
-});
+    keycloakInitialized = true;
+
+    // Check if Keycloak is defined
+    if (typeof Keycloak === 'undefined') {
+        console.error('Keycloak library not loaded');
+        showAuthError('Authentication library failed to load. Please check your internet connection and refresh the page.');
+        keycloakInitialized = false;  // Allow retry
+        return;
+    }
+
+    try {
+        keycloak = new Keycloak({
+            url: 'https://geotracker.duckdns.org/auth',
+            realm: 'geotracker',
+            clientId: 'geotracker-web'
+        });
+
+        console.log('Keycloak config:', {
+            url: 'https://geotracker.duckdns.org/auth',
+            realm: 'geotracker',
+            clientId: 'geotracker-web'
+        });
+
+        // Add error handler before init
+        keycloak.onAuthError = function(errorData) {
+            console.error('Keycloak auth error:', errorData);
+            console.error('Auth error - full details:', JSON.stringify(errorData, null, 2));
+        };
+
+        keycloak.onAuthRefreshError = function() {
+            console.error('Keycloak auth refresh error');
+        };
+
+        keycloak.onTokenExpired = function() {
+            console.log('Token expired');
+        };
+
+        keycloak.onAuthSuccess = function() {
+            console.log('Keycloak auth success!');
+        };
+
+        keycloak.onAuthLogout = function() {
+            console.log('Keycloak auth logout');
+        };
+
+        keycloak.onReady = function(authenticated) {
+            console.log('Keycloak ready. Authenticated:', authenticated);
+            if (authenticated) {
+                console.log('OnReady - Token present:', !!keycloak.token);
+                console.log('OnReady - Refresh token present:', !!keycloak.refreshToken);
+                console.log('OnReady - ID token present:', !!keycloak.idToken);
+            }
+        };
+
+        // Intercept XMLHttpRequest to see what's being sent/received
+        const originalXHROpen = XMLHttpRequest.prototype.open;
+        const originalXHRSend = XMLHttpRequest.prototype.send;
+
+        XMLHttpRequest.prototype.open = function(method, url) {
+            this._url = url;
+            this._method = method;
+            return originalXHROpen.apply(this, arguments);
+        };
+
+        XMLHttpRequest.prototype.send = function(data) {
+            this.addEventListener('load', function() {
+                if (this._url && this._url.includes('/auth/')) {
+                    console.log(`XHR ${this._method} ${this._url} - Status: ${this.status}`);
+                    if (this.status >= 400) {
+                        console.error(`XHR Error Response:`, this.responseText);
+                    }
+                }
+            });
+            return originalXHRSend.apply(this, arguments);
+        };
+
+        console.log('Starting Keycloak init...');
+        console.log('Current URL:', window.location.href);
+        console.log('Redirect URI will be:', window.location.origin + window.location.pathname);
+
+        // Check if we're in a callback (URL has state/code parameters)
+        const isCallback = window.location.hash.includes('state=') && window.location.hash.includes('code=');
+        console.log('Is callback URL:', isCallback);
+
+        keycloak.init({
+            onLoad: isCallback ? 'check-sso' : 'login-required',
+            checkLoginIframe: false,
+            pkceMethod: 'S256',
+            redirectUri: window.location.origin + '/',
+            enableLogging: true,
+            responseMode: 'fragment',
+            flow: 'standard',
+            useNonce: false  // Disable nonce since we're using PKCE
+        }).then(authenticated => {
+            console.log('Keycloak init promise resolved');
+            console.log('Authenticated:', authenticated);
+
+            if (authenticated) {
+                console.log('User authenticated successfully');
+                console.log('Token:', keycloak.token ? 'Present (length: ' + keycloak.token.length + ')' : 'Missing');
+                console.log('Token parsed:', keycloak.tokenParsed);
+                console.log('Username:', keycloak.tokenParsed?.preferred_username);
+                console.log('Email:', keycloak.tokenParsed?.email);
+
+                // Hide loading screen and show app content
+                document.getElementById('auth-loading').style.display = 'none';
+                document.querySelector('.auth-content').classList.add('authenticated');
+
+                // Initialize the application
+                initializeApp();
+
+                // Set up token refresh
+                setInterval(() => {
+                    keycloak.updateToken(70).then(refreshed => {
+                        if (refreshed) {
+                            console.log('Token refreshed successfully');
+                        }
+                    }).catch(err => {
+                        console.error('Failed to refresh token:', err);
+                        keycloak.login();
+                    });
+                }, 60000); // Check every minute
+            } else {
+                console.log('User not authenticated, redirecting to login...');
+                // Redirect to login
+                keycloak.login({
+                    redirectUri: window.location.origin + '/'
+                });
+            }
+        }).catch(error => {
+            console.error('Keycloak initialization failed - caught error');
+            console.error('Error object:', error);
+            console.error('Error type:', typeof error);
+            console.error('Error constructor:', error?.constructor?.name);
+
+            if (error) {
+                console.error('Error keys:', Object.keys(error));
+                console.error('Error string:', String(error));
+                console.error('Error JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+            }
+
+            const errorMsg = error?.error_description || error?.error || error?.message || String(error) || 'Unknown authentication error';
+            showAuthError('Authentication system error: ' + errorMsg);
+            keycloakInitialized = false;  // Allow retry on error
+        });
+    } catch (error) {
+        console.error('Error creating Keycloak instance:', error);
+        showAuthError('Failed to initialize authentication: ' + error.message);
+        keycloakInitialized = false;  // Allow retry on error
+    }
+}
+
+function showAuthError(message) {
+    const errorDiv = document.getElementById('auth-error');
+    errorDiv.textContent = message;
+    document.querySelector('#auth-loading .spinner').style.display = 'none';
+}
+
+function initializeApp() {
+    console.log("Initializing application...");
+    initMap();
+    addDebugMessage('Running Tracker application initialized with MapLibre GL JS, session management and weather data support', 'system');
+    setupChartEventListeners();
+
+    setTimeout(() => {
+        if (altitudeChart && speedChart) {
+            addDebugMessage('Charts initialized successfully with hover support', 'system');
+        } else {
+            addDebugMessage('Chart initialization may have failed', 'error');
+        }
+    }, 1000);
+}
+
+// Initialize immediately when script loads, not on DOMContentLoaded
+// This prevents nonce issues with Keycloak callback
+if (typeof Keycloak !== 'undefined') {
+    console.log("Keycloak library already loaded, initializing immediately...");
+    // Add a small delay to ensure DOM is ready
+    setTimeout(() => {
+        initKeycloak();
+    }, 100);
+} else {
+    document.addEventListener('DOMContentLoaded', () => {
+        try {
+            console.log("DOM content loaded, waiting for Keycloak library...");
+
+            // Wait for Keycloak library to load
+            let attempts = 0;
+            const maxAttempts = 50; // 5 seconds max
+
+            const checkKeycloakLoaded = setInterval(() => {
+                attempts++;
+
+                if (typeof Keycloak !== 'undefined') {
+                    console.log("Keycloak library loaded, initializing...");
+                    clearInterval(checkKeycloakLoaded);
+                    initKeycloak();
+                } else if (attempts >= maxAttempts) {
+                    console.error("Keycloak library failed to load after timeout");
+                    clearInterval(checkKeycloakLoaded);
+                    showAuthError("Authentication library failed to load. Please check your internet connection and refresh the page.");
+                }
+            }, 100); // Check every 100ms
+
+        } catch (error) {
+            console.error("Error during application initialization:", error);
+            showAuthError("There was an error initializing the application: " + error.message);
+        }
+    });
+}

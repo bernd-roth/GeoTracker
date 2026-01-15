@@ -36,8 +36,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
-        // AppAuth redirect scheme for OAuth
-        manifestPlaceholders["appAuthRedirectScheme"] = "http"
+        // AppAuth redirect scheme for OAuth with Keycloak
+        manifestPlaceholders["appAuthRedirectScheme"] = "at.co.netconsulting.geotracker"
     }
 
     buildTypes {
@@ -81,6 +81,8 @@ android {
 
     packaging {
         resources.excludes.add("/META-INF/{AL2.0,LGPL2.1}")
+        // Exclude server-side websocket files from the APK
+        resources.excludes.add("**/websocket/**")
     }
 
     testOptions {

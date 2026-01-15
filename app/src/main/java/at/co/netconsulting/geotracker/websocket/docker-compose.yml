@@ -44,7 +44,7 @@ services:
       - ./websocket_server.py:/app/websocket_server.py
       - ./logs:/app/logs
     command: >
-      sh -c "pip install websockets asyncpg python-dateutil &&
+      sh -c "pip install websockets asyncpg python-dateutil PyJWT cryptography &&
              python /app/websocket_server.py"
     expose:
       - "6789"

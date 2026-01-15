@@ -10,12 +10,71 @@ from collections import defaultdict
 from typing import Set, DefaultDict, List, Dict, Any, Optional
 import asyncpg
 from dateutil import parser
+import jwt
+from jwt import PyJWKClient
+from urllib.parse import urlparse, parse_qs
 
 logging.basicConfig(
     filename='/app/logs/websocket.log',
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# Keycloak configuration
+KEYCLOAK_URL = "https://geotracker.duckdns.org/auth"
+KEYCLOAK_REALM = "geotracker"
+KEYCLOAK_CLIENT_ID = "geotracker-web"
+
+# Initialize JWKS client for token validation
+jwks_url = f"{KEYCLOAK_URL}/realms/{KEYCLOAK_REALM}/protocol/openid-connect/certs"
+jwks_client = PyJWKClient(jwks_url)
+
+def validate_jwt_token(token: str) -> Dict[str, Any]:
+    """
+    Validate JWT token from Keycloak and return decoded payload.
+
+    Args:
+        token: JWT token string
+
+    Returns:
+        Dict containing decoded token payload
+
+    Raises:
+        Exception: If token validation fails
+    """
+    try:
+        # Get signing key from JWKS
+        signing_key = jwks_client.get_signing_key_from_jwt(token)
+
+        # Decode and validate token
+        # Note: access_token has aud="account", id_token has aud="geotracker-web"
+        # We accept both for flexibility
+        decoded_token = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            options={
+                "verify_signature": True,
+                "verify_exp": True,
+                "verify_aud": False  # Disable strict audience check
+            }
+        )
+
+        logging.info(f"Token validated successfully for user: {decoded_token.get('preferred_username', 'unknown')}")
+        return decoded_token
+
+    except jwt.ExpiredSignatureError:
+        logging.error("Token has expired")
+        raise Exception("Token has expired")
+    except jwt.InvalidAudienceError:
+        logging.error("Invalid token audience")
+        raise Exception("Invalid token audience")
+    except jwt.InvalidTokenError as e:
+        logging.error(f"Invalid token: {str(e)}")
+        raise Exception(f"Invalid token: {str(e)}")
+    except Exception as e:
+        logging.error(f"Token validation error: {str(e)}")
+        raise Exception(f"Token validation failed: {str(e)}")
 
 class SessionResetDetector:
     """Helper class to detect when sessions should be reset due to Android app restarts"""
@@ -2320,7 +2379,63 @@ class TrackingServer:
             logging.error(f"Error deleting session {session_id}: {str(e)}")
             return {"success": False, "reason": str(e)}
 
-    async def handle_client(self, websocket: websockets.WebSocketServerProtocol) -> None:
+    async def handle_client_with_auth(self, websocket) -> None:
+        """
+        Wrapper for handle_client that validates JWT token before allowing connection.
+        """
+        try:
+            # Extract token from query parameters
+            # Try different ways to access the path based on websockets version
+            if hasattr(websocket, 'path'):
+                path = websocket.path
+            elif hasattr(websocket, 'request') and hasattr(websocket.request, 'path'):
+                path = websocket.request.path
+            elif hasattr(websocket, 'request_headers'):
+                # Fallback: parse from the raw request
+                path = websocket.request_headers.get(':path', '/geotracker')
+            else:
+                path = '/geotracker'
+                logging.warning(f"Could not determine request path, using default: {path}")
+
+            logging.info(f"Connection request path: {path}")
+            parsed_url = urlparse(path)
+            query_params = parse_qs(parsed_url.query)
+
+            token = None
+            if 'token' in query_params and query_params['token']:
+                token = query_params['token'][0]
+
+            if not token:
+                logging.warning(f"Connection attempt without token from {websocket.remote_address}")
+                await websocket.close(1008, "Authentication required: No token provided")
+                return
+
+            # Validate the token
+            try:
+                decoded_token = validate_jwt_token(token)
+                # Store user info in websocket for later use
+                websocket.user_info = decoded_token
+                logging.info(f"Authenticated user {decoded_token.get('preferred_username', 'unknown')} from {websocket.remote_address}")
+            except Exception as e:
+                logging.warning(f"Authentication failed from {websocket.remote_address}: {str(e)}")
+                await websocket.close(1008, f"Authentication failed: {str(e)}")
+                return
+
+            # If authentication successful, proceed with normal client handling
+            await self.handle_client(websocket)
+
+        except Exception as e:
+            logging.error(f"Error in authentication wrapper: {str(e)}")
+            logging.error(f"Exception type: {type(e).__name__}")
+            logging.error(f"Exception details: {repr(e)}")
+            import traceback
+            logging.error(f"Full traceback:\n{traceback.format_exc()}")
+            try:
+                await websocket.close(1011, f"Auth error: {str(e)}")
+            except:
+                pass
+
+    async def handle_client(self, websocket) -> None:
         """Handle individual WebSocket client connection."""
         client_address = websocket.remote_address
         last_active_users_broadcast = datetime.datetime.now()
@@ -2835,8 +2950,8 @@ async def main():
         logging.info("Automatic memory cleanup is disabled")
 
     try:
-        async with websockets.serve(server.handle_client, "0.0.0.0", 6789):
-            logging.info("server listening on 0.0.0.0:6789")
+        async with websockets.serve(server.handle_client_with_auth, "0.0.0.0", 6789):
+            logging.info("server listening on 0.0.0.0:6789 with Keycloak authentication")
             try:
                 await asyncio.Future()  # run forever
             except asyncio.CancelledError:

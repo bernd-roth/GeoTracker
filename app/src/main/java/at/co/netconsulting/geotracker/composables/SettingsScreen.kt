@@ -71,6 +71,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
 import at.co.netconsulting.geotracker.tools.DatabaseImporter
+import at.co.netconsulting.geotracker.auth.KeycloakAuthManager
+import at.co.netconsulting.geotracker.LoginActivity
+import androidx.compose.material3.ButtonDefaults
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -156,6 +159,10 @@ fun SettingsScreen(
     var showImportConfirmation by remember { mutableStateOf(false) }
     var selectedDbFileUri by remember { mutableStateOf<Uri?>(null) }
     var isImportInProgress by remember { mutableStateOf(false) }
+
+    // Logout state
+    var showLogoutConfirmation by remember { mutableStateOf(false) }
+    val authManager = remember { KeycloakAuthManager(context) }
 
     // Update last backup time display
     LaunchedEffect(Unit) {
@@ -801,6 +808,91 @@ fun SettingsScreen(
                 )
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Account section with logout
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .background(
+                    color = Color.Transparent,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+                .border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline,
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(4.dp)
+                )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp)
+            ) {
+                Text(
+                    text = "Account",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Text(
+                    text = if (authManager.isAuthenticated()) "You are logged in" else "Not logged in",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+
+                Button(
+                    onClick = { showLogoutConfirmation = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    ),
+                    enabled = authManager.isAuthenticated()
+                ) {
+                    Text("Logout")
+                }
+
+                Text(
+                    text = "Logging out will require you to sign in again to sync data with the server.",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+        }
+    }
+
+    // Logout confirmation dialog
+    if (showLogoutConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showLogoutConfirmation = false },
+            title = { Text("Logout") },
+            text = { Text("Are you sure you want to logout? You will need to sign in again to upload tracking data to the server.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLogoutConfirmation = false
+                        authManager.logout()
+                        // Navigate to LoginActivity
+                        val intent = Intent(context, LoginActivity::class.java)
+                        intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                        context.startActivity(intent)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Text("Logout")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showLogoutConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // Show time picker dialog

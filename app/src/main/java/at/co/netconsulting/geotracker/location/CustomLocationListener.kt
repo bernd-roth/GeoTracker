@@ -12,6 +12,7 @@ import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
+import at.co.netconsulting.geotracker.auth.KeycloakAuthManager
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.CurrentWeather
 import at.co.netconsulting.geotracker.tools.LocalDateTimeAdapter
@@ -22,12 +23,15 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import kotlin.coroutines.resume
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -406,6 +410,38 @@ class CustomLocationListener: LocationListener {
         locationManager = this.context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
 
+    /**
+     * Get authenticated WebSocket URL with JWT token
+     */
+    private suspend fun getAuthenticatedWebSocketUrl(): String? {
+        return suspendCancellableCoroutine { continuation ->
+            val authManager = KeycloakAuthManager(context)
+            authManager.getAccessToken { token ->
+                if (token != null) {
+                    try {
+                        val baseUrl = "wss://$websocketserver/geotracker"
+                        // Add token as query parameter
+                        val httpUrl = baseUrl.replace("wss://", "https://").toHttpUrl()
+                        val authenticatedUrl = httpUrl.newBuilder()
+                            .addQueryParameter("token", token)
+                            .build()
+                            .toString()
+                            .replace("https://", "wss://")
+
+                        Log.d(TAG_WEBSOCKET, "Created authenticated WebSocket URL with token")
+                        continuation.resume(authenticatedUrl)
+                    } catch (e: Exception) {
+                        Log.e(TAG_WEBSOCKET, "Error building authenticated URL", e)
+                        continuation.resume(null)
+                    }
+                } else {
+                    Log.w(TAG_WEBSOCKET, "No access token available")
+                    continuation.resume(null)
+                }
+            }
+        }
+    }
+
     private fun connectWebSocket(initialConnect: Boolean = true) {
         if (isReconnecting && !initialConnect) {
             reconnectAttempts++
@@ -417,21 +453,30 @@ class CustomLocationListener: LocationListener {
 
         Log.d(
             TAG_WEBSOCKET,
-            "Attempting to connect to WebSocket server: ws://$websocketserver:8011/geotracker"
+            "Attempting to connect to WebSocket server: wss://$websocketserver/geotracker"
         )
 
-        val client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .pingInterval(20, TimeUnit.SECONDS)
-            .build()
+        // Get JWT token and connect
+        coroutineScope.launch {
+            val authenticatedUrl = getAuthenticatedWebSocketUrl()
+            if (authenticatedUrl == null) {
+                Log.e(TAG_WEBSOCKET, "Failed to get authenticated WebSocket URL")
+                reconnectWebSocket()
+                return@launch
+            }
 
-        val request = Request.Builder()
-            .url("wss://" + websocketserver + "/geotracker")
-            .build()
+            val client = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .pingInterval(20, TimeUnit.SECONDS)
+                .build()
 
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            val request = Request.Builder()
+                .url(authenticatedUrl)
+                .build()
+
+            webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                 super.onMessage(webSocket, bytes)
                 Timber.tag(TAG_WEBSOCKET).d("Received binary message: ${bytes.hex()}")
@@ -446,7 +491,9 @@ class CustomLocationListener: LocationListener {
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 super.onFailure(webSocket, t, response)
                 isWebSocketConnected = false
-                Timber.tag(TAG_WEBSOCKET).e(t, "WebSocket connection failed")
+                Log.e(TAG_WEBSOCKET, "WebSocket connection failed - Error: ${t.message}")
+                Log.e(TAG_WEBSOCKET, "Response code: ${response?.code}, message: ${response?.message}")
+                t.printStackTrace()
 
                 // Handle reconnection with exponential backoff
                 reconnectWebSocket()
@@ -454,21 +501,22 @@ class CustomLocationListener: LocationListener {
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
                 super.onClosing(webSocket, code, reason)
-                Timber.tag(TAG_WEBSOCKET).d("WebSocket connection closing: $reason")
+                Log.d(TAG_WEBSOCKET, "WebSocket connection closing: code=$code, reason=$reason")
                 webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 super.onClosed(webSocket, code, reason)
                 isWebSocketConnected = false
-                Timber.tag(TAG_WEBSOCKET).d("WebSocket connection closed: $reason")
+                Log.d(TAG_WEBSOCKET, "WebSocket connection closed: code=$code, reason=$reason")
             }
 
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 super.onOpen(webSocket, response)
                 isWebSocketConnected = true
                 lastMessageTime = System.currentTimeMillis()
-                Timber.tag(TAG_WEBSOCKET).d("WebSocket connection opened")
+                Log.d(TAG_WEBSOCKET, "✓ WebSocket connection OPENED successfully!")
+                Log.d(TAG_WEBSOCKET, "Response code: ${response.code}, protocol: ${response.protocol}")
                 // Reset reconnection state
                 isReconnecting = false
                 reconnectAttempts = 0
@@ -477,6 +525,7 @@ class CustomLocationListener: LocationListener {
                 startWebSocketHealthCheck()
             }
         })
+        }
     }
 
     override fun onLocationChanged(location: Location) {

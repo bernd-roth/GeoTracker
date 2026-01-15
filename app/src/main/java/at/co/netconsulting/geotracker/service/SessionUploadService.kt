@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.util.Log
+import at.co.netconsulting.geotracker.auth.KeycloakAuthManager
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Event
 import com.google.gson.Gson
@@ -13,6 +14,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.delay
 import okhttp3.*
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okio.ByteString
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -53,6 +55,37 @@ class SessionUploadService(private val context: Context) {
             "wss://$serverIp/geotracker"
         } else {
             null
+        }
+    }
+
+    /**
+     * Get authenticated WebSocket URL with JWT token
+     */
+    private suspend fun getAuthenticatedWebSocketUrl(baseUrl: String): String? {
+        return suspendCancellableCoroutine { continuation ->
+            val authManager = KeycloakAuthManager(context)
+            authManager.getAccessToken { token ->
+                if (token != null) {
+                    try {
+                        // Add token as query parameter
+                        val httpUrl = baseUrl.replace("wss://", "https://").toHttpUrl()
+                        val authenticatedUrl = httpUrl.newBuilder()
+                            .addQueryParameter("token", token)
+                            .build()
+                            .toString()
+                            .replace("https://", "wss://")
+
+                        Log.d(TAG, "Created authenticated WebSocket URL with token")
+                        continuation.resume(authenticatedUrl)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error building authenticated URL", e)
+                        continuation.resume(null)
+                    }
+                } else {
+                    Log.w(TAG, "No access token available")
+                    continuation.resume(null)
+                }
+            }
         }
     }
 
@@ -359,9 +392,16 @@ class SessionUploadService(private val context: Context) {
             return null
         }
 
+        // Get authenticated URL with JWT token
+        val authenticatedUrl = getAuthenticatedWebSocketUrl(serverUrl)
+        if (authenticatedUrl == null) {
+            Log.e(TAG, "Failed to create authenticated WebSocket URL")
+            return null
+        }
+
         return withTimeoutOrNull(TIMEOUT_SECONDS * 1000) {
             suspendCancellableCoroutine { continuation ->
-                val request = Request.Builder().url(serverUrl).build()
+                val request = Request.Builder().url(authenticatedUrl).build()
                 var webSocket: WebSocket? = null
                 var responseReceived = false
 

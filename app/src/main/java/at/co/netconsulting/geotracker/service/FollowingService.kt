@@ -2,6 +2,7 @@ package at.co.netconsulting.geotracker.service
 
 import android.content.Context
 import android.util.Log
+import at.co.netconsulting.geotracker.auth.KeycloakAuthManager
 import at.co.netconsulting.geotracker.data.ActiveUser
 import at.co.netconsulting.geotracker.data.FollowedUserPoint
 import at.co.netconsulting.geotracker.data.FollowedUserLapTime
@@ -17,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -25,6 +28,7 @@ import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
 
 class FollowingService private constructor(private val context: Context) {
 
@@ -171,6 +175,36 @@ class FollowingService private constructor(private val context: Context) {
         periodicRefreshJob = null
     }
 
+    /**
+     * Get authenticated WebSocket URL with JWT token
+     */
+    private suspend fun getAuthenticatedWebSocketUrl(baseUrl: String): String? {
+        return suspendCancellableCoroutine { continuation ->
+            val authManager = KeycloakAuthManager(context)
+            authManager.getAccessToken { token ->
+                if (token != null) {
+                    try {
+                        val httpUrl = baseUrl.replace("wss://", "https://").toHttpUrl()
+                        val authenticatedUrl = httpUrl.newBuilder()
+                            .addQueryParameter("token", token)
+                            .build()
+                            .toString()
+                            .replace("https://", "wss://")
+
+                        Log.d(TAG, "Created authenticated WebSocket URL for following mode")
+                        continuation.resume(authenticatedUrl)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error building authenticated URL", e)
+                        continuation.resume(null)
+                    }
+                } else {
+                    Log.w(TAG, "No access token available for following mode")
+                    continuation.resume(null)
+                }
+            }
+        }
+    }
+
     fun connect() {
         if (isConnected) return
 
@@ -188,17 +222,26 @@ class FollowingService private constructor(private val context: Context) {
 
         Log.d(TAG, "Connecting to WebSocket server for following mode: $websocketUrl")
 
-        val client = OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(0, TimeUnit.SECONDS) // No timeout for WebSocket
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .build()
+        // Launch coroutine to get authenticated URL
+        serviceScope.launch {
+            val authenticatedUrl = getAuthenticatedWebSocketUrl(websocketUrl)
+            if (authenticatedUrl == null) {
+                Log.e(TAG, "Failed to create authenticated WebSocket URL - user may need to login")
+                return@launch
+            }
 
-        val request = Request.Builder()
-            .url(websocketUrl)
-            .build()
+            val client = OkHttpClient.Builder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(0, TimeUnit.SECONDS) // No timeout for WebSocket
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .build()
 
-        webSocket = client.newWebSocket(request, webSocketListener)
+            val request = Request.Builder()
+                .url(authenticatedUrl)
+                .build()
+
+            webSocket = client.newWebSocket(request, webSocketListener)
+        }
     }
 
     fun disconnect() {

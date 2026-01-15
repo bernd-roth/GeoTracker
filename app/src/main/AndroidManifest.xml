@@ -38,14 +38,29 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.GeoTracker"
         tools:targetApi="31">
+        <!-- Login Activity - New Launcher -->
         <activity
-            android:name=".CrashRecoveryActivity"
+            android:name=".LoginActivity"
             android:exported="true"
             android:theme="@style/Theme.GeoTracker">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- AppAuth redirect handling -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="at.co.netconsulting.geotracker"
+                    android:host="oauth2redirect" />
+            </intent-filter>
+        </activity>
+        <activity
+            android:name=".CrashRecoveryActivity"
+            android:exported="false"
+            android:theme="@style/Theme.GeoTracker">
         </activity>
         <activity
             android:name=".MainActivity"
