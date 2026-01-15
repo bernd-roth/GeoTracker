@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.09")} (13-01-2026: height and weight input type changed to string for better readability)"
+        versionName = "${getNextVersion("7.10")} (15-01-2026: no entry in database, if no heart rate device is provided)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

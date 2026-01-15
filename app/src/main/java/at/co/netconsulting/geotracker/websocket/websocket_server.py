@@ -604,8 +604,11 @@ class TrackingServer:
 
     async def get_or_create_heart_rate_device(self, conn, device_name: str) -> int:
         """Get existing heart rate device or create new one, return device_id."""
-        if not device_name:
+        # Filter out empty, None, whitespace-only, or literal "None" strings
+        if not device_name or not device_name.strip() or device_name.strip().lower() == 'none':
             return None
+
+        device_name = device_name.strip()
 
         device_id = await conn.fetchval("""
             SELECT device_id FROM heart_rate_devices WHERE device_name = $1

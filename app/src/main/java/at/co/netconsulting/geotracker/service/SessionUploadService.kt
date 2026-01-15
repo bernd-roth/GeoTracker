@@ -170,7 +170,10 @@ class SessionUploadService(private val context: Context) {
 
                     // Heart rate
                     point.addProperty("heartRate", metric.heartRate)
-                    point.addProperty("heartRateDevice", metric.heartRateDevice)
+                    // Only include heartRateDevice if it's not empty
+                    if (!metric.heartRateDevice.isNullOrBlank()) {
+                        point.addProperty("heartRateDevice", metric.heartRateDevice)
+                    }
 
                     // Lap
                     point.addProperty("lap", metric.lap)
@@ -208,7 +211,7 @@ class SessionUploadService(private val context: Context) {
                     point.addProperty("coveredDistance", 0.0)
                     point.addProperty("cumulativeElevationGain", 0.0)
                     point.addProperty("heartRate", 0)
-                    point.addProperty("heartRateDevice", "")
+                    // heartRateDevice omitted - no device data available
                     point.addProperty("lap", 1)
                     point.addProperty("pressure", 0.0)
                     point.addProperty("pressureAccuracy", 0)
