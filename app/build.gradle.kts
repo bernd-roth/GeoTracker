@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.09")} (13-01-2026: height and weight input type changed to string for better readability)"
+        versionName = "${getNextVersion("7.10")} (16-01-2026: no entry in heart_rate_device table, if heart rate device is uploaded via upload service)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -81,6 +81,8 @@ android {
 
     packaging {
         resources.excludes.add("/META-INF/{AL2.0,LGPL2.1}")
+        // Exclude server-side websocket files from the APK
+        resources.excludes.add("**/websocket/**")
     }
 
     testOptions {
