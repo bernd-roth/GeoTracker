@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.10")} (16-01-2026: no entry in heart_rate_device table, if heart rate device is uploaded via upload service)"
+        versionName = "${getNextVersion("7.11")} (16-01-2026: show weather conditions in weather forecast, including temperature, humidity, wind speed plus direction, and snow)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

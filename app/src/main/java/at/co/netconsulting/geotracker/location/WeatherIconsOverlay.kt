@@ -160,9 +160,9 @@ class WeatherIconsOverlay(
         // Set icon based on weather type
         marker.icon = createWeatherIcon(condition.type)
 
-        // Set info window title
+        // Set info window title and snippet with temperature
         marker.title = getConditionTitle(condition.type)
-        marker.snippet = condition.value
+        marker.snippet = "${condition.value} | ${String.format("%.1f", condition.temperature)}°C"
 
         return marker
     }

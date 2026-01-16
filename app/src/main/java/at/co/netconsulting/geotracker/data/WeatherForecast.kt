@@ -34,7 +34,8 @@ data class RouteWeatherData(
 data class WeatherCondition(
     val position: GeoPoint,
     val type: WeatherType,
-    val value: String              // Display value (e.g., "5mm", "25km/h")
+    val value: String,             // Display value (e.g., "5mm", "25km/h")
+    val temperature: Double = 0.0  // Temperature at this location
 )
 
 /**

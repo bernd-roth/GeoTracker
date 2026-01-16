@@ -335,7 +335,8 @@ class WeatherForecastService(private val context: Context) {
                     WeatherCondition(
                         position = position,
                         type = WeatherType.RAIN,
-                        value = "${String.format("%.1f", forecast.precipitation)}mm"
+                        value = "${String.format("%.1f", forecast.precipitation)}mm",
+                        temperature = forecast.temperature
                     )
                 )
             }
@@ -346,7 +347,8 @@ class WeatherForecastService(private val context: Context) {
                     WeatherCondition(
                         position = position,
                         type = WeatherType.SNOW,
-                        value = "${String.format("%.1f", forecast.snowfall)}cm"
+                        value = "${String.format("%.1f", forecast.snowfall)}cm",
+                        temperature = forecast.temperature
                     )
                 )
             }
@@ -357,7 +359,8 @@ class WeatherForecastService(private val context: Context) {
                     WeatherCondition(
                         position = position,
                         type = WeatherType.WIND,
-                        value = "${String.format("%.0f", forecast.windSpeed)} km/h"
+                        value = "${String.format("%.0f", forecast.windSpeed)} km/h",
+                        temperature = forecast.temperature
                     )
                 )
             }
@@ -368,7 +371,8 @@ class WeatherForecastService(private val context: Context) {
                     WeatherCondition(
                         position = position,
                         type = WeatherType.HIGH_HUMIDITY,
-                        value = "${forecast.relativeHumidity}%"
+                        value = "${forecast.relativeHumidity}%",
+                        temperature = forecast.temperature
                     )
                 )
             }
