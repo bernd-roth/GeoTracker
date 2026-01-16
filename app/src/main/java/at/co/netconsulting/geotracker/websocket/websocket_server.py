@@ -5,16 +5,24 @@ import time
 import websockets
 import json
 import logging
+from logging.handlers import RotatingFileHandler
 import os
 from collections import defaultdict
 from typing import Set, DefaultDict, List, Dict, Any, Optional
 import asyncpg
 from dateutil import parser
 
+# Configure rotating log handler (10 MB max, keep 5 backups)
+log_handler = RotatingFileHandler(
+    '/app/logs/websocket.log',
+    maxBytes=10*1024*1024,
+    backupCount=5
+)
+log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
 logging.basicConfig(
-    filename='/app/logs/websocket.log',
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    handlers=[log_handler]
 )
 
 class SessionResetDetector:
