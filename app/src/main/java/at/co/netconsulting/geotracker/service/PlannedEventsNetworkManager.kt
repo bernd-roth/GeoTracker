@@ -9,41 +9,33 @@ import at.co.netconsulting.geotracker.domain.PlannedEvent
 import at.co.netconsulting.geotracker.reminder.ReminderManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.delay
-import com.google.gson.Gson
-import com.google.gson.JsonObject
-import com.google.gson.JsonArray
-import okhttp3.*
-import okio.ByteString
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
+import org.json.JSONObject
 import java.util.concurrent.TimeUnit
-import kotlin.coroutines.resume
 
+/**
+ * REST API client for PlannedEvents
+ * Handles upload/download of planned events via Flask REST API
+ */
 class PlannedEventsNetworkManager(private val context: Context) {
     private val database = FitnessTrackerDatabase.getInstance(context)
     private val reminderManager = ReminderManager(context)
-    private val gson = Gson()
 
     companion object {
         private const val TAG = "PlannedEventsNetwork"
         private const val TIMEOUT_SECONDS = 30L
-        private const val MAX_RETRIES = 3
-        private const val RETRY_DELAY_MS = 1000L
+    }
 
-        // ✅ Singleton OkHttpClient for connection reuse and pooling
-        private val okHttpClient: OkHttpClient by lazy {
-            OkHttpClient.Builder()
-                .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
-                .pingInterval(20, TimeUnit.SECONDS)
-                // ✅ Configure connection pool for better connection reuse
-                .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
-                // Note: Removed retry interceptor as it interferes with WebSocket upgrades
-                // WebSocket retry logic is handled at the application level instead
-                .build()
-        }
+    private val okHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .writeTimeout(TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
     }
 
     data class NetworkResult(
@@ -56,11 +48,11 @@ class PlannedEventsNetworkManager(private val context: Context) {
         val errors: List<String> = emptyList()
     )
 
-    private fun getWebsocketServerUrl(): String? {
+    private fun getApiBaseUrl(): String? {
         val sharedPreferences = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-        val serverIp = sharedPreferences.getString("websocketserver", "") ?: ""
-        return if (serverIp.isNotBlank()) {
-            "wss://$serverIp/geotracker"
+        val serverAddress = sharedPreferences.getString("websocketserver", "") ?: ""
+        return if (serverAddress.isNotBlank()) {
+            "https://$serverAddress/api"
         } else {
             null
         }
@@ -75,7 +67,6 @@ class PlannedEventsNetworkManager(private val context: Context) {
         )
     }
 
-    // ✅ Check network connectivity before attempting connections
     private fun isNetworkAvailable(): Boolean {
         return try {
             val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -84,190 +75,27 @@ class PlannedEventsNetworkManager(private val context: Context) {
             networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
         } catch (e: Exception) {
             Log.w(TAG, "Error checking network availability", e)
-            true // Assume network is available if we can't check
+            true
         }
     }
 
-    // ✅ Enhanced WebSocket message sending with comprehensive retry logic
-    private suspend fun sendWebSocketMessageWithRetry(
-        requestData: JsonObject,
-        expectedResponseType: String,
-        maxRetries: Int = MAX_RETRIES
-    ): JsonObject? {
-        if (!isNetworkAvailable()) {
-            Log.e(TAG, "No network connectivity available")
-            return null
-        }
-
-        repeat(maxRetries) { attempt ->
-            try {
-                Log.d(TAG, "WebSocket attempt ${attempt + 1}/$maxRetries - Network: ${isNetworkAvailable()}, Thread: ${Thread.currentThread().name}")
-
-                val result = sendWebSocketMessage(requestData, expectedResponseType)
-                if (result != null) {
-                    Log.d(TAG, "WebSocket successful on attempt ${attempt + 1}")
-                    return result
-                }
-                Log.w(TAG, "WebSocket attempt ${attempt + 1} returned null response")
-
-            } catch (e: Exception) {
-                Log.w(TAG, "WebSocket attempt ${attempt + 1} failed: ${e.message}", e)
-
-                // Don't retry on certain unrecoverable errors
-                when {
-                    e.message?.contains("404") == true -> {
-                        Log.e(TAG, "Server endpoint not found (404), not retrying")
-                        return null
-                    }
-                    e.message?.contains("401") == true || e.message?.contains("403") == true -> {
-                        Log.e(TAG, "Authentication error, not retrying")
-                        return null
-                    }
-                }
-            }
-
-            // Apply exponential backoff before retry (except on last attempt)
-            if (attempt < maxRetries - 1) {
-                val delayMs = RETRY_DELAY_MS * (attempt + 1)
-                Log.d(TAG, "Waiting ${delayMs}ms before retry...")
-                delay(delayMs)
-            }
-        }
-
-        Log.e(TAG, "All WebSocket attempts failed after $maxRetries tries")
-        return null
-    }
-
-    private suspend fun sendWebSocketMessage(requestData: JsonObject, expectedResponseType: String): JsonObject? {
-        val serverUrl = getWebsocketServerUrl()
-        if (serverUrl == null) {
-            Log.e(TAG, "WebSocket server URL not configured")
-            return null
-        }
-
-        return withTimeoutOrNull(TIMEOUT_SECONDS * 1000) {
-            suspendCancellableCoroutine { continuation ->
-                val request = Request.Builder().url(serverUrl).build()
-                var webSocket: WebSocket? = null
-                var responseReceived = false
-
-                val listener = object : WebSocketListener() {
-                    override fun onOpen(webSocket: WebSocket, response: Response) {
-                        Log.d(TAG, "WebSocket connected for planned events sync")
-
-                        // ✅ Properly close the HTTP response to prevent resource leaks
-                        try {
-                            response.close()
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Error closing HTTP response", e)
-                        }
-
-                        val jsonString = gson.toJson(requestData)
-                        Log.d(TAG, "Sending: $jsonString")
-
-                        // ✅ Check if connection is still active before sending
-                        try {
-                            if (!webSocket.send(jsonString)) {
-                                Log.e(TAG, "Failed to send message - WebSocket might be closed")
-                                webSocket.close(1000, "Send failed")
-                                if (continuation.isActive && !responseReceived) {
-                                    responseReceived = true
-                                    continuation.resume(null)
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Exception while sending message", e)
-                            webSocket.close(1000, "Send exception")
-                            if (continuation.isActive && !responseReceived) {
-                                responseReceived = true
-                                continuation.resume(null)
-                            }
-                        }
-                    }
-
-                    override fun onMessage(webSocket: WebSocket, text: String) {
-                        if (responseReceived) {
-                            Log.d(TAG, "Ignoring additional message (response already received)")
-                            return
-                        }
-
-                        Log.d(TAG, "Received: $text")
-                        try {
-                            val response = gson.fromJson(text, JsonObject::class.java)
-                            val responseType = response.get("type")?.asString
-
-                            if (responseType == expectedResponseType) {
-                                responseReceived = true
-                                webSocket.close(1000, "Complete")
-                                if (continuation.isActive) {
-                                    continuation.resume(response)
-                                }
-                            } else {
-                                Log.d(TAG, "Received different message type: $responseType, waiting for: $expectedResponseType")
-                                // Continue waiting for the expected response type
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error parsing response", e)
-                            responseReceived = true
-                            webSocket.close(1000, "Parse error")
-                            if (continuation.isActive) {
-                                continuation.resume(null)
-                            }
-                        }
-                    }
-
-                    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                        onMessage(webSocket, bytes.utf8())
-                    }
-
-                    override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                        Log.d(TAG, "WebSocket closing: $code - $reason")
-                    }
-
-                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        Log.d(TAG, "WebSocket closed: $code - $reason")
-                        if (continuation.isActive && !responseReceived) {
-                            responseReceived = true
-                            continuation.resume(null)
-                        }
-                    }
-
-                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                        Log.e(TAG, "WebSocket error: ${t.message}", t)
-
-                        // ✅ Close the response if provided to prevent resource leaks
-                        response?.close()
-
-                        if (continuation.isActive && !responseReceived) {
-                            responseReceived = true
-                            continuation.resume(null)
-                        }
-                    }
-                }
-
-                try {
-                    // ✅ Use singleton client for better connection reuse
-                    webSocket = okHttpClient.newWebSocket(request, listener)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error creating WebSocket", e)
-                    if (continuation.isActive && !responseReceived) {
-                        responseReceived = true
-                        continuation.resume(null)
-                    }
-                    return@suspendCancellableCoroutine
-                }
-
-                continuation.invokeOnCancellation {
-                    responseReceived = true
-                    webSocket?.close(1000, "Cancelled")
-                }
-            }
-        }
-    }
-
+    /**
+     * Upload planned events to the server via REST API
+     */
     suspend fun uploadPlannedEvents(): NetworkResult = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Starting upload of planned events")
+            Log.d(TAG, "Starting upload of planned events via REST API")
+
+            val baseUrl = getApiBaseUrl()
+            if (baseUrl == null) {
+                Log.e(TAG, "Server URL not configured")
+                return@withContext NetworkResult(false, "Server URL not configured")
+            }
+
+            if (!isNetworkAvailable()) {
+                Log.e(TAG, "No network connectivity available")
+                return@withContext NetworkResult(false, "No network connectivity")
+            }
 
             val (firstname, lastname, birthdate) = getUserInfo()
             if (firstname.isBlank()) {
@@ -275,11 +103,9 @@ class PlannedEventsNetworkManager(private val context: Context) {
                 return@withContext NetworkResult(false, "User information not configured")
             }
 
-            // Get current user ID
             val currentUserId = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
                 .getInt("current_user_id", 1)
 
-            // Get all planned events for current user
             val plannedEvents = database.plannedEventDao().getAllPlannedEventsForUser(currentUserId)
             Log.d(TAG, "Found ${plannedEvents.size} planned events to upload for user $currentUserId")
 
@@ -287,74 +113,103 @@ class PlannedEventsNetworkManager(private val context: Context) {
                 return@withContext NetworkResult(false, "No planned events to upload")
             }
 
-            // Convert to JSON using Gson
-            val eventsArray = JsonArray()
+            // Build JSON request
+            val eventsArray = JSONArray()
             plannedEvents.forEach { event ->
-                val eventJson = JsonObject().apply {
-                    addProperty("plannedEventName", event.plannedEventName)
-                    addProperty("plannedEventDate", event.plannedEventDate)
-                    addProperty("plannedEventType", event.plannedEventType)
-                    addProperty("plannedEventCountry", event.plannedEventCountry)
-                    addProperty("plannedEventCity", event.plannedEventCity)
-                    if (event.plannedLatitude != null) addProperty("plannedLatitude", event.plannedLatitude)
-                    if (event.plannedLongitude != null) addProperty("plannedLongitude", event.plannedLongitude)
-                    addProperty("isEnteredAndFinished", event.isEnteredAndFinished)
-                    addProperty("website", event.website)
-                    addProperty("comment", event.comment)
-                    addProperty("reminderDateTime", event.reminderDateTime)
-                    addProperty("isReminderActive", event.isReminderActive)
-                    addProperty("isRecurring", event.isRecurring)
-                    addProperty("recurringType", event.recurringType)
-                    addProperty("recurringInterval", event.recurringInterval)
-                    addProperty("recurringEndDate", event.recurringEndDate)
-                    addProperty("recurringDaysOfWeek", event.recurringDaysOfWeek)
+                val eventJson = JSONObject().apply {
+                    put("plannedEventName", event.plannedEventName)
+                    put("plannedEventDate", event.plannedEventDate)
+                    put("plannedEventType", event.plannedEventType)
+                    put("plannedEventCountry", event.plannedEventCountry)
+                    put("plannedEventCity", event.plannedEventCity)
+                    event.plannedLatitude?.let { put("plannedLatitude", it) }
+                    event.plannedLongitude?.let { put("plannedLongitude", it) }
+                    put("isEnteredAndFinished", event.isEnteredAndFinished)
+                    put("website", event.website)
+                    put("comment", event.comment)
+                    put("reminderDateTime", event.reminderDateTime)
+                    put("isReminderActive", event.isReminderActive)
+                    put("isRecurring", event.isRecurring)
+                    put("recurringType", event.recurringType)
+                    put("recurringInterval", event.recurringInterval)
+                    put("recurringEndDate", event.recurringEndDate)
+                    put("recurringDaysOfWeek", event.recurringDaysOfWeek)
                 }
-                eventsArray.add(eventJson)
+                eventsArray.put(eventJson)
             }
 
-            val requestJson = JsonObject().apply {
-                addProperty("type", "upload_planned_events")
-                add("events", eventsArray)
-                addProperty("userFirstname", firstname)
-                addProperty("userLastname", lastname)
-                addProperty("userBirthdate", birthdate)
+            val requestJson = JSONObject().apply {
+                put("events", eventsArray)
+                put("firstname", firstname)
+                put("lastname", lastname)
+                put("birthdate", birthdate)
             }
 
-            // ✅ Use retry logic for better reliability
-            val response = sendWebSocketMessageWithRetry(requestJson, "upload_planned_events_response")
+            val requestBody = requestJson.toString()
+                .toRequestBody("application/json".toMediaType())
 
-            if (response != null && response.get("success")?.asBoolean == true) {
+            val request = Request.Builder()
+                .url("$baseUrl/planned-events/upload")
+                .post(requestBody)
+                .build()
+
+            Log.d(TAG, "Uploading ${eventsArray.length()} events to $baseUrl/planned-events/upload")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val data = json.optJSONObject("data")
+
                 val errors = mutableListOf<String>()
-                response.get("errors")?.asJsonArray?.forEach { error ->
-                    errors.add(error.asString)
+                data?.optJSONArray("errors")?.let { errorsArray ->
+                    for (i in 0 until errorsArray.length()) {
+                        errors.add(errorsArray.getString(i))
+                    }
                 }
 
                 val result = NetworkResult(
                     success = true,
                     message = "Events uploaded successfully",
-                    uploadedCount = response.get("uploaded_count")?.asInt ?: 0,
-                    duplicateCount = response.get("duplicate_count")?.asInt ?: 0,
-                    errorCount = response.get("error_count")?.asInt ?: 0,
+                    uploadedCount = data?.optInt("uploaded_count", 0) ?: 0,
+                    duplicateCount = data?.optInt("duplicate_count", 0) ?: 0,
+                    errorCount = data?.optInt("error_count", 0) ?: 0,
                     errors = errors
                 )
 
                 Log.d(TAG, "Upload successful: ${result.uploadedCount} uploaded, ${result.duplicateCount} duplicates, ${result.errorCount} errors")
                 return@withContext result
-
             } else {
-                val errorMessage = response?.get("error")?.asString ?: "Upload failed - no response from server after retries"
-                Log.e(TAG, "Upload failed: $errorMessage")
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Upload failed: ${response.code} - $errorBody")
+                val errorJson = try { JSONObject(errorBody) } catch (e: Exception) { JSONObject() }
+                val errorMessage = errorJson.optString("error", "Upload failed: ${response.code}")
                 return@withContext NetworkResult(false, errorMessage)
             }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error uploading planned events", e)
             return@withContext NetworkResult(false, "Upload failed: ${e.message}")
         }
     }
 
+    /**
+     * Download planned events from the server via REST API
+     */
     suspend fun downloadPlannedEvents(): NetworkResult = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "Starting download of planned events")
+            Log.d(TAG, "Starting download of planned events via REST API")
+
+            val baseUrl = getApiBaseUrl()
+            if (baseUrl == null) {
+                Log.e(TAG, "Server URL not configured")
+                return@withContext NetworkResult(false, "Server URL not configured")
+            }
+
+            if (!isNetworkAvailable()) {
+                Log.e(TAG, "No network connectivity available")
+                return@withContext NetworkResult(false, "No network connectivity")
+            }
 
             val (firstname, lastname, birthdate) = getUserInfo()
             if (firstname.isBlank()) {
@@ -365,97 +220,102 @@ class PlannedEventsNetworkManager(private val context: Context) {
             val currentUserId = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
                 .getInt("current_user_id", 1)
 
-            val requestJson = JsonObject().apply {
-                addProperty("type", "download_planned_events")
-                addProperty("userFirstname", firstname)
-                addProperty("userLastname", lastname)
-                addProperty("userBirthdate", birthdate)
-                addProperty("excludeUserEvents", true) // Don't download user's own events
-            }
+            // Build URL with query parameters
+            val urlBuilder = StringBuilder("$baseUrl/planned-events/download?firstname=$firstname")
+            if (lastname.isNotBlank()) urlBuilder.append("&lastname=$lastname")
+            if (birthdate.isNotBlank()) urlBuilder.append("&birthdate=$birthdate")
+            urlBuilder.append("&exclude_user_events=true")
 
-            // ✅ Use retry logic for better reliability
-            val response = sendWebSocketMessageWithRetry(requestJson, "download_planned_events_response")
+            val request = Request.Builder()
+                .url(urlBuilder.toString())
+                .get()
+                .build()
 
-            if (response != null && response.get("success")?.asBoolean == true) {
-                val eventsArray = response.get("events")?.asJsonArray
+            Log.d(TAG, "Downloading events from $urlBuilder")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val data = json.optJSONObject("data")
+                val eventsArray = data?.optJSONArray("events")
+
                 var savedCount = 0
                 var duplicateCount = 0
                 val errors = mutableListOf<String>()
 
-                Log.d(TAG, "Processing ${eventsArray?.size() ?: 0} downloaded events")
+                Log.d(TAG, "Processing ${eventsArray?.length() ?: 0} downloaded events")
 
-                eventsArray?.forEach { eventElement ->
-                    try {
-                        val eventJson = eventElement.asJsonObject
+                eventsArray?.let { events ->
+                    for (i in 0 until events.length()) {
+                        try {
+                            val eventJson = events.getJSONObject(i)
 
-                        // Check if event already exists locally (avoid duplicates)
-                        val eventName = eventJson.get("plannedEventName").asString
-                        val eventDate = eventJson.get("plannedEventDate").asString
-                        val eventCountry = eventJson.get("plannedEventCountry").asString
-                        val eventCity = eventJson.get("plannedEventCity").asString
+                            val eventName = eventJson.optString("planned_event_name", "")
+                            val eventDate = eventJson.optString("planned_event_date", "")
+                            val eventCountry = eventJson.optString("planned_event_country", "")
+                            val eventCity = eventJson.optString("planned_event_city", "")
 
-                        val existingEvents = database.plannedEventDao().searchPlannedEvents(
-                            currentUserId,
-                            eventName
-                        ).filter { existing ->
-                            existing.plannedEventName == eventName &&
-                                    existing.plannedEventDate == eventDate &&
-                                    existing.plannedEventCountry == eventCountry &&
-                                    existing.plannedEventCity == eventCity
-                        }
-
-                        if (existingEvents.isNotEmpty()) {
-                            duplicateCount++
-                            Log.d(TAG, "Skipping duplicate event: $eventName")
-                            return@forEach
-                        }
-
-                        // Create new PlannedEvent
-                        val plannedEvent = PlannedEvent(
-                            userId = currentUserId,
-                            plannedEventName = eventName,
-                            plannedEventDate = eventDate,
-                            plannedEventType = eventJson.get("plannedEventType")?.asString ?: "",
-                            plannedEventCountry = eventCountry,
-                            plannedEventCity = eventCity,
-                            plannedLatitude = eventJson.get("plannedLatitude")?.let {
-                                if (it.isJsonNull) null else it.asDouble
-                            },
-                            plannedLongitude = eventJson.get("plannedLongitude")?.let {
-                                if (it.isJsonNull) null else it.asDouble
-                            },
-                            isEnteredAndFinished = eventJson.get("isEnteredAndFinished")?.asBoolean ?: false,
-                            website = eventJson.get("website")?.asString ?: "",
-                            comment = eventJson.get("comment")?.asString ?: "",
-                            reminderDateTime = eventJson.get("reminderDateTime")?.asString ?: "",
-                            isReminderActive = eventJson.get("isReminderActive")?.asBoolean ?: false,
-                            isRecurring = eventJson.get("isRecurring")?.asBoolean ?: false,
-                            recurringType = eventJson.get("recurringType")?.asString ?: "",
-                            recurringInterval = eventJson.get("recurringInterval")?.asInt ?: 1,
-                            recurringEndDate = eventJson.get("recurringEndDate")?.asString ?: "",
-                            recurringDaysOfWeek = eventJson.get("recurringDaysOfWeek")?.asString ?: ""
-                        )
-
-                        // Save to local database
-                        val eventId = database.plannedEventDao().insertPlannedEvent(plannedEvent).toInt()
-                        Log.d(TAG, "Saved downloaded event: $eventName with ID: $eventId")
-
-                        // Set up reminder if active
-                        if (plannedEvent.isReminderActive && plannedEvent.reminderDateTime.isNotEmpty()) {
-                            try {
-                                val savedEvent = plannedEvent.copy(plannedEventId = eventId)
-                                reminderManager.updateReminder(savedEvent)
-                                Log.d(TAG, "Set up reminder for downloaded event: ${plannedEvent.plannedEventName}")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error setting up reminder for downloaded event", e)
-                                errors.add("Could not set reminder for ${plannedEvent.plannedEventName}: ${e.message}")
+                            // Check for duplicates locally
+                            val existingEvents = database.plannedEventDao().searchPlannedEvents(
+                                currentUserId,
+                                eventName
+                            ).filter { existing ->
+                                existing.plannedEventName == eventName &&
+                                        existing.plannedEventDate == eventDate &&
+                                        existing.plannedEventCountry == eventCountry &&
+                                        existing.plannedEventCity == eventCity
                             }
-                        }
 
-                        savedCount++
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error processing downloaded event", e)
-                        errors.add("Error processing event: ${e.message}")
+                            if (existingEvents.isNotEmpty()) {
+                                duplicateCount++
+                                Log.d(TAG, "Skipping duplicate event: $eventName")
+                                continue
+                            }
+
+                            // Create new PlannedEvent
+                            val plannedEvent = PlannedEvent(
+                                userId = currentUserId,
+                                plannedEventName = eventName,
+                                plannedEventDate = eventDate,
+                                plannedEventType = eventJson.optString("planned_event_type", ""),
+                                plannedEventCountry = eventCountry,
+                                plannedEventCity = eventCity,
+                                plannedLatitude = if (eventJson.isNull("planned_latitude")) null else eventJson.optDouble("planned_latitude"),
+                                plannedLongitude = if (eventJson.isNull("planned_longitude")) null else eventJson.optDouble("planned_longitude"),
+                                isEnteredAndFinished = eventJson.optBoolean("is_entered_and_finished", false),
+                                website = eventJson.optString("website", ""),
+                                comment = eventJson.optString("comment", ""),
+                                reminderDateTime = eventJson.optString("reminder_date_time", ""),
+                                isReminderActive = eventJson.optBoolean("is_reminder_active", false),
+                                isRecurring = eventJson.optBoolean("is_recurring", false),
+                                recurringType = eventJson.optString("recurring_type", ""),
+                                recurringInterval = eventJson.optInt("recurring_interval", 1),
+                                recurringEndDate = eventJson.optString("recurring_end_date", ""),
+                                recurringDaysOfWeek = eventJson.optString("recurring_days_of_week", "")
+                            )
+
+                            // Save to local database
+                            val eventId = database.plannedEventDao().insertPlannedEvent(plannedEvent).toInt()
+                            Log.d(TAG, "Saved downloaded event: $eventName with ID: $eventId")
+
+                            // Set up reminder if active
+                            if (plannedEvent.isReminderActive && plannedEvent.reminderDateTime.isNotEmpty()) {
+                                try {
+                                    val savedEvent = plannedEvent.copy(plannedEventId = eventId)
+                                    reminderManager.updateReminder(savedEvent)
+                                    Log.d(TAG, "Set up reminder for downloaded event: ${plannedEvent.plannedEventName}")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error setting up reminder for downloaded event", e)
+                                    errors.add("Could not set reminder for ${plannedEvent.plannedEventName}: ${e.message}")
+                                }
+                            }
+
+                            savedCount++
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error processing downloaded event", e)
+                            errors.add("Error processing event: ${e.message}")
+                        }
                     }
                 }
 
@@ -471,10 +331,13 @@ class PlannedEventsNetworkManager(private val context: Context) {
                 return@withContext result
 
             } else {
-                val errorMessage = response?.get("error")?.asString ?: "Download failed - no response from server after retries"
-                Log.e(TAG, "Download failed: $errorMessage")
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Download failed: ${response.code} - $errorBody")
+                val errorJson = try { JSONObject(errorBody) } catch (e: Exception) { JSONObject() }
+                val errorMessage = errorJson.optString("error", "Download failed: ${response.code}")
                 return@withContext NetworkResult(false, errorMessage)
             }
+
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading planned events", e)
             return@withContext NetworkResult(false, "Download failed: ${e.message}")
@@ -482,66 +345,38 @@ class PlannedEventsNetworkManager(private val context: Context) {
     }
 
     /**
-     * Test the planned events sync connection with enhanced retry logic
+     * Test the REST API connection
      */
     suspend fun testPlannedEventsConnection(): NetworkResult = withContext(Dispatchers.IO) {
-        val websocketserver = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-            .getString("websocketserver", "") ?: ""
-
-        if (websocketserver.isBlank()) {
-            Log.e(TAG, "WebSocket server not configured")
-            return@withContext NetworkResult(false, "WebSocket server not configured")
+        val baseUrl = getApiBaseUrl()
+        if (baseUrl == null) {
+            Log.e(TAG, "Server URL not configured")
+            return@withContext NetworkResult(false, "Server URL not configured")
         }
 
-        Log.d(TAG, "Testing planned events connection to: wss://$websocketserver:6789")
+        Log.d(TAG, "Testing REST API connection to: $baseUrl/health")
 
         return@withContext try {
-            // Create test request
-            val testRequest = JsonObject().apply {
-                addProperty("type", "ping")
-                addProperty("message", "planned_events_test")
-            }
+            val request = Request.Builder()
+                .url("$baseUrl/health")
+                .get()
+                .build()
 
-            // ✅ Use retry logic for connection test (fewer retries for test)
-            val response = sendWebSocketMessageWithRetry(testRequest, "pong", maxRetries = 2)
+            val response = okHttpClient.newCall(request).execute()
 
-            if (response != null) {
-                val message = response.get("message")?.asString ?: "Connection successful"
-                Log.d(TAG, "Connection test successful: $message")
-                NetworkResult(true, "Connection test successful: $message")
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val status = json.optString("status", "unknown")
+                Log.d(TAG, "Connection test successful: $status")
+                NetworkResult(true, "Connection successful: $status")
             } else {
-                Log.e(TAG, "Connection test failed - no response from server")
-                NetworkResult(false, "No response from server after retries")
+                Log.e(TAG, "Connection test failed: ${response.code}")
+                NetworkResult(false, "Connection failed: ${response.code}")
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error testing connection", e)
             NetworkResult(false, "Connection test failed: ${e.message}")
-        }
-    }
-
-    /**
-     * ✅ Add connection cleanup method for proper resource management
-     */
-    fun cleanup() {
-        try {
-            Log.d(TAG, "Cleaning up WebSocket resources")
-            okHttpClient.dispatcher.executorService.shutdown()
-            okHttpClient.connectionPool.evictAll()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error during cleanup", e)
-        }
-    }
-
-    /**
-     * ✅ Get connection statistics for debugging
-     */
-    fun getConnectionStats(): String {
-        return try {
-            val pool = okHttpClient.connectionPool
-            "Connections - Idle: ${pool.idleConnectionCount()}, Total: ${pool.connectionCount()}"
-        } catch (e: Exception) {
-            "Connection stats unavailable: ${e.message}"
         }
     }
 }

@@ -114,6 +114,7 @@ import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModelFactory
+import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -276,6 +277,9 @@ fun EventsScreen(
     var selectedEventId by remember { mutableStateOf<Int?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
+    var deleteFromRemote by remember { mutableStateOf(false) }
+    var isDeletingRemote by remember { mutableStateOf(false) }
+    val apiClient = remember { GeoTrackerApiClient(context) }
 
     var showSyncDialog by remember { mutableStateOf(false) }
     var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
@@ -325,14 +329,61 @@ fun EventsScreen(
 
     // Delete confirmation dialog
     if (showDeleteDialog && eventToDelete != null) {
+        val isUploaded = eventToDelete?.event?.isUploaded == true ||
+                         eventToDelete?.event?.sessionId != null
+
         AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
+            onDismissRequest = {
+                if (!isDeletingRemote) {
+                    showDeleteDialog = false
+                    deleteFromRemote = false
+                }
+            },
             title = { Text("Delete Event") },
             text = {
-                if (eventToDelete?.event?.eventId == activeEventId && isRecording) {
-                    Text("Cannot delete an event that is currently being recorded.")
-                } else {
-                    Text("Are you sure you want to delete '${eventToDelete?.event?.eventName}'?")
+                Column {
+                    if (eventToDelete?.event?.eventId == activeEventId && isRecording) {
+                        Text("Cannot delete an event that is currently being recorded.")
+                    } else {
+                        Text("Are you sure you want to delete '${eventToDelete?.event?.eventName}'?")
+
+                        // Show checkbox to delete from remote if event is uploaded
+                        if (isUploaded) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.clickable(enabled = !isDeletingRemote) {
+                                    deleteFromRemote = !deleteFromRemote
+                                }
+                            ) {
+                                Checkbox(
+                                    checked = deleteFromRemote,
+                                    onCheckedChange = { deleteFromRemote = it },
+                                    enabled = !isDeletingRemote
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Also delete from server",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                            }
+                            if (isDeletingRemote) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Deleting from server...",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -342,27 +393,55 @@ fun EventsScreen(
                             // Only allow deletion if not currently recording
                             if (event.event.eventId != activeEventId || !isRecording) {
                                 coroutineScope.launch {
+                                    var remoteDeleteSuccess = true
+                                    var remoteDeleteMessage = ""
+
+                                    // Delete from remote if checkbox is checked and event has sessionId
+                                    if (deleteFromRemote && event.event.sessionId != null) {
+                                        isDeletingRemote = true
+                                        try {
+                                            val result = apiClient.deleteSession(event.event.sessionId!!)
+                                            result.fold(
+                                                onSuccess = { response ->
+                                                    remoteDeleteMessage = "Deleted from server. "
+                                                },
+                                                onFailure = { error ->
+                                                    remoteDeleteSuccess = false
+                                                    remoteDeleteMessage = "Server delete failed: ${error.message}. "
+                                                }
+                                            )
+                                        } catch (e: Exception) {
+                                            remoteDeleteSuccess = false
+                                            remoteDeleteMessage = "Server delete error: ${e.message}. "
+                                        }
+                                        isDeletingRemote = false
+                                    }
+
+                                    // Delete locally
                                     eventsViewModel.deleteEvent(event.event.eventId)
 
                                     // Show feedback to the user
-                                    Toast.makeText(
-                                        context,
-                                        "Event deleted successfully",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
+                                    val message = if (deleteFromRemote) {
+                                        "${remoteDeleteMessage}Local event deleted."
+                                    } else {
+                                        "Event deleted successfully"
+                                    }
+                                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
 
                                     showDeleteDialog = false
                                     eventToDelete = null
+                                    deleteFromRemote = false
                                 }
                             } else {
                                 showDeleteDialog = false
                                 eventToDelete = null
+                                deleteFromRemote = false
                             }
                         }
                     },
-                    enabled = eventToDelete?.event?.eventId != activeEventId || !isRecording
+                    enabled = (eventToDelete?.event?.eventId != activeEventId || !isRecording) && !isDeletingRemote
                 ) {
-                    Text("Delete")
+                    Text(if (isDeletingRemote) "Deleting..." else "Delete")
                 }
             },
             dismissButton = {
@@ -370,7 +449,9 @@ fun EventsScreen(
                     onClick = {
                         showDeleteDialog = false
                         eventToDelete = null
-                    }
+                        deleteFromRemote = false
+                    },
+                    enabled = !isDeletingRemote
                 ) {
                     Text("Cancel")
                 }

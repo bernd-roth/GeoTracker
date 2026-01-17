@@ -25,7 +25,10 @@
       "Bash(cmd.exe /c \"gradlew.bat assembleDebug\")",
       "Bash(gradlew.bat compileDebugKotlin:*)",
       "Bash(cmd //c gradlew.bat assembleDebug:*)",
-      "Bash(./gradlew assembleDebug:*)"
+      "Bash(./gradlew assembleDebug:*)",
+      "Bash(ls -la \"C:\\\\projects\\\\android\\\\GeoTracker\\\\app\\\\src\\\\main\\\\java\\\\at\\\\co\\\\netconsulting\\\\geotracker\"\" | grep \"^d \")",
+      "Bash(ls:*)",
+      "Bash(./gradlew :app:compileDebugKotlin:*)"
     ],
     "deny": [],
     "ask": []

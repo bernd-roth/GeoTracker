@@ -20,9 +20,12 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -54,7 +57,10 @@ fun EditEventScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val editEventViewModel = remember { SimpleEditEventViewModel(FitnessTrackerDatabase.getInstance(context)) }
+    val editEventViewModel = remember {
+        SimpleEditEventViewModel(FitnessTrackerDatabase.getInstance(context), context)
+    }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // State to track if date picker should be shown
     var showDatePicker by remember { mutableStateOf(false) }
@@ -68,10 +74,26 @@ fun EditEventScreen(
     val eventState by editEventViewModel.eventState.collectAsState()
     val isLoading by editEventViewModel.isLoading.collectAsState()
     val saveSuccess by editEventViewModel.saveSuccess.collectAsState()
+    val syncStatus by editEventViewModel.syncStatus.collectAsState()
 
-    // Handle navigation after save
-    LaunchedEffect(saveSuccess) {
-        if (saveSuccess) {
+    // Handle sync status feedback
+    LaunchedEffect(syncStatus) {
+        when (val status = syncStatus) {
+            is SimpleEditEventViewModel.SyncStatus.Success -> {
+                snackbarHostState.showSnackbar(status.message)
+                editEventViewModel.resetSyncStatus()
+            }
+            is SimpleEditEventViewModel.SyncStatus.Error -> {
+                snackbarHostState.showSnackbar(status.message)
+                editEventViewModel.resetSyncStatus()
+            }
+            else -> {}
+        }
+    }
+
+    // Handle navigation after save (only after sync completes)
+    LaunchedEffect(saveSuccess, syncStatus) {
+        if (saveSuccess && syncStatus !is SimpleEditEventViewModel.SyncStatus.Syncing) {
             onNavigateBack()
         }
     }
@@ -111,12 +133,14 @@ fun EditEventScreen(
         }
     }
 
+    val isSyncing = syncStatus is SimpleEditEventViewModel.SyncStatus.Syncing
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Edit Event") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
+                    IconButton(onClick = onNavigateBack, enabled = !isSyncing) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -127,20 +151,21 @@ fun EditEventScreen(
                                 editEventViewModel.saveEvent()
                             }
                         },
-                        enabled = !isLoading
+                        enabled = !isLoading && !isSyncing
                     ) {
                         Icon(Icons.Default.AddCircle, contentDescription = "Save")
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (isLoading) {
+            if (isLoading && !isSyncing) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -200,6 +225,30 @@ fun EditEventScreen(
                         }
                     }
 
+                    // Syncing indicator
+                    if (isSyncing) {
+                        Card(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Syncing with server...",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                LinearProgressIndicator(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp)
+                                )
+                            }
+                        }
+                    }
+
                     // Save Button at the bottom
                     Button(
                         onClick = {
@@ -210,9 +259,9 @@ fun EditEventScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
-                        enabled = !isLoading
+                        enabled = !isLoading && !isSyncing
                     ) {
-                        if (isLoading) {
+                        if (isLoading || isSyncing) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(24.dp),
                                 color = MaterialTheme.colorScheme.onPrimary

@@ -155,13 +155,52 @@ fun UploadEventsDialog(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    // Upload button
+                    // Count events that need upload
+                    val needsUploadCount = uploadProgress.count { (eventId, state) ->
+                        eventId in selectedEvents && state is UploadEventsViewModel.UploadState.NeedsUpload
+                    }
+
+                    // Check Status button
+                    OutlinedButton(
+                        onClick = { viewModel.checkSelectedEvents() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        enabled = selectedEvents.isNotEmpty() && !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Checking...")
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (selectedEvents.isEmpty()) {
+                                    "Select events to check"
+                                } else {
+                                    "Check ${selectedEvents.size} event${if (selectedEvents.size > 1) "s" else ""}"
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Upload button (only uploads events with NeedsUpload state)
                     Button(
                         onClick = { viewModel.uploadSelectedEvents() },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
-                        enabled = selectedEvents.isNotEmpty() && !isLoading,
+                        enabled = needsUploadCount > 0 && !isLoading,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary
                         )
@@ -182,10 +221,10 @@ fun UploadEventsDialog(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = if (selectedEvents.isEmpty()) {
-                                    "Select events to upload"
+                                text = if (needsUploadCount == 0) {
+                                    "Check events first"
                                 } else {
-                                    "Upload ${selectedEvents.size} event${if (selectedEvents.size > 1) "s" else ""}"
+                                    "Upload $needsUploadCount event${if (needsUploadCount > 1) "s" else ""}"
                                 }
                             )
                         }
@@ -222,8 +261,11 @@ fun EventUploadItem(
         colors = CardDefaults.cardColors(
             containerColor = when (uploadState) {
                 is UploadEventsViewModel.UploadState.Success -> Color(0xFFE8F5E9)
+                is UploadEventsViewModel.UploadState.AlreadyExists -> Color(0xFFE3F2FD)
+                is UploadEventsViewModel.UploadState.NeedsUpload -> Color(0xFFFCE4EC)
                 is UploadEventsViewModel.UploadState.Error -> Color(0xFFFFEBEE)
                 is UploadEventsViewModel.UploadState.Uploading -> Color(0xFFFFF9C4)
+                is UploadEventsViewModel.UploadState.Checking -> Color(0xFFFFF3E0)
                 else -> if (isSelected) MaterialTheme.colorScheme.primaryContainer
                 else MaterialTheme.colorScheme.surfaceVariant
             }
@@ -277,9 +319,25 @@ fun EventUploadItem(
                     is UploadEventsViewModel.UploadState.Success -> {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "✓ Uploaded: ${uploadState.pointsInserted} points",
+                            text = "✓ ${uploadState.message}",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF2E7D32)
+                        )
+                    }
+                    is UploadEventsViewModel.UploadState.AlreadyExists -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "✓ Already on server (skipped)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF1565C0)
+                        )
+                    }
+                    is UploadEventsViewModel.UploadState.NeedsUpload -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "⬆ Not on server - ready to upload",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFC2185B)
                         )
                     }
                     is UploadEventsViewModel.UploadState.Error -> {
@@ -300,6 +358,21 @@ fun EventUploadItem(
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Uploading...",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    is UploadEventsViewModel.UploadState.Checking -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Checking server...",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -339,6 +412,22 @@ fun EventUploadItem(
                             modifier = Modifier.size(24.dp)
                         )
                     }
+                    is UploadEventsViewModel.UploadState.AlreadyExists -> {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Already exists",
+                            tint = Color(0xFF1565C0),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    is UploadEventsViewModel.UploadState.NeedsUpload -> {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = "Needs upload",
+                            tint = Color(0xFFC2185B),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
                     is UploadEventsViewModel.UploadState.Error -> {
                         IconButton(onClick = onClearError) {
                             Icon(
@@ -349,7 +438,8 @@ fun EventUploadItem(
                             )
                         }
                     }
-                    is UploadEventsViewModel.UploadState.Uploading -> {
+                    is UploadEventsViewModel.UploadState.Uploading,
+                    is UploadEventsViewModel.UploadState.Checking -> {
                         CircularProgressIndicator(
                             modifier = Modifier.size(24.dp),
                             strokeWidth = 2.dp

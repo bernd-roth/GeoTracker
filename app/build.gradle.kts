@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 3
-        versionName = "${getNextVersion("7.11")} (16-01-2026: show weather conditions in weather forecast, including temperature, humidity, wind speed plus direction, and snow)"
+        versionName = "${getNextVersion("7.12")} (17-01-2026: Flask REST API implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

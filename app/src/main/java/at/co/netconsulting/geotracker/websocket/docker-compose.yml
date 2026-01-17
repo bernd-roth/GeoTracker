@@ -35,6 +35,7 @@ services:
       - ./certbot-webroot:/var/www/certbot
     depends_on:
       - websocket-server
+      - flask-api
     networks:
       - app-network
   websocket-server:
@@ -50,6 +51,28 @@ services:
       - "6789"
     environment:
       - USE_DATABASE=true
+      - POSTGRES_HOST=postgres-geotracker
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=geotracker
+      - POSTGRES_USER=geotracker
+      - POSTGRES_PASSWORD=xxx
+    depends_on:
+      postgres-geotracker:
+        condition: service_healthy
+    networks:
+      - app-network
+      - geotracker-network
+  flask-api:
+    restart: always
+    build:
+      context: /home/bernd/docker-container/geotracker-flask
+      dockerfile: Dockerfile
+    volumes:
+      - /home/bernd/docker-container/geotracker-flask/logs:/app/logs
+    expose:
+      - "5000"
+    environment:
+      - FLASK_ENV=production
       - POSTGRES_HOST=postgres-geotracker
       - POSTGRES_PORT=5432
       - POSTGRES_DB=geotracker
