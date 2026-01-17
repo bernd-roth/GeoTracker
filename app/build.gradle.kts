@@ -30,8 +30,8 @@ android {
         applicationId = "at.co.netconsulting.geotracker"
         minSdk = 29
         targetSdk = 34
-        versionCode = 3
-        versionName = "${getNextVersion("7.12")} (17-01-2026: Flask REST API implemented)"
+        versionCode = 4
+        versionName = "${getNextVersion("7.13")} (17-01-2026: Flask REST API for sessions, planned events, and remote delete)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
