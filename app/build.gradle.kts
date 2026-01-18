@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.13")} (17-01-2026: Flask REST API for sessions, planned events, and remote delete)"
+        versionName = "${getNextVersion("7.14")} (17-01-2026: Removed stationary sport types)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

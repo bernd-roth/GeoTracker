@@ -451,12 +451,10 @@ fun RecordingDialog(
     data class SportType(val name: String, val subcategories: List<String> = emptyList())
     
     val sportTypes = listOf(
-        SportType("Training", listOf("Weight Training")),
         SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running", "Orienteering")),
         SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
-        SportType("Water Sports", listOf("Swimming - Open Water", "Swimming - Pool", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
-        SportType("Ball Sports", listOf("Soccer", "American Football", "Fistball", "Squash", "Tennis", "Basketball", "Volleyball", "Baseball", "Badminton", "Table Tennis")),
-        SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Ice Skating", "Ice Hockey", "Biathlon", "Sledding", "Snowshoeing")),
+        SportType("Water Sports", listOf("Swimming - Open Water", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
+        SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Biathlon", "Sledding", "Snowshoeing")),
         SportType("Walking", listOf("Nordic Walking", "Urban Walking")),
         SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
         SportType("Motorsport", listOf("Car", "Motorcycle"))
@@ -464,10 +462,6 @@ fun RecordingDialog(
 
     // Function to get appropriate icon for sport type with specific subcategory icons
     fun getSportIcon(sportName: String) = when (sportName) {
-        // Training
-        "Training" -> Icons.Default.Timer
-        "Weight Training" -> Icons.Default.FitnessCenter
-
         // Running subcategories
         "Trail Running" -> Icons.Default.Terrain
         "Ultramarathon" -> Icons.Default.Timer
@@ -485,24 +479,10 @@ fun RecordingDialog(
         
         // Water Sports subcategories
         "Swimming - Open Water" -> Icons.Default.Waves
-        "Swimming - Pool" -> Icons.Default.Pool
         "Kayaking" -> Icons.Default.Sailing
         "Canoeing" -> Icons.Default.Sailing
         "Stand Up Paddleboarding" -> Icons.Default.Sailing
-        "Water Sports" -> Icons.Default.Pool
-        
-        // Ball Sports subcategories
-        "Soccer" -> Icons.Default.SportsSoccer
-        "American Football" -> Icons.Default.SportsFootball
-        "Fistball" -> Icons.Default.SportsHandball
-        "Squash" -> Icons.Default.SportsTennis
-        "Tennis" -> Icons.Default.SportsTennis
-        "Basketball" -> Icons.Default.SportsBasketball
-        "Volleyball" -> Icons.Default.SportsVolleyball
-        "Baseball" -> Icons.Default.SportsBaseball
-        "Badminton" -> Icons.Default.SportsTennis
-        "Table Tennis" -> Icons.Default.SportsTennis
-        "Ball Sports" -> Icons.Default.SportsFootball
+        "Water Sports" -> Icons.Default.Waves
         
         // Walking subcategories
         "Nordic Walking" -> Icons.Default.Hiking
@@ -524,8 +504,6 @@ fun RecordingDialog(
         "Snowboard" -> Icons.Default.Landscape  // Mountain landscape
         "Cross Country Skiing" -> Icons.Default.DirectionsRun  // Similar movement to running
         "Ski Touring" -> Icons.Default.Terrain  // Mountain terrain
-        "Ice Skating" -> Icons.Default.Speed  // Speed/gliding motion
-        "Ice Hockey" -> Icons.Default.SportsFootball  // Team sport icon
         "Biathlon" -> Icons.Default.GpsFixed  // Target/precision sport
         "Sledding" -> Icons.Default.Speed  // Speed/downhill motion
         "Snowshoeing" -> Icons.Default.Hiking  // Similar to hiking
@@ -639,98 +617,56 @@ fun RecordingDialog(
                     .height(800.dp) // Increased height to accommodate track selection
                     .verticalScroll(rememberScrollState())
             ) {
-                // GPS Status Card or Indoor Activity Card
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(artOfSport)) {
-                    // Show GPS Status Card for GPS-based activities
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = when (gpsStatus.status) {
-                                GpsFixStatus.GOOD_FIX -> Color(0xFFE8F5E8)
-                                GpsFixStatus.NO_LOCATION -> Color(0xFFFFF3E0)
-                                GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFFFF3E0)
-                                GpsFixStatus.POOR_ACCURACY -> Color(0xFFFFEBEE)
-                                else -> Color(0xFFF5F5F5) // Default light gray
-                            }
-                        )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = if (gpsStatus.isReadyToRecord) Icons.Default.GpsFixed else Icons.Default.GpsNotFixed,
-                                contentDescription = "GPS Status",
-                                tint = when (gpsStatus.status) {
-                                    GpsFixStatus.GOOD_FIX -> Color(0xFF4CAF50)
-                                    GpsFixStatus.NO_LOCATION -> Color(0xFFFF9800)
-                                    GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFFF9800)
-                                    GpsFixStatus.POOR_ACCURACY -> Color(0xFFE91E63)
-                                    else -> Color.Gray // Default gray
-                                },
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = GpsStatusEvaluator.getDetailedStatusMessage(gpsStatus),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = when (gpsStatus.status) {
-                                        GpsFixStatus.GOOD_FIX -> Color(0xFF2E7D32)
-                                        GpsFixStatus.NO_LOCATION -> Color(0xFFE65100)
-                                        GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFE65100)
-                                        GpsFixStatus.POOR_ACCURACY -> Color(0xFFC62828)
-                                        else -> Color.DarkGray // Default dark gray
-                                    }
-                                )
-                                if (!gpsStatus.isReadyToRecord) {
-                                    Text(
-                                        text = "Recording will start when GPS fix is acquired",
-                                        fontSize = 12.sp,
-                                        color = Color.Gray,
-                                        modifier = Modifier.padding(top = 2.dp)
-                                    )
-                                }
-                            }
+                // GPS Status Card
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = when (gpsStatus.status) {
+                            GpsFixStatus.GOOD_FIX -> Color(0xFFE8F5E8)
+                            GpsFixStatus.NO_LOCATION -> Color(0xFFFFF3E0)
+                            GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFFFF3E0)
+                            GpsFixStatus.POOR_ACCURACY -> Color(0xFFFFEBEE)
+                            else -> Color(0xFFF5F5F5) // Default light gray
                         }
-                    }
-                } else {
-                    // Show Indoor Activity Card for stationary activities
-                    Card(
+                    )
+                ) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = Color(0xFFE8F5E8)  // Green to indicate ready
-                        )
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Timer,
-                                contentDescription = "Timer Ready",
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(24.dp)
+                        Icon(
+                            imageVector = if (gpsStatus.isReadyToRecord) Icons.Default.GpsFixed else Icons.Default.GpsNotFixed,
+                            contentDescription = "GPS Status",
+                            tint = when (gpsStatus.status) {
+                                GpsFixStatus.GOOD_FIX -> Color(0xFF4CAF50)
+                                GpsFixStatus.NO_LOCATION -> Color(0xFFFF9800)
+                                GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFFF9800)
+                                GpsFixStatus.POOR_ACCURACY -> Color(0xFFE91E63)
+                                else -> Color.Gray // Default gray
+                            },
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = GpsStatusEvaluator.getDetailedStatusMessage(gpsStatus),
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = when (gpsStatus.status) {
+                                    GpsFixStatus.GOOD_FIX -> Color(0xFF2E7D32)
+                                    GpsFixStatus.NO_LOCATION -> Color(0xFFE65100)
+                                    GpsFixStatus.INSUFFICIENT_SATELLITES -> Color(0xFFE65100)
+                                    GpsFixStatus.POOR_ACCURACY -> Color(0xFFC62828)
+                                    else -> Color.DarkGray // Default dark gray
+                                }
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            if (!gpsStatus.isReadyToRecord) {
                                 Text(
-                                    text = "Indoor Activity - Time Based",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF2E7D32)
-                                )
-                                Text(
-                                    text = "No GPS required. Tracking time and heart rate only.",
+                                    text = "Recording will start when GPS fix is acquired",
                                     fontSize = 12.sp,
                                     color = Color.Gray,
                                     modifier = Modifier.padding(top = 2.dp)
@@ -1104,22 +1040,20 @@ fun RecordingDialog(
                     )
                 }
 
-                // Show Path option (only for GPS-based activities)
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(artOfSport)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 8.dp)
-                    ) {
-                        Text("Show Path on Map")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Switch(
-                            checked = showPath,
-                            onCheckedChange = { showPath = it }
-                        )
-                    }
+                // Show Path option
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp)
+                ) {
+                    Text("Show Path on Map")
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = showPath,
+                        onCheckedChange = { showPath = it }
+                    )
                 }
 
                 // Assumed Speed for tracks without timing data (show only when track has synthetic timestamps)
@@ -1285,11 +1219,7 @@ fun RecordingDialog(
         },
         confirmButton = {
             Button(
-                enabled = if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(artOfSport)) {
-                    gpsStatus.isReadyToRecord && !gpxImportProgress.isImporting
-                } else {
-                    !gpxImportProgress.isImporting  // Always enabled for stationary activities
-                },
+                enabled = gpsStatus.isReadyToRecord && !gpxImportProgress.isImporting,
                 onClick = {
                     // Use current date as event name if eventName is empty or just whitespace
                     val finalEventName = if (eventName.trim().isEmpty()) {
@@ -1327,13 +1257,11 @@ fun RecordingDialog(
                 Text(
                     text = when {
                         gpxImportProgress.isImporting -> "Importing GPX..."
-                        !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(artOfSport) -> "Start Recording"
                         !gpsStatus.isReadyToRecord -> "Waiting for GPS..."
                         else -> "Start Recording"
                     },
                     color = when {
                         gpxImportProgress.isImporting -> Color.Gray
-                        !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(artOfSport) -> Color.White
                         gpsStatus.isReadyToRecord -> Color.White
                         else -> Color.Gray
                     }

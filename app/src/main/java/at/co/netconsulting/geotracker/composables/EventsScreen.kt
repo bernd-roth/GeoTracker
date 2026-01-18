@@ -1108,8 +1108,8 @@ fun EventCard(
                         }
                     }
 
-                    // Compare Routes button - only show if event has location data and is GPS-based
-                    if (event.locationPointCount > 0 && at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                    // Compare Routes button - only show if event has location data
+                    if (event.locationPointCount > 0) {
                         IconButton(
                             onClick = onCompareRoutes,
                             modifier = Modifier.size(40.dp)
@@ -1123,7 +1123,7 @@ fun EventCard(
                     }
 
                     // Sync button - show for all activities (GPS and stationary)
-                    // Strava supports weight training and other indoor activities without GPS data
+                    // Strava supports indoor activities without GPS data
                     IconButton(
                         onClick = onSync,
                         modifier = Modifier.size(40.dp)
@@ -1267,23 +1267,18 @@ fun EventCard(
                     else if (event.totalDistance > 10 || event.averageSpeed > 0.1) { // Only show if meaningful data exists
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Check if this is a stationary activity (no GPS tracking)
-                        val isStationaryActivity = !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)
-
-                        // First row: Distance and Heart Rate info (or just Heart Rate for stationary activities)
+                        // First row: Distance and Heart Rate info
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            if (!isStationaryActivity) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    // Left column with distance and speed (only for GPS-based activities)
-                                    InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
-                                    InfoRow("", String.format(""))
-                                    InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed))
-                                    InfoRow("Max. Speed:", String.format("%.1f km/h", event.maxSpeed))
-                                    InfoRow("", String.format(""))
-                                }
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Left column with distance and speed
+                                InfoRow("Distance:", String.format("%.2f km", event.totalDistance / 1000))
+                                InfoRow("", String.format(""))
+                                InfoRow("Avg. Speed:", String.format("%.1f km/h", event.averageSpeed))
+                                InfoRow("Max. Speed:", String.format("%.1f km/h", event.maxSpeed))
+                                InfoRow("", String.format(""))
                             }
 
                             Column(modifier = Modifier.weight(1f)) {
@@ -1306,26 +1301,24 @@ fun EventCard(
                             }
                         }
 
-                        // Second row: Elevation (only for GPS-based activities)
-                        if (!isStationaryActivity) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    // Only show elevation gain if it's greater than 0
-                                    val elevationGain = event.maxElevationGain.toInt()
-                                    Log.d("TAG_EVENT_ID", "Event id: ${event.event.eventId}")
-                                    Log.d("TAG_MAX_ELEVATION_GAIN", "Max. Elevation Gain: $elevationGain")
-                                    if (elevationGain > 0) {
-                                        InfoRow("Max. Elevation Gain:", "$elevationGain m")
-                                    }
+                        // Second row: Elevation
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                // Only show elevation gain if it's greater than 0
+                                val elevationGain = event.maxElevationGain.toInt()
+                                Log.d("TAG_EVENT_ID", "Event id: ${event.event.eventId}")
+                                Log.d("TAG_MAX_ELEVATION_GAIN", "Max. Elevation Gain: $elevationGain")
+                                if (elevationGain > 0) {
+                                    InfoRow("Max. Elevation Gain:", "$elevationGain m")
                                 }
                             }
                         }
 
-                        // Third row: Slope information (only for GPS-based activities)
-                        if (!isStationaryActivity && (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0)) {
+                        // Third row: Slope information
+                        if (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1413,11 +1406,8 @@ fun EventCard(
                     )
                 }
 
-                // GPS Signal Quality and Satellite info (only for GPS-based activities)
-                val isStationaryActivity = !at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)
-
-                if (!isStationaryActivity) {
-                    Spacer(modifier = Modifier.height(4.dp))
+                // GPS Signal Quality and Satellite info
+                Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
                         text = "GPS Signal Quality",
@@ -1483,13 +1473,12 @@ fun EventCard(
                             )
                         }
                     }
-                    } else {
-                        Text(
-                            text = "No GPS signal data available",
-                            fontSize = 14.sp,
-                            color = Color.Gray
-                        )
-                    }
+                } else {
+                    Text(
+                        text = "No GPS signal data available",
+                        fontSize = 14.sp,
+                        color = Color.Gray
+                    )
                 }
 
                 // Heart Rate Details Section - Made clickable
@@ -1601,7 +1590,7 @@ fun EventCard(
                 }
 
                 // Weather information - Make this section clickable (only for GPS-based activities)
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                if (true /* all activities require GPS */) {
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // Check if we have temperature data in metrics for consistent behavior
@@ -1723,7 +1712,7 @@ fun EventCard(
                 }
 
                 // Barometer Data section - Make this section clickable (only for GPS-based activities)
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                if (true /* all activities require GPS */) {
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // Check if we have pressure data in metrics for consistent behavior
@@ -1928,7 +1917,7 @@ fun EventCard(
                 }
 
                 // Altitude information (only for GPS-based activities)
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                if (true /* all activities require GPS */) {
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // Check if we have elevation data
@@ -2025,7 +2014,7 @@ fun EventCard(
                 }
 
                 // Slope information section (only for GPS-based activities)
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport) &&
+                if (true /* all activities require GPS */ &&
                     (event.averageSlope != 0.0 || event.maxSlope != 0.0 || event.minSlope != 0.0)) {
                     Spacer(modifier = Modifier.height(4.dp))
 
@@ -2155,7 +2144,7 @@ fun EventCard(
                 }
 
                 // Lap information with highlighting (only for GPS-based activities)
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                if (true /* all activities require GPS */) {
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Row(
@@ -2236,7 +2225,7 @@ fun EventCard(
                 }
 
                 // Map preview section with enhanced header (only for GPS-based activities)
-                if (at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(event.event.artOfSport)) {
+                if (true /* all activities require GPS */) {
                     Spacer(modifier = Modifier.height(4.dp))
 
                     // Enhanced Route Preview header with map navigation option

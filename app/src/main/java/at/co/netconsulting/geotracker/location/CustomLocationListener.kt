@@ -159,9 +159,6 @@ class CustomLocationListener: LocationListener {
     // websocket server transfer
     private var enableWebSocketTransfer: Boolean = true
 
-    // GPS tracking control for stationary activities
-    private var isGpsTrackingEnabled: Boolean = true
-
     constructor(context: Context) {
         this.context = context
         startDateTime = LocalDateTime.now()
@@ -240,19 +237,7 @@ class CustomLocationListener: LocationListener {
         loadSharedPreferences() // Load preferences including update settings
         loadSessionId()  // Load sessionId from SharedPreferences
 
-        // Load sport type and check if GPS is needed
-        val sessionPrefs = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
-        val sportType = sessionPrefs.getString("current_sport_type", "") ?: ""
-        isGpsTrackingEnabled = at.co.netconsulting.geotracker.utils.ActivityTypeUtils.requiresGpsTracking(sportType)
-
-        Log.d(TAG_WEBSOCKET, "GPS tracking enabled: $isGpsTrackingEnabled for sport: $sportType")
-
-        // Only create location updates if GPS is needed
-        if (isGpsTrackingEnabled) {
-            createLocationUpdates()
-        } else {
-            Log.d(TAG_WEBSOCKET, "Skipping GPS updates for stationary activity: $sportType")
-        }
+        createLocationUpdates()
 
         registerNetworkCallback()
 
@@ -483,12 +468,6 @@ class CustomLocationListener: LocationListener {
         // Skip all metrics calculations if tracking is paused
         if (isPaused) {
             Log.d("CustomLocationListener", "Location update received but tracking is paused - skipping")
-            return
-        }
-
-        // If GPS tracking is disabled for this activity, ignore location updates
-        if (!isGpsTrackingEnabled) {
-            Log.d("CustomLocationListener", "GPS tracking disabled - ignoring location update")
             return
         }
 
