@@ -17,6 +17,12 @@ CREATE TABLE public.tracking_sessions (
 	voice_announcement_interval int4 NULL,
 	created_at timestamptz DEFAULT now() NULL,
 	updated_at timestamptz DEFAULT now() NULL,
+	start_city varchar(255) NULL,
+	start_country varchar(255) NULL,
+	start_address varchar(500) NULL,
+	end_city varchar(255) NULL,
+	end_country varchar(255) NULL,
+	end_address varchar(500) NULL,
 	CONSTRAINT tracking_sessions_pkey PRIMARY KEY (session_id)
 );
 CREATE INDEX idx_sessions_user_id ON public.tracking_sessions USING btree (user_id);
