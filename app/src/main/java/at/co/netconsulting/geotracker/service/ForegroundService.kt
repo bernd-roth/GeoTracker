@@ -38,6 +38,7 @@ import at.co.netconsulting.geotracker.sensor.BarometerSensorService
 import at.co.netconsulting.geotracker.service.WeatherEventBusHandler
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.BarometerUtils
+import at.co.netconsulting.geotracker.tools.GeocodingHelper
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -52,6 +53,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -176,6 +178,9 @@ class ForegroundService : Service() {
     private var isPaused = false
     private var pauseStartTime: Long = 0
     private var totalPausedDurationMs: Long = 0
+
+    // Geocoding flag to track if start location has been geocoded
+    private var hasGeocodedStartLocation = false
 
     // Session data management methods
     private fun saveSessionDataToPreferences(
@@ -1204,6 +1209,20 @@ class ForegroundService : Service() {
                 database.locationDao().insertLocation(location)
                 Log.d("ForegroundService: ", "Location saved: lat=$latitude, lon=$longitude")
 
+                // Geocode start location on first valid coordinates
+                if (!hasGeocodedStartLocation && eventId > 0) {
+                    hasGeocodedStartLocation = true
+                    try {
+                        val locationInfo = GeocodingHelper.getLocationInfo(applicationContext, latitude, longitude)
+                        if (locationInfo.city != null || locationInfo.country != null || locationInfo.address != null) {
+                            database.eventDao().updateEventStartLocation(eventId, locationInfo.city, locationInfo.country, locationInfo.address)
+                            Log.d(TAG, "Start location geocoded: ${locationInfo.address ?: "${locationInfo.city}, ${locationInfo.country}"}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error geocoding start location", e)
+                    }
+                }
+
                 // Always save device status regardless of speed
                 val deviceStatus = DeviceStatus(
                     eventId = eventId,
@@ -1290,9 +1309,29 @@ class ForegroundService : Service() {
                 Log.d(TAG, "Service is being stopped intentionally")
             }
 
-            // Handle pause/resume actions
+            // Handle pause/resume/stop actions
             val action = intent?.getStringExtra("action")
             when (action) {
+                "stop_recording" -> {
+                    Log.d(TAG, "Stop recording action received")
+                    isStoppingIntentionally = true
+
+                    // Finalize recording synchronously before stopping
+                    runBlocking {
+                        finalizeRecording()
+                    }
+
+                    // Clear session data
+                    clearSessionDataFromPreferences()
+                    getSharedPreferences(SessionRecoveryManager.PREF_SERVICE_STATE, Context.MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(SessionRecoveryManager.PREF_WAS_RUNNING, false)
+                        .apply()
+
+                    Log.d(TAG, "Recording stopped intentionally, calling stopSelf()")
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 "pause_recording" -> {
                     customLocationListener?.pauseTracking()
                     isPaused = true
@@ -1629,7 +1668,8 @@ class ForegroundService : Service() {
                 Log.d(TAG, "Cleared recovery state and session data in SharedPreferences")
 
                 // When stopping intentionally, finalize the recording by transferring data
-                serviceScope.launch {
+                // Use runBlocking to ensure geocoding completes before service cleanup
+                runBlocking {
                     finalizeRecording()
                 }
 
@@ -1694,11 +1734,24 @@ class ForegroundService : Service() {
                 val lapTimes = database.lapTimeDao().getLapTimesForSession(sessionId)
                 Log.d(TAG, "Found ${lapTimes.size} lap records")
 
-                // 3. We don't need to duplicate data that's already in the permanent tables
+                // 3. Geocode end location using current coordinates
+                if (eventId > 0 && latitude != -999.0 && longitude != -999.0) {
+                    try {
+                        val locationInfo = GeocodingHelper.getLocationInfo(applicationContext, latitude, longitude)
+                        if (locationInfo.city != null || locationInfo.country != null || locationInfo.address != null) {
+                            database.eventDao().updateEventEndLocation(eventId, locationInfo.city, locationInfo.country, locationInfo.address)
+                            Log.d(TAG, "End location geocoded: ${locationInfo.address ?: "${locationInfo.city}, ${locationInfo.country}"}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error geocoding end location", e)
+                    }
+                }
+
+                // 4. We don't need to duplicate data that's already in the permanent tables
                 // because we've been saving to both throughout the session.
                 // We just need to ensure the lap times are properly stored
 
-                // 4. Clear temporary tables
+                // 5. Clear temporary tables
                 if (records.isNotEmpty()) {
                     database.currentRecordingDao().clearSessionRecords(sessionId)
                     Log.d(TAG, "Cleared temporary recording records")

@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.14")} (17-01-2026: Removed stationary sport types)"
+        versionName = "${getNextVersion("7.15")} (19-01-2026: Added start/end location geocoding)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

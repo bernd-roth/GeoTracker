@@ -2426,10 +2426,11 @@ fun MapScreen(
                                     .remove("pause_start_time")
                                     .apply()
 
-                                // Stop the service
-                                val stopIntent = Intent(context, ForegroundService::class.java)
-                                stopIntent.putExtra("stopping_intentionally", true)
-                                context.stopService(stopIntent)
+                                // Stop the service by sending stop_recording action
+                                val stopIntent = Intent(context, ForegroundService::class.java).apply {
+                                    putExtra("action", "stop_recording")
+                                }
+                                ContextCompat.startForegroundService(context, stopIntent)
 
                                 context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
                                     .edit()

@@ -24,5 +24,11 @@ data class Event(
     val comment: String,
     val sessionId: String? = null, // Server session ID for uploaded events
     val isUploaded: Boolean = false, // Track if event has been uploaded to server
-    val uploadedAt: Long? = null // Timestamp when event was uploaded (epoch millis)
+    val uploadedAt: Long? = null, // Timestamp when event was uploaded (epoch millis)
+    val startCity: String? = null, // City name at recording start
+    val startCountry: String? = null, // Country name at recording start
+    val endCity: String? = null, // City name at recording end
+    val endCountry: String? = null, // Country name at recording end
+    val startAddress: String? = null, // Full street address at recording start
+    val endAddress: String? = null // Full street address at recording end
 )

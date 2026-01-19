@@ -25,7 +25,7 @@ import android.util.Log
         Network::class,
         Waypoint::class
     ],
-    version = 18, // ✅ INCREMENTED FROM 17 TO 18 for upload tracking fields
+    version = 20, // ✅ INCREMENTED FROM 19 TO 20 for full address fields
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -582,6 +582,42 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 18->19 - adding location geocoding fields to events table")
+
+                try {
+                    // Add location geocoding columns to events table
+                    database.execSQL("ALTER TABLE events ADD COLUMN startCity TEXT")
+                    database.execSQL("ALTER TABLE events ADD COLUMN startCountry TEXT")
+                    database.execSQL("ALTER TABLE events ADD COLUMN endCity TEXT")
+                    database.execSQL("ALTER TABLE events ADD COLUMN endCountry TEXT")
+
+                    Log.d(TAG, "Migration 18->19 completed - location geocoding fields added to events table")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 18->19", e)
+                    throw e
+                }
+            }
+        }
+
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 19->20 - adding full address fields to events table")
+
+                try {
+                    // Add full address columns to events table
+                    database.execSQL("ALTER TABLE events ADD COLUMN startAddress TEXT")
+                    database.execSQL("ALTER TABLE events ADD COLUMN endAddress TEXT")
+
+                    Log.d(TAG, "Migration 19->20 completed - full address fields added to events table")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 19->20", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -607,7 +643,9 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_14_15,
                             MIGRATION_15_16,
                             MIGRATION_16_17,
-                            MIGRATION_17_18
+                            MIGRATION_17_18,
+                            MIGRATION_18_19,
+                            MIGRATION_19_20
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

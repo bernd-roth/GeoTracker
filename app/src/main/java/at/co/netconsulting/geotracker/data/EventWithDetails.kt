@@ -47,4 +47,21 @@ data class EventWithDetails(
 
     // Added metrics for altitude graph
     val metrics: List<Metric> = emptyList()
-)
+) {
+    // Convenience properties for location info
+    // Prefer full address if available, fall back to city/country
+    val startLocation: String?
+        get() = event.startAddress ?: formatLocation(event.startCity, event.startCountry)
+
+    val endLocation: String?
+        get() = event.endAddress ?: formatLocation(event.endCity, event.endCountry)
+
+    private fun formatLocation(city: String?, country: String?): String? {
+        return when {
+            city != null && country != null -> "$city, $country"
+            city != null -> city
+            country != null -> country
+            else -> null
+        }
+    }
+}

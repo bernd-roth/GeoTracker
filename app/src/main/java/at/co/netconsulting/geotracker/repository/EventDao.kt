@@ -183,4 +183,22 @@ interface EventDao {
 
     @Query("SELECT COUNT(*) FROM events WHERE isUploaded = 0")
     suspend fun getUnuploadedEventCount(): Int
+
+    @Query("""
+        UPDATE events
+        SET startCity = :startCity,
+            startCountry = :startCountry,
+            startAddress = :startAddress
+        WHERE eventId = :eventId
+    """)
+    suspend fun updateEventStartLocation(eventId: Int, startCity: String?, startCountry: String?, startAddress: String?)
+
+    @Query("""
+        UPDATE events
+        SET endCity = :endCity,
+            endCountry = :endCountry,
+            endAddress = :endAddress
+        WHERE eventId = :eventId
+    """)
+    suspend fun updateEventEndLocation(eventId: Int, endCity: String?, endCountry: String?, endAddress: String?)
 }
