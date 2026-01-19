@@ -1216,6 +1216,8 @@ class ForegroundService : Service() {
                         val locationInfo = GeocodingHelper.getLocationInfo(applicationContext, latitude, longitude)
                         if (locationInfo.city != null || locationInfo.country != null || locationInfo.address != null) {
                             database.eventDao().updateEventStartLocation(eventId, locationInfo.city, locationInfo.country, locationInfo.address)
+                            // Update CustomLocationListener for WebSocket transfer
+                            customLocationListener?.updateStartLocationData(locationInfo.city, locationInfo.country, locationInfo.address)
                             Log.d(TAG, "Start location geocoded: ${locationInfo.address ?: "${locationInfo.city}, ${locationInfo.country}"}")
                         }
                     } catch (e: Exception) {
@@ -1740,7 +1742,12 @@ class ForegroundService : Service() {
                         val locationInfo = GeocodingHelper.getLocationInfo(applicationContext, latitude, longitude)
                         if (locationInfo.city != null || locationInfo.country != null || locationInfo.address != null) {
                             database.eventDao().updateEventEndLocation(eventId, locationInfo.city, locationInfo.country, locationInfo.address)
+                            // Update CustomLocationListener for WebSocket transfer
+                            customLocationListener?.updateEndLocationData(locationInfo.city, locationInfo.country, locationInfo.address)
                             Log.d(TAG, "End location geocoded: ${locationInfo.address ?: "${locationInfo.city}, ${locationInfo.country}"}")
+
+                            // Send final metrics with end location to WebSocket server
+                            customLocationListener?.sendFinalMetrics()
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error geocoding end location", e)

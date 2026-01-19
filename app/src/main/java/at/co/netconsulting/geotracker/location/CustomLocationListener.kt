@@ -126,6 +126,14 @@ class CustomLocationListener: LocationListener {
     private var comment: String = ""
     private var clothing: String = ""
 
+    // Location geocoding fields
+    private var startCity: String? = null
+    private var startCountry: String? = null
+    private var startAddress: String? = null
+    private var endCity: String? = null
+    private var endCountry: String? = null
+    private var endAddress: String? = null
+
     // Settings fields to include in metrics
     private var minDistanceMeters: Int = 1
     private var minTimeSeconds: Int = 1
@@ -1089,6 +1097,14 @@ class CustomLocationListener: LocationListener {
             comment = comment,
             clothing = clothing,
 
+            // Location geocoding data
+            startCity = startCity,
+            startCountry = startCountry,
+            startAddress = startAddress,
+            endCity = endCity,
+            endCountry = endCountry,
+            endAddress = endAddress,
+
             // Heart rate data (current values)
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
@@ -1264,6 +1280,15 @@ class CustomLocationListener: LocationListener {
             sportType = sportType,
             comment = comment,
             clothing = clothing,
+
+            // Location geocoding data
+            startCity = startCity,
+            startCountry = startCountry,
+            startAddress = startAddress,
+            endCity = endCity,
+            endCountry = endCountry,
+            endAddress = endAddress,
+
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
 
@@ -1320,6 +1345,15 @@ class CustomLocationListener: LocationListener {
             sportType = sportType,
             comment = comment,
             clothing = clothing,
+
+            // Location geocoding data
+            startCity = startCity,
+            startCountry = startCountry,
+            startAddress = startAddress,
+            endCity = endCity,
+            endCountry = endCountry,
+            endAddress = endAddress,
+
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
 
@@ -1379,6 +1413,43 @@ class CustomLocationListener: LocationListener {
         maxUphillSlope = maxUphill
         maxDownhillSlope = maxDownhill
         Log.d(TAG_WEBSOCKET, "Slope data updated: current=${String.format("%.2f", slope)}%, avg=${String.format("%.2f", avgSlope)}%, max uphill=${String.format("%.2f", maxUphill)}%, max downhill=${String.format("%.2f", maxDownhill)}%")
+    }
+
+    fun updateStartLocationData(city: String?, country: String?, address: String?) {
+        startCity = city
+        startCountry = country
+        startAddress = address
+        Log.d(TAG_WEBSOCKET, "Start location data updated: $address (${city}, ${country})")
+    }
+
+    fun updateEndLocationData(city: String?, country: String?, address: String?) {
+        endCity = city
+        endCountry = country
+        endAddress = address
+        Log.d(TAG_WEBSOCKET, "End location data updated: $address (${city}, ${country})")
+    }
+
+    /**
+     * Send a final metrics message to the WebSocket server with the current state.
+     * This should be called when recording stops to ensure the end location is transmitted.
+     */
+    fun sendFinalMetrics() {
+        if (!enableWebSocketTransfer) {
+            Log.d(TAG_WEBSOCKET, "WebSocket transfer disabled - not sending final metrics")
+            return
+        }
+
+        if (sessionId.isEmpty()) {
+            Log.w(TAG_WEBSOCKET, "Cannot send final metrics - no session ID")
+            return
+        }
+
+        Log.d(TAG_WEBSOCKET, "Sending final metrics with end location: $endAddress ($endCity, $endCountry)")
+
+        val finalMetrics = createMetricsWithCurrentData()
+        sendDataToWebsocketServer(finalMetrics)
+
+        Log.d(TAG_WEBSOCKET, "Final metrics sent to WebSocket server")
     }
 
     /**

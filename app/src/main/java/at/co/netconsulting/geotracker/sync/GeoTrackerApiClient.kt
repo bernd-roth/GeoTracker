@@ -298,6 +298,13 @@ class GeoTrackerApiClient(private val context: Context) {
                 if (lapTimesArray.length() > 0) {
                     put("lap_times", lapTimesArray)
                 }
+                // Location geocoding fields
+                event.startCity?.let { put("start_city", it) }
+                event.startCountry?.let { put("start_country", it) }
+                event.startAddress?.let { put("start_address", it) }
+                event.endCity?.let { put("end_city", it) }
+                event.endCountry?.let { put("end_country", it) }
+                event.endAddress?.let { put("end_address", it) }
             }
 
             val requestBody = jsonBody.toString()

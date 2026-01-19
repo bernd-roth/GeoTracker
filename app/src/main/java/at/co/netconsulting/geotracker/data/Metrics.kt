@@ -60,6 +60,14 @@ data class Metrics(
     val comment: String = "",
     val clothing: String = "",
 
+    // Location geocoding fields
+    val startCity: String? = null,
+    val startCountry: String? = null,
+    val startAddress: String? = null,
+    val endCity: String? = null,
+    val endCountry: String? = null,
+    val endAddress: String? = null,
+
     // Heart rate data
     val heartRate: Int = 0,
     val heartRateDevice: String = "",

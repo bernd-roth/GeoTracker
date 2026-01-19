@@ -17,6 +17,13 @@ class TrackingSession(db.Model):
     min_distance_meters = db.Column(db.Integer, nullable=True)
     min_time_seconds = db.Column(db.Integer, nullable=True)
     voice_announcement_interval = db.Column(db.Integer, nullable=True)
+    # Location geocoding fields
+    start_city = db.Column(db.String(255), nullable=True)
+    start_country = db.Column(db.String(255), nullable=True)
+    start_address = db.Column(db.String(500), nullable=True)
+    end_city = db.Column(db.String(255), nullable=True)
+    end_country = db.Column(db.String(255), nullable=True)
+    end_address = db.Column(db.String(500), nullable=True)
     created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
     updated_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -38,6 +45,12 @@ class TrackingSession(db.Model):
             'min_distance_meters': self.min_distance_meters,
             'min_time_seconds': self.min_time_seconds,
             'voice_announcement_interval': self.voice_announcement_interval,
+            'start_city': self.start_city,
+            'start_country': self.start_country,
+            'start_address': self.start_address,
+            'end_city': self.end_city,
+            'end_country': self.end_country,
+            'end_address': self.end_address,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

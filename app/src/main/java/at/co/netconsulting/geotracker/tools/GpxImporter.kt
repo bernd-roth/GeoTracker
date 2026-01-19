@@ -442,6 +442,29 @@ class GpxImporter(private val context: Context) {
                 Log.d(TAG, "Successfully inserted ${waypoints.size} waypoints for event ID: $eventId")
             }
 
+            // Geocode start and end locations
+            try {
+                val firstPoint = trackPoints.first()
+                val lastPoint = trackPoints.last()
+
+                // Geocode start location
+                val startLocationInfo = GeocodingHelper.getLocationInfo(context, firstPoint.lat, firstPoint.lon)
+                if (startLocationInfo.city != null || startLocationInfo.country != null || startLocationInfo.address != null) {
+                    database.eventDao().updateEventStartLocation(eventId, startLocationInfo.city, startLocationInfo.country, startLocationInfo.address)
+                    Log.d(TAG, "Start location geocoded: ${startLocationInfo.address ?: "${startLocationInfo.city}, ${startLocationInfo.country}"}")
+                }
+
+                // Geocode end location
+                val endLocationInfo = GeocodingHelper.getLocationInfo(context, lastPoint.lat, lastPoint.lon)
+                if (endLocationInfo.city != null || endLocationInfo.country != null || endLocationInfo.address != null) {
+                    database.eventDao().updateEventEndLocation(eventId, endLocationInfo.city, endLocationInfo.country, endLocationInfo.address)
+                    Log.d(TAG, "End location geocoded: ${endLocationInfo.address ?: "${endLocationInfo.city}, ${endLocationInfo.country}"}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error geocoding locations for imported event", e)
+                // Continue even if geocoding fails - it's not critical for import
+            }
+
             return eventId
         } catch (e: Exception) {
             Log.e(TAG, "Error creating event: ${e.message}", e)

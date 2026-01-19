@@ -83,10 +83,11 @@ class GpxExportService : Service() {
     private fun createGPXContent(event: Event, locations: List<Location>, metrics: List<Metric>): String {
         val xmlBuilder = StringBuilder()
         xmlBuilder.append("""<?xml version="1.0" encoding="UTF-8"?>
-            <gpx version="1.1" 
+            <gpx version="1.1"
                 creator="GeoTracker"
                 xmlns="http://www.topografix.com/GPX/1/1"
                 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                xmlns:geotracker="http://geotracker.netconsulting.co.at/gpx/1/0"
                 xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
             """.trimIndent())
 
@@ -95,6 +96,12 @@ class GpxExportService : Service() {
             <metadata>
                 <name>${event.eventName}</name>
                 <time>${event.eventDate}T00:00:00Z</time>
+                <desc>${event.comment ?: ""}</desc>
+                <keywords>${event.artOfSport}</keywords>
+                <extensions>
+                    <geotracker:startLocation>${event.startAddress ?: listOfNotNull(event.startCity, event.startCountry).joinToString(", ").ifEmpty { "" }}</geotracker:startLocation>
+                    <geotracker:endLocation>${event.endAddress ?: listOfNotNull(event.endCity, event.endCountry).joinToString(", ").ifEmpty { "" }}</geotracker:endLocation>
+                </extensions>
             </metadata>
         """.trimIndent())
 

@@ -92,7 +92,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                         |      <description>
                         |        <![CDATA[
                         |          <p><strong>Start Point</strong></p>
-                        |          <p>Time: ${formatTimestamp(metrics.firstOrNull()?.timeInMilliseconds ?: 0)}</p>
+                        |          <p>Time: ${formatTimestamp(metrics.firstOrNull()?.timeInMilliseconds ?: 0)}</p>${if (event.startAddress != null || event.startCity != null) "\n          <p>Location: ${event.startAddress ?: "${event.startCity ?: ""}, ${event.startCountry ?: ""}"}</p>" else ""}
                         |        ]]>
                         |      </description>
                         |      <styleUrl>#startPointStyle</styleUrl>
@@ -105,7 +105,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                         |      <description>
                         |        <![CDATA[
                         |          <p><strong>End Point</strong></p>
-                        |          <p>Time: ${formatTimestamp(metrics.lastOrNull()?.timeInMilliseconds ?: 0)}</p>
+                        |          <p>Time: ${formatTimestamp(metrics.lastOrNull()?.timeInMilliseconds ?: 0)}</p>${if (event.endAddress != null || event.endCity != null) "\n          <p>Location: ${event.endAddress ?: "${event.endCity ?: ""}, ${event.endCountry ?: ""}"}</p>" else ""}
                         |        ]]>
                         |      </description>
                         |      <styleUrl>#endPointStyle</styleUrl>

@@ -1002,6 +1002,28 @@ class TrackingServer:
                     if message_data.get('lapTimes') and isinstance(message_data['lapTimes'], list):
                         await self.save_lap_times(conn, session_id, user_id, message_data['lapTimes'])
 
+                    # Update session location geocoding data if present
+                    start_city = message_data.get('startCity')
+                    start_country = message_data.get('startCountry')
+                    start_address = message_data.get('startAddress')
+                    end_city = message_data.get('endCity')
+                    end_country = message_data.get('endCountry')
+                    end_address = message_data.get('endAddress')
+
+                    if any([start_city, start_country, start_address, end_city, end_country, end_address]):
+                        await conn.execute("""
+                            UPDATE tracking_sessions SET
+                                start_city = COALESCE($2, start_city),
+                                start_country = COALESCE($3, start_country),
+                                start_address = COALESCE($4, start_address),
+                                end_city = COALESCE($5, end_city),
+                                end_country = COALESCE($6, end_country),
+                                end_address = COALESCE($7, end_address),
+                                updated_at = NOW()
+                            WHERE session_id = $1
+                        """, session_id, start_city, start_country, start_address, end_city, end_country, end_address)
+                        logging.info(f"Updated location geocoding data for session {session_id}: start={start_address or f'{start_city}, {start_country}'}, end={end_address or f'{end_city}, {end_country}'}")
+
             logging.info(f"Successfully saved normalized tracking data with barometer data for session {session_id}")
             return True
 
