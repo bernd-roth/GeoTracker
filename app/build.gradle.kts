@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.16")} (19-01-2026: added start/end location geocoding)"
+        versionName = "${getNextVersion("7.17")} (22-01-2026: widget created)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
