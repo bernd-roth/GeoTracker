@@ -15,4 +15,13 @@
     <string name="back">Back</string>
     <!--Activities-->
     <string name="yearly_statistics">Event Overview</string>
+    <!--Widget-->
+    <string name="widget_description">Shows tracking metrics during recording</string>
+    <string name="widget_duration">Duration</string>
+    <string name="widget_distance">Distance</string>
+    <string name="widget_speed">Speed</string>
+    <string name="widget_altitude">Altitude</string>
+    <string name="widget_temperature">Temperature</string>
+    <string name="widget_barometer">Barometer</string>
+    <string name="widget_heartrate">Heart Rate</string>
 </resources>

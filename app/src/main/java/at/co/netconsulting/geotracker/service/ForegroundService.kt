@@ -39,6 +39,7 @@ import at.co.netconsulting.geotracker.service.WeatherEventBusHandler
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.BarometerUtils
 import at.co.netconsulting.geotracker.tools.GeocodingHelper
+import at.co.netconsulting.geotracker.widget.GeoTrackerWidget
 import com.google.gson.FieldNamingPolicy
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -1270,6 +1271,26 @@ class ForegroundService : Service() {
             }
 
             Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed, satellites=$satellites")
+
+            // Update home screen widget with current metrics
+            val duration = movementState.getTotalDuration()
+            val durationStr = String.format(
+                "%02d:%02d:%02d",
+                duration.toHours(),
+                duration.toMinutes() % 60,
+                duration.seconds % 60
+            )
+            GeoTrackerWidget.updateWidget(
+                this,
+                durationStr,
+                distance,
+                speed,
+                altitude,
+                currentTemperature?.toFloat(),
+                currentPressure,
+                currentHeartRate,
+                true
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error processing location update", e)
         }
@@ -1684,6 +1705,13 @@ class ForegroundService : Service() {
             // Not stopping intentionally - might be a crash or kill
             // Don't clear the session data - keep it for recovery
             Log.d(TAG, "Not clearing session data - might be a crash")
+        }
+
+        // Reset widget to not tracking state
+        try {
+            GeoTrackerWidget.updateWidgetNotTracking(this)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error resetting widget", e)
         }
 
         try {
