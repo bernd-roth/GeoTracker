@@ -70,6 +70,58 @@ class GeoTrackerApiClient(private val context: Context) {
         val sportType: String? = null
     )
 
+    // Data classes for download functionality
+    data class RemoteSessionSummary(
+        val sessionId: String,
+        val eventName: String?,
+        val sportType: String?,
+        val startDateTime: String?,
+        val gpsPointCount: Int,
+        val startCity: String?,
+        val startCountry: String?
+    )
+
+    data class FullSessionData(
+        val sessionId: String,
+        val eventName: String?,
+        val sportType: String?,
+        val comment: String?,
+        val startDateTime: String?,
+        val startCity: String?,
+        val startCountry: String?,
+        val startAddress: String?,
+        val endCity: String?,
+        val endCountry: String?,
+        val endAddress: String?,
+        val gpsPoints: List<GpsPointData>,
+        val lapTimes: List<LapTimeData>
+    )
+
+    data class GpsPointData(
+        val latitude: Double,
+        val longitude: Double,
+        val altitude: Double?,
+        val receivedAt: String?,
+        val currentSpeed: Float?,
+        val distance: Double?,
+        val heartRate: Int?,
+        val lap: Int,
+        val pressure: Float?,
+        val pressureAccuracy: Int?,
+        val altitudeFromPressure: Float?,
+        val seaLevelPressure: Float?,
+        val slope: Double?,
+        val temperature: Float?,
+        val cumulativeElevationGain: Float?
+    )
+
+    data class LapTimeData(
+        val lapNumber: Int,
+        val startTime: Long,
+        val endTime: Long,
+        val distance: Double
+    )
+
     /**
      * Find a session by date and user info
      */
@@ -424,5 +476,156 @@ class GeoTrackerApiClient(private val context: Context) {
         val uuid = UUID.randomUUID().toString().replace("-", "").substring(0, 16)
         val randomNumber = (100000..999999).random()
         return "${name}_${dateFormatted}_${timeComponent}_${uuid}_${randomNumber}"
+    }
+
+    /**
+     * List sessions for a user from the remote server
+     */
+    suspend fun listUserSessions(
+        firstname: String,
+        lastname: String? = null,
+        birthdate: String? = null
+    ): Result<List<RemoteSessionSummary>> = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = getApiBaseUrl()
+                ?: return@withContext Result.failure(Exception("Server URL not configured"))
+
+            val urlBuilder = StringBuilder("$baseUrl/sessions?firstname=$firstname&per_page=100")
+            lastname?.let { if (it.isNotBlank()) urlBuilder.append("&lastname=$it") }
+            birthdate?.let { if (it.isNotBlank()) urlBuilder.append("&birthdate=$it") }
+
+            val request = Request.Builder()
+                .url(urlBuilder.toString())
+                .get()
+                .build()
+
+            Log.d(TAG, "Listing sessions for user: $firstname")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val data = json.optJSONObject("data")
+                val sessionsArray = data?.optJSONArray("sessions") ?: JSONArray()
+
+                val sessions = mutableListOf<RemoteSessionSummary>()
+                for (i in 0 until sessionsArray.length()) {
+                    val sessionJson = sessionsArray.getJSONObject(i)
+                    sessions.add(
+                        RemoteSessionSummary(
+                            sessionId = sessionJson.optString("session_id", ""),
+                            eventName = sessionJson.optString("event_name")?.takeIf { it.isNotBlank() && it != "null" },
+                            sportType = sessionJson.optString("sport_type")?.takeIf { it.isNotBlank() && it != "null" },
+                            startDateTime = sessionJson.optString("start_date_time")?.takeIf { it.isNotBlank() && it != "null" },
+                            gpsPointCount = sessionJson.optInt("gps_point_count", 0),
+                            startCity = sessionJson.optString("start_city")?.takeIf { it.isNotBlank() && it != "null" },
+                            startCountry = sessionJson.optString("start_country")?.takeIf { it.isNotBlank() && it != "null" }
+                        )
+                    )
+                }
+
+                Log.d(TAG, "Found ${sessions.size} sessions for user $firstname")
+                Result.success(sessions)
+            } else {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "List sessions failed: ${response.code} - $errorBody")
+                Result.failure(Exception("API error: ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error listing sessions", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Download full session details including GPS points and lap times
+     */
+    suspend fun downloadSessionWithDetails(sessionId: String): Result<FullSessionData> = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = getApiBaseUrl()
+                ?: return@withContext Result.failure(Exception("Server URL not configured"))
+
+            val request = Request.Builder()
+                .url("$baseUrl/sessions/$sessionId?include_details=true")
+                .get()
+                .build()
+
+            Log.d(TAG, "Downloading session details: $sessionId")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val data = json.optJSONObject("data")
+                    ?: return@withContext Result.failure(Exception("No data in response"))
+
+                // Parse GPS points
+                val gpsPointsArray = data.optJSONArray("gps_points") ?: JSONArray()
+                val gpsPoints = mutableListOf<GpsPointData>()
+                for (i in 0 until gpsPointsArray.length()) {
+                    val point = gpsPointsArray.getJSONObject(i)
+                    gpsPoints.add(
+                        GpsPointData(
+                            latitude = point.optDouble("latitude", 0.0),
+                            longitude = point.optDouble("longitude", 0.0),
+                            altitude = point.optDouble("altitude").takeIf { !it.isNaN() },
+                            receivedAt = point.optString("received_at")?.takeIf { it.isNotBlank() && it != "null" },
+                            currentSpeed = point.optDouble("current_speed").takeIf { !it.isNaN() }?.toFloat(),
+                            distance = point.optDouble("distance").takeIf { !it.isNaN() },
+                            heartRate = point.optInt("heart_rate", 0).takeIf { it > 0 },
+                            lap = point.optInt("lap", 1),
+                            pressure = point.optDouble("pressure").takeIf { !it.isNaN() }?.toFloat(),
+                            pressureAccuracy = point.optInt("pressure_accuracy", 0).takeIf { it > 0 },
+                            altitudeFromPressure = point.optDouble("altitude_from_pressure").takeIf { !it.isNaN() }?.toFloat(),
+                            seaLevelPressure = point.optDouble("sea_level_pressure").takeIf { !it.isNaN() }?.toFloat(),
+                            slope = point.optDouble("slope").takeIf { !it.isNaN() },
+                            temperature = point.optDouble("temperature").takeIf { !it.isNaN() }?.toFloat(),
+                            cumulativeElevationGain = point.optDouble("cumulative_elevation_gain").takeIf { !it.isNaN() }?.toFloat()
+                        )
+                    )
+                }
+
+                // Parse lap times
+                val lapTimesArray = data.optJSONArray("lap_times") ?: JSONArray()
+                val lapTimes = mutableListOf<LapTimeData>()
+                for (i in 0 until lapTimesArray.length()) {
+                    val lap = lapTimesArray.getJSONObject(i)
+                    lapTimes.add(
+                        LapTimeData(
+                            lapNumber = lap.optInt("lap_number", 0),
+                            startTime = lap.optLong("start_time", 0),
+                            endTime = lap.optLong("end_time", 0),
+                            distance = lap.optDouble("distance", 0.0)
+                        )
+                    )
+                }
+
+                val fullSession = FullSessionData(
+                    sessionId = data.optString("session_id", sessionId),
+                    eventName = data.optString("event_name")?.takeIf { it.isNotBlank() && it != "null" },
+                    sportType = data.optString("sport_type")?.takeIf { it.isNotBlank() && it != "null" },
+                    comment = data.optString("comment")?.takeIf { it.isNotBlank() && it != "null" },
+                    startDateTime = data.optString("start_date_time")?.takeIf { it.isNotBlank() && it != "null" },
+                    startCity = data.optString("start_city")?.takeIf { it.isNotBlank() && it != "null" },
+                    startCountry = data.optString("start_country")?.takeIf { it.isNotBlank() && it != "null" },
+                    startAddress = data.optString("start_address")?.takeIf { it.isNotBlank() && it != "null" },
+                    endCity = data.optString("end_city")?.takeIf { it.isNotBlank() && it != "null" },
+                    endCountry = data.optString("end_country")?.takeIf { it.isNotBlank() && it != "null" },
+                    endAddress = data.optString("end_address")?.takeIf { it.isNotBlank() && it != "null" },
+                    gpsPoints = gpsPoints,
+                    lapTimes = lapTimes
+                )
+
+                Log.d(TAG, "Downloaded session $sessionId with ${gpsPoints.size} GPS points and ${lapTimes.size} lap times")
+                Result.success(fullSession)
+            } else {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Download session failed: ${response.code} - $errorBody")
+                Result.failure(Exception("API error: ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading session", e)
+            Result.failure(e)
+        }
     }
 }

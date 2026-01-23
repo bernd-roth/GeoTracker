@@ -22,6 +22,8 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +45,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.Delete
@@ -161,6 +164,8 @@ fun EventsScreen(
     // State for upload dialog
     var showUploadDialog by remember { mutableStateOf(false) }
 
+    // State for download dialog
+    var showDownloadDialog by remember { mutableStateOf(false) }
 
     // Result launcher for file picking
     val gpxFileLauncher = rememberLauncherForActivityResult(
@@ -479,6 +484,17 @@ fun EventsScreen(
         )
     }
 
+    // Download dialog
+    if (showDownloadDialog) {
+        DownloadEventsDialog(
+            onDismiss = {
+                showDownloadDialog = false
+                // Reload events to show newly downloaded events
+                eventsViewModel.loadEvents()
+            }
+        )
+    }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
@@ -510,13 +526,10 @@ fun EventsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Events",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Row {
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         // Detailed Statistics button
                         TextButton(
                             onClick = {
@@ -559,6 +572,18 @@ fun EventsScreen(
                                 imageVector = Icons.Default.CloudUpload,
                                 contentDescription = "Upload Events",
                                 tint = MaterialTheme.colorScheme.tertiary
+                            )
+                        }
+
+                        // Download events button
+                        IconButton(
+                            onClick = { showDownloadDialog = true },
+                            modifier = Modifier.padding(start = 4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloudDownload,
+                                contentDescription = "Download Events",
+                                tint = MaterialTheme.colorScheme.secondary
                             )
                         }
                     }

@@ -95,10 +95,22 @@ def get_session(session_id):
 
 @sessions_bp.route('/sessions', methods=['GET'])
 def list_sessions():
-    """List sessions with pagination."""
+    """List sessions with pagination.
+
+    Query params:
+        page: Page number (default: 1)
+        per_page: Items per page (default: 20, max: 100)
+        user_id: Filter by user ID
+        firstname: Filter by user's first name
+        lastname: Filter by user's last name (optional, used with firstname)
+        birthdate: Filter by user's birthdate (optional, used with firstname)
+    """
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
     user_id = request.args.get('user_id', type=int)
+    firstname = request.args.get('firstname')
+    lastname = request.args.get('lastname')
+    birthdate = request.args.get('birthdate')
 
     # Limit per_page to prevent abuse
     per_page = min(per_page, 100)
@@ -107,6 +119,25 @@ def list_sessions():
 
     if user_id:
         query = query.filter(TrackingSession.user_id == user_id)
+    elif firstname:
+        # Find user by name and filter by user_id
+        user_query = User.query.filter_by(firstname=firstname)
+        if lastname:
+            user_query = user_query.filter_by(lastname=lastname)
+        if birthdate:
+            user_query = user_query.filter_by(birthdate=birthdate)
+        user = user_query.first()
+        if user:
+            query = query.filter(TrackingSession.user_id == user.user_id)
+        else:
+            # User not found, return empty result
+            return paginated_response(
+                items=[],
+                page=page,
+                per_page=per_page,
+                total=0,
+                item_name='sessions'
+            )
 
     # Order by start_date_time descending (most recent first)
     query = query.order_by(TrackingSession.start_date_time.desc())

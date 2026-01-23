@@ -26,6 +26,21 @@
     <string name="widget_temperature">Temperature</string>
     <string name="widget_barometer">Barometer</string>
     <string name="widget_heartrate">Heart Rate</string>
+    <!--Download Events-->
+    <string name="download_events">Download Events from Server</string>
+    <string name="download_events_desc">Download events recorded on other devices</string>
+    <string name="show_all_including_downloaded">Show all events (including downloaded)</string>
+    <string name="events_on_server">%d events on server</string>
+    <string name="all_events_downloaded">All events have been downloaded!</string>
+    <string name="loading_sessions">Loading sessions from server...</string>
+    <string name="select_events_to_check">Select events to check</string>
+    <string name="check_events">Check %d event(s)</string>
+    <string name="check_events_first">Check events first</string>
+    <string name="download_events_count">Download %d event(s)</string>
+    <string name="ready_to_download">Ready to download</string>
+    <string name="already_downloaded">Already in local database</string>
+    <string name="downloading">Downloading...</string>
+    <string name="checking">Checking...</string>
     <!--Follow Users Dialog-->
     <string name="path_display">Path Display</string>
     <string name="path_display_full">Full Path</string>

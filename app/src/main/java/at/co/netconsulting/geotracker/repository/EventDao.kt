@@ -184,6 +184,9 @@ interface EventDao {
     @Query("SELECT COUNT(*) FROM events WHERE isUploaded = 0")
     suspend fun getUnuploadedEventCount(): Int
 
+    @Query("SELECT * FROM events WHERE sessionId = :sessionId LIMIT 1")
+    suspend fun getEventBySessionId(sessionId: String): Event?
+
     @Query("""
         UPDATE events
         SET startCity = :startCity,

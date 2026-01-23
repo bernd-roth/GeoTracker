@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.19")} (23-01-2026: show full path/starting point when auto-follow is activated)"
+        versionName = "${getNextVersion("7.20")} (23-01-2026: download events from remote database)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
