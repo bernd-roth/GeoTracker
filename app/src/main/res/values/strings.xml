@@ -17,7 +17,9 @@
     <string name="yearly_statistics">Event Overview</string>
     <!--Widget-->
     <string name="widget_description">Shows tracking metrics during recording</string>
+    <string name="widget_total_activity">Total Activity</string>
     <string name="widget_duration">Duration</string>
+    <string name="widget_inactivity">Inactivity</string>
     <string name="widget_distance">Distance</string>
     <string name="widget_speed">Speed</string>
     <string name="widget_altitude">Altitude</string>

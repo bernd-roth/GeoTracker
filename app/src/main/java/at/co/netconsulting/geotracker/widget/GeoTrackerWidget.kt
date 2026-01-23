@@ -37,7 +37,9 @@ class GeoTrackerWidget : AppWidgetProvider() {
         if (intent.action == ACTION_UPDATE_WIDGET) {
             try {
                 val data = WidgetData(
+                    totalActivity = intent.getStringExtra(EXTRA_TOTAL_ACTIVITY) ?: "--:--:--",
                     duration = intent.getStringExtra(EXTRA_DURATION) ?: "--:--:--",
+                    inactivity = intent.getStringExtra(EXTRA_INACTIVITY) ?: "--:--:--",
                     distance = intent.getDoubleExtra(EXTRA_DISTANCE, 0.0),
                     speed = intent.getFloatExtra(EXTRA_SPEED, 0.0f),
                     altitude = intent.getDoubleExtra(EXTRA_ALTITUDE, 0.0),
@@ -74,7 +76,9 @@ class GeoTrackerWidget : AppWidgetProvider() {
     }
 
     data class WidgetData(
+        val totalActivity: String = "--:--:--",
         val duration: String = "--:--:--",
+        val inactivity: String = "--:--:--",
         val distance: Double = 0.0,
         val speed: Float = 0.0f,
         val altitude: Double = 0.0,
@@ -87,7 +91,9 @@ class GeoTrackerWidget : AppWidgetProvider() {
     companion object {
         private const val TAG = "GeoTrackerWidget"
         const val ACTION_UPDATE_WIDGET = "at.co.netconsulting.geotracker.UPDATE_WIDGET"
+        private const val EXTRA_TOTAL_ACTIVITY = "extra_total_activity"
         private const val EXTRA_DURATION = "extra_duration"
+        private const val EXTRA_INACTIVITY = "extra_inactivity"
         private const val EXTRA_DISTANCE = "extra_distance"
         private const val EXTRA_SPEED = "extra_speed"
         private const val EXTRA_ALTITUDE = "extra_altitude"
@@ -98,7 +104,9 @@ class GeoTrackerWidget : AppWidgetProvider() {
 
         fun updateWidget(
             context: Context,
+            totalActivity: String,
             duration: String,
+            inactivity: String,
             distance: Double,
             speed: Float,
             altitude: Double,
@@ -110,7 +118,9 @@ class GeoTrackerWidget : AppWidgetProvider() {
             try {
                 val intent = Intent(context, GeoTrackerWidget::class.java).apply {
                     action = ACTION_UPDATE_WIDGET
+                    putExtra(EXTRA_TOTAL_ACTIVITY, totalActivity)
                     putExtra(EXTRA_DURATION, duration)
+                    putExtra(EXTRA_INACTIVITY, inactivity)
                     putExtra(EXTRA_DISTANCE, distance)
                     putExtra(EXTRA_SPEED, speed)
                     putExtra(EXTRA_ALTITUDE, altitude)
@@ -120,14 +130,14 @@ class GeoTrackerWidget : AppWidgetProvider() {
                     putExtra(EXTRA_IS_TRACKING, isTracking)
                 }
                 context.sendBroadcast(intent)
-                Log.d(TAG, "Broadcast sent: duration=$duration, distance=$distance, speed=$speed, altitude=$altitude, temp=$temperature, baro=$barometer, hr=$heartRate, tracking=$isTracking")
+                Log.d(TAG, "Broadcast sent: totalActivity=$totalActivity, duration=$duration, inactivity=$inactivity, distance=$distance, speed=$speed, altitude=$altitude, temp=$temperature, baro=$barometer, hr=$heartRate, tracking=$isTracking")
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending widget update broadcast", e)
             }
         }
 
         fun updateWidgetNotTracking(context: Context) {
-            updateWidget(context, "--:--:--", 0.0, 0.0f, 0.0, null, 0.0f, 0, false)
+            updateWidget(context, "--:--:--", "--:--:--", "--:--:--", 0.0, 0.0f, 0.0, null, 0.0f, 0, false)
         }
 
         private fun updateAppWidget(
@@ -159,8 +169,14 @@ class GeoTrackerWidget : AppWidgetProvider() {
 
                 // Update values
                 if (data.isTracking) {
+                    // Total Activity
+                    views.setTextViewText(R.id.widget_total_activity_value, data.totalActivity)
+
                     // Duration
                     views.setTextViewText(R.id.widget_duration_value, data.duration)
+
+                    // Inactivity
+                    views.setTextViewText(R.id.widget_inactivity_value, data.inactivity)
 
                     // Distance in km (input is in meters)
                     val distanceKm = data.distance / 1000.0
@@ -212,7 +228,9 @@ class GeoTrackerWidget : AppWidgetProvider() {
                         views.setTextViewText(R.id.widget_heartrate_value, "---")
                     }
                 } else {
+                    views.setTextViewText(R.id.widget_total_activity_value, "--:--:--")
                     views.setTextViewText(R.id.widget_duration_value, "--:--:--")
+                    views.setTextViewText(R.id.widget_inactivity_value, "--:--:--")
                     views.setTextViewText(R.id.widget_distance_value, "---")
                     views.setTextViewText(R.id.widget_speed_value, "---")
                     views.setTextViewText(R.id.widget_altitude_value, "---")

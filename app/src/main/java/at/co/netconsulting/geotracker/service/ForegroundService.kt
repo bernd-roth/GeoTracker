@@ -1273,16 +1273,27 @@ class ForegroundService : Service() {
             Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed, satellites=$satellites")
 
             // Update home screen widget with current metrics
-            val duration = movementState.getTotalDuration()
-            val durationStr = String.format(
+            // Calculate total recording duration for widget
+            var totalRecordingDuration = Duration.between(startDateTime, LocalDateTime.now())
+            val totalPausedDuration = Duration.ofMillis(totalPausedDurationMs)
+            totalRecordingDuration = if (isPaused && pauseStartTime > 0) {
+                val currentPauseDuration = Duration.ofMillis(System.currentTimeMillis() - pauseStartTime)
+                totalRecordingDuration.minus(totalPausedDuration).minus(currentPauseDuration)
+            } else {
+                totalRecordingDuration.minus(totalPausedDuration)
+            }
+            val totalRecordingFormattedTime = String.format(
                 "%02d:%02d:%02d",
-                duration.toHours(),
-                duration.toMinutes() % 60,
-                duration.seconds % 60
+                totalRecordingDuration.toHours(),
+                totalRecordingDuration.toMinutes() % 60,
+                totalRecordingDuration.seconds % 60
             )
+
             GeoTrackerWidget.updateWidget(
                 this,
-                durationStr,
+                movementFormattedTime,
+                totalRecordingFormattedTime,
+                lazyFormattedTime,
                 distance,
                 speed,
                 altitude,
