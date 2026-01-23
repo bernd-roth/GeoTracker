@@ -55,15 +55,18 @@ fun UserSelectionDialog(
     currentlyFollowing: List<String>,
     isLoading: Boolean,
     currentPrecisionMode: FollowingService.TrailPrecisionMode,
+    currentPathDisplayMode: FollowingService.PathDisplayMode,
     onFollowUsers: (List<String>) -> Unit,
     onStopFollowing: () -> Unit,
     onRefreshUsers: () -> Unit,
     onPrecisionModeChanged: (FollowingService.TrailPrecisionMode) -> Unit,
+    onPathDisplayModeChanged: (FollowingService.PathDisplayMode) -> Unit,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     var selectedUsers by remember { mutableStateOf(currentlyFollowing.toSet()) }
     var selectedPrecisionMode by remember { mutableStateOf(currentPrecisionMode) }
+    var selectedPathDisplayMode by remember { mutableStateOf(currentPathDisplayMode) }
 
     // Check if currently recording
     val isRecording = context.getSharedPreferences("RecordingState", android.content.Context.MODE_PRIVATE)
@@ -121,7 +124,7 @@ fun UserSelectionDialog(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(450.dp) // Increased height to accommodate info message
+                    .height(600.dp) // Increased height to accommodate info message
             ) {
                 item {
                     // Recording + Following capability info
@@ -194,6 +197,19 @@ fun UserSelectionDialog(
                         onPrecisionModeChanged = { mode ->
                             selectedPrecisionMode = mode
                             onPrecisionModeChanged(mode)
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Divider()
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Path Display Mode Settings
+                    PathDisplayModeSection(
+                        selectedPathDisplayMode = selectedPathDisplayMode,
+                        onPathDisplayModeChanged = { mode ->
+                            selectedPathDisplayMode = mode
+                            onPathDisplayModeChanged(mode)
                         }
                     )
 
@@ -317,9 +333,10 @@ private fun TrailPrecisionSection(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Three most useful precision modes
+        // Precision modes
         val precisionModes = listOf(
             FollowingService.TrailPrecisionMode.EVERY_POINT,
+            FollowingService.TrailPrecisionMode.HIGH_PRECISION,
             FollowingService.TrailPrecisionMode.MEDIUM_PRECISION,
             FollowingService.TrailPrecisionMode.LOW_PRECISION
         )
@@ -329,6 +346,86 @@ private fun TrailPrecisionSection(
                 mode = mode,
                 isSelected = selectedPrecisionMode == mode,
                 onSelected = { onPrecisionModeChanged(mode) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PathDisplayModeSection(
+    selectedPathDisplayMode: FollowingService.PathDisplayMode,
+    onPathDisplayModeChanged: (FollowingService.PathDisplayMode) -> Unit
+) {
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Path Display",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        FollowingService.PathDisplayMode.entries.forEach { mode ->
+            PathDisplayModeItem(
+                mode = mode,
+                isSelected = selectedPathDisplayMode == mode,
+                onSelected = { onPathDisplayModeChanged(mode) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun PathDisplayModeItem(
+    mode: FollowingService.PathDisplayMode,
+    isSelected: Boolean,
+    onSelected: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .selectable(
+                selected = isSelected,
+                onClick = onSelected,
+                role = Role.RadioButton
+            )
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        RadioButton(
+            selected = isSelected,
+            onClick = onSelected
+        )
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = when (mode) {
+                    FollowingService.PathDisplayMode.FULL_PATH -> "Full Path"
+                    FollowingService.PathDisplayMode.FROM_CURRENT_POSITION -> "From Current Position"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = when (mode) {
+                    FollowingService.PathDisplayMode.FULL_PATH -> "Show entire path from where user started"
+                    FollowingService.PathDisplayMode.FROM_CURRENT_POSITION -> "Show path from when you start following"
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -362,6 +459,7 @@ private fun PrecisionModeItem(
             Text(
                 text = when (mode) {
                     FollowingService.TrailPrecisionMode.EVERY_POINT -> "Maximum Detail"
+                    FollowingService.TrailPrecisionMode.HIGH_PRECISION -> "High Precision (default)"
                     FollowingService.TrailPrecisionMode.MEDIUM_PRECISION -> "Balanced"
                     FollowingService.TrailPrecisionMode.LOW_PRECISION -> "Simplified"
                     else -> mode.description
@@ -372,6 +470,7 @@ private fun PrecisionModeItem(
             Text(
                 text = when (mode) {
                     FollowingService.TrailPrecisionMode.EVERY_POINT -> "Shows every GPS point (most detailed)"
+                    FollowingService.TrailPrecisionMode.HIGH_PRECISION -> "1m minimum distance"
                     FollowingService.TrailPrecisionMode.MEDIUM_PRECISION -> "2m minimum distance (recommended)"
                     FollowingService.TrailPrecisionMode.LOW_PRECISION -> "5m minimum distance (less cluttered)"
                     else -> mode.description

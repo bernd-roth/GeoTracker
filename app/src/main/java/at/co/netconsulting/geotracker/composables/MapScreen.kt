@@ -2505,6 +2505,7 @@ fun MapScreen(
             currentlyFollowing = followingState.followedUsers,
             isLoading = isFollowingLoading,
             currentPrecisionMode = followingService.getTrailPrecision(),
+            currentPathDisplayMode = followingService.getPathDisplayMode(),
             onFollowUsers = { selectedSessionIds ->
                 followingService.followUsers(selectedSessionIds)
             },
@@ -2520,6 +2521,15 @@ fun MapScreen(
                 Toast.makeText(
                     context,
                     "Trail precision: ${mode.description}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            },
+            onPathDisplayModeChanged = { mode ->
+                followingService.setPathDisplayMode(mode)
+
+                Toast.makeText(
+                    context,
+                    "Path display: ${mode.description}",
                     Toast.LENGTH_SHORT
                 ).show()
             },

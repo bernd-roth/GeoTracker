@@ -1505,7 +1505,7 @@ class TrackingServer:
         except Exception as e:
             logging.error(f"Error handling active users request: {str(e)}")
 
-    async def handle_follow_users_request(self, websocket: websockets.WebSocketServerProtocol, session_ids: List[str]) -> None:
+    async def handle_follow_users_request(self, websocket: websockets.WebSocketServerProtocol, session_ids: List[str], include_history: bool = False) -> None:
         """Handle request to follow specific users."""
         try:
             # Validate that the sessions exist and are active
@@ -1520,40 +1520,74 @@ class TrackingServer:
                 # Set up following relationship
                 self.add_following_relationship(websocket, valid_session_ids)
 
-                # Send latest data for each followed session
+                # Send data for each followed session
                 for session_id in valid_session_ids:
                     if session_id in self.tracking_history and self.tracking_history[session_id]:
-                        latest_point = self.tracking_history[session_id][-1]
-
                         # Get lap times for this session
                         lap_times = await self.get_lap_times_for_session(session_id)
-                        
-                        # Send followed_user_update message with latest data
-                        await websocket.send(json.dumps({
-                            'type': 'followed_user_update',
-                            'point': {
+
+                        if include_history:
+                            # Send full history for this session
+                            history_points = self.tracking_history[session_id]
+                            person = history_points[0].get("firstname", history_points[0].get("person", "")) if history_points else ""
+
+                            await websocket.send(json.dumps({
+                                'type': 'followed_user_history',
                                 'sessionId': session_id,
-                                'person': latest_point.get("firstname", latest_point.get("person", "")),
-                                'latitude': latest_point.get("latitude", 0.0),
-                                'longitude': latest_point.get("longitude", 0.0),
-                                'altitude': latest_point.get("altitude", 0.0),
-                                'currentSpeed': latest_point.get("currentSpeed", 0.0),
-                                'distance': latest_point.get("distance", 0.0),
-                                'heartRate': latest_point.get("heartRate"),
-                                'slope': latest_point.get("slope"),
-                                'averageSlope': latest_point.get("averageSlope"),
-                                'maxUphillSlope': latest_point.get("maxUphillSlope"),
-                                'maxDownhillSlope': latest_point.get("maxDownhillSlope"),
-                                'timestamp': latest_point.get("timestamp", ""),
-                                'lapTimes': [
+                                'person': person,
+                                'points': [
                                     {
-                                        'lapNumber': lap['lapNumber'],
-                                        'duration': lap['duration'],
-                                        'distance': lap['distance']
-                                    } for lap in lap_times
-                                ] if lap_times else None
-                            }
-                        }))
+                                        'latitude': point.get("latitude", 0.0),
+                                        'longitude': point.get("longitude", 0.0),
+                                        'altitude': point.get("altitude", 0.0),
+                                        'currentSpeed': point.get("currentSpeed", 0.0),
+                                        'distance': point.get("distance", 0.0),
+                                        'heartRate': point.get("heartRate"),
+                                        'slope': point.get("slope"),
+                                        'averageSlope': point.get("averageSlope"),
+                                        'maxUphillSlope': point.get("maxUphillSlope"),
+                                        'maxDownhillSlope': point.get("maxDownhillSlope"),
+                                        'timestamp': point.get("timestamp", ""),
+                                        'temperature': point.get("temperature"),
+                                        'weatherCode': point.get("weatherCode"),
+                                        'pressure': point.get("pressure"),
+                                        'relativeHumidity': point.get("relativeHumidity"),
+                                        'windSpeed': point.get("windSpeed"),
+                                        'windDirection': point.get("windDirection")
+                                    } for point in history_points
+                                ]
+                            }))
+                            logging.info(f"Sent full history for session {session_id}: {len(history_points)} points")
+                        else:
+                            # Send only the latest point (original behavior)
+                            latest_point = self.tracking_history[session_id][-1]
+
+                            # Send followed_user_update message with latest data
+                            await websocket.send(json.dumps({
+                                'type': 'followed_user_update',
+                                'point': {
+                                    'sessionId': session_id,
+                                    'person': latest_point.get("firstname", latest_point.get("person", "")),
+                                    'latitude': latest_point.get("latitude", 0.0),
+                                    'longitude': latest_point.get("longitude", 0.0),
+                                    'altitude': latest_point.get("altitude", 0.0),
+                                    'currentSpeed': latest_point.get("currentSpeed", 0.0),
+                                    'distance': latest_point.get("distance", 0.0),
+                                    'heartRate': latest_point.get("heartRate"),
+                                    'slope': latest_point.get("slope"),
+                                    'averageSlope': latest_point.get("averageSlope"),
+                                    'maxUphillSlope': latest_point.get("maxUphillSlope"),
+                                    'maxDownhillSlope': latest_point.get("maxDownhillSlope"),
+                                    'timestamp': latest_point.get("timestamp", ""),
+                                    'lapTimes': [
+                                        {
+                                            'lapNumber': lap['lapNumber'],
+                                            'duration': lap['duration'],
+                                            'distance': lap['distance']
+                                        } for lap in lap_times
+                                    ] if lap_times else None
+                                }
+                            }))
 
             # Send response
             await websocket.send(json.dumps({
@@ -1992,7 +2026,8 @@ class TrackingServer:
                     # Handle follow_users request
                     if message_data.get('type') == 'follow_users':
                         session_ids = message_data.get('sessionIds', [])
-                        await self.handle_follow_users_request(websocket, session_ids)
+                        include_history = message_data.get('includeHistory', False)
+                        await self.handle_follow_users_request(websocket, session_ids, include_history)
                         continue
 
                     # Handle unfollow_users request

@@ -37,6 +37,9 @@ class FollowingService private constructor(private val context: Context) {
     // Configurable trail precision
     private var trailPrecisionMode = TrailPrecisionMode.HIGH_PRECISION
 
+    // Path display mode (full path or from current position)
+    private var pathDisplayMode = PathDisplayMode.FROM_CURRENT_POSITION
+
     // State flows for UI
     private val _activeUsers = MutableStateFlow<List<ActiveUser>>(emptyList())
     val activeUsers: StateFlow<List<ActiveUser>> = _activeUsers.asStateFlow()
@@ -56,6 +59,11 @@ class FollowingService private constructor(private val context: Context) {
         MEDIUM_PRECISION("Medium precision (2m)", 2.0),
         LOW_PRECISION("Low precision (5m)", 5.0),
         VERY_LOW_PRECISION("Very low precision (10m)", 10.0)
+    }
+
+    enum class PathDisplayMode(val description: String) {
+        FULL_PATH("Show full path from start"),
+        FROM_CURRENT_POSITION("Show path from current position")
     }
 
     companion object {
@@ -88,6 +96,19 @@ class FollowingService private constructor(private val context: Context) {
      */
     fun getTrailPrecision(): TrailPrecisionMode = trailPrecisionMode
 
+    /**
+     * Set the path display mode
+     */
+    fun setPathDisplayMode(mode: PathDisplayMode) {
+        pathDisplayMode = mode
+        Log.d(TAG, "Path display mode set to: ${mode.description}")
+    }
+
+    /**
+     * Get current path display mode
+     */
+    fun getPathDisplayMode(): PathDisplayMode = pathDisplayMode
+
     private val webSocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.d(TAG, "WebSocket connection opened for following mode")
@@ -113,6 +134,7 @@ class FollowingService private constructor(private val context: Context) {
                         _isLoading.value = false
                     }
                     "followed_user_update" -> handleFollowedUserUpdate(json)
+                    "followed_user_history" -> handleFollowedUserHistory(json)
                     "follow_response" -> handleFollowResponse(json)
                     "unfollow_response" -> handleUnfollowResponse(json)
                     "update" -> {
@@ -264,9 +286,10 @@ class FollowingService private constructor(private val context: Context) {
         }
 
         val sessionIdsJson = sessionIds.joinToString(",") { "\"$it\"" }
-        val message = """{"type": "follow_users", "sessionIds": [$sessionIdsJson]}"""
+        val includeHistory = pathDisplayMode == PathDisplayMode.FULL_PATH
+        val message = """{"type": "follow_users", "sessionIds": [$sessionIdsJson], "includeHistory": $includeHistory}"""
         webSocket?.send(message)
-        Log.d(TAG, "Requested to follow users: $sessionIds")
+        Log.d(TAG, "Requested to follow users: $sessionIds with includeHistory=$includeHistory")
     }
 
     fun stopFollowing() {
@@ -501,6 +524,93 @@ class FollowingService private constructor(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing followed user update", e)
         }
+    }
+
+    private fun handleFollowedUserHistory(json: JSONObject) {
+        try {
+            val sessionId = json.getString("sessionId")
+            val person = json.getString("person")
+            val pointsArray = json.getJSONArray("points")
+
+            Log.d(TAG, "Received history for $person: ${pointsArray.length()} points")
+
+            val historyPoints = mutableListOf<FollowedUserPoint>()
+
+            for (i in 0 until pointsArray.length()) {
+                val pointJson = pointsArray.getJSONObject(i)
+
+                val point = FollowedUserPoint(
+                    sessionId = sessionId,
+                    person = person,
+                    latitude = pointJson.getDouble("latitude"),
+                    longitude = pointJson.getDouble("longitude"),
+                    altitude = pointJson.optDouble("altitude", 0.0),
+                    currentSpeed = pointJson.optDouble("currentSpeed", 0.0).toFloat(),
+                    distance = pointJson.optDouble("distance", 0.0),
+                    slope = if (pointJson.has("slope")) pointJson.getDouble("slope") else null,
+                    averageSlope = if (pointJson.has("averageSlope")) pointJson.getDouble("averageSlope") else null,
+                    maxUphillSlope = if (pointJson.has("maxUphillSlope")) pointJson.getDouble("maxUphillSlope") else null,
+                    maxDownhillSlope = if (pointJson.has("maxDownhillSlope")) pointJson.getDouble("maxDownhillSlope") else null,
+                    heartRate = if (pointJson.has("heartRate") && pointJson.optInt("heartRate", 0) > 0) pointJson.getInt("heartRate") else null,
+                    timestamp = pointJson.optString("timestamp", ""),
+                    temperature = if (pointJson.has("temperature")) pointJson.getDouble("temperature") else null,
+                    weatherCode = if (pointJson.has("weatherCode")) pointJson.getInt("weatherCode") else null,
+                    pressure = if (pointJson.has("pressure")) pointJson.getDouble("pressure") else null,
+                    relativeHumidity = if (pointJson.has("relativeHumidity")) pointJson.getInt("relativeHumidity") else null,
+                    windSpeed = if (pointJson.has("windSpeed")) pointJson.getDouble("windSpeed") else null,
+                    windDirection = if (pointJson.has("windDirection")) pointJson.getDouble("windDirection") else null
+                )
+                historyPoints.add(point)
+            }
+
+            // Apply trail precision filtering to historical points
+            val filteredPoints = if (trailPrecisionMode == TrailPrecisionMode.EVERY_POINT) {
+                historyPoints
+            } else {
+                filterPointsByPrecision(historyPoints)
+            }
+
+            // Set the trail for this user (replaces any existing trail)
+            val currentState = _followingState.value
+            val updatedTrails = currentState.followedUserTrails.toMutableMap()
+            updatedTrails[sessionId] = filteredPoints
+
+            _followingState.value = currentState.copy(
+                followedUserTrails = updatedTrails
+            )
+
+            Log.d(TAG, "✅ Loaded history for $person: ${filteredPoints.size} points (filtered from ${historyPoints.size})")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing followed user history", e)
+        }
+    }
+
+    private fun filterPointsByPrecision(points: List<FollowedUserPoint>): List<FollowedUserPoint> {
+        if (points.isEmpty()) return emptyList()
+
+        val filtered = mutableListOf<FollowedUserPoint>()
+        filtered.add(points.first())
+
+        for (i in 1 until points.size) {
+            val lastFiltered = filtered.last()
+            val current = points[i]
+            val distance = calculateDistance(
+                lastFiltered.latitude, lastFiltered.longitude,
+                current.latitude, current.longitude
+            )
+
+            if (distance >= trailPrecisionMode.minDistance) {
+                filtered.add(current)
+            }
+        }
+
+        // Always include the last point if it's different from the last filtered point
+        if (points.last() != filtered.last()) {
+            filtered.add(points.last())
+        }
+
+        return filtered
     }
 
     private fun updateFollowedUserTrail(newPoint: FollowedUserPoint) {

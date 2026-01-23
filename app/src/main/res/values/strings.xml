@@ -26,4 +26,10 @@
     <string name="widget_temperature">Temperature</string>
     <string name="widget_barometer">Barometer</string>
     <string name="widget_heartrate">Heart Rate</string>
+    <!--Follow Users Dialog-->
+    <string name="path_display">Path Display</string>
+    <string name="path_display_full">Full Path</string>
+    <string name="path_display_full_desc">Show entire path from where user started</string>
+    <string name="path_display_current">From Current Position</string>
+    <string name="path_display_current_desc">Show path from when you start following</string>
 </resources>
