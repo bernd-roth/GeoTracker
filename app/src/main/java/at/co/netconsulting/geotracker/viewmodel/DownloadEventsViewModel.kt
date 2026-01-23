@@ -5,11 +5,13 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,9 +37,6 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
 
     private val _selectedSessions = MutableStateFlow<Set<String>>(emptySet())
     val selectedSessions: StateFlow<Set<String>> = _selectedSessions.asStateFlow()
-
-    private val _showAllSessions = MutableStateFlow(false)
-    val showAllSessions: StateFlow<Boolean> = _showAllSessions.asStateFlow()
 
     sealed class DownloadState {
         object Idle : DownloadState()
@@ -79,21 +78,12 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
 
                 result.fold(
                     onSuccess = { sessions ->
-                        // Filter out already downloaded sessions unless showAllSessions is true
-                        val filteredSessions = if (_showAllSessions.value) {
-                            sessions
-                        } else {
-                            withContext(Dispatchers.IO) {
-                                sessions.filter { session ->
-                                    database.eventDao().getEventBySessionId(session.sessionId) == null
-                                }
-                            }
-                        }
-                        _availableSessions.value = filteredSessions
-                        Log.d(TAG, "Loaded ${filteredSessions.size} sessions (showAll=${_showAllSessions.value})")
+                        // Always show all remote sessions without filtering
+                        _availableSessions.value = sessions
+                        Log.d(TAG, "Loaded ${sessions.size} remote sessions")
 
                         // Reset download progress
-                        val progressMap = filteredSessions.associate { it.sessionId to DownloadState.Idle }
+                        val progressMap = sessions.associate { it.sessionId to DownloadState.Idle }
                         _downloadProgress.value = progressMap
                     },
                     onFailure = { error ->
@@ -106,11 +96,6 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
                 _isLoading.value = false
             }
         }
-    }
-
-    fun toggleShowAllSessions() {
-        _showAllSessions.value = !_showAllSessions.value
-        loadAvailableSessions()
     }
 
     fun toggleSessionSelection(sessionId: String) {
@@ -306,7 +291,7 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
                 steps = null,
                 strideLength = null,
                 temperature = point.temperature,
-                accuracy = null,
+                accuracy = point.horizontalAccuracy,
                 pressure = point.pressure,
                 pressureAccuracy = point.pressureAccuracy,
                 altitudeFromPressure = point.altitudeFromPressure,
@@ -334,6 +319,53 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
         if (lapTimes.isNotEmpty()) {
             database.lapTimeDao().insertLapTimes(lapTimes)
             Log.d(TAG, "Inserted ${lapTimes.size} lap times")
+        }
+
+        // Create Weather records from GPS points that have weather data
+        val weatherRecords = data.gpsPoints.filter { point ->
+            point.temperature != null || point.windSpeed != null || point.humidity != null
+        }.map { point ->
+            Weather(
+                eventId = eventId,
+                weatherRestApi = "remote_import",
+                temperature = point.temperature ?: 0f,
+                windSpeed = point.windSpeed ?: 0f,
+                windDirection = point.windDirection?.toString() ?: "0",
+                relativeHumidity = point.humidity ?: 0
+            )
+        }.distinctBy { "${it.temperature}_${it.windSpeed}_${it.windDirection}_${it.relativeHumidity}" }
+
+        if (weatherRecords.isNotEmpty()) {
+            weatherRecords.forEach { weather ->
+                database.weatherDao().insertWeather(weather)
+            }
+            Log.d(TAG, "Inserted ${weatherRecords.size} weather records")
+        }
+
+        // Create DeviceStatus records from GPS points that have signal quality data
+        // Use usedNumberOfSatellites (satellites used for fix) if available, otherwise numberOfSatellites
+        val deviceStatusRecords = data.gpsPoints.filter { point ->
+            point.numberOfSatellites != null || point.usedNumberOfSatellites != null ||
+            point.horizontalAccuracy != null || point.verticalAccuracyMeters != null
+        }.map { point ->
+            // Store just the satellite count as a plain number string (matching local recording format)
+            val satelliteCount = (point.usedNumberOfSatellites ?: point.numberOfSatellites ?: 0).toString()
+            DeviceStatus(
+                eventId = eventId,
+                numberOfSatellites = satelliteCount,
+                sensorAccuracy = point.horizontalAccuracy?.let { "%.2f m".format(it) } ?: "N/A",
+                signalStrength = point.verticalAccuracyMeters?.let { "%.2f m".format(it) } ?: "N/A",
+                batteryLevel = "N/A",
+                connectionStatus = "imported",
+                sessionId = data.sessionId
+            )
+        }.distinctBy { "${it.numberOfSatellites}_${it.sensorAccuracy}_${it.signalStrength}" }
+
+        if (deviceStatusRecords.isNotEmpty()) {
+            deviceStatusRecords.forEach { status ->
+                database.deviceStatusDao().insertDeviceStatus(status)
+            }
+            Log.d(TAG, "Inserted ${deviceStatusRecords.size} device status records")
         }
     }
 

@@ -112,7 +112,18 @@ class GeoTrackerApiClient(private val context: Context) {
         val seaLevelPressure: Float?,
         val slope: Double?,
         val temperature: Float?,
-        val cumulativeElevationGain: Float?
+        val cumulativeElevationGain: Float?,
+        // GPS Signal Quality fields
+        val horizontalAccuracy: Float?,
+        val verticalAccuracyMeters: Float?,
+        val numberOfSatellites: Int?,
+        val usedNumberOfSatellites: Int?,
+        val speedAccuracyMetersPerSecond: Float?,
+        // Weather Condition fields
+        val windSpeed: Float?,
+        val windDirection: Int?,
+        val humidity: Int?,
+        val weatherCode: Int?
     )
 
     data class LapTimeData(
@@ -580,7 +591,18 @@ class GeoTrackerApiClient(private val context: Context) {
                             seaLevelPressure = point.optDouble("sea_level_pressure").takeIf { !it.isNaN() }?.toFloat(),
                             slope = point.optDouble("slope").takeIf { !it.isNaN() },
                             temperature = point.optDouble("temperature").takeIf { !it.isNaN() }?.toFloat(),
-                            cumulativeElevationGain = point.optDouble("cumulative_elevation_gain").takeIf { !it.isNaN() }?.toFloat()
+                            cumulativeElevationGain = point.optDouble("cumulative_elevation_gain").takeIf { !it.isNaN() }?.toFloat(),
+                            // GPS Signal Quality fields
+                            horizontalAccuracy = point.optDouble("horizontal_accuracy").takeIf { !it.isNaN() }?.toFloat(),
+                            verticalAccuracyMeters = point.optDouble("vertical_accuracy_meters").takeIf { !it.isNaN() }?.toFloat(),
+                            numberOfSatellites = point.optInt("number_of_satellites", 0).takeIf { it > 0 },
+                            usedNumberOfSatellites = point.optInt("used_number_of_satellites", 0).takeIf { it > 0 },
+                            speedAccuracyMetersPerSecond = point.optDouble("speed_accuracy_meters_per_second").takeIf { !it.isNaN() }?.toFloat(),
+                            // Weather Condition fields
+                            windSpeed = point.optDouble("wind_speed").takeIf { !it.isNaN() }?.toFloat(),
+                            windDirection = point.optInt("wind_direction", 0).takeIf { it > 0 },
+                            humidity = point.optInt("humidity", 0).takeIf { it > 0 },
+                            weatherCode = point.optInt("weather_code", -1).takeIf { it >= 0 }
                         )
                     )
                 }

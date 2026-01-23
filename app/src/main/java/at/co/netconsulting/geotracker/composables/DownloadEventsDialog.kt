@@ -33,7 +33,6 @@ fun DownloadEventsDialog(
     val isLoading by viewModel.isLoading.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val selectedSessions by viewModel.selectedSessions.collectAsState()
-    val showAllSessions by viewModel.showAllSessions.collectAsState()
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -67,23 +66,6 @@ fun DownloadEventsDialog(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Show all sessions toggle
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Show all events (including downloaded)",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Switch(
-                        checked = showAllSessions,
-                        onCheckedChange = { viewModel.toggleShowAllSessions() }
-                    )
-                }
-
                 // Info text or empty state
                 if (availableSessions.isEmpty()) {
                     Box(
