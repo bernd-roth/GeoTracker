@@ -47,4 +47,22 @@
     <string name="path_display_full_desc">Show entire path from where user started</string>
     <string name="path_display_current">From Current Position</string>
     <string name="path_display_current_desc">Show path from when you start following</string>
+    <!--Media-->
+    <string name="media">Media</string>
+    <string name="media_count">%d media</string>
+    <string name="add_media">Add Media</string>
+    <string name="upload_media">Upload Media</string>
+    <string name="uploading_media">Uploading media...</string>
+    <string name="media_upload_success">Media uploaded successfully</string>
+    <string name="media_upload_failed">Failed to upload media</string>
+    <string name="delete_media">Delete Media</string>
+    <string name="delete_media_confirm">Are you sure you want to delete this media?</string>
+    <string name="loading_media">Loading media...</string>
+    <string name="no_media">No media attached</string>
+    <string name="media_not_uploaded">Event must be uploaded before adding media</string>
+    <string name="select_media">Select photos or videos</string>
+    <string name="video">Video</string>
+    <string name="photo">Photo</string>
+    <string name="media_pending_upload">Media will be uploaded when event is synced</string>
+    <string name="media_uploaded_with_event">%d media file(s) uploaded with event</string>
 </resources>

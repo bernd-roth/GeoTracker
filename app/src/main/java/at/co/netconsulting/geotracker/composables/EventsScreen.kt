@@ -112,8 +112,22 @@ import at.co.netconsulting.geotracker.data.AltitudeSpeedInfo
 import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.data.RouteRerunData
+import at.co.netconsulting.geotracker.domain.EventMedia
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PlayCircle
+import android.net.Uri
+import java.io.File
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
@@ -166,6 +180,34 @@ fun EventsScreen(
 
     // State for download dialog
     var showDownloadDialog by remember { mutableStateOf(false) }
+
+    // Media state
+    val mediaForEvent by eventsViewModel.mediaForEvent.collectAsState()
+    val isLoadingMedia by eventsViewModel.isLoadingMedia.collectAsState()
+    val isUploadingMedia by eventsViewModel.isUploadingMedia.collectAsState()
+
+    // State for media picker - which event to add media to
+    var mediaPickerEventId by remember { mutableStateOf<Int?>(null) }
+
+    // State for media viewer
+    var mediaToView by remember { mutableStateOf<EventMedia?>(null) }
+    val serverBaseUrl = remember {
+        context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+            .getString("websocketserver", "") ?: ""
+    }
+
+    // Media picker launcher
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isNotEmpty() && mediaPickerEventId != null) {
+            uris.forEach { uri ->
+                eventsViewModel.uploadMediaForEvent(mediaPickerEventId!!, uri)
+            }
+            Toast.makeText(context, "Uploading ${uris.size} media file(s)...", Toast.LENGTH_SHORT).show()
+        }
+        mediaPickerEventId = null
+    }
 
     // Result launcher for file picking
     val gpxFileLauncher = rememberLauncherForActivityResult(
@@ -291,6 +333,15 @@ fun EventsScreen(
     var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
     var isDateFilterActive by remember { mutableStateOf(false) } // Track if date filter is active
+
+    // Media viewer dialog
+    mediaToView?.let { media ->
+        MediaViewerDialog(
+            media = media,
+            serverBaseUrl = serverBaseUrl,
+            onDismiss = { mediaToView = null }
+        )
+    }
 
     // Import progress dialog
     if (showImportingDialog) {
@@ -813,6 +864,12 @@ fun EventsScreen(
                                             eventsViewModel.loadFullDetailsForEvent(eventWithDetails.event.eventId)
                                         }
                                     }
+
+                                    // Load media for this event (works for both local and uploaded)
+                                    eventsViewModel.loadMediaForEvent(
+                                        eventWithDetails.event.eventId,
+                                        eventWithDetails.event.sessionId
+                                    )
                                 }
                             },
                             onEdit = {
@@ -881,7 +938,22 @@ fun EventsScreen(
                                 showSyncDialog = true
                             },
                             canViewOnMap = !isRecordingThisEvent, // Only allow when not recording this event
-                            database = FitnessTrackerDatabase.getInstance(context)
+                            database = FitnessTrackerDatabase.getInstance(context),
+                            // Media parameters
+                            onAddMedia = {
+                                // Allow adding media to any event - will be uploaded when event is synced
+                                mediaPickerEventId = eventWithDetails.event.eventId
+                                mediaPickerLauncher.launch(arrayOf("image/*", "video/*"))
+                            },
+                            onMediaClick = { media ->
+                                mediaToView = media
+                            },
+                            onDeleteMedia = { media ->
+                                eventsViewModel.deleteMedia(media)
+                            },
+                            mediaList = mediaForEvent[eventWithDetails.event.eventId] ?: emptyList(),
+                            isLoadingMedia = isLoadingMedia.contains(eventWithDetails.event.eventId),
+                            mediaCacheDir = eventsViewModel.mediaCacheDir
                         )
                     }
                 }
@@ -976,7 +1048,13 @@ fun EventCard(
     onCompareRoutes: () -> Unit = {},
     onSync: () -> Unit = {},
     canViewOnMap: Boolean = true,
-    database: FitnessTrackerDatabase? = null
+    database: FitnessTrackerDatabase? = null,
+    onAddMedia: () -> Unit = {},
+    onMediaClick: (EventMedia) -> Unit = {},
+    onDeleteMedia: (EventMedia) -> Unit = {},
+    mediaList: List<EventMedia> = emptyList(),
+    isLoadingMedia: Boolean = false,
+    mediaCacheDir: File? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -2437,6 +2515,128 @@ fun EventCard(
                     }
                 }
 
+                // Media Section - available for all events
+                Spacer(modifier = Modifier.height(8.dp))
+
+                HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Image,
+                            contentDescription = "Media",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Media",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (mediaList.isNotEmpty() || event.mediaCount > 0) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val pendingCount = mediaList.count { !it.isUploaded }
+                            val totalCount = if (mediaList.isNotEmpty()) mediaList.size else event.mediaCount
+                            Text(
+                                text = if (pendingCount > 0) "($totalCount, $pendingCount pending)" else "($totalCount)",
+                                fontSize = 14.sp,
+                                color = if (pendingCount > 0) Color(0xFFFF9800) else Color.Gray
+                            )
+                        }
+                    }
+
+                    // Add Media button
+                    Surface(
+                        modifier = Modifier
+                            .clickable { onAddMedia() }
+                            .padding(4.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Add Media",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Add",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                if (isLoadingMedia) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
+                } else if (mediaList.isEmpty()) {
+                    Column {
+                        Text(
+                            text = "No media attached. Tap 'Add' to attach photos or videos.",
+                            fontSize = 14.sp,
+                            color = Color.Gray,
+                            fontStyle = FontStyle.Italic
+                        )
+                        if (event.event.sessionId == null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Media will be uploaded when the event is synced.",
+                                fontSize = 12.sp,
+                                color = Color(0xFFFF9800),
+                                fontStyle = FontStyle.Italic
+                            )
+                        }
+                    }
+                } else {
+                    // Media thumbnail grid - horizontal scrolling
+                    MediaThumbnailGrid(
+                        mediaList = mediaList,
+                        onMediaClick = onMediaClick,
+                        onDeleteMedia = onDeleteMedia,
+                        cacheDir = mediaCacheDir,
+                        serverBaseUrl = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                            .getString("websocketserver", "") ?: ""
+                    )
+
+                    // Show hint if there are pending uploads
+                    val pendingCount = mediaList.count { !it.isUploaded }
+                    if (pendingCount > 0 && event.event.sessionId == null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "$pendingCount media will be uploaded when event is synced",
+                            fontSize = 12.sp,
+                            color = Color(0xFFFF9800),
+                            fontStyle = FontStyle.Italic
+                        )
+                    }
+                }
+
                 if (event.event.comment.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(4.dp))
 
@@ -2451,6 +2651,354 @@ fun EventCard(
                     Text(
                         text = event.event.comment,
                         fontSize = 14.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Horizontal scrolling grid of media thumbnails
+ */
+@Composable
+fun MediaThumbnailGrid(
+    mediaList: List<EventMedia>,
+    onMediaClick: (EventMedia) -> Unit,
+    onDeleteMedia: (EventMedia) -> Unit,
+    cacheDir: File?,
+    serverBaseUrl: String
+) {
+    val scrollState = rememberScrollState()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(scrollState),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        mediaList.forEach { media ->
+            MediaThumbnail(
+                media = media,
+                onClick = { onMediaClick(media) },
+                onDelete = { onDeleteMedia(media) },
+                cacheDir = cacheDir,
+                serverBaseUrl = serverBaseUrl
+            )
+        }
+    }
+}
+
+/**
+ * Single media thumbnail card
+ */
+@Composable
+fun MediaThumbnail(
+    media: EventMedia,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    cacheDir: File?,
+    serverBaseUrl: String
+) {
+    val context = LocalContext.current
+    var showDeleteDialog by remember { mutableStateOf(false) }
+
+    // Determine image source - prefer local cache/file, then server URL
+    val imageUrl = remember(media) {
+        when {
+            media.localThumbnailPath != null && File(media.localThumbnailPath!!).exists() ->
+                File(media.localThumbnailPath!!).toURI().toString()
+            media.localFilePath != null && File(media.localFilePath!!).exists() ->
+                File(media.localFilePath!!).toURI().toString()
+            media.thumbnailUrl != null ->
+                "https://$serverBaseUrl${media.thumbnailUrl}"
+            else -> null
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .size(100.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onClick() }
+            .then(
+                if (!media.isUploaded) {
+                    Modifier.border(2.dp, Color(0xFFFF9800), RoundedCornerShape(8.dp))
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+        if (imageUrl != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(imageUrl)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = media.caption ?: "Media thumbnail",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+            )
+        } else {
+            // Placeholder when no image available
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (media.mediaType == "video") Icons.Default.PlayCircle else Icons.Default.Image,
+                    contentDescription = null,
+                    tint = Color.Gray,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+        }
+
+        // Video indicator overlay
+        if (media.mediaType == "video") {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(36.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Video",
+                    tint = Color.White,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        // Pending upload indicator (bottom-left corner)
+        if (!media.isUploaded) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(4.dp)
+                    .background(Color(0xFFFF9800), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 4.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "Pending",
+                    fontSize = 8.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        // Delete button overlay
+        IconButton(
+            onClick = { showDeleteDialog = true },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(24.dp)
+                .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Clear,
+                contentDescription = "Delete",
+                tint = Color.White,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+
+    // Delete confirmation dialog
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Media") },
+            text = { Text("Are you sure you want to delete this media?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    onDelete()
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+/**
+ * Full-screen media viewer dialog for images and videos
+ */
+@Composable
+fun MediaViewerDialog(
+    media: EventMedia,
+    serverBaseUrl: String,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+
+    // Determine the media source URL/path
+    val mediaSource = remember(media) {
+        when {
+            media.localFilePath != null && File(media.localFilePath!!).exists() ->
+                File(media.localFilePath!!).toURI().toString()
+            media.fullUrl != null ->
+                "https://$serverBaseUrl${media.fullUrl}"
+            media.localThumbnailPath != null && File(media.localThumbnailPath!!).exists() ->
+                File(media.localThumbnailPath!!).toURI().toString()
+            media.thumbnailUrl != null ->
+                "https://$serverBaseUrl${media.thumbnailUrl}"
+            else -> null
+        }
+    }
+
+    if (media.mediaType == "video") {
+        // For videos, launch external player and dismiss dialog
+        LaunchedEffect(media) {
+            try {
+                val videoUri = when {
+                    media.localFilePath != null && File(media.localFilePath!!).exists() -> {
+                        // Use FileProvider for local files
+                        FileProvider.getUriForFile(
+                            context,
+                            "${context.packageName}.fileprovider",
+                            File(media.localFilePath!!)
+                        )
+                    }
+                    media.fullUrl != null -> {
+                        Uri.parse("https://$serverBaseUrl${media.fullUrl}")
+                    }
+                    else -> null
+                }
+
+                if (videoUri != null) {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(videoUri, "video/*")
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(intent)
+                } else {
+                    Toast.makeText(context, "Video not available", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e("MediaViewer", "Error playing video: ${e.message}")
+                Toast.makeText(context, "No video player available", Toast.LENGTH_SHORT).show()
+            }
+            onDismiss()
+        }
+    } else {
+        // For images, show full-screen dialog with zoom support
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black)
+                    .clickable { onDismiss() }
+            ) {
+                // Zoom and pan state
+                var scale by remember { mutableStateOf(1f) }
+                var offsetX by remember { mutableStateOf(0f) }
+                var offsetY by remember { mutableStateOf(0f) }
+
+                if (mediaSource != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(context)
+                            .data(mediaSource)
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = media.caption ?: "Full size image",
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                            .pointerInput(Unit) {
+                                detectTransformGestures { _, pan, zoom, _ ->
+                                    scale = (scale * zoom).coerceIn(1f, 5f)
+                                    if (scale > 1f) {
+                                        offsetX += pan.x
+                                        offsetY += pan.y
+                                    } else {
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    }
+                                }
+                            },
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                } else {
+                    // No image available
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Image not available",
+                            color = Color.White,
+                            fontSize = 16.sp
+                        )
+                    }
+                }
+
+                // Close button
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(16.dp)
+                        .size(48.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Clear,
+                        contentDescription = "Close",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                // Caption at bottom if available
+                if (!media.caption.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .background(Color.Black.copy(alpha = 0.7f))
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = media.caption!!,
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+
+                // Zoom hint
+                if (scale == 1f) {
+                    Text(
+                        text = "Pinch to zoom",
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 12.sp,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = if (media.caption.isNullOrBlank()) 16.dp else 60.dp)
                     )
                 }
             }

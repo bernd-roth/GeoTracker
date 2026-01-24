@@ -69,6 +69,7 @@ services:
       dockerfile: Dockerfile
     volumes:
       - /home/bernd/docker-container/geotracker-flask/logs:/app/logs
+      - /home/bernd/docker-container/geotracker/media:/home/bernd/docker-container/geotracker/media
     expose:
       - "5000"
     environment:

@@ -23,9 +23,10 @@ import android.util.Log
         Clothing::class,
         WheelSprocket::class,
         Network::class,
-        Waypoint::class
+        Waypoint::class,
+        EventMedia::class
     ],
-    version = 20, // ✅ INCREMENTED FROM 19 TO 20 for full address fields
+    version = 21, // ✅ INCREMENTED FROM 20 TO 21 for event_media table
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -44,6 +45,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     abstract fun wheelSprocketDao(): WheelSprocketDao
     abstract fun networkDao(): NetworkDao
     abstract fun waypointDao(): WaypointDao
+    abstract fun eventMediaDao(): EventMediaDao
 
     companion object {
         @Volatile
@@ -618,6 +620,44 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 20->21 - adding event_media table")
+
+                try {
+                    // Create event_media table for storing media attachments
+                    database.execSQL("""
+                        CREATE TABLE IF NOT EXISTS event_media (
+                            mediaId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            eventId INTEGER NOT NULL,
+                            mediaUuid TEXT NOT NULL,
+                            mediaType TEXT NOT NULL,
+                            fileExtension TEXT NOT NULL,
+                            thumbnailUrl TEXT,
+                            fullUrl TEXT,
+                            localThumbnailPath TEXT,
+                            caption TEXT,
+                            sortOrder INTEGER NOT NULL DEFAULT 0,
+                            isUploaded INTEGER NOT NULL DEFAULT 0,
+                            localFilePath TEXT,
+                            fileSizeBytes INTEGER NOT NULL DEFAULT 0,
+                            createdAt INTEGER NOT NULL DEFAULT 0,
+                            FOREIGN KEY (eventId) REFERENCES events(eventId) ON DELETE CASCADE
+                        )
+                    """)
+
+                    // Create indices
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_event_media_eventId ON event_media(eventId)")
+                    database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_event_media_mediaUuid ON event_media(mediaUuid)")
+
+                    Log.d(TAG, "Migration 20->21 completed - event_media table created")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 20->21", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -645,7 +685,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_16_17,
                             MIGRATION_17_18,
                             MIGRATION_18_19,
-                            MIGRATION_19_20
+                            MIGRATION_19_20,
+                            MIGRATION_20_21
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

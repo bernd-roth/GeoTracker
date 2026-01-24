@@ -7,11 +7,15 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,7 +46,8 @@ class GeoTrackerApiClient(private val context: Context) {
     data class ApiResponse(
         val success: Boolean,
         val message: String? = null,
-        val data: JSONObject? = null
+        val data: JSONObject? = null,
+        val sessionId: String? = null
     )
 
     private fun getApiBaseUrl(): String? {
@@ -396,7 +401,7 @@ class GeoTrackerApiClient(private val context: Context) {
                     System.currentTimeMillis()
                 )
 
-                Result.success(ApiResponse(success = success, message = message, data = json.optJSONObject("data")))
+                Result.success(ApiResponse(success = success, message = message, data = json.optJSONObject("data"), sessionId = sessionId))
             } else {
                 val errorBody = response.body?.string() ?: "Unknown error"
                 Log.e(TAG, "Session create failed: ${response.code} - $errorBody")
@@ -487,6 +492,246 @@ class GeoTrackerApiClient(private val context: Context) {
         val uuid = UUID.randomUUID().toString().replace("-", "").substring(0, 16)
         val randomNumber = (100000..999999).random()
         return "${name}_${dateFormatted}_${timeComponent}_${uuid}_${randomNumber}"
+    }
+
+    // ==================== Media API Methods ====================
+
+    /**
+     * Data class for media upload result
+     */
+    data class MediaUploadResult(
+        val mediaUuid: String,
+        val thumbnailUrl: String?,
+        val fullUrl: String?,
+        val mediaType: String,
+        val fileExtension: String
+    )
+
+    /**
+     * Data class for session media info from server
+     */
+    data class SessionMediaInfo(
+        val mediaId: Int,
+        val mediaUuid: String,
+        val mediaType: String,
+        val fileExtension: String,
+        val thumbnailUrl: String?,
+        val fullUrl: String?,
+        val caption: String?,
+        val sortOrder: Int,
+        val fileSizeBytes: Long,
+        val createdAt: String?
+    )
+
+    /**
+     * Upload media file to server for a session
+     */
+    suspend fun uploadMedia(
+        sessionId: String,
+        file: File,
+        mediaType: String,
+        caption: String? = null
+    ): Result<MediaUploadResult> = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = getApiBaseUrl()
+                ?: return@withContext Result.failure(Exception("Server URL not configured"))
+
+            // Determine MIME type
+            val mimeType = when (file.extension.lowercase()) {
+                "jpg", "jpeg" -> "image/jpeg"
+                "png" -> "image/png"
+                "heic", "heif" -> "image/heic"
+                "mp4" -> "video/mp4"
+                "mov" -> "video/quicktime"
+                "avi" -> "video/x-msvideo"
+                "mkv" -> "video/x-matroska"
+                else -> "application/octet-stream"
+            }
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart(
+                    "file",
+                    file.name,
+                    file.asRequestBody(mimeType.toMediaType())
+                )
+                .addFormDataPart("media_type", mediaType)
+                .apply {
+                    caption?.let { addFormDataPart("caption", it) }
+                }
+                .build()
+
+            val request = Request.Builder()
+                .url("$baseUrl/sessions/$sessionId/media")
+                .post(requestBody)
+                .build()
+
+            Log.d(TAG, "Uploading media to session: $sessionId, file: ${file.name}, type: $mediaType")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val data = json.optJSONObject("data")
+
+                if (data != null) {
+                    val result = MediaUploadResult(
+                        mediaUuid = data.optString("media_uuid", ""),
+                        thumbnailUrl = data.optString("thumbnail_url")?.takeIf { it.isNotBlank() && it != "null" },
+                        fullUrl = data.optString("full_url")?.takeIf { it.isNotBlank() && it != "null" },
+                        mediaType = data.optString("media_type", mediaType),
+                        fileExtension = data.optString("file_extension", file.extension)
+                    )
+                    Log.d(TAG, "Media uploaded successfully: ${result.mediaUuid}")
+                    Result.success(result)
+                } else {
+                    Result.failure(Exception("Invalid response from server"))
+                }
+            } else {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Media upload failed: ${response.code} - $errorBody")
+                Result.failure(Exception("Upload failed: ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error uploading media", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Get all media for a session from server
+     */
+    suspend fun getSessionMedia(sessionId: String): Result<List<SessionMediaInfo>> = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = getApiBaseUrl()
+                ?: return@withContext Result.failure(Exception("Server URL not configured"))
+
+            val request = Request.Builder()
+                .url("$baseUrl/sessions/$sessionId/media")
+                .get()
+                .build()
+
+            Log.d(TAG, "Getting media for session: $sessionId")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val data = json.optJSONObject("data")
+                val mediaArray = data?.optJSONArray("media") ?: JSONArray()
+
+                val mediaList = mutableListOf<SessionMediaInfo>()
+                for (i in 0 until mediaArray.length()) {
+                    val mediaJson = mediaArray.getJSONObject(i)
+                    mediaList.add(
+                        SessionMediaInfo(
+                            mediaId = mediaJson.optInt("media_id", 0),
+                            mediaUuid = mediaJson.optString("media_uuid", ""),
+                            mediaType = mediaJson.optString("media_type", ""),
+                            fileExtension = mediaJson.optString("file_extension", ""),
+                            thumbnailUrl = mediaJson.optString("thumbnail_url")?.takeIf { it.isNotBlank() && it != "null" },
+                            fullUrl = mediaJson.optString("full_url")?.takeIf { it.isNotBlank() && it != "null" },
+                            caption = mediaJson.optString("caption")?.takeIf { it.isNotBlank() && it != "null" },
+                            sortOrder = mediaJson.optInt("sort_order", 0),
+                            fileSizeBytes = mediaJson.optLong("file_size_bytes", 0),
+                            createdAt = mediaJson.optString("created_at")?.takeIf { it.isNotBlank() && it != "null" }
+                        )
+                    )
+                }
+
+                Log.d(TAG, "Retrieved ${mediaList.size} media items for session $sessionId")
+                Result.success(mediaList)
+            } else {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Get session media failed: ${response.code} - $errorBody")
+                Result.failure(Exception("Failed to get media: ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting session media", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Download thumbnail to local cache directory
+     */
+    suspend fun downloadThumbnail(thumbnailUrl: String, cacheDir: File): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = getApiBaseUrl()
+                ?: return@withContext Result.failure(Exception("Server URL not configured"))
+
+            // Construct full URL if relative
+            val fullUrl = if (thumbnailUrl.startsWith("http")) {
+                thumbnailUrl
+            } else {
+                "https://${context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                    .getString("websocketserver", "")}$thumbnailUrl"
+            }
+
+            val request = Request.Builder()
+                .url(fullUrl)
+                .get()
+                .build()
+
+            Log.d(TAG, "Downloading thumbnail: $fullUrl")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val body = response.body
+                    ?: return@withContext Result.failure(Exception("Empty response body"))
+
+                // Extract UUID from URL for filename
+                val uuid = thumbnailUrl.substringAfterLast("/media/").substringBefore("/")
+                val thumbnailFile = File(cacheDir, "${uuid}_thumb.jpg")
+
+                FileOutputStream(thumbnailFile).use { output ->
+                    body.byteStream().use { input ->
+                        input.copyTo(output)
+                    }
+                }
+
+                Log.d(TAG, "Thumbnail downloaded to: ${thumbnailFile.absolutePath}")
+                Result.success(thumbnailFile)
+            } else {
+                Log.e(TAG, "Thumbnail download failed: ${response.code}")
+                Result.failure(Exception("Download failed: ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error downloading thumbnail", e)
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Delete media from server
+     */
+    suspend fun deleteMedia(mediaUuid: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val baseUrl = getApiBaseUrl()
+                ?: return@withContext Result.failure(Exception("Server URL not configured"))
+
+            val request = Request.Builder()
+                .url("$baseUrl/media/$mediaUuid")
+                .delete()
+                .build()
+
+            Log.d(TAG, "Deleting media: $mediaUuid")
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                Log.d(TAG, "Media deleted successfully: $mediaUuid")
+                Result.success(Unit)
+            } else {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Media delete failed: ${response.code} - $errorBody")
+                Result.failure(Exception("Delete failed: ${response.code}"))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting media", e)
+            Result.failure(e)
+        }
     }
 
     /**

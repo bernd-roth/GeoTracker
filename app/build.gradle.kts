@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.23")} (24-01-2026: speed display widget fixed)"
+        versionName = "${getNextVersion("7.24")} (24-01-2026: media (pics/vids) upload feature implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -148,6 +148,10 @@ dependencies {
 
     // Charts
     implementation("com.github.PhilJay:MPAndroidChart:v3.1.0")
+
+    // Image loading (Coil for Compose)
+    implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("io.coil-kt:coil-video:2.5.0")
 
     // System UI Controller
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.32.0")

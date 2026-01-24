@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Media files stored in internal storage -->
+    <files-path
+        name="event_media"
+        path="event_media/" />
+
+    <!-- Cached media files -->
+    <cache-path
+        name="media_cache"
+        path="media_thumbnails/" />
+
+    <!-- Temporary files -->
+    <cache-path
+        name="temp_files"
+        path="." />
+</paths>

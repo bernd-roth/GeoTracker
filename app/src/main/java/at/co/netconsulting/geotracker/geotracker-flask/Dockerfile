@@ -2,10 +2,14 @@ FROM arm64v8/python:3.9-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies including ffmpeg for video thumbnails
 RUN apt-get update && apt-get install -y \
     libpq-dev \
     gcc \
+    ffmpeg \
+    libjpeg-dev \
+    zlib1g-dev \
+    libheif-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching

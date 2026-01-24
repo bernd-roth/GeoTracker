@@ -2,11 +2,14 @@ package at.co.netconsulting.geotracker.viewmodel
 
 import at.co.netconsulting.geotracker.data.EventWithDetails
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import at.co.netconsulting.geotracker.domain.Event
+import at.co.netconsulting.geotracker.domain.EventMedia
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,8 +18,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Locale
+import java.util.UUID
 
 class EventsViewModel(
     private val database: FitnessTrackerDatabase,
@@ -40,6 +46,22 @@ class EventsViewModel(
 
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
+
+    // Media state
+    private val _mediaForEvent = MutableStateFlow<Map<Int, List<EventMedia>>>(emptyMap())
+    val mediaForEvent: StateFlow<Map<Int, List<EventMedia>>> = _mediaForEvent.asStateFlow()
+
+    private val _isLoadingMedia = MutableStateFlow<Set<Int>>(emptySet())
+    val isLoadingMedia: StateFlow<Set<Int>> = _isLoadingMedia.asStateFlow()
+
+    private val _isUploadingMedia = MutableStateFlow(false)
+    val isUploadingMedia: StateFlow<Boolean> = _isUploadingMedia.asStateFlow()
+
+    private val apiClient = GeoTrackerApiClient(context)
+
+    val mediaCacheDir: File by lazy {
+        File(context.cacheDir, "media_thumbnails").also { it.mkdirs() }
+    }
 
     private var currentPage = 0
 
@@ -654,6 +676,341 @@ class EventsViewModel(
             Triple(avgSlope, maxSlope, minSlope)
         } else {
             Triple(0.0, 0.0, 0.0)
+        }
+    }
+
+    // ==================== Media Methods ====================
+
+    /**
+     * Load media for a specific event from local database and optionally sync with server
+     */
+    fun loadMediaForEvent(eventId: Int, sessionId: String? = null) {
+        // Mark as loading
+        _isLoadingMedia.value = _isLoadingMedia.value + eventId
+
+        viewModelScope.launch {
+            try {
+                // First, load from local database (this works for both uploaded and non-uploaded events)
+                val localMedia = database.eventMediaDao().getMediaForEvent(eventId)
+                _mediaForEvent.value = _mediaForEvent.value + (eventId to localMedia)
+
+                // If event is uploaded, also sync with server
+                if (!sessionId.isNullOrBlank()) {
+                    val result = apiClient.getSessionMedia(sessionId)
+                    result.onSuccess { serverMediaList ->
+                        withContext(Dispatchers.IO) {
+                            // Sync server media to local database
+                            serverMediaList.forEach { serverMedia ->
+                                val existingMedia = database.eventMediaDao().getMediaByUuid(serverMedia.mediaUuid)
+                                if (existingMedia == null) {
+                                    // Insert new media from server
+                                    val newMedia = EventMedia(
+                                        eventId = eventId,
+                                        mediaUuid = serverMedia.mediaUuid,
+                                        mediaType = serverMedia.mediaType,
+                                        fileExtension = serverMedia.fileExtension,
+                                        thumbnailUrl = serverMedia.thumbnailUrl,
+                                        fullUrl = serverMedia.fullUrl,
+                                        caption = serverMedia.caption,
+                                        sortOrder = serverMedia.sortOrder,
+                                        isUploaded = true,
+                                        fileSizeBytes = serverMedia.fileSizeBytes
+                                    )
+                                    database.eventMediaDao().insertMedia(newMedia)
+                                } else {
+                                    // Update existing media with server URLs
+                                    database.eventMediaDao().updateMediaUploadStatus(
+                                        existingMedia.mediaId,
+                                        true,
+                                        serverMedia.thumbnailUrl,
+                                        serverMedia.fullUrl
+                                    )
+                                }
+                            }
+
+                            // Reload from database
+                            val updatedMedia = database.eventMediaDao().getMediaForEvent(eventId)
+                            _mediaForEvent.value = _mediaForEvent.value + (eventId to updatedMedia)
+
+                            // Download thumbnails that aren't cached
+                            updatedMedia.forEach { media ->
+                                if (media.thumbnailUrl != null && media.localThumbnailPath == null) {
+                                    downloadAndCacheThumbnail(media)
+                                }
+                            }
+                        }
+                    }.onFailure { error ->
+                        Log.e("EventsViewModel", "Error fetching media from server: ${error.message}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error loading media for event $eventId: ${e.message}")
+            } finally {
+                _isLoadingMedia.value = _isLoadingMedia.value - eventId
+            }
+        }
+    }
+
+    /**
+     * Download and cache thumbnail locally
+     */
+    private suspend fun downloadAndCacheThumbnail(media: EventMedia) {
+        if (media.thumbnailUrl == null) return
+
+        try {
+            val result = apiClient.downloadThumbnail(media.thumbnailUrl!!, mediaCacheDir)
+            result.onSuccess { cachedFile ->
+                database.eventMediaDao().updateLocalThumbnailPath(media.mediaId, cachedFile.absolutePath)
+                // Update the media list in memory
+                val eventMedia = _mediaForEvent.value[media.eventId]
+                if (eventMedia != null) {
+                    val updatedList = eventMedia.map {
+                        if (it.mediaId == media.mediaId) it.copy(localThumbnailPath = cachedFile.absolutePath) else it
+                    }
+                    _mediaForEvent.value = _mediaForEvent.value + (media.eventId to updatedList)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("EventsViewModel", "Error downloading thumbnail: ${e.message}")
+        }
+    }
+
+    /**
+     * Upload media file for an event.
+     * If the event is not yet uploaded, media is stored locally and will be uploaded
+     * when the event is synced to the server.
+     */
+    fun uploadMediaForEvent(eventId: Int, uri: Uri) {
+        val event = _eventsWithDetails.value.find { it.event.eventId == eventId }?.event
+        val sessionId = event?.sessionId
+
+        _isUploadingMedia.value = true
+
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    // Copy file to local storage
+                    val contentResolver = context.contentResolver
+                    val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+                    val mediaType = if (mimeType.startsWith("video")) "video" else "image"
+                    val extension = when {
+                        mimeType.contains("jpeg") || mimeType.contains("jpg") -> "jpg"
+                        mimeType.contains("png") -> "png"
+                        mimeType.contains("heic") || mimeType.contains("heif") -> "heic"
+                        mimeType.contains("mp4") -> "mp4"
+                        mimeType.contains("quicktime") -> "mov"
+                        else -> "jpg"
+                    }
+
+                    // Store in persistent media directory (not temp cache)
+                    val mediaDir = File(context.filesDir, "event_media/$eventId").also { it.mkdirs() }
+                    val mediaUuid = UUID.randomUUID().toString()
+                    val localFile = File(mediaDir, "$mediaUuid.$extension")
+
+                    contentResolver.openInputStream(uri)?.use { input ->
+                        FileOutputStream(localFile).use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    // Generate local thumbnail for images
+                    var localThumbnailPath: String? = null
+                    if (mediaType == "image") {
+                        localThumbnailPath = generateLocalThumbnail(localFile, mediaUuid)
+                    }
+
+                    // Create local media record
+                    val localMedia = EventMedia(
+                        eventId = eventId,
+                        mediaUuid = mediaUuid,
+                        mediaType = mediaType,
+                        fileExtension = extension,
+                        localFilePath = localFile.absolutePath,
+                        localThumbnailPath = localThumbnailPath,
+                        isUploaded = false,
+                        fileSizeBytes = localFile.length()
+                    )
+                    val mediaId = database.eventMediaDao().insertMedia(localMedia).toInt()
+
+                    Log.d("EventsViewModel", "Media saved locally: $mediaUuid")
+
+                    // If event is already uploaded, upload media to server immediately
+                    if (!sessionId.isNullOrBlank()) {
+                        val result = apiClient.uploadMedia(sessionId, localFile, mediaType)
+                        result.onSuccess { uploadResult ->
+                            // Update local record with server data
+                            database.eventMediaDao().updateMediaUploadStatus(
+                                mediaId,
+                                true,
+                                uploadResult.thumbnailUrl,
+                                uploadResult.fullUrl
+                            )
+
+                            // Update the UUID to match server
+                            val updatedMedia = database.eventMediaDao().getMediaById(mediaId)
+                            if (updatedMedia != null) {
+                                database.eventMediaDao().updateMedia(
+                                    updatedMedia.copy(mediaUuid = uploadResult.mediaUuid)
+                                )
+                            }
+
+                            Log.d("EventsViewModel", "Media uploaded to server: ${uploadResult.mediaUuid}")
+                        }.onFailure { error ->
+                            Log.e("EventsViewModel", "Media server upload failed (kept locally): ${error.message}")
+                            // Keep local record - will retry on next sync
+                        }
+                    } else {
+                        Log.d("EventsViewModel", "Event not yet uploaded - media stored locally for later sync")
+                    }
+
+                    // Update media list in memory
+                    val updatedMedia = database.eventMediaDao().getMediaForEvent(eventId)
+                    _mediaForEvent.value = _mediaForEvent.value + (eventId to updatedMedia)
+                }
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error saving media: ${e.message}")
+            } finally {
+                _isUploadingMedia.value = false
+            }
+        }
+    }
+
+    /**
+     * Generate a local thumbnail for an image file
+     */
+    private fun generateLocalThumbnail(imageFile: File, mediaUuid: String): String? {
+        return try {
+            val thumbnailFile = File(mediaCacheDir, "${mediaUuid}_thumb.jpg")
+
+            // Use Android's built-in thumbnail generation
+            val options = android.graphics.BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            android.graphics.BitmapFactory.decodeFile(imageFile.absolutePath, options)
+
+            // Calculate sample size for ~400px thumbnail
+            val maxSize = 400
+            var sampleSize = 1
+            while (options.outWidth / sampleSize > maxSize || options.outHeight / sampleSize > maxSize) {
+                sampleSize *= 2
+            }
+
+            options.inJustDecodeBounds = false
+            options.inSampleSize = sampleSize
+
+            val bitmap = android.graphics.BitmapFactory.decodeFile(imageFile.absolutePath, options)
+            if (bitmap != null) {
+                FileOutputStream(thumbnailFile).use { out ->
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, out)
+                }
+                bitmap.recycle()
+                thumbnailFile.absolutePath
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.e("EventsViewModel", "Error generating local thumbnail: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Upload pending media for an event after the event has been uploaded to the server.
+     * Call this after successfully uploading an event.
+     */
+    suspend fun uploadPendingMediaForEvent(eventId: Int, sessionId: String) {
+        withContext(Dispatchers.IO) {
+            try {
+                val pendingMedia = database.eventMediaDao().getPendingUploadsForEvent(eventId)
+                if (pendingMedia.isEmpty()) {
+                    Log.d("EventsViewModel", "No pending media to upload for event $eventId")
+                    return@withContext
+                }
+
+                Log.d("EventsViewModel", "Uploading ${pendingMedia.size} pending media for event $eventId")
+
+                pendingMedia.forEach { media ->
+                    val localFile = media.localFilePath?.let { File(it) }
+                    if (localFile != null && localFile.exists()) {
+                        val result = apiClient.uploadMedia(sessionId, localFile, media.mediaType)
+                        result.onSuccess { uploadResult ->
+                            database.eventMediaDao().updateMediaUploadStatus(
+                                media.mediaId,
+                                true,
+                                uploadResult.thumbnailUrl,
+                                uploadResult.fullUrl
+                            )
+                            database.eventMediaDao().updateMedia(
+                                media.copy(mediaUuid = uploadResult.mediaUuid, isUploaded = true)
+                            )
+                            Log.d("EventsViewModel", "Pending media uploaded: ${uploadResult.mediaUuid}")
+                        }.onFailure { error ->
+                            Log.e("EventsViewModel", "Failed to upload pending media ${media.mediaUuid}: ${error.message}")
+                        }
+                    } else {
+                        Log.w("EventsViewModel", "Local file not found for media ${media.mediaUuid}")
+                    }
+                }
+
+                // Refresh media list
+                val updatedMedia = database.eventMediaDao().getMediaForEvent(eventId)
+                _mediaForEvent.value = _mediaForEvent.value + (eventId to updatedMedia)
+
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error uploading pending media: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Delete media from server and local database
+     */
+    fun deleteMedia(media: EventMedia) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    // Delete from server if uploaded
+                    if (media.isUploaded) {
+                        val result = apiClient.deleteMedia(media.mediaUuid)
+                        result.onFailure { error ->
+                            Log.e("EventsViewModel", "Failed to delete media from server: ${error.message}")
+                        }
+                    }
+
+                    // Delete local cached thumbnail
+                    media.localThumbnailPath?.let { path ->
+                        File(path).delete()
+                    }
+
+                    // Delete local file if exists
+                    media.localFilePath?.let { path ->
+                        File(path).delete()
+                    }
+
+                    // Delete from database
+                    database.eventMediaDao().deleteMedia(media)
+
+                    // Update state
+                    val eventMedia = _mediaForEvent.value[media.eventId]
+                    if (eventMedia != null) {
+                        val updatedList = eventMedia.filter { it.mediaId != media.mediaId }
+                        _mediaForEvent.value = _mediaForEvent.value + (media.eventId to updatedList)
+                    }
+
+                    Log.d("EventsViewModel", "Media deleted: ${media.mediaUuid}")
+                }
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error deleting media: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Get media count for an event (used in minimal loading)
+     */
+    suspend fun getMediaCountForEvent(eventId: Int): Int {
+        return withContext(Dispatchers.IO) {
+            database.eventMediaDao().getMediaCountForEvent(eventId)
         }
     }
 }

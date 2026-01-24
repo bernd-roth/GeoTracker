@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 class UploadEventsViewModel(application: Application) : AndroidViewModel(application) {
     private val database = FitnessTrackerDatabase.getInstance(application)
@@ -317,6 +318,13 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
         result.fold(
             onSuccess = { response ->
                 Log.d(TAG, "Upload successful: ${event.eventName}")
+
+                // After successful event upload, upload any pending media
+                val sessionId = response.sessionId
+                if (sessionId != null) {
+                    uploadPendingMediaForEvent(event.eventId, sessionId)
+                }
+
                 updateProgress(event.eventId, UploadState.Success(response.message ?: "Uploaded successfully"))
             },
             onFailure = { error ->
@@ -324,6 +332,48 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
                 updateProgress(event.eventId, UploadState.Error(error.message ?: "Upload failed"))
             }
         )
+    }
+
+    /**
+     * Upload pending media for an event after the event has been successfully uploaded
+     */
+    private suspend fun uploadPendingMediaForEvent(eventId: Int, sessionId: String) {
+        withContext(Dispatchers.IO) {
+            try {
+                val pendingMedia = database.eventMediaDao().getPendingUploadsForEvent(eventId)
+                if (pendingMedia.isEmpty()) {
+                    Log.d(TAG, "No pending media to upload for event $eventId")
+                    return@withContext
+                }
+
+                Log.d(TAG, "Uploading ${pendingMedia.size} pending media for event $eventId")
+
+                pendingMedia.forEach { media ->
+                    val localFile = media.localFilePath?.let { File(it) }
+                    if (localFile != null && localFile.exists()) {
+                        val uploadResult = apiClient.uploadMedia(sessionId, localFile, media.mediaType)
+                        uploadResult.onSuccess { result ->
+                            database.eventMediaDao().updateMediaUploadStatus(
+                                media.mediaId,
+                                true,
+                                result.thumbnailUrl,
+                                result.fullUrl
+                            )
+                            database.eventMediaDao().updateMedia(
+                                media.copy(mediaUuid = result.mediaUuid, isUploaded = true)
+                            )
+                            Log.d(TAG, "Pending media uploaded: ${result.mediaUuid}")
+                        }.onFailure { error ->
+                            Log.e(TAG, "Failed to upload pending media ${media.mediaUuid}: ${error.message}")
+                        }
+                    } else {
+                        Log.w(TAG, "Local file not found for media ${media.mediaUuid}")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error uploading pending media: ${e.message}")
+            }
+        }
     }
 
     private fun updateProgress(eventId: Int, state: UploadState) {
