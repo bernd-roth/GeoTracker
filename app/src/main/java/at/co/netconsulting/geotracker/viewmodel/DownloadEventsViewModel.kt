@@ -53,47 +53,42 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     }
 
     init {
+        Log.d(TAG, "DownloadEventsViewModel initialized")
         loadAvailableSessions()
     }
 
     fun loadAvailableSessions() {
+        Log.d(TAG, "loadAvailableSessions() called")
         viewModelScope.launch {
             try {
                 _isLoading.value = true
+                Log.d(TAG, "Starting to fetch sessions from server...")
 
-                val sharedPreferences = getApplication<Application>()
-                    .getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-                val firstname = sharedPreferences.getString("firstname", "") ?: ""
-                val lastname = sharedPreferences.getString("lastname", "")
-                val birthdate = sharedPreferences.getString("birthdate", "")
-
-                if (firstname.isBlank()) {
-                    Log.e(TAG, "No firstname configured")
-                    return@launch
-                }
-
+                // Fetch ALL sessions from server without filtering by user
                 val result = withContext(Dispatchers.IO) {
-                    apiClient.listUserSessions(firstname, lastname, birthdate)
+                    Log.d(TAG, "Calling apiClient.listUserSessions()")
+                    apiClient.listUserSessions(filterByUser = false)
                 }
 
                 result.fold(
                     onSuccess = { sessions ->
-                        // Always show all remote sessions without filtering
+                        // Show all remote sessions
                         _availableSessions.value = sessions
-                        Log.d(TAG, "Loaded ${sessions.size} remote sessions")
+                        Log.d(TAG, "SUCCESS: Loaded ${sessions.size} remote sessions")
 
                         // Reset download progress
                         val progressMap = sessions.associate { it.sessionId to DownloadState.Idle }
                         _downloadProgress.value = progressMap
                     },
                     onFailure = { error ->
-                        Log.e(TAG, "Error loading sessions", error)
+                        Log.e(TAG, "FAILURE: Error loading sessions: ${error.message}", error)
                     }
                 )
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading sessions", e)
+                Log.e(TAG, "EXCEPTION: Error loading sessions: ${e.message}", e)
             } finally {
                 _isLoading.value = false
+                Log.d(TAG, "loadAvailableSessions() completed, isLoading=false")
             }
         }
     }

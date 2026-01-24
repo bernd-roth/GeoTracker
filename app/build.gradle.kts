@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.21")} (23-01-2026: show and import all events from remote database)"
+        versionName = "${getNextVersion("7.22")} (24-01-2026: show all events from remote server)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

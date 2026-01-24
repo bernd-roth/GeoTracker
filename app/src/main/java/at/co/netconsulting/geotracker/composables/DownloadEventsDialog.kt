@@ -2,6 +2,7 @@ package at.co.netconsulting.geotracker.composables
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,40 +35,86 @@ fun DownloadEventsDialog(
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val selectedSessions by viewModel.selectedSessions.collectAsState()
 
+    // Filter state - hide sessions with few GPS points
+    var hideSmallSessions by remember { mutableStateOf(true) }
+    val minGpsPoints = 10
+
+    // First deduplicate by sessionId (server may return duplicates), then apply filters
+    val maxDisplaySessions = 200
+    val filteredSessions = remember(availableSessions, hideSmallSessions) {
+        // Deduplicate by sessionId, keeping the first occurrence
+        val deduplicated = availableSessions.distinctBy { it.sessionId }
+
+        val filtered = if (hideSmallSessions) {
+            deduplicated.filter { it.gpsPointCount >= minGpsPoints }
+        } else {
+            deduplicated
+        }
+        // Limit to prevent UI crash with too many items
+        filtered.take(maxDisplaySessions)
+    }
+    val deduplicatedSessions = remember(availableSessions) {
+        availableSessions.distinctBy { it.sessionId }
+    }
+    val totalFilteredCount = if (hideSmallSessions) {
+        deduplicatedSessions.count { it.gpsPointCount >= minGpsPoints }
+    } else {
+        deduplicatedSessions.size
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f),
-            shape = RoundedCornerShape(16.dp),
+                .fillMaxHeight(0.75f),
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(16.dp)
+                    .padding(12.dp)
             ) {
-                // Header
+                // Compact header with title and close button
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Download Events from Server",
-                        style = MaterialTheme.typography.headlineSmall,
+                        text = "Download Events",
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(20.dp))
                     }
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                // Compact filter toggle
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Hide incomplete (<$minGpsPoints pts)",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Switch(
+                        checked = hideSmallSessions,
+                        onCheckedChange = { hideSmallSessions = it },
+                        modifier = Modifier.height(24.dp)
+                    )
+                }
 
-                // Show all sessions toggle
                 // Info text or empty state
-                if (availableSessions.isEmpty()) {
+                if (filteredSessions.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
@@ -92,131 +139,204 @@ fun DownloadEventsDialog(
                                 )
                                 Spacer(modifier = Modifier.height(16.dp))
                                 Text(
-                                    text = "All events have been downloaded!",
+                                    text = if (hideSmallSessions && availableSessions.isNotEmpty()) {
+                                        "No events with $minGpsPoints+ GPS points.\nDisable filter to see all ${availableSessions.size} events."
+                                    } else if (availableSessions.isEmpty()) {
+                                        "No events found on server."
+                                    } else {
+                                        "No events to display."
+                                    },
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                             }
                         }
                     }
                 } else {
-                    // Selection controls
+                    // Compact selection controls
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        val hiddenByFilter = deduplicatedSessions.size - totalFilteredCount
+                        val filterInfo = if (hiddenByFilter > 0) " ($hiddenByFilter hidden)" else ""
                         Text(
-                            text = "${availableSessions.size} events on server",
-                            style = MaterialTheme.typography.bodyMedium,
+                            text = "$totalFilteredCount events$filterInfo",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Row {
-                            TextButton(onClick = { viewModel.selectAll() }) {
-                                Text("Select All")
+                            TextButton(
+                                onClick = {
+                                    filteredSessions.forEach { session ->
+                                        if (!selectedSessions.contains(session.sessionId)) {
+                                            viewModel.toggleSessionSelection(session.sessionId)
+                                        }
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("All", style = MaterialTheme.typography.bodySmall)
                             }
-                            TextButton(onClick = { viewModel.deselectAll() }) {
-                                Text("Deselect All")
+                            TextButton(
+                                onClick = { viewModel.deselectAll() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                            ) {
+                                Text("None", style = MaterialTheme.typography.bodySmall)
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Sessions list
+                    // Sessions list - compact spacing
                     LazyColumn(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(availableSessions, key = { it.sessionId }) { session ->
-                            SessionDownloadItem(
+                        items(filteredSessions, key = { it.sessionId }) { session ->
+                            SessionDownloadItemCompact(
                                 session = session,
                                 isSelected = selectedSessions.contains(session.sessionId),
                                 downloadState = downloadProgress[session.sessionId] ?: DownloadEventsViewModel.DownloadState.Idle,
-                                onSelectionChange = { viewModel.toggleSessionSelection(session.sessionId) },
-                                onClearError = { viewModel.clearDownloadState(session.sessionId) }
+                                onSelectionChange = { viewModel.toggleSessionSelection(session.sessionId) }
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     // Count sessions that need download
                     val readyToDownloadCount = downloadProgress.count { (sessionId, state) ->
                         sessionId in selectedSessions && state is DownloadEventsViewModel.DownloadState.ReadyToDownload
                     }
 
-                    // Check Status button
-                    OutlinedButton(
-                        onClick = { viewModel.checkSelectedSessions() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp),
-                        enabled = selectedSessions.isNotEmpty() && !isLoading
+                    // Compact buttons in a row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Checking...")
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = if (selectedSessions.isEmpty()) {
-                                    "Select events to check"
-                                } else {
-                                    "Check ${selectedSessions.size} event${if (selectedSessions.size > 1) "s" else ""}"
-                                }
-                            )
+                        // Check Status button
+                        OutlinedButton(
+                            onClick = { viewModel.checkSelectedSessions() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp),
+                            enabled = selectedSessions.isNotEmpty() && !isLoading,
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            if (isLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (selectedSessions.isEmpty()) "Check" else "Check ${selectedSessions.size}",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
-                    }
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Download button
-                    Button(
-                        onClick = { viewModel.downloadSelectedSessions() },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        enabled = readyToDownloadCount > 0 && !isLoading,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(24.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Downloading...")
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.CloudDownload,
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        // Download button
+                        Button(
+                            onClick = { viewModel.downloadSelectedSessions() },
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(40.dp),
+                            enabled = readyToDownloadCount > 0 && !isLoading,
+                            contentPadding = PaddingValues(horizontal = 8.dp)
+                        ) {
+                            Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (readyToDownloadCount == 0) {
-                                    "Check events first"
-                                } else {
-                                    "Download $readyToDownloadCount event${if (readyToDownloadCount > 1) "s" else ""}"
-                                }
+                                text = if (readyToDownloadCount == 0) "Download" else "Download $readyToDownloadCount",
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun SessionDownloadItemCompact(
+    session: GeoTrackerApiClient.RemoteSessionSummary,
+    isSelected: Boolean,
+    downloadState: DownloadEventsViewModel.DownloadState,
+    onSelectionChange: () -> Unit
+) {
+    val backgroundColor = when (downloadState) {
+        is DownloadEventsViewModel.DownloadState.Success -> Color(0xFFE8F5E9)
+        is DownloadEventsViewModel.DownloadState.AlreadyDownloaded -> Color(0xFFE3F2FD)
+        is DownloadEventsViewModel.DownloadState.ReadyToDownload -> Color(0xFFF3E5F5)
+        is DownloadEventsViewModel.DownloadState.Error -> Color(0xFFFFEBEE)
+        is DownloadEventsViewModel.DownloadState.Downloading,
+        is DownloadEventsViewModel.DownloadState.Checking -> Color(0xFFFFF9C4)
+        else -> if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceVariant
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading,
+                onClick = onSelectionChange
+            ),
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = isSelected,
+                onCheckedChange = { onSelectionChange() },
+                modifier = Modifier.size(24.dp),
+                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading
+            )
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Event info - compact
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = session.eventName ?: "Unnamed",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                val dateStr = session.startDateTime?.take(10) ?: ""
+                val pointsStr = "${session.gpsPointCount} pts"
+                Text(
+                    text = "$dateStr • ${session.sportType ?: ""} • $pointsStr",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+
+            // Status indicator
+            when (downloadState) {
+                is DownloadEventsViewModel.DownloadState.Success ->
+                    Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                is DownloadEventsViewModel.DownloadState.AlreadyDownloaded ->
+                    Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF1565C0), modifier = Modifier.size(20.dp))
+                is DownloadEventsViewModel.DownloadState.ReadyToDownload ->
+                    Icon(Icons.Default.CloudDownload, null, tint = Color(0xFF7B1FA2), modifier = Modifier.size(20.dp))
+                is DownloadEventsViewModel.DownloadState.Error ->
+                    Icon(Icons.Default.Error, null, tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
+                is DownloadEventsViewModel.DownloadState.Downloading,
+                is DownloadEventsViewModel.DownloadState.Checking ->
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                else -> {}
             }
         }
     }

@@ -490,58 +490,95 @@ class GeoTrackerApiClient(private val context: Context) {
     }
 
     /**
-     * List sessions for a user from the remote server
+     * List all sessions from the remote server.
+     * Fetches all pages to get complete session list.
+     * If filterByUser is true, filters by configured firstname.
      */
     suspend fun listUserSessions(
-        firstname: String,
+        firstname: String? = null,
         lastname: String? = null,
-        birthdate: String? = null
+        birthdate: String? = null,
+        filterByUser: Boolean = false
     ): Result<List<RemoteSessionSummary>> = withContext(Dispatchers.IO) {
+        Log.d(TAG, "listUserSessions() called, filterByUser=$filterByUser")
         try {
             val baseUrl = getApiBaseUrl()
-                ?: return@withContext Result.failure(Exception("Server URL not configured"))
+            if (baseUrl == null) {
+                Log.e(TAG, "Server URL not configured!")
+                return@withContext Result.failure(Exception("Server URL not configured"))
+            }
+            Log.d(TAG, "Using base URL: $baseUrl")
 
-            val urlBuilder = StringBuilder("$baseUrl/sessions?firstname=$firstname&per_page=100")
-            lastname?.let { if (it.isNotBlank()) urlBuilder.append("&lastname=$it") }
-            birthdate?.let { if (it.isNotBlank()) urlBuilder.append("&birthdate=$it") }
+            val allSessions = mutableListOf<RemoteSessionSummary>()
+            var page = 1
+            var hasMore = true
+            val perPage = 100
 
-            val request = Request.Builder()
-                .url(urlBuilder.toString())
-                .get()
-                .build()
+            while (hasMore) {
+                val urlBuilder = StringBuilder("$baseUrl/sessions?per_page=$perPage&page=$page")
 
-            Log.d(TAG, "Listing sessions for user: $firstname")
-
-            val response = okHttpClient.newCall(request).execute()
-
-            if (response.isSuccessful) {
-                val json = JSONObject(response.body?.string() ?: "{}")
-                val data = json.optJSONObject("data")
-                val sessionsArray = data?.optJSONArray("sessions") ?: JSONArray()
-
-                val sessions = mutableListOf<RemoteSessionSummary>()
-                for (i in 0 until sessionsArray.length()) {
-                    val sessionJson = sessionsArray.getJSONObject(i)
-                    sessions.add(
-                        RemoteSessionSummary(
-                            sessionId = sessionJson.optString("session_id", ""),
-                            eventName = sessionJson.optString("event_name")?.takeIf { it.isNotBlank() && it != "null" },
-                            sportType = sessionJson.optString("sport_type")?.takeIf { it.isNotBlank() && it != "null" },
-                            startDateTime = sessionJson.optString("start_date_time")?.takeIf { it.isNotBlank() && it != "null" },
-                            gpsPointCount = sessionJson.optInt("gps_point_count", 0),
-                            startCity = sessionJson.optString("start_city")?.takeIf { it.isNotBlank() && it != "null" },
-                            startCountry = sessionJson.optString("start_country")?.takeIf { it.isNotBlank() && it != "null" }
-                        )
-                    )
+                // Only filter by user if explicitly requested
+                if (filterByUser && !firstname.isNullOrBlank()) {
+                    urlBuilder.append("&firstname=$firstname")
+                    lastname?.let { if (it.isNotBlank()) urlBuilder.append("&lastname=$it") }
+                    birthdate?.let { if (it.isNotBlank()) urlBuilder.append("&birthdate=$it") }
                 }
 
-                Log.d(TAG, "Found ${sessions.size} sessions for user $firstname")
-                Result.success(sessions)
-            } else {
-                val errorBody = response.body?.string() ?: "Unknown error"
-                Log.e(TAG, "List sessions failed: ${response.code} - $errorBody")
-                Result.failure(Exception("API error: ${response.code}"))
+                val request = Request.Builder()
+                    .url(urlBuilder.toString())
+                    .get()
+                    .build()
+
+                Log.d(TAG, "Listing sessions (page $page, filterByUser=$filterByUser)")
+
+                val response = okHttpClient.newCall(request).execute()
+
+                if (response.isSuccessful) {
+                    val json = JSONObject(response.body?.string() ?: "{}")
+                    val data = json.optJSONObject("data")
+                    val sessionsArray = data?.optJSONArray("sessions") ?: JSONArray()
+                    // Total is in the pagination object
+                    val pagination = data?.optJSONObject("pagination")
+                    val total = pagination?.optInt("total", 0) ?: 0
+                    val hasNext = pagination?.optBoolean("has_next", false) ?: false
+
+                    Log.d(TAG, "Page $page: got ${sessionsArray.length()} sessions, total=$total, hasNext=$hasNext, accumulated=${allSessions.size}")
+
+                    for (i in 0 until sessionsArray.length()) {
+                        val sessionJson = sessionsArray.getJSONObject(i)
+                        allSessions.add(
+                            RemoteSessionSummary(
+                                sessionId = sessionJson.optString("session_id", ""),
+                                eventName = sessionJson.optString("event_name")?.takeIf { it.isNotBlank() && it != "null" },
+                                sportType = sessionJson.optString("sport_type")?.takeIf { it.isNotBlank() && it != "null" },
+                                startDateTime = sessionJson.optString("start_date_time")?.takeIf { it.isNotBlank() && it != "null" },
+                                gpsPointCount = sessionJson.optInt("gps_point_count", 0),
+                                startCity = sessionJson.optString("start_city")?.takeIf { it.isNotBlank() && it != "null" },
+                                startCountry = sessionJson.optString("start_country")?.takeIf { it.isNotBlank() && it != "null" }
+                            )
+                        )
+                    }
+
+                    // Check if there are more pages - use server's has_next flag
+                    hasMore = hasNext && sessionsArray.length() > 0
+                    page++
+
+                    Log.d(TAG, "After page $page: hasMore=$hasMore (hasNext=$hasNext, arrayLength=${sessionsArray.length()})")
+
+                    // Safety limit to prevent infinite loops
+                    if (page > 100) {
+                        Log.w(TAG, "Reached page limit (100), stopping pagination")
+                        hasMore = false
+                    }
+                } else {
+                    val errorBody = response.body?.string() ?: "Unknown error"
+                    Log.e(TAG, "List sessions failed: ${response.code} - $errorBody")
+                    return@withContext Result.failure(Exception("API error: ${response.code}"))
+                }
             }
+
+            Log.d(TAG, "Found ${allSessions.size} total sessions")
+            Result.success(allSessions)
         } catch (e: Exception) {
             Log.e(TAG, "Error listing sessions", e)
             Result.failure(e)
