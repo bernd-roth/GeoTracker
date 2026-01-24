@@ -2522,6 +2522,11 @@ fun EventCard(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
+                // Split media into photos and videos
+                val photos = mediaList.filter { it.mediaType == "image" }
+                val videos = mediaList.filter { it.mediaType == "video" }
+                val pendingCount = mediaList.count { !it.isUploaded }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -2540,14 +2545,12 @@ fun EventCard(
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        if (mediaList.isNotEmpty() || event.mediaCount > 0) {
+                        if (pendingCount > 0) {
                             Spacer(modifier = Modifier.width(8.dp))
-                            val pendingCount = mediaList.count { !it.isUploaded }
-                            val totalCount = if (mediaList.isNotEmpty()) mediaList.size else event.mediaCount
                             Text(
-                                text = if (pendingCount > 0) "($totalCount, $pendingCount pending)" else "($totalCount)",
+                                text = "($pendingCount pending)",
                                 fontSize = 14.sp,
-                                color = if (pendingCount > 0) Color(0xFFFF9800) else Color.Gray
+                                color = Color(0xFFFF9800)
                             )
                         }
                     }
@@ -2614,18 +2617,49 @@ fun EventCard(
                         }
                     }
                 } else {
-                    // Media thumbnail grid - horizontal scrolling
-                    MediaThumbnailGrid(
-                        mediaList = mediaList,
-                        onMediaClick = onMediaClick,
-                        onDeleteMedia = onDeleteMedia,
-                        cacheDir = mediaCacheDir,
-                        serverBaseUrl = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-                            .getString("websocketserver", "") ?: ""
-                    )
+                    val serverUrl = context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                        .getString("websocketserver", "") ?: ""
 
-                    // Show hint if there are pending uploads
-                    val pendingCount = mediaList.count { !it.isUploaded }
+                    // Photos section
+                    if (photos.isNotEmpty()) {
+                        MediaSectionHeader(
+                            icon = Icons.Default.Image,
+                            title = "Photos",
+                            count = photos.size,
+                            pendingCount = photos.count { !it.isUploaded }
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        MediaThumbnailGrid(
+                            mediaList = photos,
+                            onMediaClick = onMediaClick,
+                            onDeleteMedia = onDeleteMedia,
+                            cacheDir = mediaCacheDir,
+                            serverBaseUrl = serverUrl
+                        )
+                    }
+
+                    // Videos section
+                    if (videos.isNotEmpty()) {
+                        if (photos.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+                        MediaSectionHeader(
+                            icon = Icons.Default.PlayCircle,
+                            title = "Videos",
+                            count = videos.size,
+                            pendingCount = videos.count { !it.isUploaded }
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        MediaThumbnailGrid(
+                            mediaList = videos,
+                            onMediaClick = onMediaClick,
+                            onDeleteMedia = onDeleteMedia,
+                            cacheDir = mediaCacheDir,
+                            serverBaseUrl = serverUrl
+                        )
+                    }
+
+                    // Show hint if there are pending uploads and event not uploaded
                     if (pendingCount > 0 && event.event.sessionId == null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -2654,6 +2688,50 @@ fun EventCard(
                     )
                 }
             }
+        }
+    }
+}
+
+/**
+ * Section header for Photos/Videos
+ */
+@Composable
+fun MediaSectionHeader(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    count: Int,
+    pendingCount: Int = 0
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = title,
+            tint = MaterialTheme.colorScheme.secondary,
+            modifier = Modifier.size(16.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = title,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = "($count)",
+            fontSize = 13.sp,
+            color = Color.Gray
+        )
+        if (pendingCount > 0) {
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "• $pendingCount pending",
+                fontSize = 12.sp,
+                color = Color(0xFFFF9800)
+            )
         }
     }
 }
