@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.22")} (24-01-2026: show all events from remote server)"
+        versionName = "${getNextVersion("7.23")} (24-01-2026: speed display widget fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

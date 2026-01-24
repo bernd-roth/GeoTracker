@@ -185,8 +185,8 @@ class GeoTrackerWidget : AppWidgetProvider() {
                         String.format(Locale.getDefault(), "%.2f", distanceKm)
                     )
 
-                    // Speed in km/h (input is in m/s)
-                    val speedKmh = data.speed * 3.6
+                    // Speed in km/h
+                    val speedKmh = data.speed
                     views.setTextViewText(
                         R.id.widget_speed_value,
                         String.format(Locale.getDefault(), "%.1f", speedKmh)
