@@ -314,7 +314,7 @@ fun EventsScreen(
     // Recording state is now monitored in the ViewModel to prevent memory leaks
     // The ViewModel's viewModelScope ensures the monitoring coroutine is properly cancelled
 
-    // Clear search query when leaving the screen
+    // Clear search query when leaving the screen (but keep date filter for navigation preservation)
     DisposableEffect(Unit) {
         onDispose {
             eventsViewModel.setSearchQuery("")
@@ -332,7 +332,7 @@ fun EventsScreen(
     var showSyncDialog by remember { mutableStateOf(false) }
     var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
-    var isDateFilterActive by remember { mutableStateOf(false) } // Track if date filter is active
+    val isDateFilterActive by eventsViewModel.isDateFilterActive.collectAsState() // Track if date filter is active from ViewModel
 
     // Media viewer dialog
     mediaToView?.let { media ->
@@ -649,7 +649,7 @@ fun EventsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 4.dp),
-                    placeholder = { Text("Search events...") },
+                    placeholder = { Text("Search events, dates, speed...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
                     trailingIcon = {
                         if (searchQuery.isNotEmpty()) {
@@ -697,11 +697,8 @@ fun EventsScreen(
                                 Log.d("EventsScreen", "Week selected: Year=$year, Week=$week, " +
                                         "DateRange: $startDateStr to $endDateStr")
 
-                                // Set filter in the ViewModel
+                                // Set filter in the ViewModel (also updates isDateFilterActive state)
                                 eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
-
-                                // Mark filter as active
-                                isDateFilterActive = true
                             }
                         }
                     )
@@ -749,9 +746,8 @@ fun EventsScreen(
                             Button(
                                 onClick = {
                                     coroutineScope.launch {
-                                        // Clear the date filter
+                                        // Clear the date filter (also updates isDateFilterActive state)
                                         eventsViewModel.filterByDateRange(null, null)
-                                        isDateFilterActive = false
                                     }
                                 },
                                 colors = ButtonDefaults.buttonColors(

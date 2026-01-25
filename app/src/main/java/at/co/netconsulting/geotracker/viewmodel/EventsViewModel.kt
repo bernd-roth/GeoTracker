@@ -78,6 +78,9 @@ class EventsViewModel(
     private var startDateFilter: String? = null
     private var endDateFilter: String? = null
 
+    private val _isDateFilterActive = MutableStateFlow(false)
+    val isDateFilterActive: StateFlow<Boolean> = _isDateFilterActive.asStateFlow()
+
     init {
         // Monitor SharedPreferences for recording state changes
         // This runs in viewModelScope and will be automatically cancelled when ViewModel is cleared
@@ -152,6 +155,7 @@ class EventsViewModel(
         startDateFilter = startDate
         endDateFilter = endDate
         currentPage = 0
+        _isDateFilterActive.value = startDate != null && endDate != null
 
         viewModelScope.launch {
             if (startDate != null && endDate != null) {
@@ -213,6 +217,13 @@ class EventsViewModel(
 
     fun loadEvents() {
         if (_isLoading.value) return
+
+        // If date filter is active, use larger page size to ensure filtered events are found
+        if (_isDateFilterActive.value) {
+            Log.d("EventsViewModel", "Date filter active, using max page size for loadEvents")
+            loadEventsWithCustomPageSize(maxPageSize)
+            return
+        }
 
         currentPage = 0
         hasMoreEvents = true

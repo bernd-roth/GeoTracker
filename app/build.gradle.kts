@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.25")} (24-01-2026: media (pics/vids) split into pics and vids in event card)"
+        versionName = "${getNextVersion("7.26")} (25-01-2026: bug fixed when events filter is active and not refreshed, no events are shown)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
