@@ -1369,6 +1369,92 @@ class TrackingServer:
             logging.error(f"Error getting barometer summary for session {session_id}: {str(e)}")
             return {"sessionId": session_id, "error": str(e)}
 
+    async def get_full_session_history_from_db(self, session_id: str) -> List[Dict[str, Any]]:
+        """Retrieve full tracking history for a session from the database.
+
+        This is used when following a user with 'Full Path' mode to ensure
+        we get all points from the beginning of the session, not just what's in memory.
+        """
+        if not self.db_pool:
+            logging.warning("Database pool not initialized, falling back to in-memory history")
+            return self.tracking_history.get(session_id, [])
+
+        try:
+            async with self.db_pool.acquire() as conn:
+                rows = await conn.fetch("""
+                    SELECT
+                        gtp.session_id,
+                        u.firstname, u.lastname, u.birthdate, u.height, u.weight,
+                        s.event_name, s.sport_type, s.comment, s.clothing,
+                        s.min_distance_meters, s.min_time_seconds, s.voice_announcement_interval,
+                        gtp.latitude, gtp.longitude, gtp.altitude,
+                        gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
+                        gtp.distance, gtp.heart_rate, hrd.device_name as heart_rate_device,
+                        gtp.temperature, gtp.wind_speed, gtp.wind_direction,
+                        gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
+                        gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
+                        gtp.slope, gtp.average_slope, gtp.max_uphill_slope, gtp.max_downhill_slope,
+                        gtp.received_at
+                    FROM gps_tracking_points gtp
+                    JOIN tracking_sessions s ON gtp.session_id = s.session_id
+                    JOIN users u ON s.user_id = u.user_id
+                    LEFT JOIN heart_rate_devices hrd ON gtp.heart_rate_device_id = hrd.device_id
+                    WHERE gtp.session_id = $1
+                    ORDER BY gtp.received_at ASC
+                """, session_id)
+
+            history_points = []
+            for row in rows:
+                tracking_point = {
+                    "timestamp": row['received_at'].strftime(self.timestamp_format),
+                    "sessionId": row['session_id'],
+                    "firstname": row['firstname'],
+                    "lastname": row['lastname'] or '',
+                    "person": row['firstname'],
+                    "latitude": float(row['latitude']),
+                    "longitude": float(row['longitude']),
+                    "altitude": float(row['altitude']) if row['altitude'] is not None else 0.0,
+                    "currentSpeed": float(row['current_speed']) if row['current_speed'] else 0.0,
+                    "maxSpeed": float(row['max_speed']) if row['max_speed'] else 0.0,
+                    "movingAverageSpeed": float(row['moving_average_speed']) if row['moving_average_speed'] else 0.0,
+                    "averageSpeed": float(row['average_speed']) if row['average_speed'] else 0.0,
+                    "distance": float(row['distance']) if row['distance'] else 0.0,
+                    "slope": float(row['slope']) if row['slope'] is not None else None,
+                    "averageSlope": float(row['average_slope']) if row['average_slope'] is not None else None,
+                    "maxUphillSlope": float(row['max_uphill_slope']) if row['max_uphill_slope'] is not None else None,
+                    "maxDownhillSlope": float(row['max_downhill_slope']) if row['max_downhill_slope'] is not None else None,
+                }
+
+                # Add heart rate data if available
+                if row['heart_rate'] and row['heart_rate'] > 0:
+                    tracking_point["heartRate"] = int(row['heart_rate'])
+
+                # Add weather data if available
+                if row['temperature'] is not None:
+                    tracking_point["temperature"] = float(row['temperature'])
+                if row['wind_speed'] is not None:
+                    tracking_point["windSpeed"] = float(row['wind_speed'])
+                if row['wind_direction'] is not None:
+                    tracking_point["windDirection"] = float(row['wind_direction'])
+                if row['humidity'] is not None:
+                    tracking_point["relativeHumidity"] = int(row['humidity'])
+                if row['weather_code'] is not None:
+                    tracking_point["weatherCode"] = int(row['weather_code'])
+
+                # Add barometer data if available
+                if row['pressure'] is not None:
+                    tracking_point["pressure"] = float(row['pressure'])
+
+                history_points.append(tracking_point)
+
+            logging.info(f"Loaded {len(history_points)} points from database for session {session_id}")
+            return history_points
+
+        except Exception as e:
+            logging.error(f"Error loading session history from database: {str(e)}")
+            # Fall back to in-memory history
+            return self.tracking_history.get(session_id, [])
+
     async def broadcast_update(self, message: Dict[str, Any]) -> None:
         """Broadcast message to all connected clients."""
         if not self.connected_clients:
@@ -1508,11 +1594,14 @@ class TrackingServer:
     async def handle_follow_users_request(self, websocket: websockets.WebSocketServerProtocol, session_ids: List[str], include_history: bool = False) -> None:
         """Handle request to follow specific users."""
         try:
+            logging.info(f"handle_follow_users_request called: session_ids={session_ids}, include_history={include_history}")
+
             # Validate that the sessions exist and are active
             valid_session_ids = []
             for session_id in session_ids:
                 if session_id in self.active_sessions:
                     valid_session_ids.append(session_id)
+                    logging.info(f"Session {session_id} is active and will be followed")
                 else:
                     logging.warning(f"Client tried to follow inactive/non-existent session: {session_id}")
 
@@ -1522,13 +1611,17 @@ class TrackingServer:
 
                 # Send data for each followed session
                 for session_id in valid_session_ids:
-                    if session_id in self.tracking_history and self.tracking_history[session_id]:
-                        # Get lap times for this session
-                        lap_times = await self.get_lap_times_for_session(session_id)
+                    # Get lap times for this session
+                    lap_times = await self.get_lap_times_for_session(session_id)
 
-                        if include_history:
-                            # Send full history for this session
-                            history_points = self.tracking_history[session_id]
+                    if include_history:
+                        logging.info(f"include_history=True for session {session_id}, querying database for full history")
+                        # Query the database for full session history to ensure we get all points
+                        # from the beginning, not just what's currently in memory
+                        history_points = await self.get_full_session_history_from_db(session_id)
+                        logging.info(f"Database returned {len(history_points)} points for session {session_id}")
+
+                        if history_points:
                             person = history_points[0].get("firstname", history_points[0].get("person", "")) if history_points else ""
 
                             await websocket.send(json.dumps({
@@ -1557,37 +1650,39 @@ class TrackingServer:
                                     } for point in history_points
                                 ]
                             }))
-                            logging.info(f"Sent full history for session {session_id}: {len(history_points)} points")
+                            logging.info(f"Sent full history for session {session_id}: {len(history_points)} points (from database)")
                         else:
-                            # Send only the latest point (original behavior)
-                            latest_point = self.tracking_history[session_id][-1]
+                            logging.warning(f"No history found for session {session_id} in database")
+                    elif session_id in self.tracking_history and self.tracking_history[session_id]:
+                        # Send only the latest point (original behavior)
+                        latest_point = self.tracking_history[session_id][-1]
 
-                            # Send followed_user_update message with latest data
-                            await websocket.send(json.dumps({
-                                'type': 'followed_user_update',
-                                'point': {
-                                    'sessionId': session_id,
-                                    'person': latest_point.get("firstname", latest_point.get("person", "")),
-                                    'latitude': latest_point.get("latitude", 0.0),
-                                    'longitude': latest_point.get("longitude", 0.0),
-                                    'altitude': latest_point.get("altitude", 0.0),
-                                    'currentSpeed': latest_point.get("currentSpeed", 0.0),
-                                    'distance': latest_point.get("distance", 0.0),
-                                    'heartRate': latest_point.get("heartRate"),
-                                    'slope': latest_point.get("slope"),
-                                    'averageSlope': latest_point.get("averageSlope"),
-                                    'maxUphillSlope': latest_point.get("maxUphillSlope"),
-                                    'maxDownhillSlope': latest_point.get("maxDownhillSlope"),
-                                    'timestamp': latest_point.get("timestamp", ""),
-                                    'lapTimes': [
-                                        {
-                                            'lapNumber': lap['lapNumber'],
-                                            'duration': lap['duration'],
-                                            'distance': lap['distance']
-                                        } for lap in lap_times
-                                    ] if lap_times else None
-                                }
-                            }))
+                        # Send followed_user_update message with latest data
+                        await websocket.send(json.dumps({
+                            'type': 'followed_user_update',
+                            'point': {
+                                'sessionId': session_id,
+                                'person': latest_point.get("firstname", latest_point.get("person", "")),
+                                'latitude': latest_point.get("latitude", 0.0),
+                                'longitude': latest_point.get("longitude", 0.0),
+                                'altitude': latest_point.get("altitude", 0.0),
+                                'currentSpeed': latest_point.get("currentSpeed", 0.0),
+                                'distance': latest_point.get("distance", 0.0),
+                                'heartRate': latest_point.get("heartRate"),
+                                'slope': latest_point.get("slope"),
+                                'averageSlope': latest_point.get("averageSlope"),
+                                'maxUphillSlope': latest_point.get("maxUphillSlope"),
+                                'maxDownhillSlope': latest_point.get("maxDownhillSlope"),
+                                'timestamp': latest_point.get("timestamp", ""),
+                                'lapTimes': [
+                                    {
+                                        'lapNumber': lap['lapNumber'],
+                                        'duration': lap['duration'],
+                                        'distance': lap['distance']
+                                    } for lap in lap_times
+                                ] if lap_times else None
+                            }
+                        }))
 
             # Send response
             await websocket.send(json.dumps({
@@ -2027,6 +2122,7 @@ class TrackingServer:
                     if message_data.get('type') == 'follow_users':
                         session_ids = message_data.get('sessionIds', [])
                         include_history = message_data.get('includeHistory', False)
+                        logging.info(f"Received follow_users request: sessionIds={session_ids}, includeHistory={include_history} (raw value: {message_data.get('includeHistory')})")
                         await self.handle_follow_users_request(websocket, session_ids, include_history)
                         continue
 

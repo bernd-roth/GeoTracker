@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.27")} (25-01-2026: total sum of covered distance below yearly statistics)"
+        versionName = "${getNextVersion("7.28")} (25-01-2026: show full path (history) or current location when following users)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

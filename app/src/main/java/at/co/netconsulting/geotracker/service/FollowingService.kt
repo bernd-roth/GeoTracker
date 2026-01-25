@@ -288,6 +288,8 @@ class FollowingService private constructor(private val context: Context) {
         val sessionIdsJson = sessionIds.joinToString(",") { "\"$it\"" }
         val includeHistory = pathDisplayMode == PathDisplayMode.FULL_PATH
         val message = """{"type": "follow_users", "sessionIds": [$sessionIdsJson], "includeHistory": $includeHistory}"""
+        Log.d(TAG, "🔵 followUsers() called - pathDisplayMode=$pathDisplayMode, includeHistory=$includeHistory")
+        Log.d(TAG, "🔵 Sending message: $message")
         webSocket?.send(message)
         Log.d(TAG, "Requested to follow users: $sessionIds with includeHistory=$includeHistory")
     }
@@ -547,18 +549,18 @@ class FollowingService private constructor(private val context: Context) {
                     altitude = pointJson.optDouble("altitude", 0.0),
                     currentSpeed = pointJson.optDouble("currentSpeed", 0.0).toFloat(),
                     distance = pointJson.optDouble("distance", 0.0),
-                    slope = if (pointJson.has("slope")) pointJson.getDouble("slope") else null,
-                    averageSlope = if (pointJson.has("averageSlope")) pointJson.getDouble("averageSlope") else null,
-                    maxUphillSlope = if (pointJson.has("maxUphillSlope")) pointJson.getDouble("maxUphillSlope") else null,
-                    maxDownhillSlope = if (pointJson.has("maxDownhillSlope")) pointJson.getDouble("maxDownhillSlope") else null,
-                    heartRate = if (pointJson.has("heartRate") && pointJson.optInt("heartRate", 0) > 0) pointJson.getInt("heartRate") else null,
+                    slope = if (pointJson.has("slope") && !pointJson.isNull("slope")) pointJson.getDouble("slope") else null,
+                    averageSlope = if (pointJson.has("averageSlope") && !pointJson.isNull("averageSlope")) pointJson.getDouble("averageSlope") else null,
+                    maxUphillSlope = if (pointJson.has("maxUphillSlope") && !pointJson.isNull("maxUphillSlope")) pointJson.getDouble("maxUphillSlope") else null,
+                    maxDownhillSlope = if (pointJson.has("maxDownhillSlope") && !pointJson.isNull("maxDownhillSlope")) pointJson.getDouble("maxDownhillSlope") else null,
+                    heartRate = if (pointJson.has("heartRate") && !pointJson.isNull("heartRate") && pointJson.optInt("heartRate", 0) > 0) pointJson.getInt("heartRate") else null,
                     timestamp = pointJson.optString("timestamp", ""),
-                    temperature = if (pointJson.has("temperature")) pointJson.getDouble("temperature") else null,
-                    weatherCode = if (pointJson.has("weatherCode")) pointJson.getInt("weatherCode") else null,
-                    pressure = if (pointJson.has("pressure")) pointJson.getDouble("pressure") else null,
-                    relativeHumidity = if (pointJson.has("relativeHumidity")) pointJson.getInt("relativeHumidity") else null,
-                    windSpeed = if (pointJson.has("windSpeed")) pointJson.getDouble("windSpeed") else null,
-                    windDirection = if (pointJson.has("windDirection")) pointJson.getDouble("windDirection") else null
+                    temperature = if (pointJson.has("temperature") && !pointJson.isNull("temperature")) pointJson.getDouble("temperature") else null,
+                    weatherCode = if (pointJson.has("weatherCode") && !pointJson.isNull("weatherCode")) pointJson.getInt("weatherCode") else null,
+                    pressure = if (pointJson.has("pressure") && !pointJson.isNull("pressure")) pointJson.getDouble("pressure") else null,
+                    relativeHumidity = if (pointJson.has("relativeHumidity") && !pointJson.isNull("relativeHumidity")) pointJson.getInt("relativeHumidity") else null,
+                    windSpeed = if (pointJson.has("windSpeed") && !pointJson.isNull("windSpeed")) pointJson.getDouble("windSpeed") else null,
+                    windDirection = if (pointJson.has("windDirection") && !pointJson.isNull("windDirection")) pointJson.getDouble("windDirection") else null
                 )
                 historyPoints.add(point)
             }

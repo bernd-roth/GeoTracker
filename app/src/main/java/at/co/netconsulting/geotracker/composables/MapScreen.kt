@@ -2525,7 +2525,17 @@ fun MapScreen(
                 ).show()
             },
             onPathDisplayModeChanged = { mode ->
+                val previousMode = followingService.getPathDisplayMode()
                 followingService.setPathDisplayMode(mode)
+
+                // If switching to Full Path while already following users, re-request with history
+                if (mode == FollowingService.PathDisplayMode.FULL_PATH &&
+                    previousMode != FollowingService.PathDisplayMode.FULL_PATH &&
+                    followingState.followedUsers.isNotEmpty()) {
+                    // Clear existing trails and re-request with full history
+                    followingService.clearAllTrails()
+                    followingService.followUsers(followingState.followedUsers)
+                }
 
                 Toast.makeText(
                     context,
