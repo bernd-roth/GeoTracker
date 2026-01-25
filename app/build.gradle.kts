@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.26")} (25-01-2026: bug fixed when events filter is active and not refreshed, no events are shown)"
+        versionName = "${getNextVersion("7.27")} (25-01-2026: total sum of covered distance below yearly statistics)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

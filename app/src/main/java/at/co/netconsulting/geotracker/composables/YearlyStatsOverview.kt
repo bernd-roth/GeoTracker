@@ -167,6 +167,32 @@ fun YearlyStatsOverview(
                     )
                 }
             }
+
+            // Total summary at the bottom
+            val grandTotal = yearlyStats.values.sum()
+            Divider(
+                modifier = Modifier.padding(vertical = 8.dp),
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outline
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Total",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = String.format("%.1f km", grandTotal),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
