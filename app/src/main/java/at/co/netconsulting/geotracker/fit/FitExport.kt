@@ -571,7 +571,7 @@ private fun saveFitFileScoped(context: Context, filename: String, content: ByteA
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
             put(MediaStore.MediaColumns.MIME_TYPE, "application/vnd.ant.fit")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GeoTracker")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GeoTracker/FIT")
         }
 
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
@@ -593,7 +593,7 @@ private fun saveFitFileScoped(context: Context, filename: String, content: ByteA
  */
 private fun saveFitFileLegacy(context: Context, filename: String, content: ByteArray): Boolean {
     return try {
-        val appDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GeoTracker")
+        val appDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GeoTracker/FIT")
         if (!appDir.exists()) {
             appDir.mkdirs()
         }
@@ -610,7 +610,7 @@ private fun saveFitFileLegacy(context: Context, filename: String, content: ByteA
         try {
             val publicDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "GeoTracker"
+                "GeoTracker/FIT"
             )
             if (!publicDir.exists()) {
                 publicDir.mkdirs()

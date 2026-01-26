@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.28")} (25-01-2026: show full path (history) or current location when following users)"
+        versionName = "${getNextVersion("7.29")} (26-01-2026: export files to separate folder)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -257,7 +257,7 @@ private fun saveGpxFileScoped(context: Context, filename: String, content: Strin
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
             put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GeoTracker")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GeoTracker/GPX")
         }
 
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
@@ -281,7 +281,7 @@ private fun saveGpxFileScoped(context: Context, filename: String, content: Strin
 private fun saveGpxFileLegacy(context: Context, filename: String, content: String): Boolean {
     return try {
         // Try app-specific directory first (no permissions needed)
-        val appDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GeoTracker")
+        val appDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GeoTracker/GPX")
         if (!appDir.exists()) {
             appDir.mkdirs()
         }
@@ -299,7 +299,7 @@ private fun saveGpxFileLegacy(context: Context, filename: String, content: Strin
         try {
             val publicDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "GeoTracker"
+                "GeoTracker/GPX"
             )
             if (!publicDir.exists()) {
                 publicDir.mkdirs()

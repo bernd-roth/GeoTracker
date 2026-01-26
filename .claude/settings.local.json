@@ -29,7 +29,8 @@
       "Bash(git branch:*)",
       "Bash(.\\\\gradlew compileDebugKotlin:*)",
       "Bash(Select-Object -Last 30)",
-      "Bash(cmd.exe /c \"gradlew.bat compileDebugKotlin 2>&1\")"
+      "Bash(cmd.exe /c \"gradlew.bat compileDebugKotlin 2>&1\")",
+      "Bash(python -m py_compile:*)"
     ],
     "deny": [],
     "ask": []

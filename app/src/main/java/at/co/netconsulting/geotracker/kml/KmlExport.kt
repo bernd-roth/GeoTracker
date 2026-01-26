@@ -237,7 +237,7 @@ private fun saveKmlFileScoped(context: Context, filename: String, content: Strin
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
             put(MediaStore.MediaColumns.MIME_TYPE, "application/vnd.google-earth.kml+xml")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GeoTracker")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GeoTracker/KML")
         }
 
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
@@ -261,7 +261,7 @@ private fun saveKmlFileScoped(context: Context, filename: String, content: Strin
 private fun saveKmlFileLegacy(context: Context, filename: String, content: String): Boolean {
     return try {
         // Try app-specific directory first (no permissions needed)
-        val appDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GeoTracker")
+        val appDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GeoTracker/KML")
         if (!appDir.exists()) {
             appDir.mkdirs()
         }
@@ -279,7 +279,7 @@ private fun saveKmlFileLegacy(context: Context, filename: String, content: Strin
         try {
             val publicDir = File(
                 Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "GeoTracker"
+                "GeoTracker/KML"
             )
             if (!publicDir.exists()) {
                 publicDir.mkdirs()
