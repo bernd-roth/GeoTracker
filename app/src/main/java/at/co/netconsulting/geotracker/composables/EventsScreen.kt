@@ -705,6 +705,37 @@ fun EventsScreen(
                                 // Set filter in the ViewModel (also updates isDateFilterActive state)
                                 eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
                             }
+                        },
+                        onSportSelected = { year, week, sport ->
+                            // Filter events for the selected sport in the selected week
+                            coroutineScope.launch {
+                                val calendar = Calendar.getInstance().apply {
+                                    firstDayOfWeek = Calendar.MONDAY
+                                    minimalDaysInFirstWeek = 4
+                                    set(Calendar.YEAR, year)
+                                    set(Calendar.WEEK_OF_YEAR, week)
+                                    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
+                                }
+
+                                val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                                calendar.add(Calendar.DAY_OF_MONTH, 6)
+
+                                val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
+                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
+                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
+
+                                Log.d("EventsScreen", "Sport selected: Year=$year, Week=$week, " +
+                                        "Sport=$sport, DateRange: $startDateStr to $endDateStr")
+
+                                eventsViewModel.filterByDateRangeAndSport(
+                                    startDate = startDateStr,
+                                    endDate = endDateStr,
+                                    sportType = sport
+                                )
+                            }
                         }
                     )
                 }

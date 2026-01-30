@@ -30,7 +30,18 @@
       "Bash(.\\\\gradlew compileDebugKotlin:*)",
       "Bash(Select-Object -Last 30)",
       "Bash(cmd.exe /c \"gradlew.bat compileDebugKotlin 2>&1\")",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(.\\\\gradlew assembleDebug:*)",
+      "Bash(cmd /c \"gradlew.bat assembleDebug\")",
+      "Bash(cmd /c \"gradlew.bat assembleDebug 2>&1\")",
+      "Bash(cmd.exe /c \"gradlew.bat assembleDebug 2>&1\")",
+      "Bash(C:/projects/android/GeoTracker/gradlew.bat assembleDebug)",
+      "Bash(cmd //c \"gradlew.bat assembleDebug 2>&1\")",
+      "Bash(cmd //c \"C:\\\\projects\\\\android\\\\GeoTracker\\\\gradlew.bat assembleDebug 2>&1\")",
+      "Bash(git log:*)",
+      "Bash(./gradlew compileDebugKotlin:*)",
+      "Bash(ls:*)",
+      "Bash(git -C C:/projects/android/GeoTracker log --format=\"%s\" -5)"
     ],
     "deny": [],
     "ask": []

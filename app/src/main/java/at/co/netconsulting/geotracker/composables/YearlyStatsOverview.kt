@@ -51,12 +51,16 @@ import java.util.Calendar
 fun YearlyStatsOverview(
     modifier: Modifier = Modifier,
     eventsViewModel: EventsViewModel,
-    onWeekSelected: (Int, Int) -> Unit = { _, _ -> }
+    onWeekSelected: (Int, Int) -> Unit = { _, _ -> },
+    onSportSelected: (Int, Int, String) -> Unit = { _, _, _ -> }
 ) {
     val context = LocalContext.current
     var yearlyStats by remember { mutableStateOf<Map<Int, Double>>(emptyMap()) }
     var weeklyStats by remember { mutableStateOf<Map<Pair<Int, Int>, Double>>(emptyMap()) } // (Year, WeekNumber) -> Distance
+    var weeklySportBreakdown by remember { mutableStateOf<Map<Pair<Int, Int>, Map<String, Double>>>(emptyMap()) } // (Year, Week) -> Sport -> km
+    var weeklyDisciplineBreakdown by remember { mutableStateOf<Map<Triple<Int, Int, String>, Map<String, Double>>>(emptyMap()) } // (Year, Week, Sport) -> Discipline -> km
     var expandedYear by remember { mutableStateOf<Int?>(null) }
+    var expandedWeeks by remember { mutableStateOf<Set<Pair<Int, Int>>>(emptySet()) }
     var isLoading by remember { mutableStateOf(true) }
     val coroutineScope = rememberCoroutineScope()
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
@@ -103,8 +107,39 @@ fun YearlyStatsOverview(
                         eventsInWeek.sumOf { it.totalDistance / 1000.0 } // Convert to km
                     }
 
+                // Calculate per-sport breakdown per week
+                val sportBreakdown = mutableMapOf<Pair<Int, Int>, MutableMap<String, Double>>()
+                val disciplineBreakdown = mutableMapOf<Triple<Int, Int, String>, MutableMap<String, Double>>()
+
+                events.forEach { event ->
+                    val dateParts = event.eventDate.split("-")
+                    val eventYear = dateParts[0].toInt()
+                    val calendar = Calendar.getInstance().apply {
+                        firstDayOfWeek = Calendar.MONDAY
+                        minimalDaysInFirstWeek = 4
+                        set(eventYear, dateParts[1].toInt() - 1, dateParts[2].toInt())
+                    }
+                    val week = calendar.get(Calendar.WEEK_OF_YEAR)
+                    val yearWeek = Pair(eventYear, week)
+
+                    // Aggregate sport distance in km
+                    val sportMap = sportBreakdown.getOrPut(yearWeek) { mutableMapOf() }
+                    sportMap[event.artOfSport] = (sportMap[event.artOfSport] ?: 0.0) + event.totalDistance / 1000.0
+
+                    // Aggregate discipline distances for multisport events
+                    if (event.disciplineDistances.isNotEmpty()) {
+                        val key = Triple(eventYear, week, event.artOfSport)
+                        val discMap = disciplineBreakdown.getOrPut(key) { mutableMapOf() }
+                        event.disciplineDistances.forEach { (discipline, distMeters) ->
+                            discMap[discipline] = (discMap[discipline] ?: 0.0) + distMeters / 1000.0
+                        }
+                    }
+                }
+
                 yearlyStats = yearTotals
                 weeklyStats = weekTotals
+                weeklySportBreakdown = sportBreakdown
+                weeklyDisciplineBreakdown = disciplineBreakdown
                 isLoading = false
             } catch (e: Exception) {
                 Log.e("YearlyStatsOverview", "Error loading stats", e)
@@ -163,7 +198,18 @@ fun YearlyStatsOverview(
                     WeeklyBreakdown(
                         year = year,
                         weeklyStats = weeklyStats.filter { it.key.first == year },
-                        onWeekSelected = onWeekSelected
+                        weeklySportBreakdown = weeklySportBreakdown,
+                        weeklyDisciplineBreakdown = weeklyDisciplineBreakdown,
+                        expandedWeeks = expandedWeeks,
+                        onWeekToggle = { yearWeek ->
+                            expandedWeeks = if (yearWeek in expandedWeeks) {
+                                expandedWeeks - yearWeek
+                            } else {
+                                expandedWeeks + yearWeek
+                            }
+                        },
+                        onWeekSelected = onWeekSelected,
+                        onSportSelected = onSportSelected
                     )
                 }
             }
@@ -258,8 +304,19 @@ fun YearCard(
 fun WeeklyBreakdown(
     year: Int,
     weeklyStats: Map<Pair<Int, Int>, Double>,
-    onWeekSelected: (Int, Int) -> Unit
+    weeklySportBreakdown: Map<Pair<Int, Int>, Map<String, Double>>,
+    weeklyDisciplineBreakdown: Map<Triple<Int, Int, String>, Map<String, Double>>,
+    expandedWeeks: Set<Pair<Int, Int>>,
+    onWeekToggle: (Pair<Int, Int>) -> Unit,
+    onWeekSelected: (Int, Int) -> Unit,
+    onSportSelected: (Int, Int, String) -> Unit = { _, _, _ -> }
 ) {
+    val disciplineDisplayNames = mapOf(
+        "Swim" to "Swimming",
+        "Bike" to "Bicycle",
+        "Run" to "Running"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -312,6 +369,9 @@ fun WeeklyBreakdown(
                             .thenByDescending { it.second })
 
                     sortedWeeks.forEach { (_, week) ->
+                        val yearWeek = Pair(year, week)
+                        val isWeekExpanded = yearWeek in expandedWeeks
+
                         // Set calendar to the week in question
                         calendar.set(Calendar.WEEK_OF_YEAR, week)
                         calendar.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY) // Start of week
@@ -324,8 +384,9 @@ fun WeeklyBreakdown(
                         val endDay = calendar.get(Calendar.DAY_OF_MONTH)
                         val endMonth = calendar.get(Calendar.MONTH) + 1
 
-                        val distance = weeklyStats[Pair(year, week)] ?: 0.0
+                        val distance = weeklyStats[yearWeek] ?: 0.0
 
+                        // Week header row - click to expand/collapse
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -337,19 +398,102 @@ fun WeeklyBreakdown(
                                         Color.Transparent
                                     }
                                 )
-                                .clickable { onWeekSelected(year, week) }
+                                .clickable { onWeekToggle(yearWeek) }
                                 .padding(8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 text = "Week $week ($startDay/$startMonth - $endDay/$endMonth)",
                                 style = MaterialTheme.typography.bodyMedium
                             )
 
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = String.format("%.1f km", distance),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
+                                Icon(
+                                    imageVector = if (isWeekExpanded) {
+                                        Icons.Default.KeyboardArrowUp
+                                    } else {
+                                        Icons.Default.KeyboardArrowDown
+                                    },
+                                    contentDescription = if (isWeekExpanded) "Collapse" else "Expand",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        // Expanded content: sport breakdown + filter link
+                        if (isWeekExpanded) {
+                            val sportMap = weeklySportBreakdown[yearWeek] ?: emptyMap()
+
+                            sportMap.entries.sortedByDescending { it.value }.forEach { (sport, sportKm) ->
+                                // Sport row - clickable to filter by sport in this week
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onSportSelected(year, week, sport) }
+                                        .padding(start = 24.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = sport,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = String.format("%.1f km", sportKm),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+
+                                // Discipline sub-items for multisport events
+                                val discKey = Triple(year, week, sport)
+                                val discMap = weeklyDisciplineBreakdown[discKey]
+                                if (discMap != null && discMap.isNotEmpty()) {
+                                    // Order: Swim, Bike, Run (natural multisport order)
+                                    val orderedDisciplines = listOf("Swim", "Bike", "Run")
+                                    val sortedEntries = discMap.entries.sortedBy { entry ->
+                                        val idx = orderedDisciplines.indexOf(entry.key)
+                                        if (idx >= 0) idx else orderedDisciplines.size
+                                    }
+                                    sortedEntries.forEach { (discipline, discKm) ->
+                                        val displayName = disciplineDisplayNames[discipline] ?: discipline
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(start = 48.dp, end = 8.dp, top = 1.dp, bottom = 1.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Text(
+                                                text = displayName,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                text = String.format("%.1f km", discKm),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Filter link
                             Text(
-                                text = String.format("%.1f km", distance),
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
+                                text = "Filter events for this week",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .padding(start = 24.dp, top = 6.dp, bottom = 4.dp)
+                                    .clickable { onWeekSelected(year, week) }
                             )
                         }
 
@@ -407,6 +551,8 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
             val eventsFlow = database.eventDao().getAllEvents()
             val events = eventsFlow.first() // Get the first emission from the Flow
 
+            val multisportTypes = setOf("Triathlon", "Duathlon", "Ultratriathlon")
+
             // Process each event to get its metrics
             events.forEach { event ->
                 try {
@@ -415,13 +561,42 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
                     // Calculate total distance for this event (max distance represents total at end of event)
                     val totalDistance = metrics.maxOfOrNull { it.distance } ?: 0.0
 
+                    // For multisport events, compute per-discipline distances
+                    val disciplineDistances = if (event.artOfSport in multisportTypes && metrics.isNotEmpty()) {
+                        try {
+                            val transitions = database.disciplineTransitionDao()
+                                .getTransitionsForEvent(event.eventId)
+                            if (transitions.isNotEmpty()) {
+                                // Assign each metric to a discipline by finding the last
+                                // transition with timestamp <= metric.timeInMilliseconds
+                                val sortedTransitions = transitions.sortedBy { it.timestamp }
+                                metrics.groupBy { metric ->
+                                    sortedTransitions.lastOrNull { it.timestamp <= metric.timeInMilliseconds }
+                                        ?.disciplineName ?: sortedTransitions.first().disciplineName
+                                }.mapValues { (_, disciplineMetrics) ->
+                                    val maxDist = disciplineMetrics.maxOf { it.distance }
+                                    val minDist = disciplineMetrics.minOf { it.distance }
+                                    maxDist - minDist
+                                }
+                            } else {
+                                emptyMap()
+                            }
+                        } catch (e: Exception) {
+                            Log.e("YearlyStatsOverview", "Error loading discipline transitions for event ${event.eventId}: ${e.message}", e)
+                            emptyMap()
+                        }
+                    } else {
+                        emptyMap()
+                    }
+
                     result.add(
                         EventWithTotalDistance(
                             eventId = event.eventId,
                             eventName = event.eventName,
                             artOfSport = event.artOfSport,
                             eventDate = event.eventDate,
-                            totalDistance = totalDistance
+                            totalDistance = totalDistance,
+                            disciplineDistances = disciplineDistances
                         )
                     )
                 } catch (e: Exception) {

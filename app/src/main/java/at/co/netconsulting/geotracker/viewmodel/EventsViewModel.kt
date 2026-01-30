@@ -78,6 +78,9 @@ class EventsViewModel(
     private var startDateFilter: String? = null
     private var endDateFilter: String? = null
 
+    // Sport type filter
+    private var sportTypeFilter: String? = null
+
     private val _isDateFilterActive = MutableStateFlow(false)
     val isDateFilterActive: StateFlow<Boolean> = _isDateFilterActive.asStateFlow()
 
@@ -154,6 +157,7 @@ class EventsViewModel(
     fun filterByDateRange(startDate: String? = null, endDate: String? = null) {
         startDateFilter = startDate
         endDateFilter = endDate
+        sportTypeFilter = null
         currentPage = 0
         _isDateFilterActive.value = startDate != null && endDate != null
 
@@ -169,6 +173,19 @@ class EventsViewModel(
                 currentPageSize = normalPageSize
                 loadEvents()
             }
+        }
+    }
+
+    fun filterByDateRangeAndSport(startDate: String, endDate: String, sportType: String) {
+        startDateFilter = startDate
+        endDateFilter = endDate
+        sportTypeFilter = sportType
+        currentPage = 0
+        _isDateFilterActive.value = true
+
+        viewModelScope.launch {
+            Log.d("EventsViewModel", "Loading events for date range $startDate to $endDate, sport: $sportType")
+            loadEventsWithCustomPageSize(maxPageSize)
         }
     }
 
@@ -189,12 +206,15 @@ class EventsViewModel(
                 true
             }
 
-            matchesSearch && matchesDateRange
+            val matchesSportType = sportTypeFilter == null ||
+                    event.event.artOfSport.equals(sportTypeFilter, ignoreCase = true)
+
+            matchesSearch && matchesDateRange && matchesSportType
         }
 
         _filteredEventsWithDetails.value = filtered
 
-        Log.d("EventsViewModel", "Filtered ${filtered.size} events from ${events.size} total (query: '$query')")
+        Log.d("EventsViewModel", "Filtered ${filtered.size} events from ${events.size} total (query: '$query', sport: '$sportTypeFilter')")
     }
 
     private fun isDateInRange(dateStr: String, startDateStr: String, endDateStr: String): Boolean {

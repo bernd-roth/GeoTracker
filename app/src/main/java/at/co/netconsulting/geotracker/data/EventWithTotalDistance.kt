@@ -5,5 +5,6 @@ data class EventWithTotalDistance(
     val eventName: String,
     val artOfSport: String,
     val eventDate: String,
-    val totalDistance: Double
+    val totalDistance: Double,
+    val disciplineDistances: Map<String, Double> = emptyMap()
 )
