@@ -62,6 +62,8 @@ class CustomLocationListener: LocationListener {
     private var maxSpeed: Double = 0.0
     private var cumulativeElevationGain: Double = 0.0
     private var startingAltitude: Double? = null
+    private var lastKnownAltitude: Double? = null
+    private var lastKnownBearing: Float = 0f
     private var webSocket: WebSocket? = null
     private var websocketserver: String = "0.0.0.0"
     private lateinit var firstname: String
@@ -594,9 +596,11 @@ class CustomLocationListener: LocationListener {
                 }
             }
 
-            // Always update coordinates for next calculation
+            // Always update coordinates and last known values for next calculation
             oldLatitude = location.latitude
             oldLongitude = location.longitude
+            lastKnownAltitude = location.altitude
+            lastKnownBearing = location.bearing
 
             // Always calculate these metrics regardless of speed
             averageSpeed = calculateAverageSpeed()
@@ -1200,6 +1204,44 @@ class CustomLocationListener: LocationListener {
         sendWaypointToWebSocketServer(waypointMessage)
     }
 
+    @Subscribe(threadMode = ThreadMode.MAIN)
+    fun onDisciplineTransitionMessage(msg: at.co.netconsulting.geotracker.data.WebSocketMessage.DisciplineTransitionMessage) {
+        Log.d(TAG_WEBSOCKET, "Received discipline transition message: '${msg.transition.disciplineName}' #${msg.transition.transitionNumber}")
+        sendDisciplineTransitionToWebSocketServer(msg)
+    }
+
+    private fun sendDisciplineTransitionToWebSocketServer(msg: at.co.netconsulting.geotracker.data.WebSocketMessage.DisciplineTransitionMessage) {
+        if (sessionId.isEmpty()) {
+            Log.e(TAG_WEBSOCKET, "Cannot send discipline transition - missing sessionId")
+            return
+        }
+
+        if (!enableWebSocketTransfer) {
+            Log.d(TAG_WEBSOCKET, "WebSocket transfer disabled by user - not sending discipline transition")
+            return
+        }
+
+        Log.d(TAG_WEBSOCKET, "Sending discipline transition: '${msg.transition.disciplineName}' #${msg.transition.transitionNumber}")
+
+        val gson = GsonBuilder()
+            .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
+            .create()
+
+        val jsonData = gson.toJson(msg)
+        Log.d(TAG_WEBSOCKET, "Discipline transition JSON: $jsonData")
+
+        coroutineScope.launch {
+            try {
+                webSocket?.let { socket ->
+                    socket.send(jsonData)
+                    Log.d(TAG_WEBSOCKET, "Successfully sent discipline transition '${msg.transition.disciplineName}' #${msg.transition.transitionNumber} to websocket server")
+                } ?: Log.e(TAG_WEBSOCKET, "WebSocket is null - cannot send discipline transition")
+            } catch (e: Exception) {
+                Log.e(TAG_WEBSOCKET, "Error sending discipline transition to websocket server", e)
+            }
+        }
+    }
+
     private fun sendWaypointToWebSocketServer(waypointMessage: at.co.netconsulting.geotracker.data.WebSocketMessage.WaypointMessage) {
         // Check if sessionId is available
         if (sessionId.isEmpty()) {
@@ -1252,10 +1294,10 @@ class CustomLocationListener: LocationListener {
         return Metrics(
             latitude = oldLatitude,
             longitude = oldLongitude,
-            speed = if (isCurrentlyTracking) (movingAverageSpeed * 3.6).toFloat() else 0f,
-            altitude = startingAltitude ?: 0.0,
-            bearing = 0f,
-            slope = currentSlope, // Use current slope data
+            speed = if (isCurrentlyTracking) movingAverageSpeed.toFloat() else 0f,
+            altitude = lastKnownAltitude ?: startingAltitude ?: 0.0,
+            bearing = lastKnownBearing,
+            slope = currentSlope,
             averageSlope = averageSlope,
             maxUphillSlope = maxUphillSlope,
             maxDownhillSlope = maxDownhillSlope,
@@ -1292,7 +1334,7 @@ class CustomLocationListener: LocationListener {
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
 
-            // Weather data - INCLUDED IN ALL METRICS
+            // Weather data
             temperature = currentTemperature,
             windSpeed = currentWindSpeed,
             windDirection = currentWindDirection,
@@ -1300,6 +1342,13 @@ class CustomLocationListener: LocationListener {
             weatherCode = currentWeatherCode,
             weatherTime = currentWeatherTime,
 
+            // Barometer data
+            pressure = currentPressure,
+            pressureAccuracy = currentPressureAccuracy,
+            altitudeFromPressure = currentAltitudeFromPressure,
+            seaLevelPressure = currentSeaLevelPressure,
+
+            // Satellites
             numberOfSatellites = numberOfSatellites,
             usedNumberOfSatellites = usedNumberOfSatellites,
             satellites = 0

@@ -45,6 +45,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                 // Other sports
                 "soccer", "american football", "fistball", "squash", "tennis", "basketball", "volleyball", "baseball", "badminton", "table tennis" -> "sport"
                 "car", "motorcycle", "motorsport" -> "drive"
+                "duathlon", "triathlon", "ultratriathlon", "multisport race" -> "multisport"
                 else -> event?.artOfSport?.lowercase()?.replace(" ", "_") ?: "unknown"
             }
 

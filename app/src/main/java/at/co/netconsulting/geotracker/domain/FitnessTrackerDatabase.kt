@@ -24,9 +24,10 @@ import android.util.Log
         WheelSprocket::class,
         Network::class,
         Waypoint::class,
-        EventMedia::class
+        EventMedia::class,
+        DisciplineTransition::class
     ],
-    version = 21, // ✅ INCREMENTED FROM 20 TO 21 for event_media table
+    version = 22, // INCREMENTED FROM 21 TO 22 for discipline_transitions table
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -46,6 +47,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     abstract fun networkDao(): NetworkDao
     abstract fun waypointDao(): WaypointDao
     abstract fun eventMediaDao(): EventMediaDao
+    abstract fun disciplineTransitionDao(): DisciplineTransitionDao
 
     companion object {
         @Volatile
@@ -658,6 +660,33 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 21->22 - adding discipline_transitions table")
+
+                try {
+                    database.execSQL("""
+                        CREATE TABLE IF NOT EXISTS discipline_transitions (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            eventId INTEGER NOT NULL,
+                            sessionId TEXT NOT NULL,
+                            disciplineName TEXT NOT NULL,
+                            transitionNumber INTEGER NOT NULL,
+                            timestamp INTEGER NOT NULL
+                        )
+                    """)
+
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_discipline_transitions_eventId ON discipline_transitions(eventId)")
+                    database.execSQL("CREATE INDEX IF NOT EXISTS index_discipline_transitions_sessionId ON discipline_transitions(sessionId)")
+
+                    Log.d(TAG, "Migration 21->22 completed - discipline_transitions table created")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 21->22", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -686,7 +715,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_17_18,
                             MIGRATION_18_19,
                             MIGRATION_19_20,
-                            MIGRATION_20_21
+                            MIGRATION_20_21,
+                            MIGRATION_21_22
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

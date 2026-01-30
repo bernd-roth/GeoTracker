@@ -468,6 +468,7 @@ class StravaApiClient(private val context: Context) {
             "tennis" -> "Tennis"
             "basketball" -> "Basketball"
             "volleyball" -> "Volleyball"
+            "duathlon", "triathlon", "ultratriathlon", "multisport race" -> "Multisport"
             else -> "Workout" // Default fallback
         }
     }

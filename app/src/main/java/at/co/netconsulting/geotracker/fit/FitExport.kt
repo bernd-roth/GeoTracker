@@ -103,6 +103,7 @@ private fun mapSportType(sportType: String?): Pair<Int, Int> {
         "ski", "cross country skiing" -> Pair(12, 0) // Cross Country Skiing, Generic
         "snowboard" -> Pair(14, 0) // Snowboarding, Generic
         "training" -> Pair(10, 0) // Training, Generic
+        "duathlon", "triathlon", "ultratriathlon", "multisport race" -> Pair(18, 0) // Multisport, Generic
         else -> Pair(0, 0) // Generic, Generic
     }
 }

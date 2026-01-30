@@ -457,7 +457,8 @@ fun RecordingDialog(
         SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Biathlon", "Sledding", "Snowshoeing")),
         SportType("Walking", listOf("Nordic Walking", "Urban Walking")),
         SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
-        SportType("Motorsport", listOf("Car", "Motorcycle"))
+        SportType("Motorsport", listOf("Car", "Motorcycle")),
+        SportType("Multisport Race", listOf("Duathlon", "Triathlon", "Ultratriathlon"))
     )
 
     // Function to get appropriate icon for sport type with specific subcategory icons
@@ -508,6 +509,12 @@ fun RecordingDialog(
         "Sledding" -> Icons.Default.Speed  // Speed/downhill motion
         "Snowshoeing" -> Icons.Default.Hiking  // Similar to hiking
         "Winter Sport" -> Icons.Default.Landscape  // Winter mountain landscape
+
+        // Multisport Race subcategories
+        "Duathlon" -> Icons.Default.DirectionsRun  // Run-Bike-Run
+        "Triathlon" -> Icons.Default.Waves  // Swim-Bike-Run
+        "Ultratriathlon" -> Icons.Default.Timer  // Endurance
+        "Multisport Race" -> Icons.Default.FitnessCenter
 
         // Default fallback
         else -> Icons.Default.DirectionsRun

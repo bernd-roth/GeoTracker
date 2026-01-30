@@ -37,6 +37,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
                 "running", "jogging", "marathon" -> "Running"
                 "cycling", "bicycle", "bike", "biking" -> "Cycling"
                 "hiking", "walking", "trekking" -> "Hiking"
+                "duathlon", "triathlon", "ultratriathlon", "multisport race" -> "Multisport"
                 else -> event?.artOfSport ?: "Activity"
             }
 

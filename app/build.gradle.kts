@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.29")} (26-01-2026: export files to separate folder)"
+        versionName = "${getNextVersion("7.30")} (30-01-2026: sport type multisport added)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -24,8 +24,11 @@ import at.co.netconsulting.geotracker.data.LapTimeData
 import at.co.netconsulting.geotracker.data.WeatherResponse
 import at.co.netconsulting.geotracker.data.HeartRateData
 import at.co.netconsulting.geotracker.data.BarometerData
+import at.co.netconsulting.geotracker.data.DisciplineTransitionData
+import at.co.netconsulting.geotracker.data.WebSocketMessage
 import at.co.netconsulting.geotracker.domain.CurrentRecording
 import at.co.netconsulting.geotracker.domain.DeviceStatus
+import at.co.netconsulting.geotracker.domain.DisciplineTransition
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.LapTime
@@ -725,6 +728,47 @@ class ForegroundService : Service() {
                 } else {
                     eventId = createNewEvent(database, userId)
                     eventIdDeferred.complete(eventId)
+
+                    // Create initial discipline transition for multisport races
+                    val initialDiscipline = when {
+                        artofsport.equals("Duathlon", ignoreCase = true) -> "Run"
+                        artofsport.equals("Triathlon", ignoreCase = true) ||
+                        artofsport.equals("Ultratriathlon", ignoreCase = true) -> "Swim"
+                        else -> null
+                    }
+                    if (initialDiscipline != null) {
+                        try {
+                            database.disciplineTransitionDao().insertTransition(
+                                DisciplineTransition(
+                                    eventId = eventId,
+                                    sessionId = sessionId,
+                                    disciplineName = initialDiscipline,
+                                    transitionNumber = 1,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            )
+                            getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                .edit()
+                                .putString("current_discipline", initialDiscipline)
+                                .putInt("discipline_transition_count", 1)
+                                .apply()
+                            // Send initial discipline transition to WebSocket server via EventBus
+                            EventBus.getDefault().post(
+                                WebSocketMessage.DisciplineTransitionMessage(
+                                    sessionId = sessionId,
+                                    eventName = eventname,
+                                    transition = DisciplineTransitionData(
+                                        disciplineName = initialDiscipline,
+                                        transitionNumber = 1,
+                                        timestamp = System.currentTimeMillis()
+                                    )
+                                )
+                            )
+                            Log.d(TAG, "Initial $artofsport discipline transition recorded: $initialDiscipline #1")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error recording initial discipline transition", e)
+                        }
+                    }
                 }
 
                 // Start weather updates right away with aggressive polling
@@ -1414,6 +1458,53 @@ class ForegroundService : Service() {
                     Log.d(TAG, "Recording resumed - stopwatches restarted")
                     return START_STICKY
                 }
+                "transition_discipline" -> {
+                    val newDiscipline = intent?.getStringExtra("discipline") ?: return START_STICKY
+                    val prefs = getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                    val transitionCount = prefs.getInt("discipline_transition_count", 1)
+                    val nextTransitionNumber = transitionCount + 1
+
+                    // Insert discipline transition record
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            val database = FitnessTrackerDatabase.getInstance(this@ForegroundService)
+                            database.disciplineTransitionDao().insertTransition(
+                                DisciplineTransition(
+                                    eventId = eventId,
+                                    sessionId = sessionId,
+                                    disciplineName = newDiscipline,
+                                    transitionNumber = nextTransitionNumber,
+                                    timestamp = System.currentTimeMillis()
+                                )
+                            )
+                            Log.d(TAG, "Discipline transition #$nextTransitionNumber to $newDiscipline recorded")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error recording discipline transition", e)
+                        }
+                    }
+
+                    // Update SharedPreferences with current discipline and counter
+                    prefs.edit()
+                        .putString("current_discipline", newDiscipline)
+                        .putInt("discipline_transition_count", nextTransitionNumber)
+                        .apply()
+
+                    // Send discipline transition to WebSocket server via EventBus
+                    EventBus.getDefault().post(
+                        WebSocketMessage.DisciplineTransitionMessage(
+                            sessionId = sessionId,
+                            eventName = eventname,
+                            transition = DisciplineTransitionData(
+                                disciplineName = newDiscipline,
+                                transitionNumber = nextTransitionNumber,
+                                timestamp = System.currentTimeMillis()
+                            )
+                        )
+                    )
+
+                    Log.d(TAG, "Discipline transitioned to $newDiscipline (#$nextTransitionNumber)")
+                    return START_STICKY
+                }
             }
 
             // Check if this is a restored session
@@ -1765,6 +1856,12 @@ class ForegroundService : Service() {
     }
 
     private suspend fun finalizeRecording() {
+        if (hasFinalized) {
+            Log.d(TAG, "Recording already finalized, skipping duplicate call")
+            return
+        }
+        hasFinalized = true
+
         withContext(Dispatchers.IO) {
             try {
                 // 1. Get all records from current_recording for this session
@@ -2110,6 +2207,7 @@ class ForegroundService : Service() {
         private const val MIN_SPEED_THRESHOLD = 2.5f
         private const val EVENT_TIMEOUT_MS = 2000
         private var isStoppingIntentionally = false
+        private var hasFinalized = false
         private const val TAG = "ForegroundService"
 
         // State saving constants

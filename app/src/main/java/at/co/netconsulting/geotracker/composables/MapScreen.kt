@@ -24,6 +24,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DirectionsRun
+import androidx.compose.material.icons.filled.Pool
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
@@ -180,6 +183,27 @@ fun MapScreen(
         mutableStateOf(
             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .getBoolean("is_paused", false)
+        )
+    }
+
+    var currentSportType by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getString("current_sport_type", "") ?: ""
+        )
+    }
+
+    var currentDiscipline by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getString("current_discipline", "Run") ?: "Run"
+        )
+    }
+
+    var disciplineTransitionCount by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getInt("discipline_transition_count", 0)
         )
     }
 
@@ -2324,6 +2348,70 @@ fun MapScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
+            // Discipline transition button - show during Duathlon, Triathlon, Ultratriathlon recording
+            // All three sports have exactly 3 legs; hide button after the final discipline (#3)
+            val isMultisportRace = currentSportType.equals("Duathlon", ignoreCase = true) ||
+                    currentSportType.equals("Triathlon", ignoreCase = true) ||
+                    currentSportType.equals("Ultratriathlon", ignoreCase = true)
+            val hasMoreTransitions = disciplineTransitionCount < 3
+            if (isRecording && !followingState.isFollowing && isMultisportRace && hasMoreTransitions) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = Color(0xFF00BCD4),
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                val isDuathlon = currentSportType.equals("Duathlon", ignoreCase = true)
+                                val newDiscipline = if (isDuathlon) {
+                                    // Duathlon: Run → Bike → Run
+                                    if (currentDiscipline == "Run") "Bike" else "Run"
+                                } else {
+                                    // Triathlon/Ultratriathlon: Swim → Bike → Run
+                                    when (currentDiscipline) {
+                                        "Swim" -> "Bike"
+                                        else -> "Run"
+                                    }
+                                }
+                                currentDiscipline = newDiscipline
+                                disciplineTransitionCount++
+
+                                val transitionIntent = Intent(context, ForegroundService::class.java).apply {
+                                    putExtra("action", "transition_discipline")
+                                    putExtra("discipline", newDiscipline)
+                                }
+                                ContextCompat.startForegroundService(context, transitionIntent)
+
+                                val toastMessage = when (newDiscipline) {
+                                    "Swim" -> "Switched to Swimming"
+                                    "Bike" -> "Switched to Cycling"
+                                    else -> "Switched to Running"
+                                }
+                                Toast.makeText(context, toastMessage, Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Icon(
+                            imageVector = when (currentDiscipline) {
+                                "Swim" -> Icons.Default.Pool
+                                "Bike" -> Icons.Default.DirectionsBike
+                                else -> Icons.Default.DirectionsRun
+                            },
+                            contentDescription = when (currentDiscipline) {
+                                "Swim" -> "Current: Swimming"
+                                "Bike" -> "Current: Cycling"
+                                else -> "Current: Running"
+                            },
+                            tint = Color.White
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Recording controls
             if (!isRecording && !followingState.isFollowing) {
                 Surface(
@@ -2424,7 +2512,14 @@ fun MapScreen(
                                     .putBoolean("is_recording", false)
                                     .putBoolean("is_paused", false)
                                     .remove("pause_start_time")
+                                    .remove("current_sport_type")
+                                    .remove("current_discipline")
+                                    .remove("discipline_transition_count")
                                     .apply()
+
+                                currentSportType = ""
+                                currentDiscipline = "Run"
+                                disciplineTransitionCount = 0
 
                                 // Stop the service by sending stop_recording action
                                 val stopIntent = Intent(context, ForegroundService::class.java).apply {
@@ -2636,10 +2731,31 @@ fun MapScreen(
                     .putBoolean("is_recording", true)
                     .putBoolean("is_paused", false)
                     .remove("pause_start_time")
+                    .putString("current_sport_type", artOfSport)
                     .apply()
 
+                currentSportType = artOfSport
                 isRecording = true
                 isPaused = false
+
+                // Initialize discipline for multisport races
+                if (artOfSport.equals("Duathlon", ignoreCase = true)) {
+                    currentDiscipline = "Run"
+                    disciplineTransitionCount = 1
+                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("current_discipline", "Run")
+                        .apply()
+                } else if (artOfSport.equals("Triathlon", ignoreCase = true) ||
+                           artOfSport.equals("Ultratriathlon", ignoreCase = true)) {
+                    currentDiscipline = "Swim"
+                    disciplineTransitionCount = 1
+                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                        .edit()
+                        .putString("current_discipline", "Swim")
+                        .apply()
+                }
+
                 Timber.d("Recording started, set isRecording=true, isPaused=false")
 
                 val stopIntent = Intent(context, BackgroundLocationService::class.java)

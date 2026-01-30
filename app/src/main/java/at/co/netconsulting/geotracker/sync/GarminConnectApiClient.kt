@@ -177,6 +177,7 @@ class GarminConnectApiClient(private val context: Context) {
             "canoeing" -> "canoeing"
             "ski", "cross country skiing" -> "cross_country_skiing"
             "snowboard" -> "snowboarding"
+            "duathlon", "triathlon", "ultratriathlon", "multisport race" -> "multi_sport"
             else -> "other"
         }
     }

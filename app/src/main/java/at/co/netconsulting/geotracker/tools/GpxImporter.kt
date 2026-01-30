@@ -409,6 +409,11 @@ class GpxImporter(private val context: Context) {
                 "sledding", "tobogganing", "sled" -> "Sledding"
                 "snowshoeing", "snowshoe" -> "Snowshoeing"
                 "winter sport", "winter sports" -> "Winter Sport"
+                // Multisport
+                "duathlon" -> "Duathlon"
+                "triathlon" -> "Triathlon"
+                "ultratriathlon", "ultra triathlon" -> "Ultratriathlon"
+                "multisport", "multisport race", "multi sport" -> "Multisport Race"
                 "" -> "Unknown"
                 else -> activityType.replaceFirstChar { it.uppercase() }
             }

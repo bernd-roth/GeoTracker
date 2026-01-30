@@ -44,6 +44,13 @@ sealed class WebSocketMessage {
         val eventName: String,
         val waypoint: WaypointData
     ) : WebSocketMessage()
+
+    data class DisciplineTransitionMessage(
+        val type: String = "discipline_transition",
+        val sessionId: String,
+        val eventName: String,
+        val transition: DisciplineTransitionData
+    ) : WebSocketMessage()
 }
 
 /**
@@ -56,4 +63,13 @@ data class WaypointData(
     val description: String? = null,
     val elevation: Double? = null,
     val timestamp: Long = System.currentTimeMillis()
+)
+
+/**
+ * Data class for discipline transition information
+ */
+data class DisciplineTransitionData(
+    val disciplineName: String,
+    val transitionNumber: Int,
+    val timestamp: Long
 )

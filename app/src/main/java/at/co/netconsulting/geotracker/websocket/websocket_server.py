@@ -434,6 +434,21 @@ class TrackingServer:
                 )
             """)
 
+            # Create discipline_transitions table
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS discipline_transitions (
+                    transition_id SERIAL PRIMARY KEY,
+                    session_id VARCHAR(255) REFERENCES tracking_sessions(session_id) ON DELETE CASCADE,
+                    user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
+                    event_name VARCHAR(255),
+                    discipline_name VARCHAR(50) NOT NULL,
+                    transition_number INTEGER NOT NULL,
+                    transition_timestamp BIGINT NOT NULL,
+                    received_at TIMESTAMPTZ DEFAULT NOW(),
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
+
             # Create planned_events table
             await conn.execute("""
                 CREATE TABLE IF NOT EXISTS planned_events (
@@ -502,6 +517,11 @@ class TrackingServer:
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_location ON waypoints(latitude, longitude)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_timestamp ON waypoints(waypoint_timestamp)")
             await conn.execute("CREATE INDEX IF NOT EXISTS idx_waypoints_received_at ON waypoints(received_at)")
+
+            # Discipline transitions indexes
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_discipline_transitions_session_id ON discipline_transitions(session_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_discipline_transitions_user_id ON discipline_transitions(user_id)")
+            await conn.execute("CREATE INDEX IF NOT EXISTS idx_discipline_transitions_timestamp ON discipline_transitions(transition_timestamp)")
 
             # Unique constraint for duplicate prevention
             await conn.execute("""
@@ -868,6 +888,50 @@ class TrackingServer:
 
         except Exception as e:
             logging.error(f"Error saving waypoint to database: {str(e)}")
+            return False
+
+    async def save_discipline_transition_to_db(self, message_data: Dict[str, Any]) -> bool:
+        """Save discipline transition data to PostgreSQL database."""
+        if not self.db_pool:
+            logging.error("Database pool not initialized")
+            return False
+
+        try:
+            session_id = message_data.get('sessionId', '')
+            event_name = message_data.get('eventName', '')
+            transition = message_data.get('transition', {})
+
+            async with self.db_pool.acquire() as conn:
+                async with conn.transaction():
+                    # Get user_id from session
+                    user_id = await conn.fetchval("""
+                        SELECT user_id FROM tracking_sessions WHERE session_id = $1
+                    """, session_id)
+
+                    if not user_id:
+                        logging.error(f"No user found for session {session_id}")
+                        return False
+
+                    # Insert discipline transition
+                    await conn.execute("""
+                        INSERT INTO discipline_transitions (
+                            session_id, user_id, event_name, discipline_name,
+                            transition_number, transition_timestamp
+                        ) VALUES ($1, $2, $3, $4, $5, $6)
+                    """,
+                        session_id,
+                        user_id,
+                        event_name,
+                        transition.get('disciplineName', ''),
+                        int(transition.get('transitionNumber', 0)),
+                        int(transition.get('timestamp', 0))
+                    )
+
+                    logging.info(f"Saved discipline transition '{transition.get('disciplineName', '')}' #{transition.get('transitionNumber', 0)} for session {session_id}")
+                    return True
+
+        except Exception as e:
+            logging.error(f"Error saving discipline transition to database: {str(e)}")
             return False
 
     async def save_tracking_data_to_db(self, message_data: Dict[str, Any]) -> bool:
@@ -2261,6 +2325,22 @@ class TrackingServer:
                             'type': 'session_list',
                             'sessions': session_info
                         }))
+                        continue
+
+                    # Handle discipline transition messages
+                    if message_data.get('type') == 'discipline_transition':
+                        transition = message_data.get('transition', {})
+                        logging.info(f"Received discipline transition: '{transition.get('disciplineName')}' #{transition.get('transitionNumber')} for session {message_data.get('sessionId')}")
+                        saved = await self.save_discipline_transition_to_db(message_data)
+                        if saved:
+                            # Broadcast to followers
+                            session_id = message_data.get('sessionId', '')
+                            if session_id in self.session_followers:
+                                await self.broadcast_to_followers(session_id, {
+                                    'type': 'discipline_transition',
+                                    'sessionId': session_id,
+                                    'transition': transition
+                                })
                         continue
 
                     # Handle waypoint messages

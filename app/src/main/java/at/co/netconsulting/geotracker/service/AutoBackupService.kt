@@ -499,6 +499,9 @@ class AutoBackupService : Service() {
                 // Motorsports
                 "car", "motorcycle", "motorsport" -> "drive"
 
+                // Multisport
+                "duathlon", "triathlon", "ultratriathlon", "multisport race" -> "multisport"
+
                 else -> event.artOfSport?.lowercase()?.replace(" ", "_") ?: "unknown"
             }
 
