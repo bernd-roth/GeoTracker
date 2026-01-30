@@ -434,10 +434,25 @@ class EventsViewModel(
                 emptyList()
             }
 
-            val lapTimes = try {
-                database.lapTimeDao().getLapTimesForEvent(eventId).map { it.endTime - it.startTime }
+            val lapTimeObjects = try {
+                database.lapTimeDao().getLapTimesForEvent(eventId)
             } catch (e: Exception) {
-                emptyList<Long>()
+                emptyList<at.co.netconsulting.geotracker.domain.LapTime>()
+            }
+            val lapTimes = lapTimeObjects.map { it.endTime - it.startTime }
+
+            // Load discipline transitions for multisport events
+            val isMultisport = event.artOfSport.equals("Triathlon", ignoreCase = true) ||
+                    event.artOfSport.equals("Ultratriathlon", ignoreCase = true) ||
+                    event.artOfSport.equals("Duathlon", ignoreCase = true)
+            val disciplineTransitions = if (isMultisport) {
+                try {
+                    database.disciplineTransitionDao().getTransitionsForEvent(eventId)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            } else {
+                emptyList()
             }
 
             // Create and return EventWithDetails with full details
@@ -470,7 +485,10 @@ class EventsViewModel(
                 averageSlope = averageSlope,
                 maxSlope = maxSlope,
                 minSlope = minSlope,
-                metrics = metrics
+                metrics = metrics,
+                // Multisport discipline grouping
+                lapTimeDetails = lapTimeObjects,
+                disciplineTransitions = disciplineTransitions
             )
         }
     }
@@ -1024,6 +1042,7 @@ class EventsViewModel(
             database.eventMediaDao().getMediaCountForEvent(eventId)
         }
     }
+
 }
 
 // ViewModelFactory to provide database and context to EventsViewModel

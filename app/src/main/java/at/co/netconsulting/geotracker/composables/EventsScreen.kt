@@ -49,6 +49,8 @@ import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CompareArrows
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DirectionsBike
+import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
@@ -62,6 +64,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.filled.Waves
 import at.co.netconsulting.geotracker.YearlyStatisticsActivity
 import at.co.netconsulting.geotracker.LapAnalysisActivity
 import androidx.compose.material3.AlertDialog
@@ -128,6 +131,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import at.co.netconsulting.geotracker.domain.DisciplineTransition
+import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
@@ -2335,7 +2340,22 @@ fun EventCard(
 
                 Spacer(modifier = Modifier.height(4.dp))
 
-                if (event.laps.isNotEmpty()) {
+                // Determine if this is a multisport event with transitions
+                val isMultisportEvent = event.event.artOfSport.equals("Triathlon", ignoreCase = true) ||
+                        event.event.artOfSport.equals("Ultratriathlon", ignoreCase = true) ||
+                        event.event.artOfSport.equals("Duathlon", ignoreCase = true)
+                val hasTransitions = event.disciplineTransitions.isNotEmpty()
+
+                if (isMultisportEvent && hasTransitions && event.lapTimeDetails.isNotEmpty()) {
+                    // Discipline-grouped lap display for multisport events
+                    MultisportLapSection(
+                        lapTimeDetails = event.lapTimeDetails,
+                        disciplineTransitions = event.disciplineTransitions,
+                        endTime = event.endTime,
+                        startTime = event.startTime
+                    )
+                } else if (event.laps.isNotEmpty()) {
+                    // Flat lap display for non-multisport or multisport without transitions
                     // Find the fastest and slowest complete laps
                     // We'll consider the last lap as possibly incomplete
                     val completeLaps = if (event.laps.size > 1) event.laps.dropLast(1) else event.laps
@@ -3103,6 +3123,127 @@ private fun CompactLegendItem(
             fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
         )
+    }
+}
+
+/**
+ * Maps each LapTime to a discipline by finding the last DisciplineTransition
+ * whose timestamp <= lap.startTime. Returns a LinkedHashMap preserving transition order.
+ */
+private fun mapLapsToDisciplines(
+    lapTimeDetails: List<LapTime>,
+    disciplineTransitions: List<DisciplineTransition>
+): LinkedHashMap<String, List<LapTime>> {
+    val sortedTransitions = disciplineTransitions.sortedBy { it.timestamp }
+    val disciplineOrder = sortedTransitions.map { it.disciplineName }.distinct()
+    val grouped = LinkedHashMap<String, MutableList<LapTime>>()
+
+    // Initialize all disciplines in order, even if they have no laps
+    disciplineOrder.forEach { discipline ->
+        grouped[discipline] = mutableListOf()
+    }
+
+    for (lap in lapTimeDetails) {
+        // Find the last transition whose timestamp <= lap.startTime
+        val matchingTransition = sortedTransitions.lastOrNull { it.timestamp <= lap.startTime }
+        val discipline = matchingTransition?.disciplineName ?: sortedTransitions.firstOrNull()?.disciplineName ?: "Unknown"
+
+        grouped.getOrPut(discipline) { mutableListOf() }.add(lap)
+    }
+
+    // Convert to immutable lists
+    val result = LinkedHashMap<String, List<LapTime>>()
+    grouped.forEach { (key, value) -> result[key] = value.toList() }
+    return result
+}
+
+@Composable
+private fun DisciplineHeader(disciplineName: String) {
+    val (icon, color) = when (disciplineName.lowercase()) {
+        "swim", "swimming" -> Pair(Icons.Default.Waves, Color(0xFF1976D2)) // Blue
+        "bike", "cycling" -> Pair(Icons.Default.DirectionsBike, Color(0xFF388E3C)) // Green
+        "run", "running" -> Pair(Icons.Default.DirectionsRun, Color(0xFFE64A19)) // Orange
+        else -> Pair(Icons.Default.Flag, Color.Gray)
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = disciplineName,
+            tint = color,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = disciplineName,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = color
+        )
+    }
+}
+
+@Composable
+private fun MultisportLapSection(
+    lapTimeDetails: List<LapTime>,
+    disciplineTransitions: List<DisciplineTransition>,
+    endTime: Long,
+    startTime: Long
+) {
+    val disciplineGroups = remember(lapTimeDetails, disciplineTransitions) {
+        mapLapsToDisciplines(lapTimeDetails, disciplineTransitions)
+    }
+
+    disciplineGroups.forEach { (discipline, laps) ->
+        DisciplineHeader(disciplineName = discipline)
+
+        if (laps.isEmpty()) {
+            Text(
+                text = "No laps recorded",
+                fontSize = 13.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(start = 28.dp, bottom = 4.dp)
+            )
+        } else {
+            val durations = laps.map { it.endTime - it.startTime }
+            val completeLaps = if (durations.size > 1) durations.dropLast(1) else durations
+            val fastestTime = completeLaps.minOrNull() ?: Long.MAX_VALUE
+            val slowestTime = completeLaps.maxOrNull() ?: 0L
+
+            laps.forEachIndexed { index, lap ->
+                val lapDuration = lap.endTime - lap.startTime
+                val isLast = index == laps.size - 1
+                val isLastAndIncomplete = isLast && durations.size > 1 && endTime > 0 &&
+                        (endTime - startTime) % lapDuration != 0L
+
+                val textColor = when {
+                    isLastAndIncomplete -> Color.Gray
+                    lapDuration == fastestTime && !isLastAndIncomplete -> Color(0, 139, 0)
+                    lapDuration == slowestTime -> Color.Red
+                    else -> Color.Unspecified
+                }
+
+                val lapLabel = "  Lap ${index + 1} (1km):"
+                val lapValueText = Tools().formatDuration(lapDuration)
+                val lapStatus = when {
+                    isLastAndIncomplete -> " (incomplete)"
+                    lapDuration == fastestTime && !isLastAndIncomplete -> " (fastest)"
+                    lapDuration == slowestTime -> " (slowest)"
+                    else -> ""
+                }
+
+                InfoRowWithColor(
+                    label = lapLabel,
+                    value = lapValueText + lapStatus,
+                    textColor = textColor
+                )
+            }
+        }
     }
 }
 

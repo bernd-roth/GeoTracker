@@ -1,7 +1,9 @@
 package at.co.netconsulting.geotracker.data
 
+import at.co.netconsulting.geotracker.domain.DisciplineTransition
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.EventMedia
+import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.Weather
 import org.osmdroid.util.GeoPoint
@@ -51,7 +53,11 @@ data class EventWithDetails(
 
     // Media attachments
     val mediaCount: Int = 0,
-    val media: List<EventMedia> = emptyList()
+    val media: List<EventMedia> = emptyList(),
+
+    // Multisport discipline grouping
+    val lapTimeDetails: List<LapTime> = emptyList(),
+    val disciplineTransitions: List<DisciplineTransition> = emptyList()
 ) {
     // Convenience properties for location info
     // Prefer full address if available, fall back to city/country

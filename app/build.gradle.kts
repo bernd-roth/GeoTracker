@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.30")} (30-01-2026: sport type multisport added)"
+        versionName = "${getNextVersion("7.31")} (30-01-2026: new layout for multisport types in eventsscreen)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
