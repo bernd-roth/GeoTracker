@@ -901,15 +901,40 @@ function toggleStatBoxes() {
 
     if (statsVisible) {
         speedDisplay.style.display = 'none';
-        toggleBtn.textContent = 'Show Stats';
+        toggleBtn.title = 'Show Stats';
         statsVisible = false;
     } else {
         speedDisplay.style.display = 'block';
-        toggleBtn.textContent = 'Hide Stats';
+        toggleBtn.title = 'Hide Stats';
         statsVisible = true;
     }
 
     addDebugMessage(`Stats visibility toggled: ${statsVisible ? 'shown' : 'hidden'}`, 'system');
+}
+
+let chartsVisible = true;
+
+function toggleCharts() {
+    const chartsContainer = document.querySelector('.charts-container');
+    const mapElement = document.getElementById('map');
+    const toggleBtn = document.getElementById('toggleChartsBtn');
+
+    if (chartsVisible) {
+        chartsContainer.style.display = 'none';
+        mapElement.style.height = '100vh';
+        toggleBtn.title = 'Show Charts';
+        chartsVisible = false;
+    } else {
+        chartsContainer.style.display = 'flex';
+        mapElement.style.height = '67vh';
+        toggleBtn.title = 'Hide Charts';
+        chartsVisible = true;
+    }
+
+    // Trigger map resize so tiles fill the new area
+    if (typeof map !== 'undefined' && map) {
+        setTimeout(function() { map.invalidateSize(); }, 100);
+    }
 }
 
 function handleLegendClick(e, legendItem, legend) {

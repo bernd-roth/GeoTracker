@@ -707,7 +707,11 @@
 <div id="sessionManagerPanel" class="control-panel">
     <div class="panel-header">
         <h3>Session Manager</h3>
-        <button id="toggleSessionPanel" class="panel-toggle" onclick="toggleSessionPanel()">-</button>
+        <div style="display: flex; gap: 4px; align-items: center;">
+            <button id="toggleStatsBtn" class="panel-toggle" onclick="toggleStatBoxes()" title="Toggle Stats">S</button>
+            <button id="toggleChartsBtn" class="panel-toggle" onclick="toggleCharts()" title="Toggle Charts">C</button>
+            <button id="toggleSessionPanel" class="panel-toggle" onclick="toggleSessionPanel()">-</button>
+        </div>
     </div>
     <div class="panel-content">
         <div class="session-list-header">
@@ -720,11 +724,6 @@
             <p class="no-sessions">No active sessions found.</p>
         </div>
     </div>
-</div>
-
-<!-- Show/Hide Stats control -->
-<div id="essentialControls">
-    <button id="toggleStatsBtn" onclick="toggleStatBoxes()">Hide Stats</button>
 </div>
 
 <div id="map"></div>
