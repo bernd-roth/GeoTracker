@@ -19,35 +19,7 @@
             width: 100%;
         }
 
-        /* Keep only the essential controls */
-        #essentialControls {
-            position: absolute;
-            top: 220px;
-            left: 10px;
-            z-index: 1000;
-            background-color: white;
-            padding: 5px;
-            border-radius: 4px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            align-items: flex-start;
-        }
 
-        #essentialControls button {
-            padding: 4px 8px;
-            background-color: white;
-            border: 2px solid rgba(0,0,0,0.2);
-            border-radius: 4px;
-            font-size: 12px;
-            cursor: pointer;
-            color: #666;
-        }
-
-        #essentialControls button:hover {
-            background-color: #f4f4f4;
-        }
 
         /* Modified speedDisplay to have a fixed height and scrolling */
         #speedDisplay {
@@ -637,11 +609,6 @@
     </style>
 </head>
 <body>
-<!-- Keep only essential controls: Hide Stats and Debug -->
-<!-- <div id="essentialControls">
-    <button id="toggleStatsBtn" onclick="toggleStatBoxes()">Hide Stats</button>
-    <button id="debugToggle" onclick="toggleDebugPopup()">Show Debug Data</button>
-</div> -->
 
 <div id="speedDisplay">
     <div class="stats-grid">
