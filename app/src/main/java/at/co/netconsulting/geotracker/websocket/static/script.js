@@ -377,7 +377,7 @@ function handleChartHover(event, activeElements, chartType) {
             dataLength: dataset.data ? dataset.data.length : 0
         });
 
-        let sessionId = dataset.label;
+        let sessionId = dataset.sessionId || dataset.label;
         let sessionTrackPoints = trackPoints[sessionId];
 
         if (!sessionTrackPoints) {
@@ -439,7 +439,7 @@ function handleChartClick(event, activeElements, chartType) {
 
     if (!dataset) return;
 
-    let sessionId = dataset.label;
+    let sessionId = dataset.sessionId || dataset.label;
     let sessionTrackPoints = trackPoints[sessionId];
 
     if (!sessionTrackPoints) {
@@ -939,17 +939,18 @@ function toggleCharts() {
 
 function handleLegendClick(e, legendItem, legend) {
     const index = legendItem.datasetIndex;
-    const clickedLabel = legend.chart.data.datasets[index].label;
+    const clickedDataset = legend.chart.data.datasets[index];
+    const clickedLabel = clickedDataset.label;
     const isVisible = legend.chart.isDatasetVisible(index);
 
-    // Extract session ID from the label (handle both single segment and multi-segment labels)
-    let sessionId;
-    if (clickedLabel.includes(' (') && clickedLabel.includes(')')) {
-        // Multi-segment label format: "PersonName_SessionId (1)"
-        sessionId = extractSessionIdFromDisplayId(clickedLabel.split(' (')[0]);
-    } else {
-        // Single segment label format: "PersonName_SessionId"
-        sessionId = extractSessionIdFromDisplayId(clickedLabel);
+    // Use stored sessionId if available, otherwise extract from label
+    let sessionId = clickedDataset.sessionId;
+    if (!sessionId) {
+        if (clickedLabel.includes(' (') && clickedLabel.includes(')')) {
+            sessionId = extractSessionIdFromDisplayId(clickedLabel.split(' (')[0]);
+        } else {
+            sessionId = extractSessionIdFromDisplayId(clickedLabel);
+        }
     }
 
     addDebugMessage(`Toggle visibility from legend click: ${clickedLabel} (Session ID: ${sessionId})`, 'ui');
@@ -957,12 +958,14 @@ function handleLegendClick(e, legendItem, legend) {
     // Toggle visibility for ALL datasets belonging to this session in both charts
     [altitudeChart, speedChart].forEach(chart => {
         chart.data.datasets.forEach((dataset, i) => {
-            // Check if this dataset belongs to the same session
-            let datasetSessionId;
-            if (dataset.label.includes(' (') && dataset.label.includes(')')) {
-                datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
-            } else {
-                datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
+            // Use stored sessionId if available
+            let datasetSessionId = dataset.sessionId;
+            if (!datasetSessionId) {
+                if (dataset.label.includes(' (') && dataset.label.includes(')')) {
+                    datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
+                } else {
+                    datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
+                }
             }
 
             if (datasetSessionId === sessionId) {
@@ -1666,8 +1669,8 @@ function updateCharts(sessionId) {
     // Remove from altitude chart
     for (let i = altitudeChart.data.datasets.length - 1; i >= 0; i--) {
         const dataset = altitudeChart.data.datasets[i];
-        if (dataset.label === sessionId || dataset.label === displayId ||
-            (dataset.label && dataset.label.includes(sessionId))) {
+        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        if (datasetSessionId === sessionId) {
             altitudeChart.data.datasets.splice(i, 1);
         }
     }
@@ -1675,8 +1678,8 @@ function updateCharts(sessionId) {
     // Remove from speed chart
     for (let i = speedChart.data.datasets.length - 1; i >= 0; i--) {
         const dataset = speedChart.data.datasets[i];
-        if (dataset.label === sessionId || dataset.label === displayId ||
-            (dataset.label && dataset.label.includes(sessionId))) {
+        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        if (datasetSessionId === sessionId) {
             speedChart.data.datasets.splice(i, 1);
         }
     }
@@ -1700,6 +1703,7 @@ function updateCharts(sessionId) {
         // Add altitude dataset
         altitudeChart.data.datasets.push({
             label: segmentLabel,
+            sessionId: sessionId,
             borderColor: sessionColor,
             backgroundColor: sessionColor + '20', // Add some transparency
             fill: false,
@@ -1712,6 +1716,7 @@ function updateCharts(sessionId) {
         // Add speed dataset
         speedChart.data.datasets.push({
             label: segmentLabel,
+            sessionId: sessionId,
             borderColor: sessionColor,
             backgroundColor: sessionColor + '20', // Add some transparency
             fill: false,
@@ -2305,16 +2310,9 @@ function toggleSessionVisibility(sessionId) {
     const altDatasets = altitudeChart.data.datasets;
     for (let i = 0; i < altDatasets.length; i++) {
         const dataset = altDatasets[i];
+        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
 
-        // Check if this dataset belongs to the session (handle both single and multi-segment)
-        let datasetSessionId;
-        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
-        } else {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
-        }
-
-        if (datasetSessionId === sessionId || dataset.label === displayId || dataset.label.includes(sessionId)) {
+        if (datasetSessionId === sessionId) {
             if (currentVisibility === null) {
                 currentVisibility = altitudeChart.isDatasetVisible(i);
             }
@@ -2326,15 +2324,9 @@ function toggleSessionVisibility(sessionId) {
     const speedDatasets = speedChart.data.datasets;
     for (let i = 0; i < speedDatasets.length; i++) {
         const dataset = speedDatasets[i];
+        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
 
-        let datasetSessionId;
-        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
-        } else {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
-        }
-
-        if (datasetSessionId === sessionId || dataset.label === displayId || dataset.label.includes(sessionId)) {
+        if (datasetSessionId === sessionId) {
             speedChart.setDatasetVisibility(i, !currentVisibility);
         }
     }
@@ -2628,16 +2620,9 @@ function handleSessionDeleted(sessionId) {
     const altDatasets = altitudeChart.data.datasets;
     for (let i = altDatasets.length - 1; i >= 0; i--) {
         const dataset = altDatasets[i];
+        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
 
-        // Check if this dataset belongs to the deleted session
-        let datasetSessionId;
-        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
-        } else {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
-        }
-
-        if (datasetSessionId === sessionId || dataset.label.includes(sessionId)) {
+        if (datasetSessionId === sessionId) {
             addDebugMessage(`Removing altitude dataset: ${dataset.label}`, 'system');
             altDatasets.splice(i, 1);
         }
@@ -2648,15 +2633,9 @@ function handleSessionDeleted(sessionId) {
     const speedDatasets = speedChart.data.datasets;
     for (let i = speedDatasets.length - 1; i >= 0; i--) {
         const dataset = speedDatasets[i];
+        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
 
-        let datasetSessionId;
-        if (dataset.label.includes(' (') && dataset.label.includes(')')) {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label.split(' (')[0]);
-        } else {
-            datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
-        }
-
-        if (datasetSessionId === sessionId || dataset.label.includes(sessionId)) {
+        if (datasetSessionId === sessionId) {
             addDebugMessage(`Removing speed dataset: ${dataset.label}`, 'system');
             speedDatasets.splice(i, 1);
         }
