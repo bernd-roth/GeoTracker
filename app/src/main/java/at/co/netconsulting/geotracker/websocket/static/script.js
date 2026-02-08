@@ -2257,11 +2257,8 @@ function getColorForUser(sessionId) {
 function createDisplayId(sessionId, personName) {
     if (!personName) return sessionId;
 
-    if (sessionId.startsWith(personName + '_')) {
-        return sessionId;
-    } else {
-        return `${personName}_${sessionId}`;
-    }
+    // Only show the first name (part before the underscore)
+    return personName.split('_')[0] || personName;
 }
 
 function parseSessionId(sessionId) {
