@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.32")} (31-01-2026: filtering sport types per week)"
+        versionName = "${getNextVersion("7.33")} (09-02-2026: adding directional arrows along the route)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

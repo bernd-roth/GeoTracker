@@ -41,7 +41,12 @@
       "Bash(git log:*)",
       "Bash(./gradlew compileDebugKotlin:*)",
       "Bash(ls:*)",
-      "Bash(git -C C:/projects/android/GeoTracker log --format=\"%s\" -5)"
+      "Bash(git -C C:/projects/android/GeoTracker log --format=\"%s\" -5)",
+      "Bash(dir \"C:\\\\projects\\\\android\\\\GeoTracker\" /s /b)",
+      "Bash(findstr:*)",
+      "Bash(where:*)",
+      "Bash(\"/c/Program Files/Docker/Docker/resources/bin/docker\" compose ps -a)",
+      "Bash(\"C:/Program Files/Docker/Docker/resources/bin/docker\" compose ps -a)"
     ],
     "deny": [],
     "ask": []

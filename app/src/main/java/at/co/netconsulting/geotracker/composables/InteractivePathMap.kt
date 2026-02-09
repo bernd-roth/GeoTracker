@@ -14,6 +14,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.Marker
+import at.co.netconsulting.geotracker.util.DirectionArrowHelper
 
 @Composable
 fun InteractivePathMap(
@@ -64,6 +65,12 @@ fun InteractivePathMap(
             if (pathPoints.isNotEmpty()) {
                 // Create speed-colored path segments
                 createSpeedColoredPath(mapView, pathPoints)
+
+                // Add directional arrows along the path
+                DirectionArrowHelper.addDirectionArrows(
+                    mapView,
+                    pathPoints.map { GeoPoint(it.latitude, it.longitude) }
+                )
 
                 // Zoom to fit all points if requested
                 if (zoomToFit) {

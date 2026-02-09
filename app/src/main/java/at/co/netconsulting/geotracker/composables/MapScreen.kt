@@ -100,6 +100,7 @@ import org.osmdroid.views.overlay.ScaleBarOverlay
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.views.overlay.Polyline
+import at.co.netconsulting.geotracker.util.DirectionArrowHelper
 import timber.log.Timber
 
 // Dark mode tile source function - works with OSMDroid 6.1.18+
@@ -830,6 +831,9 @@ fun MapScreen(
                     mapView.overlays.add(routeOverlay)
                 }
                 routeOverlayRef.value = null // We're managing multiple overlays for slope colors
+
+                // Add directional arrows along the route
+                DirectionArrowHelper.addDirectionArrows(mapView, routeToDisplay.points)
 
                 // Load waypoints for the route if we have an event ID
                 Timber.d("RouteDisplayData eventId: ${routeToDisplay.eventId}")
