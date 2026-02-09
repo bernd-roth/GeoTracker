@@ -5,4 +5,4 @@ plugins {
 }
 
 // Declare Room version as a constant
-val roomVersion = "2.6.1"
+val roomVersion = "2.7.1"

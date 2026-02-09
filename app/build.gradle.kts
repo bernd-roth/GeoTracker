@@ -18,7 +18,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
     // id("kotlin-kapt")
-    id("com.google.devtools.ksp") version "2.3.2"
+    id("com.google.devtools.ksp") version "2.3.5"
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -114,9 +114,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
 
     // Room dependencies
-    implementation("androidx.room:room-ktx:2.6.1")
-    implementation("androidx.room:room-runtime:2.6.1")
-    ksp("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-ktx:2.7.1")
+    implementation("androidx.room:room-runtime:2.7.1")
+    ksp("androidx.room:room-compiler:2.7.1")
 
     // Location services
     implementation(libs.play.services.location)

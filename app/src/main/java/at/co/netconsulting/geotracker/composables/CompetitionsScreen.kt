@@ -904,43 +904,10 @@ fun CompetitionsScreen() {
 
                                                     // Days of week selection for weekly recurring
                                                     AnimatedVisibility(visible = recurringType == "weekly") {
-                                                        Column {
-                                                            Text(
-                                                                "Select days:",
-                                                                style = MaterialTheme.typography.bodyMedium,
-                                                                fontWeight = FontWeight.Medium,
-                                                                modifier = Modifier.padding(bottom = 8.dp)
-                                                            )
-
-                                                            val daysOfWeek = listOf(
-                                                                Calendar.MONDAY to "Mon",
-                                                                Calendar.TUESDAY to "Tue",
-                                                                Calendar.WEDNESDAY to "Wed",
-                                                                Calendar.THURSDAY to "Thu",
-                                                                Calendar.FRIDAY to "Fri",
-                                                                Calendar.SATURDAY to "Sat",
-                                                                Calendar.SUNDAY to "Sun"
-                                                            )
-
-                                                            LazyRow(
-                                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                                modifier = Modifier.padding(bottom = 8.dp)
-                                                            ) {
-                                                                items(daysOfWeek) { (dayConstant, dayName) ->
-                                                                    FilterChip(
-                                                                        onClick = {
-                                                                            selectedDaysOfWeek = if (selectedDaysOfWeek.contains(dayConstant)) {
-                                                                                selectedDaysOfWeek - dayConstant
-                                                                            } else {
-                                                                                selectedDaysOfWeek + dayConstant
-                                                                            }
-                                                                        },
-                                                                        label = { Text(dayName) },
-                                                                        selected = selectedDaysOfWeek.contains(dayConstant)
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
+                                                        DaysOfWeekSelector(
+                                                            selectedDaysOfWeek = selectedDaysOfWeek,
+                                                            onDaysChanged = { selectedDaysOfWeek = it }
+                                                        )
                                                     }
 
                                                     // End date selection
@@ -1627,6 +1594,52 @@ private suspend fun loadAllCompetitions(
         Log.e("CompetitionsScreen", "Error loading all competitions", e)
         onResult(emptyList())
         throw e // Re-throw to let caller handle the error message
+    }
+}
+
+@Composable
+private fun DaysOfWeekSelector(
+    selectedDaysOfWeek: Set<Int>,
+    onDaysChanged: (Set<Int>) -> Unit
+) {
+    Column {
+        Text(
+            "Select days:",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+
+        val daysOfWeek = listOf(
+            Calendar.MONDAY to "Mon",
+            Calendar.TUESDAY to "Tue",
+            Calendar.WEDNESDAY to "Wed",
+            Calendar.THURSDAY to "Thu",
+            Calendar.FRIDAY to "Fri",
+            Calendar.SATURDAY to "Sat",
+            Calendar.SUNDAY to "Sun"
+        )
+
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(bottom = 8.dp)
+        ) {
+            items(daysOfWeek) { (dayConstant, dayName) ->
+                FilterChip(
+                    onClick = {
+                        onDaysChanged(
+                            if (selectedDaysOfWeek.contains(dayConstant)) {
+                                selectedDaysOfWeek - dayConstant
+                            } else {
+                                selectedDaysOfWeek + dayConstant
+                            }
+                        )
+                    },
+                    label = { Text(dayName) },
+                    selected = selectedDaysOfWeek.contains(dayConstant)
+                )
+            }
+        }
     }
 }
 
