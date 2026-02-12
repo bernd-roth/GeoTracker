@@ -475,13 +475,37 @@ class EventsViewModel(
                 emptyList()
             }
 
+            // Override distance and speed for Backyard Ultra events
+            val isBackyardUltra = event.artOfSport.equals("Backyard Ultra", ignoreCase = true)
+            val finalDistance: Double
+            val finalAvgSpeed: Double
+            val finalMaxSpeed: Double
+            if (isBackyardUltra && lapTimeObjects.isNotEmpty()) {
+                // Distance = number of completed laps × 6706.06 meters
+                finalDistance = lapTimeObjects.size * 6706.06
+                // Avg speed = total backyard distance / sum of lap durations
+                val totalLapDurationMs = lapTimeObjects.sumOf { it.endTime - it.startTime }
+                finalAvgSpeed = if (totalLapDurationMs > 0) {
+                    (finalDistance / (totalLapDurationMs / 1000.0)) * 3.6
+                } else 0.0
+                // Max speed: use per-lap avg speeds, pick the fastest lap
+                finalMaxSpeed = lapTimeObjects.maxOfOrNull { lap ->
+                    val lapDurationMs = lap.endTime - lap.startTime
+                    if (lapDurationMs > 0) (6706.06 / (lapDurationMs / 1000.0)) * 3.6 else 0.0
+                } ?: 0.0
+            } else {
+                finalDistance = totalDistance
+                finalAvgSpeed = avgSpeed
+                finalMaxSpeed = maxSpeed
+            }
+
             // Create and return EventWithDetails with full details
             EventWithDetails(
                 event = event,
                 hasFullDetails = true,
-                totalDistance = totalDistance,
-                maxSpeed = maxSpeed,
-                averageSpeed = avgSpeed,
+                totalDistance = finalDistance,
+                maxSpeed = finalMaxSpeed,
+                averageSpeed = finalAvgSpeed,
                 maxElevation = maxElevation,
                 minElevation = minElevation,
                 maxElevationGain = maxElevationGain,

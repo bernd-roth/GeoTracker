@@ -166,6 +166,9 @@ class CustomLocationListener: LocationListener {
     private var smoothedElevation: Double = 0.0
     private var lastRawElevation: Double? = null
 
+    // Backyard Ultra mode - skip automatic lap calculation
+    private var isBackyardUltraMode: Boolean = false
+
     // websocket server transfer
     private var enableWebSocketTransfer: Boolean = true
 
@@ -336,6 +339,7 @@ class CustomLocationListener: LocationListener {
         val sessionPrefs = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
         eventName = sessionPrefs.getString("current_event_name", "") ?: ""
         sportType = sessionPrefs.getString("current_sport_type", "") ?: ""
+        isBackyardUltraMode = sportType.equals("Backyard Ultra", ignoreCase = true)
         comment = sessionPrefs.getString("current_comment", "") ?: ""
         clothing = sessionPrefs.getString("current_clothing", "") ?: ""
 
@@ -549,7 +553,9 @@ class CustomLocationListener: LocationListener {
                                 oldLatitude, oldLongitude, location.latitude, location.longitude
                             )
                             coveredDistance += distanceIncrement
-                            lap = calculateLap(distanceIncrement)
+                            if (!isBackyardUltraMode) {
+                                lap = calculateLap(distanceIncrement)
+                            }
 
                             Log.d(
                                 "CustomLocationListener",
@@ -584,7 +590,9 @@ class CustomLocationListener: LocationListener {
                         oldLatitude, oldLongitude, location.latitude, location.longitude
                     )
                     coveredDistance += distanceIncrement
-                    lap = calculateLap(distanceIncrement)
+                    if (!isBackyardUltraMode) {
+                        lap = calculateLap(distanceIncrement)
+                    }
 
                     Log.d(
                         "CustomLocationListener",

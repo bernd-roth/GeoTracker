@@ -63,14 +63,6 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
         16.0 to 2,    // Neighborhood view - slightly simplified
         18.0 to 1,    // Street view - full detail
         22.0 to 1     // Building view - full detail
-//        0.0 to 50,
-//        5.0 to 25,
-//        10.0 to 10,
-//        12.0 to 5,
-//        14.0 to 2,
-//        16.0 to 1,
-//        18.0 to 1,
-//        22.0 to 1
     )
 
     // Colors for different path segments
@@ -80,10 +72,16 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
     // Flag to control if zooming to path bounds is enabled
     private var zoomToPathEnabled = false
 
+    // Backyard Ultra per-lap polylines
+    var backyardUltraMode = false
+    private var backyardLapPolylines = mutableListOf<Polyline>()
+    private var currentMapView: MapView? = null
+
     /**
      * Initialize the path tracker with a MapView
      */
     fun initialize(mapView: MapView) {
+        currentMapView = mapView
         if (pathPolyline == null) {
             pathPolyline = Polyline().apply {
                 outlinePaint.color = pathColor
@@ -105,13 +103,9 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
 
             // If we have a mapView, update the display
             mapView?.let {
+                currentMapView = it
                 updatePathForViewport(it, forceUpdate = true)
             }
-
-            // If this is a valid event, and zooming is enabled, try to zoom to the path bounds
-//            if (eventId > 0 && mapView != null && zoomToPathEnabled) {
-//                zoomToPathBounds(eventId, mapView)
-//            }
         }
     }
 
@@ -132,8 +126,17 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
     fun clearPath(mapView: MapView) {
         pointCache.clear()
         pathPolyline?.setPoints(emptyList())
+        // Clear backyard lap polylines
+        clearBackyardLapPolylines(mapView)
         mapView.invalidate()
         Log.d(TAG, "Path cleared")
+    }
+
+    private fun clearBackyardLapPolylines(mapView: MapView) {
+        backyardLapPolylines.forEach { polyline ->
+            mapView.overlays.remove(polyline)
+        }
+        backyardLapPolylines.clear()
     }
 
     /**
@@ -172,11 +175,20 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
     }
 
     /**
+     * Get color for a Backyard Ultra lap (dark blue → light blue gradient)
+     */
+    private fun getColorForLap(lapNumber: Int, totalLaps: Int): Int {
+        val brightness = 0.3f + (0.7f * (lapNumber - 1).coerceAtLeast(0) / maxOf(totalLaps - 1, 1))
+        return Color.HSVToColor(floatArrayOf(220f, 0.8f, brightness))
+    }
+
+    /**
      * Update the path display when map viewport changes
      */
     fun updatePathForViewport(mapView: MapView, forceUpdate: Boolean = false) {
         if (currentEventId <= 0) return
 
+        currentMapView = mapView
         val viewport = mapView.boundingBox
         val zoomLevel = mapView.zoomLevelDouble
 
@@ -204,46 +216,96 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
             isLoading.value = true
 
             try {
-                // Use sample rate 1 during recording for immediate display
-                val sampleRate = if (isRecording.value) {
-                    1 // Show every point during recording
+                if (backyardUltraMode) {
+                    updateBackyardUltraPath(mapView, viewport, zoomLevel)
                 } else {
-                    getSampleRateForZoom(zoomLevel)
-                }
-
-                // Convert OSMDroid BoundingBox to our PathBounds with buffer
-                val expandedBounds = viewport.toPathBounds().expand(viewportBufferPercent)
-
-                // Query database for points in this viewport with appropriate sampling
-                val locations = database.locationDao().getLocationsInBoundingBox(
-                    eventId = currentEventId,
-                    latNorth = expandedBounds.maxLat,
-                    latSouth = expandedBounds.minLat,
-                    lonEast = expandedBounds.maxLon,
-                    lonWest = expandedBounds.minLon,
-                    sampleRate = sampleRate
-                )
-
-                // Convert to GeoPoints
-                val newPoints = locations.map {
-                    GeoPoint(it.latitude, it.longitude)
-                }
-
-                // Update cache and display
-                pointCache = newPoints.toMutableList()
-
-                // Update UI on main thread
-                withContext(Dispatchers.Main) {
-                    pathPolyline?.setPoints(pointCache)
-                    mapView.invalidate()
-
-                    Log.d(TAG, "Updated path with ${pointCache.size} points at zoom $zoomLevel (sample rate: $sampleRate, recording: ${isRecording.value})")
+                    updateStandardPath(mapView, viewport, zoomLevel)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating path for viewport", e)
             } finally {
                 isLoading.value = false
             }
+        }
+    }
+
+    private suspend fun updateStandardPath(mapView: MapView, viewport: BoundingBox, zoomLevel: Double) {
+        // Use sample rate 1 during recording for immediate display
+        val sampleRate = if (isRecording.value) {
+            1 // Show every point during recording
+        } else {
+            getSampleRateForZoom(zoomLevel)
+        }
+
+        // Convert OSMDroid BoundingBox to our PathBounds with buffer
+        val expandedBounds = viewport.toPathBounds().expand(viewportBufferPercent)
+
+        // Query database for points in this viewport with appropriate sampling
+        val locations = database.locationDao().getLocationsInBoundingBox(
+            eventId = currentEventId,
+            latNorth = expandedBounds.maxLat,
+            latSouth = expandedBounds.minLat,
+            lonEast = expandedBounds.maxLon,
+            lonWest = expandedBounds.minLon,
+            sampleRate = sampleRate
+        )
+
+        // Convert to GeoPoints
+        val newPoints = locations.map {
+            GeoPoint(it.latitude, it.longitude)
+        }
+
+        // Update cache and display
+        pointCache = newPoints.toMutableList()
+
+        // Update UI on main thread
+        withContext(Dispatchers.Main) {
+            pathPolyline?.setPoints(pointCache)
+            mapView.invalidate()
+
+            Log.d(TAG, "Updated path with ${pointCache.size} points at zoom $zoomLevel (sample rate: $sampleRate, recording: ${isRecording.value})")
+        }
+    }
+
+    private suspend fun updateBackyardUltraPath(mapView: MapView, viewport: BoundingBox, zoomLevel: Double) {
+        val maxLap = database.locationDao().getMaxBackyardLap(currentEventId) ?: 0
+        if (maxLap <= 0) {
+            // No backyard laps yet, fall back to standard
+            updateStandardPath(mapView, viewport, zoomLevel)
+            return
+        }
+
+        // Hide the main polyline - we'll use per-lap polylines instead
+        val lapPointsMap = mutableMapOf<Int, List<GeoPoint>>()
+        for (lap in 1..maxLap) {
+            val locations = database.locationDao().getLocationsForBackyardLap(currentEventId, lap)
+            if (locations.isNotEmpty()) {
+                lapPointsMap[lap] = locations.map { GeoPoint(it.latitude, it.longitude) }
+            }
+        }
+
+        withContext(Dispatchers.Main) {
+            // Hide main polyline during backyard ultra mode
+            pathPolyline?.setPoints(emptyList())
+
+            // Clear old lap polylines
+            clearBackyardLapPolylines(mapView)
+
+            // Create new polyline per lap with gradient coloring
+            val totalLaps = maxLap
+            for ((lap, points) in lapPointsMap) {
+                val polyline = Polyline().apply {
+                    outlinePaint.color = getColorForLap(lap, totalLaps)
+                    outlinePaint.strokeWidth = pathWidth
+                    isGeodesic = true
+                    setPoints(points)
+                }
+                mapView.overlays.add(polyline)
+                backyardLapPolylines.add(polyline)
+            }
+
+            mapView.invalidate()
+            Log.d(TAG, "Updated backyard ultra path: $maxLap laps, ${lapPointsMap.values.sumOf { it.size }} total points")
         }
     }
 
@@ -280,6 +342,7 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
         trackerScope.cancel()
         viewportUpdateJob?.cancel()
         pointCache.clear()
+        currentMapView?.let { clearBackyardLapPolylines(it) }
     }
 
     /**

@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.SportsTennis
 import androidx.compose.material.icons.filled.SportsVolleyball
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -451,7 +452,7 @@ fun RecordingDialog(
     data class SportType(val name: String, val subcategories: List<String> = emptyList())
     
     val sportTypes = listOf(
-        SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running", "Orienteering")),
+        SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running", "Orienteering", "Backyard Ultra")),
         SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
         SportType("Water Sports", listOf("Swimming - Open Water", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
         SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Biathlon", "Sledding", "Snowshoeing")),
@@ -469,6 +470,7 @@ fun RecordingDialog(
         "Marathon" -> Icons.Default.Speed
         "Road Running" -> Icons.Default.Route
         "Orienteering" -> Icons.Default.MyLocation
+        "Backyard Ultra" -> Icons.Default.Replay
         "Running" -> Icons.Default.DirectionsRun
         
         // Cycling subcategories

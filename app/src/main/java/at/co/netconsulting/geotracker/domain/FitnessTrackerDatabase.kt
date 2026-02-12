@@ -27,7 +27,7 @@ import android.util.Log
         EventMedia::class,
         DisciplineTransition::class
     ],
-    version = 22, // INCREMENTED FROM 21 TO 22 for discipline_transitions table
+    version = 23, // INCREMENTED FROM 22 TO 23 for backyardLap column in locations
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -687,6 +687,19 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 22->23 - adding backyardLap column to locations")
+                try {
+                    database.execSQL("ALTER TABLE locations ADD COLUMN backyardLap INTEGER NOT NULL DEFAULT 0")
+                    Log.d(TAG, "Migration 22->23 completed - backyardLap column added")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 22->23", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -716,7 +729,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_18_19,
                             MIGRATION_19_20,
                             MIGRATION_20_21,
-                            MIGRATION_21_22
+                            MIGRATION_21_22,
+                            MIGRATION_22_23
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

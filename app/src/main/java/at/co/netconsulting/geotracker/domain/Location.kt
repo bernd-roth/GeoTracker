@@ -20,5 +20,6 @@ data class Location(
     val eventId: Int,
     val latitude: Double,
     val longitude: Double,
-    val altitude: Double
+    val altitude: Double,
+    val backyardLap: Int = 0
 )

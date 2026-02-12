@@ -23,7 +23,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Pool
@@ -205,6 +207,32 @@ fun MapScreen(
         mutableStateOf(
             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                 .getInt("discipline_transition_count", 0)
+        )
+    }
+
+    // Backyard Ultra state
+    var backyardLapNumber by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getInt("backyard_lap_number", 0)
+        )
+    }
+    var backyardLapActive by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getBoolean("backyard_lap_active", false)
+        )
+    }
+    var backyardLapStartTime by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getLong("backyard_lap_start_time", 0L)
+        )
+    }
+    var backyardHourStartTime by remember {
+        mutableStateOf(
+            context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                .getLong("backyard_hour_start_time", 0L)
         )
     }
 
@@ -1526,6 +1554,7 @@ fun MapScreen(
                 pathTracker.initialize(mapView)
                 pathTracker.setCurrentEventId(currentEventId.value, mapView)
                 pathTracker.setRecording(isRecording)
+                pathTracker.backyardUltraMode = currentSportType.equals("Backyard Ultra", ignoreCase = true)
 
                 // Load waypoints for the current recording event
                 if (currentEventId.value > 0) {
@@ -2416,6 +2445,65 @@ fun MapScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
+            // Backyard Ultra lap button
+            val isBackyardUltraMode = currentSportType.equals("Backyard Ultra", ignoreCase = true)
+            if (isRecording && !followingState.isFollowing && isBackyardUltraMode) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = if (backyardLapActive) Color(0xFF4CAF50) else Color(0xFF2196F3),
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                if (backyardLapActive) {
+                                    // COMPLETE LAP: pause GPS, record lap completion
+                                    val intent = Intent(context, ForegroundService::class.java).apply {
+                                        putExtra("action", "backyard_complete_lap")
+                                    }
+                                    ContextCompat.startForegroundService(context, intent)
+                                    backyardLapActive = false
+                                    isPaused = true
+                                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE).edit()
+                                        .putBoolean("backyard_lap_active", false)
+                                        .apply()
+                                    Toast.makeText(context, "Lap $backyardLapNumber completed", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    // START NEXT LAP: resume GPS, begin new lap
+                                    val intent = Intent(context, ForegroundService::class.java).apply {
+                                        putExtra("action", "backyard_start_lap")
+                                    }
+                                    ContextCompat.startForegroundService(context, intent)
+                                    backyardLapActive = true
+                                    backyardLapNumber++
+                                    backyardLapStartTime = System.currentTimeMillis()
+                                    isPaused = false
+                                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE).edit()
+                                        .putBoolean("backyard_lap_active", true)
+                                        .putInt("backyard_lap_number", backyardLapNumber)
+                                        .putLong("backyard_lap_start_time", backyardLapStartTime)
+                                        .apply()
+                                    Toast.makeText(context, "Lap $backyardLapNumber started", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = if (backyardLapActive) Icons.Default.Flag else Icons.Default.PlayArrow,
+                                contentDescription = if (backyardLapActive) "Complete Lap" else "Start Next Lap",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text("L$backyardLapNumber", color = Color.White, fontSize = 10.sp)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Recording controls
             if (!isRecording && !followingState.isFollowing) {
                 Surface(
@@ -2445,8 +2533,8 @@ fun MapScreen(
                         )
                     }
                 }
-            } else if (isRecording && !followingState.isFollowing) {
-                // Pause/Resume button
+            } else if (isRecording && !followingState.isFollowing && !isBackyardUltraMode) {
+                // Pause/Resume button (hidden during Backyard Ultra - lap button handles pause/resume)
                 Surface(
                     modifier = Modifier.size(56.dp),
                     shape = CircleShape,
@@ -2581,6 +2669,162 @@ fun MapScreen(
                             imageVector = Icons.Default.Close,
                             contentDescription = "Stop Recording",
                             tint = Color.White
+                        )
+                    }
+                }
+            }
+
+            // Backyard Ultra stop button (separate since pause/resume block is hidden)
+            if (isRecording && !followingState.isFollowing && isBackyardUltraMode) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = Color.Gray,
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                val sharedPreferences = context.getSharedPreferences(
+                                    "CurrentEvent",
+                                    Context.MODE_PRIVATE
+                                )
+                                val currentEventId = sharedPreferences.getInt("active_event_id", -1)
+                                if (currentEventId != -1) {
+                                    sharedPreferences.edit()
+                                        .putInt("last_event_id", currentEventId)
+                                        .remove("active_event_id")
+                                        .apply()
+                                }
+
+                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("is_recording", false)
+                                    .putBoolean("is_paused", false)
+                                    .remove("pause_start_time")
+                                    .remove("current_sport_type")
+                                    .remove("current_discipline")
+                                    .remove("discipline_transition_count")
+                                    .remove("backyard_lap_active")
+                                    .remove("backyard_lap_number")
+                                    .remove("backyard_lap_start_time")
+                                    .remove("backyard_hour_start_time")
+                                    .remove("backyard_completed_laps")
+                                    .apply()
+
+                                currentSportType = ""
+                                currentDiscipline = "Run"
+                                disciplineTransitionCount = 0
+                                backyardLapNumber = 0
+                                backyardLapActive = false
+                                backyardLapStartTime = 0L
+                                backyardHourStartTime = 0L
+
+                                val stopIntent = Intent(context, ForegroundService::class.java).apply {
+                                    putExtra("action", "stop_recording")
+                                }
+                                ContextCompat.startForegroundService(context, stopIntent)
+
+                                context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .putBoolean("was_running", false)
+                                    .apply()
+
+                                clearAllTracksFromMap()
+
+                                currentLocationInfoOverlayRef.value?.disable()
+
+                                context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+                                    .edit()
+                                    .remove("recording_start_datetime")
+                                    .apply()
+
+                                // Reset path tracker backyard mode
+                                pathTracker.backyardUltraMode = false
+
+                                isRecording = false
+                                isPaused = false
+
+                                val intent = Intent(context, BackgroundLocationService::class.java)
+                                context.startService(intent)
+
+                                Toast.makeText(context, "Recording Stopped", Toast.LENGTH_SHORT).show()
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Stop Recording",
+                            tint = Color.White
+                        )
+                    }
+                }
+            }
+        }
+
+        // Backyard Ultra info overlay
+        if (isRecording && currentSportType.equals("Backyard Ultra", ignoreCase = true)) {
+            var currentTimeMillis by remember { mutableStateOf(System.currentTimeMillis()) }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    delay(1000)
+                    currentTimeMillis = System.currentTimeMillis()
+                }
+            }
+            val completedLaps = if (backyardLapActive) backyardLapNumber - 1 else backyardLapNumber
+            val totalDistanceKm = completedLaps * 6.7606
+            val lapElapsed = if (backyardLapActive && backyardLapStartTime > 0) {
+                (currentTimeMillis - backyardLapStartTime) / 1000
+            } else 0L
+            val lapMinutes = lapElapsed / 60
+            val lapSeconds = lapElapsed % 60
+
+            // Countdown to next hour boundary
+            val hourStartTime = if (backyardHourStartTime > 0) backyardHourStartTime else backyardLapStartTime
+            val elapsedSinceHourStart = if (hourStartTime > 0) currentTimeMillis - hourStartTime else 0L
+            val hoursElapsed = (elapsedSinceHourStart / 3600000).toInt()
+            val nextHourBoundary = hourStartTime + ((hoursElapsed + 1) * 3600000L)
+            val countdownSeconds = ((nextHourBoundary - currentTimeMillis) / 1000).coerceAtLeast(0)
+            val countdownMin = countdownSeconds / 60
+            val countdownSec = countdownSeconds % 60
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Black.copy(alpha = 0.7f),
+                shadowElevation = 4.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = if (backyardLapActive) "Lap $backyardLapNumber" else "Rest",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (backyardLapActive) {
+                        Text(
+                            text = "Lap time: ${lapMinutes}:${String.format("%02d", lapSeconds)}",
+                            color = Color.White,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Text(
+                        text = "Distance: ${"%.2f".format(totalDistanceKm)} km ($completedLaps laps)",
+                        color = Color.White,
+                        fontSize = 12.sp
+                    )
+                    if (!backyardLapActive) {
+                        Text(
+                            text = "Next hour: ${countdownMin}:${String.format("%02d", countdownSec)}",
+                            color = Color(0xFF4CAF50),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
@@ -2758,6 +3002,22 @@ fun MapScreen(
                         .edit()
                         .putString("current_discipline", "Swim")
                         .apply()
+                }
+
+                // Initialize Backyard Ultra mode
+                if (artOfSport.equals("Backyard Ultra", ignoreCase = true)) {
+                    val now = System.currentTimeMillis()
+                    backyardLapActive = true
+                    backyardLapNumber = 1
+                    backyardLapStartTime = now
+                    backyardHourStartTime = now
+                    context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE).edit()
+                        .putBoolean("backyard_lap_active", true)
+                        .putInt("backyard_lap_number", 1)
+                        .putLong("backyard_lap_start_time", now)
+                        .putLong("backyard_hour_start_time", now)
+                        .apply()
+                    pathTracker.backyardUltraMode = true
                 }
 
                 Timber.d("Recording started, set isRecording=true, isPaused=false")

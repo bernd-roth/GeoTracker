@@ -73,6 +73,18 @@ interface LocationDao {
     suspend fun getPathBounds(eventId: Int): PathBounds?
 
     /**
+     * Get locations for a specific backyard lap
+     */
+    @Query("SELECT * FROM locations WHERE eventId = :eventId AND backyardLap = :lapNumber ORDER BY locationId ASC")
+    suspend fun getLocationsForBackyardLap(eventId: Int, lapNumber: Int): List<Location>
+
+    /**
+     * Get the maximum backyard lap number for an event
+     */
+    @Query("SELECT MAX(backyardLap) FROM locations WHERE eventId = :eventId")
+    suspend fun getMaxBackyardLap(eventId: Int): Int?
+
+    /**
      * Get a downsampled path (for zoomed out views)
      */
     @Query("""

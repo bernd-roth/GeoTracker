@@ -159,19 +159,32 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
             speedDiff > 5.0f && currentTime - lastMetricsTimestamp < 500
         } ?: false
 
+        // Override distance for Backyard Ultra mode
+        val isBackyardUltra = metrics.sportType.equals("Backyard Ultra", ignoreCase = true)
+        val adjustedMetrics = if (isBackyardUltra) {
+            val prefs = context?.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+            val lapNumber = prefs?.getInt("backyard_lap_number", 0) ?: 0
+            val lapActive = prefs?.getBoolean("backyard_lap_active", false) ?: false
+            val completedLaps = if (lapActive) (lapNumber - 1).coerceAtLeast(0) else lapNumber
+            val backyardDistance = completedLaps * 6706.06 // meters
+            metrics.copy(coveredDistance = backyardDistance, lap = lapNumber)
+        } else {
+            metrics
+        }
+
         if (hasAbnormalSpeedJump) {
             Log.d(TAG, "Detected abnormal speed jump, applying smoothing")
             // Create a smoothed version of the metrics
-            val smoothedMetrics = metrics.copy(
-                speed = calculateSmoothedSpeed(metrics.speed)
+            val smoothedMetrics = adjustedMetrics.copy(
+                speed = calculateSmoothedSpeed(adjustedMetrics.speed)
             )
             _metrics.value = smoothedMetrics
         } else {
             // Update the speed buffer
-            updateSpeedBuffer(metrics.speed)
+            updateSpeedBuffer(adjustedMetrics.speed)
 
             // Use the original metrics
-            _metrics.value = metrics
+            _metrics.value = adjustedMetrics
         }
 
         // Update heart rate history if we have data

@@ -183,6 +183,11 @@ class ForegroundService : Service() {
     private var pauseStartTime: Long = 0
     private var totalPausedDurationMs: Long = 0
 
+    // Backyard Ultra mode
+    private var isBackyardUltraMode = false
+    private var backyardLapNumber: Int = 0
+    private var backyardLapStartTime: Long = 0L
+
     // Geocoding flag to track if start location has been geocoded
     private var hasGeocodedStartLocation = false
 
@@ -1142,17 +1147,30 @@ class ForegroundService : Service() {
         val totalSeconds = (totalRecordingDuration.seconds % 60)
         val totalRecordingFormattedTime = String.format("%02d:%02d:%02d", totalHours, totalMinutes, totalSeconds)
 
-        val notificationTitle = "${String.format("%.2f", distance / 1000)} km • $totalRecordingFormattedTime"
+        // For Backyard Ultra: display distance based on completed laps × 6.7606 km
+        val displayDistanceKm = if (isBackyardUltraMode) {
+            val completedLaps = if (isPaused) backyardLapNumber else (backyardLapNumber - 1).coerceAtLeast(0)
+            completedLaps * 6.7606
+        } else {
+            distance / 1000
+        }
+        val lapDisplay = if (isBackyardUltraMode) {
+            "\nBackyard Lap: $backyardLapNumber" + if (isPaused) " (resting)" else " (running)"
+        } else {
+            "\nLap: " + String.format("%2d", lap)
+        }
+
+        val notificationTitle = "${String.format("%.2f", displayDistanceKm)} km • $totalRecordingFormattedTime"
 
         updateNotification(
             notificationTitle,
             "Total Recording: " + totalRecordingFormattedTime +
                     "\nActivity: " + movementFormattedTime +
                     "\nInactivity: " + lazyFormattedTime +
-                    "\nCovered Distance: " + String.format("%.2f", distance / 1000) + " Km" +
+                    "\nCovered Distance: " + String.format("%.2f", displayDistanceKm) + " Km" +
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
                     "\nGPS Altitude: " + String.format("%.2f", altitude) + " m" +
-                    "\nLap: " + String.format("%2d", lap) +
+                    lapDisplay +
                     heartRateText +
                     barometerText
         )
@@ -1249,7 +1267,8 @@ class ForegroundService : Service() {
                     eventId = eventId,
                     latitude = latitude,
                     longitude = longitude,
-                    altitude = altitude
+                    altitude = altitude,
+                    backyardLap = if (isBackyardUltraMode) backyardLapNumber else 0
                 )
                 database.locationDao().insertLocation(location)
                 Log.d("ForegroundService: ", "Location saved: lat=$latitude, lon=$longitude")
@@ -1309,8 +1328,8 @@ class ForegroundService : Service() {
 
             // Calculate distance increment for lap tracking
             val distanceIncrement = distance - previousDistance
-            if (distanceIncrement > 0) {
-                // Update lap tracking with the new distance increment
+            if (distanceIncrement > 0 && !isBackyardUltraMode) {
+                // Update lap tracking with the new distance increment (skip for Backyard Ultra - manual laps)
                 checkLapCompletionAndSave(distanceIncrement)
             }
 
@@ -1505,6 +1524,84 @@ class ForegroundService : Service() {
                     Log.d(TAG, "Discipline transitioned to $newDiscipline (#$nextTransitionNumber)")
                     return START_STICKY
                 }
+                "backyard_start_lap" -> {
+                    // Resume GPS tracking
+                    customLocationListener?.resumeTracking()
+                    isPaused = false
+
+                    // Increment lap counter
+                    backyardLapNumber++
+                    backyardLapStartTime = System.currentTimeMillis()
+
+                    // Calculate paused duration (rest time)
+                    if (pauseStartTime > 0) {
+                        val pauseDuration = System.currentTimeMillis() - pauseStartTime
+                        totalPausedDurationMs += pauseDuration
+                        Log.d(TAG, "Backyard rest duration: ${pauseDuration}ms")
+                    }
+                    pauseStartTime = 0
+
+                    // Resume stopwatches
+                    if (isCurrentlyMoving) movementState.start() else lazyState.start()
+
+                    // Update SharedPreferences
+                    getSharedPreferences("RecordingState", MODE_PRIVATE).edit()
+                        .putBoolean("is_paused", false)
+                        .putInt("backyard_lap_number", backyardLapNumber)
+                        .putLong("backyard_lap_start_time", backyardLapStartTime)
+                        .putBoolean("backyard_lap_active", true)
+                        .apply()
+
+                    Log.d(TAG, "Backyard Ultra lap $backyardLapNumber started")
+                    return START_STICKY
+                }
+                "backyard_complete_lap" -> {
+                    val currentTime = System.currentTimeMillis()
+
+                    // Save LapTime record with fixed distance
+                    serviceScope.launch(Dispatchers.IO) {
+                        try {
+                            val lapTime = LapTime(
+                                sessionId = sessionId,
+                                eventId = eventId,
+                                lapNumber = backyardLapNumber,
+                                startTime = backyardLapStartTime,
+                                endTime = currentTime,
+                                distance = 6.7606
+                            )
+                            database.lapTimeDao().insertLapTime(lapTime)
+                            Log.d(TAG, "Backyard Ultra lap $backyardLapNumber saved: ${(currentTime - backyardLapStartTime) / 1000}s")
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error saving backyard lap time", e)
+                        }
+                    }
+
+                    // Pause GPS tracking
+                    customLocationListener?.pauseTracking()
+                    isPaused = true
+                    pauseStartTime = currentTime
+
+                    // Stop stopwatches
+                    if (isCurrentlyMoving) movementState.stop() else lazyState.stop()
+
+                    // Update SharedPreferences
+                    getSharedPreferences("RecordingState", MODE_PRIVATE).edit()
+                        .putBoolean("is_paused", true)
+                        .putLong("pause_start_time", currentTime)
+                        .putBoolean("backyard_lap_active", false)
+                        .putInt("backyard_completed_laps", backyardLapNumber)
+                        .apply()
+
+                    // Notify WeatherEventBusHandler to refresh lap times
+                    try {
+                        WeatherEventBusHandler.getInstance().refreshLapTimes()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not refresh lap times", e)
+                    }
+
+                    Log.d(TAG, "Backyard Ultra lap $backyardLapNumber completed")
+                    return START_STICKY
+                }
             }
 
             // Check if this is a restored session
@@ -1666,6 +1763,15 @@ class ForegroundService : Service() {
                 } else {
                     Log.w(TAG, "Barometer sensor not available on this device")
                 }
+            }
+
+            // Initialize Backyard Ultra mode
+            isBackyardUltraMode = artofsport.equals("Backyard Ultra", ignoreCase = true)
+            if (isBackyardUltraMode) {
+                val recordingPrefs = getSharedPreferences("RecordingState", MODE_PRIVATE)
+                backyardLapNumber = recordingPrefs.getInt("backyard_lap_number", 1)
+                backyardLapStartTime = recordingPrefs.getLong("backyard_lap_start_time", System.currentTimeMillis())
+                Log.d(TAG, "Backyard Ultra mode initialized: lap=$backyardLapNumber")
             }
 
             Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport, comment: $comment, clothing: $clothing, websocketTransfer: $enableWebSocketTransfer")
