@@ -21,6 +21,11 @@ let hoverMarker = null;
 let infoPopup = null;
 let currentHoverPoint = null;
 
+// Theme and animation variables
+let currentTheme = localStorage.getItem('theme') || 'light';
+let previousValues = {};
+let activeAnimations = {};
+
 // Debug variables
 let debugMessages = [];
 let debugPaused = false;
@@ -41,14 +46,167 @@ function getRandomInRange(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+// ==================== Theme Toggle ====================
+function toggleTheme() {
+    currentTheme = currentTheme === 'light' ? 'dark' : 'light';
+    applyTheme(currentTheme);
+    localStorage.setItem('theme', currentTheme);
+}
+
+function applyTheme(theme) {
+    if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+
+    // Update theme toggle button icon
+    const btn = document.getElementById('themeToggleBtn');
+    if (btn) {
+        btn.innerHTML = theme === 'dark' ? '&#9788;' : '&#9790;'; // sun / moon
+        btn.title = theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
+    }
+
+    // Swap map style
+    if (map && map.isStyleLoaded()) {
+        const darkStyle = 'https://tiles.openfreemap.org/styles/dark';
+        const lightStyle = 'https://tiles.openfreemap.org/styles/liberty';
+        const newStyle = theme === 'dark' ? darkStyle : lightStyle;
+
+        // Save current sources/layers before style swap
+        const savedSources = {};
+        const savedLayers = [];
+
+        // Re-add track data after style loads
+        map.once('style.load', () => {
+            // Re-render all tracks
+            Object.keys(trackPoints).forEach(sessionId => {
+                updateMapTrack(sessionId);
+            });
+        });
+
+        map.setStyle(newStyle);
+    }
+
+    // Update chart colors
+    updateChartThemeColors();
+}
+
+function getThemeChartColors() {
+    const isDark = currentTheme === 'dark';
+    return {
+        textColor: isDark ? '#e0e0e0' : '#666666',
+        gridColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+        bgColor: isDark ? '#1a1a2e' : '#ffffff'
+    };
+}
+
+function updateChartThemeColors() {
+    const colors = getThemeChartColors();
+
+    [altitudeChart, speedChart].forEach(chart => {
+        if (!chart) return;
+
+        // Update scale colors
+        ['x', 'y'].forEach(axis => {
+            if (chart.options.scales[axis]) {
+                chart.options.scales[axis].ticks = chart.options.scales[axis].ticks || {};
+                chart.options.scales[axis].ticks.color = colors.textColor;
+                chart.options.scales[axis].title = chart.options.scales[axis].title || {};
+                chart.options.scales[axis].title.color = colors.textColor;
+                chart.options.scales[axis].grid = chart.options.scales[axis].grid || {};
+                chart.options.scales[axis].grid.color = colors.gridColor;
+            }
+        });
+
+        // Update legend color
+        if (chart.options.plugins && chart.options.plugins.legend) {
+            chart.options.plugins.legend.labels = chart.options.plugins.legend.labels || {};
+            chart.options.plugins.legend.labels.color = colors.textColor;
+        }
+
+        chart.update('none');
+    });
+}
+
+// ==================== Animated Stat Values ====================
+function animateValue(element, oldVal, newVal, duration, decimals) {
+    if (!element || isNaN(oldVal) || isNaN(newVal)) return;
+    if (Math.abs(oldVal - newVal) < 0.01) return;
+
+    const elementId = element.id || element.textContent;
+
+    // Cancel any running animation on this element
+    if (activeAnimations[elementId]) {
+        cancelAnimationFrame(activeAnimations[elementId]);
+    }
+
+    // Add pulse class
+    element.classList.remove('value-changed');
+    void element.offsetWidth; // trigger reflow
+    element.classList.add('value-changed');
+    element.addEventListener('animationend', function handler() {
+        element.classList.remove('value-changed');
+        element.removeEventListener('animationend', handler);
+    });
+
+    const startTime = performance.now();
+    const diff = newVal - oldVal;
+
+    function step(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Ease-out cubic
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const current = oldVal + diff * eased;
+
+        if (decimals !== undefined) {
+            element.textContent = current.toFixed(decimals);
+        } else {
+            element.textContent = Math.round(current);
+        }
+
+        if (progress < 1) {
+            activeAnimations[elementId] = requestAnimationFrame(step);
+        } else {
+            delete activeAnimations[elementId];
+        }
+    }
+
+    activeAnimations[elementId] = requestAnimationFrame(step);
+}
+
+function animateStatValue(element, newVal, decimals) {
+    if (!element) return;
+    const key = element.id;
+    const oldVal = previousValues[key] !== undefined ? previousValues[key] : parseFloat(element.textContent) || 0;
+    previousValues[key] = newVal;
+    animateValue(element, oldVal, newVal, 400, decimals);
+}
+
+// ==================== Speed-to-Color for Trail ====================
+function speedToColor(speed) {
+    if (speed <= 2) return '#4FC3F7';   // light blue (walking/stopped)
+    if (speed <= 5) return '#2196F3';   // blue (slow jog)
+    if (speed <= 8) return '#4CAF50';   // green (jog)
+    if (speed <= 12) return '#8BC34A';  // light green (run)
+    if (speed <= 16) return '#FFEB3B';  // yellow (fast run)
+    if (speed <= 20) return '#FF9800';  // orange (sprint)
+    return '#F44336';                   // red (very fast)
+}
+
 function initMap() {
     try {
         console.log("Initializing MapLibre GL JS map...");
         const initialLocation = [0, 0]; // Center of the world [lng, lat]
 
+        const mapStyle = currentTheme === 'dark'
+            ? 'https://tiles.openfreemap.org/styles/dark'
+            : 'https://tiles.openfreemap.org/styles/liberty';
+
         map = new maplibregl.Map({
             container: 'map',
-            style: 'https://tiles.openfreemap.org/styles/liberty', // Free vector tiles with street names
+            style: mapStyle,
             center: initialLocation,
             zoom: 1, // Low zoom level to show the whole earth
             attributionControl: false
@@ -308,19 +466,11 @@ function createInfoPopup() {
 
         infoPopup.style.cssText = `
             position: fixed !important;
-            background: white !important;
-            border: 2px solid #333 !important;
-            border-radius: 8px !important;
-            padding: 12px !important;
-            font-family: Arial, sans-serif !important;
-            font-size: 12px !important;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
             z-index: 9999 !important;
             display: none !important;
             pointer-events: none !important;
             max-width: 320px !important;
             line-height: 1.4 !important;
-            color: #333 !important;
         `;
 
         document.body.appendChild(infoPopup);
@@ -989,12 +1139,22 @@ function extractSessionIdFromDisplayId(displayId) {
 function toggleMapElementsVisibility(sessionId, visible) {
     addDebugMessage(`Toggling map visibility for session ${sessionId} to ${visible ? 'visible' : 'hidden'}`, 'map');
 
-    // Handle polylines (now as map layers)
-    const polylineLayerId = `polyline-${sessionId}`;
-    if (map.getLayer(polylineLayerId)) {
-        map.setLayoutProperty(polylineLayerId, 'visibility', visible ? 'visible' : 'none');
+    // Handle polylines (segment-based layers)
+    const polylineRefs = polylines[sessionId];
+    if (polylineRefs && Array.isArray(polylineRefs)) {
+        polylineRefs.forEach(ref => {
+            if (map.getLayer(ref.layerId)) {
+                map.setLayoutProperty(ref.layerId, 'visibility', visible ? 'visible' : 'none');
+            }
+        });
     } else {
-        addDebugMessage(`No polyline layer found for session ${sessionId}`, 'warning');
+        // Legacy single layer fallback
+        const polylineLayerId = `polyline-${sessionId}`;
+        if (map.getLayer(polylineLayerId)) {
+            map.setLayoutProperty(polylineLayerId, 'visibility', visible ? 'visible' : 'none');
+        } else {
+            addDebugMessage(`No polyline layer found for session ${sessionId}`, 'warning');
+        }
     }
 
     // Handle markers
@@ -1424,13 +1584,16 @@ function updateMapTrack(sessionId) {
     const sourceId = `track-${sessionId}`;
     const layerId = `polyline-${sessionId}`;
 
-    // Remove existing layers and sources
-    if (map.getLayer(layerId)) {
-        map.removeLayer(layerId);
+    // Remove existing segment layers and sources
+    if (polylines[sessionId] && Array.isArray(polylines[sessionId])) {
+        polylines[sessionId].forEach(ref => {
+            if (map.getLayer(ref.layerId)) map.removeLayer(ref.layerId);
+            if (map.getSource(ref.sourceId)) map.removeSource(ref.sourceId);
+        });
     }
-    if (map.getSource(sourceId)) {
-        map.removeSource(sourceId);
-    }
+    // Also clean legacy single layer
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
 
     // Remove existing markers
     if (startMarkers[sessionId]) {
@@ -1506,38 +1669,126 @@ function updateMapTrack(sessionId) {
     }
 
     try {
-        // Create GeoJSON with MultiLineString to handle multiple segments
-        const geojson = {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-                type: trackSegments.length === 1 ? 'LineString' : 'MultiLineString',
-                coordinates: trackSegments.length === 1 ? trackSegments[0] : trackSegments
-            }
-        };
+        // Clean up any previous segment layers for this session
+        if (polylines[sessionId] && Array.isArray(polylines[sessionId])) {
+            polylines[sessionId].forEach(ref => {
+                if (map.getLayer(ref.layerId)) map.removeLayer(ref.layerId);
+                if (map.getSource(ref.sourceId)) map.removeSource(ref.sourceId);
+            });
+        } else if (polylines[sessionId]) {
+            // Legacy single layer cleanup
+            if (map.getLayer(polylines[sessionId].layerId)) map.removeLayer(polylines[sessionId].layerId);
+            if (map.getSource(polylines[sessionId].sourceId)) map.removeSource(polylines[sessionId].sourceId);
+        }
 
-        // Add source and layer for the track
-        map.addSource(sourceId, {
-            type: 'geojson',
-            data: geojson
+        // Build speed data for each valid point
+        const pointSpeeds = validPoints.map(p => p.speed || 0);
+
+        // Create color-coded segments for each track segment
+        const segmentRefs = [];
+
+        trackSegments.forEach((segment, segIdx) => {
+            const segSourceId = `track-${sessionId}-seg-${segIdx}`;
+            const segLayerId = `polyline-${sessionId}-seg-${segIdx}`;
+
+            // Clean up if they exist
+            if (map.getLayer(segLayerId)) map.removeLayer(segLayerId);
+            if (map.getSource(segSourceId)) map.removeSource(segSourceId);
+
+            // Find the speed values corresponding to this segment's points
+            // We need to map segment coordinates back to validPoints to get speeds
+            const segSpeeds = [];
+            let vpIdx = 0;
+            for (let i = 0; i < segment.length; i++) {
+                // Find matching valid point by coordinates
+                while (vpIdx < validPoints.length) {
+                    if (Math.abs(validPoints[vpIdx].lng - segment[i][0]) < 1e-8 &&
+                        Math.abs(validPoints[vpIdx].lat - segment[i][1]) < 1e-8) {
+                        segSpeeds.push(validPoints[vpIdx].speed || 0);
+                        vpIdx++;
+                        break;
+                    }
+                    vpIdx++;
+                }
+                if (segSpeeds.length <= i) {
+                    segSpeeds.push(0); // fallback
+                }
+            }
+
+            if (segment.length >= 2) {
+                // Calculate cumulative distances for line-progress mapping
+                const distances = [0];
+                let totalDist = 0;
+                for (let i = 1; i < segment.length; i++) {
+                    const dx = segment[i][0] - segment[i-1][0];
+                    const dy = segment[i][1] - segment[i-1][1];
+                    totalDist += Math.sqrt(dx * dx + dy * dy);
+                    distances.push(totalDist);
+                }
+
+                // Sample gradient stops (max 100 to keep performance reasonable)
+                const maxStops = 100;
+                const step = segment.length > maxStops ? Math.floor(segment.length / maxStops) : 1;
+                const gradientStops = [];
+
+                for (let i = 0; i < segment.length; i += step) {
+                    const frac = totalDist > 0 ? distances[i] / totalDist : 0;
+                    gradientStops.push(frac, speedToColor(segSpeeds[i]));
+                }
+                // Ensure we have the last point
+                const lastFrac = 1.0;
+                const lastColor = speedToColor(segSpeeds[segSpeeds.length - 1]);
+                if (gradientStops.length >= 2 && gradientStops[gradientStops.length - 2] < 1.0) {
+                    gradientStops.push(lastFrac, lastColor);
+                }
+
+                const geojson = {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: segment
+                    }
+                };
+
+                map.addSource(segSourceId, {
+                    type: 'geojson',
+                    data: geojson,
+                    lineMetrics: true
+                });
+
+                // Build the line-gradient expression
+                let paintConfig;
+                if (gradientStops.length >= 4) {
+                    paintConfig = {
+                        'line-color': userColor,
+                        'line-width': 4,
+                        'line-gradient': ['interpolate', ['linear'], ['line-progress'], ...gradientStops]
+                    };
+                } else {
+                    paintConfig = {
+                        'line-color': speedToColor(segSpeeds[0] || 0),
+                        'line-width': 4
+                    };
+                }
+
+                map.addLayer({
+                    id: segLayerId,
+                    type: 'line',
+                    source: segSourceId,
+                    layout: {
+                        'line-join': 'round',
+                        'line-cap': 'round'
+                    },
+                    paint: paintConfig
+                });
+
+                segmentRefs.push({ layerId: segLayerId, sourceId: segSourceId });
+            }
         });
 
-        map.addLayer({
-            id: layerId,
-            type: 'line',
-            source: sourceId,
-            layout: {
-                'line-join': 'round',
-                'line-cap': 'round'
-            },
-            paint: {
-                'line-color': userColor,
-                'line-width': 3
-            }
-        });
-
-        // Store reference for visibility toggling
-        polylines[sessionId] = { layerId: layerId, sourceId: sourceId };
+        // Store references for cleanup
+        polylines[sessionId] = segmentRefs;
 
         // Add start marker (use first coordinate of first segment)
         const firstSegment = trackSegments[0];
@@ -2019,82 +2270,88 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
     const currentSpeedElement = document.getElementById(`currentSpeed-${sessionId}`);
     if (currentSpeedElement) {
-        currentSpeedElement.textContent = speed.toFixed(1);
+        animateStatValue(currentSpeedElement, speed, 1);
         currentSpeedElement.style.color = getSpeedColor(speed);
     }
 
     const maxSpeedElement = document.getElementById(`maxSpeed-${sessionId}`);
     if (maxSpeedElement && data.maxSpeed !== undefined) {
         history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
-        maxSpeedElement.textContent = history.maxSpeed.toFixed(1);
+        animateStatValue(maxSpeedElement, history.maxSpeed, 1);
         maxSpeedElement.style.color = getSpeedColor(history.maxSpeed);
     }
 
     const avgSpeedElement = document.getElementById(`avgSpeed-${sessionId}`);
     if (avgSpeedElement && data.averageSpeed !== undefined) {
-        avgSpeedElement.textContent = data.averageSpeed.toFixed(1);
+        animateStatValue(avgSpeedElement, data.averageSpeed, 1);
         avgSpeedElement.style.color = getSpeedColor(data.averageSpeed);
     }
 
     const movingAvgElement = document.getElementById(`movingAvg-${sessionId}`);
     if (movingAvgElement && data.movingAverageSpeed !== undefined) {
-        movingAvgElement.textContent = data.movingAverageSpeed.toFixed(1);
+        animateStatValue(movingAvgElement, data.movingAverageSpeed, 1);
         movingAvgElement.style.color = getSpeedColor(data.movingAverageSpeed);
     }
 
     const currentAltitudeElement = document.getElementById(`currentAltitude-${sessionId}`);
     if (currentAltitudeElement && data.altitude !== undefined) {
         history.currentAltitude = data.altitude;
-        currentAltitudeElement.textContent = history.currentAltitude.toFixed(1);
+        animateStatValue(currentAltitudeElement, history.currentAltitude, 1);
         currentAltitudeElement.style.color = getElevationColor(history.currentAltitude);
     }
 
     const elevationGainElement = document.getElementById(`elevationGain-${sessionId}`);
     if (elevationGainElement && data.cumulativeElevationGain !== undefined) {
         history.elevationGain = data.cumulativeElevationGain;
-        elevationGainElement.textContent = history.elevationGain.toFixed(1);
+        animateStatValue(elevationGainElement, history.elevationGain, 1);
         elevationGainElement.style.color = getElevationColor(history.elevationGain);
     }
 
     const totalDistanceElement = document.getElementById(`totalDistance-${sessionId}`);
     if (totalDistanceElement && data.distance !== undefined) {
         history.totalDistance = data.distance;
-        totalDistanceElement.textContent = history.totalDistance.toFixed(2);
+        animateStatValue(totalDistanceElement, history.totalDistance, 2);
         totalDistanceElement.style.color = getDistanceColor(history.totalDistance);
     }
 
     const heartRateElement = document.getElementById(`heartRate-${sessionId}`);
     if (heartRateElement && data.heartRate !== undefined) {
         history.heartRate = data.heartRate;
-        heartRateElement.textContent = history.heartRate;
+        animateStatValue(heartRateElement, history.heartRate, 0);
         heartRateElement.style.color = getHeartRateColor(history.heartRate);
+        // Apply heartbeat animation when heart rate > 0
+        if (history.heartRate > 0) {
+            heartRateElement.classList.add('heartbeat-active');
+        } else {
+            heartRateElement.classList.remove('heartbeat-active');
+        }
     }
 
     const slopeElement = document.getElementById(`slope-${sessionId}`);
     if (slopeElement && data.slope !== undefined) {
         history.slope = data.slope;
-        slopeElement.textContent = history.slope.toFixed(1);
+        animateStatValue(slopeElement, history.slope, 1);
         slopeElement.style.color = getSlopeColor(history.slope);
     }
 
     const avgSlopeElement = document.getElementById(`avgSlope-${sessionId}`);
     if (avgSlopeElement && data.averageSlope !== undefined) {
         history.averageSlope = data.averageSlope;
-        avgSlopeElement.textContent = history.averageSlope.toFixed(1);
+        animateStatValue(avgSlopeElement, history.averageSlope, 1);
         avgSlopeElement.style.color = getSlopeColor(history.averageSlope);
     }
 
     const maxUphillSlopeElement = document.getElementById(`maxUphillSlope-${sessionId}`);
     if (maxUphillSlopeElement && data.maxUphillSlope !== undefined) {
         history.maxUphillSlope = data.maxUphillSlope;
-        maxUphillSlopeElement.textContent = history.maxUphillSlope.toFixed(1);
+        animateStatValue(maxUphillSlopeElement, history.maxUphillSlope, 1);
         maxUphillSlopeElement.style.color = getSlopeColor(history.maxUphillSlope);
     }
 
     const maxDownhillSlopeElement = document.getElementById(`maxDownhillSlope-${sessionId}`);
     if (maxDownhillSlopeElement && data.maxDownhillSlope !== undefined) {
         history.maxDownhillSlope = data.maxDownhillSlope;
-        maxDownhillSlopeElement.textContent = history.maxDownhillSlope.toFixed(1);
+        animateStatValue(maxDownhillSlopeElement, history.maxDownhillSlope, 1);
         // Show downhill as negative for color coding
         maxDownhillSlopeElement.style.color = getSlopeColor(-history.maxDownhillSlope);
     }
@@ -2122,7 +2379,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
         // Update DOM elements
         const avgTempElement = document.getElementById(`avgTemperature-${sessionId}`);
         if (avgTempElement) {
-            avgTempElement.textContent = history.avgTemperature.toFixed(1);
+            animateStatValue(avgTempElement, history.avgTemperature, 1);
             avgTempElement.style.color = getTemperatureColor(history.avgTemperature);
             console.log(`[DEBUG] Updated avgTemperature DOM element to ${history.avgTemperature.toFixed(1)}`);
         } else {
@@ -2131,13 +2388,13 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         const maxTempElement = document.getElementById(`maxTemperature-${sessionId}`);
         if (maxTempElement) {
-            maxTempElement.textContent = history.maxTemperature.toFixed(1);
+            animateStatValue(maxTempElement, history.maxTemperature, 1);
             maxTempElement.style.color = getTemperatureColor(history.maxTemperature);
         }
 
         const minTempElement = document.getElementById(`minTemperature-${sessionId}`);
         if (minTempElement) {
-            minTempElement.textContent = history.minTemperature.toFixed(1);
+            animateStatValue(minTempElement, history.minTemperature, 1);
             minTempElement.style.color = getTemperatureColor(history.minTemperature);
         }
     } else {
@@ -2166,7 +2423,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
         // Update DOM elements
         const avgPressureElement = document.getElementById(`avgPressure-${sessionId}`);
         if (avgPressureElement) {
-            avgPressureElement.textContent = history.avgPressure.toFixed(1);
+            animateStatValue(avgPressureElement, history.avgPressure, 1);
             avgPressureElement.style.color = getPressureColor(history.avgPressure);
             console.log(`[DEBUG] Updated avgPressure DOM element to ${history.avgPressure.toFixed(1)}`);
         } else {
@@ -2175,13 +2432,13 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         const maxPressureElement = document.getElementById(`maxPressure-${sessionId}`);
         if (maxPressureElement) {
-            maxPressureElement.textContent = history.maxPressure.toFixed(1);
+            animateStatValue(maxPressureElement, history.maxPressure, 1);
             maxPressureElement.style.color = getPressureColor(history.maxPressure);
         }
 
         const minPressureElement = document.getElementById(`minPressure-${sessionId}`);
         if (minPressureElement) {
-            minPressureElement.textContent = history.minPressure.toFixed(1);
+            animateStatValue(minPressureElement, history.minPressure, 1);
             minPressureElement.style.color = getPressureColor(history.minPressure);
         }
     } else {
@@ -2422,21 +2679,19 @@ function zoomToSession(sessionId) {
         }
 
         // Optional: Flash the track briefly to show which one we zoomed to
-        const polylineRef = polylines[sessionId];
-        if (polylineRef && map.getLayer(polylineRef.layerId)) {
-            const originalColor = map.getPaintProperty(polylineRef.layerId, 'line-color');
-            const originalWidth = map.getPaintProperty(polylineRef.layerId, 'line-width');
-
-            // Flash the track
-            map.setPaintProperty(polylineRef.layerId, 'line-color', '#FF0000');
-            map.setPaintProperty(polylineRef.layerId, 'line-width', 6);
-
-            setTimeout(() => {
-                if (map.getLayer(polylineRef.layerId)) {
-                    map.setPaintProperty(polylineRef.layerId, 'line-color', originalColor);
-                    map.setPaintProperty(polylineRef.layerId, 'line-width', originalWidth);
+        const polylineRefs = polylines[sessionId];
+        if (polylineRefs && Array.isArray(polylineRefs)) {
+            polylineRefs.forEach(ref => {
+                if (map.getLayer(ref.layerId)) {
+                    const originalWidth = map.getPaintProperty(ref.layerId, 'line-width');
+                    map.setPaintProperty(ref.layerId, 'line-width', 6);
+                    setTimeout(() => {
+                        if (map.getLayer(ref.layerId)) {
+                            map.setPaintProperty(ref.layerId, 'line-width', originalWidth);
+                        }
+                    }, 1000);
                 }
-            }, 1000);
+            });
         }
 
     } catch (error) {
@@ -2642,14 +2897,18 @@ function handleSessionDeleted(sessionId) {
     }
     speedChart.update();
 
-    // Remove from map - MapLibre GL JS version
-    const polylineRef = polylines[sessionId];
-    if (polylineRef) {
-        if (map.getLayer(polylineRef.layerId)) {
-            map.removeLayer(polylineRef.layerId);
-        }
-        if (map.getSource(polylineRef.sourceId)) {
-            map.removeSource(polylineRef.sourceId);
+    // Remove from map - MapLibre GL JS version (segment-based)
+    const polylineRefs = polylines[sessionId];
+    if (polylineRefs) {
+        if (Array.isArray(polylineRefs)) {
+            polylineRefs.forEach(ref => {
+                if (map.getLayer(ref.layerId)) map.removeLayer(ref.layerId);
+                if (map.getSource(ref.sourceId)) map.removeSource(ref.sourceId);
+            });
+        } else {
+            // Legacy single layer
+            if (map.getLayer(polylineRefs.layerId)) map.removeLayer(polylineRefs.layerId);
+            if (map.getSource(polylineRefs.sourceId)) map.removeSource(polylineRefs.sourceId);
         }
         delete polylines[sessionId];
     }
@@ -2912,6 +3171,9 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         console.log("DOM content loaded, initializing application...");
 
+        // Apply saved theme before map init
+        applyTheme(currentTheme);
+
         initMap();
 
         addDebugMessage('Running Tracker application initialized with MapLibre GL JS, session management and weather data support', 'system');
@@ -2921,6 +3183,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setTimeout(() => {
             if (altitudeChart && speedChart) {
                 addDebugMessage('Charts initialized successfully with hover support', 'system');
+                updateChartThemeColors();
             } else {
                 addDebugMessage('Chart initialization may have failed', 'error');
             }
