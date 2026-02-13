@@ -132,7 +132,11 @@ function updateChartThemeColors() {
 // ==================== Animated Stat Values ====================
 function animateValue(element, oldVal, newVal, duration, decimals) {
     if (!element || isNaN(oldVal) || isNaN(newVal)) return;
-    if (Math.abs(oldVal - newVal) < 0.01) return;
+    if (Math.abs(oldVal - newVal) < 0.01) {
+        // Still update displayed text even when diff is too small to animate
+        element.textContent = decimals !== undefined ? newVal.toFixed(decimals) : Math.round(newVal);
+        return;
+    }
 
     const elementId = element.id || element.textContent;
 
@@ -1219,6 +1223,9 @@ function connectToWebSocket() {
             case 'update':
                 handlePoint(message.point);
                 break;
+            case 'followed_user_update':
+                handlePoint(message.point);
+                break;
             case 'invalid_coordinates':
                 handleInvalidCoordinates(message);
                 break;
@@ -1307,6 +1314,7 @@ function handleHistoryBatch(points) {
     console.log('📦 Processing history batch:', points.length, 'points');
 
     isProcessingBatch = true;
+    window._batchStartTime = Date.now();
 
     points.forEach(point => {
         const sessionId = point.sessionId || "default";
@@ -1472,11 +1480,23 @@ function finalizeBatchProcessing() {
             }
         });
         isProcessingBatch = false;
+        window._batchStartTime = null;
     });
 }
 
 function handlePoint(data) {
-    if (!data || isProcessingBatch) return;
+    if (!data) return;
+    if (isProcessingBatch) {
+        // Safety: if batch processing seems stuck (>10s), force-finish it
+        if (!window._batchStartTime) window._batchStartTime = Date.now();
+        if (Date.now() - window._batchStartTime > 10000) {
+            console.warn('[WARN] Batch processing stuck for >10s, forcing completion');
+            isProcessingBatch = false;
+            window._batchStartTime = null;
+        } else {
+            return;
+        }
+    }
 
     const sessionId = data.sessionId || "default";
     const personName = data.person || "";
@@ -1555,7 +1575,8 @@ function handlePoint(data) {
                 altitudeFromPressure: processedPoint.altitudeFromPressure,
                 seaLevelPressure: processedPoint.seaLevelPressure,
                 pressureAccuracy: processedPoint.pressureAccuracy
-            }
+            },
+            lapTimes: data.lapTimes || null
         });
     });
 }
@@ -2445,6 +2466,12 @@ function updateSpeedDisplay(sessionId, speed, data) {
         console.log(`[DEBUG] No pressure data in message for session ${sessionId}. pressure: ${pressure}`);
     }
 
+    // Update lap table if lap data is available
+    if (data.lapTimes && data.lapTimes.length > 0) {
+        history.lapTimes = data.lapTimes;
+        updateLapTable(sessionId, data.lapTimes);
+    }
+
     cleanupOldSessions();
 }
 
@@ -2488,6 +2515,106 @@ function cleanupOldSessions() {
             }
         }
     }
+}
+
+function formatLapDuration(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+}
+
+function formatPace(durationMs, distanceKm) {
+    if (!distanceKm || distanceKm <= 0) return '--';
+    const paceMs = durationMs / distanceKm;
+    return formatLapDuration(paceMs) + ' /km';
+}
+
+function updateLapTable(sessionId, lapTimes) {
+    const speedContainer = document.getElementById(`speed-container-${sessionId}`);
+    if (!speedContainer) return;
+
+    let container = speedContainer.querySelector('.lap-table-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'lap-table-container';
+
+        const header = document.createElement('div');
+        header.className = 'lap-table-header';
+        header.innerHTML = '<h4>Splits</h4><button class="lap-table-toggle">-</button>';
+        header.addEventListener('click', () => {
+            const scroll = container.querySelector('.lap-table-scroll');
+            const toggle = header.querySelector('.lap-table-toggle');
+            if (scroll.style.display === 'none') {
+                scroll.style.display = '';
+                toggle.textContent = '-';
+            } else {
+                scroll.style.display = 'none';
+                toggle.textContent = '+';
+            }
+        });
+
+        const scrollDiv = document.createElement('div');
+        scrollDiv.className = 'lap-table-scroll';
+
+        container.appendChild(header);
+        container.appendChild(scrollDiv);
+        speedContainer.appendChild(container);
+    }
+
+    const scrollDiv = container.querySelector('.lap-table-scroll');
+
+    // Find fastest and slowest laps (by pace = duration/distance)
+    let fastestIdx = -1, slowestIdx = -1;
+    let fastestPace = Infinity, slowestPace = -1;
+
+    if (lapTimes.length >= 2) {
+        lapTimes.forEach((lap, i) => {
+            const dist = lap.distance || 1;
+            const pace = lap.duration / dist;
+            if (pace < fastestPace) { fastestPace = pace; fastestIdx = i; }
+            if (pace > slowestPace) { slowestPace = pace; slowestIdx = i; }
+        });
+    }
+
+    // Build table
+    let html = '<table class="lap-table"><thead><tr><th>#</th><th>Time</th><th>Pace</th><th>Dist</th></tr></thead><tbody>';
+
+    let totalDuration = 0;
+    let totalDistance = 0;
+
+    lapTimes.forEach((lap, i) => {
+        const dist = lap.distance || 0;
+        totalDuration += lap.duration;
+        totalDistance += dist;
+
+        let rowClass = '';
+        if (i === fastestIdx) rowClass = 'fastest-lap';
+        else if (i === slowestIdx) rowClass = 'slowest-lap';
+
+        html += `<tr class="${rowClass}">`;
+        html += `<td>${lap.lapNumber}</td>`;
+        html += `<td>${formatLapDuration(lap.duration)}</td>`;
+        html += `<td>${formatPace(lap.duration, dist)}</td>`;
+        html += `<td>${dist.toFixed(dist === Math.floor(dist) ? 1 : 2)}</td>`;
+        html += '</tr>';
+    });
+
+    // Summary row
+    if (lapTimes.length > 0) {
+        const avgPace = totalDistance > 0 ? totalDuration / totalDistance : 0;
+        html += '<tr class="lap-summary-row">';
+        html += `<td>${lapTimes.length}</td>`;
+        html += `<td>${formatLapDuration(totalDuration)}</td>`;
+        html += `<td>${avgPace > 0 ? formatLapDuration(avgPace) + ' /km' : '--'}</td>`;
+        html += `<td>${totalDistance.toFixed(1)}</td>`;
+        html += '</tr>';
+    }
+
+    html += '</tbody></table>';
+    scrollDiv.innerHTML = html;
 }
 
 function getColorForUser(sessionId) {
