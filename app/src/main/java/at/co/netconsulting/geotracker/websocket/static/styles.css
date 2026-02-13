@@ -1,9 +1,70 @@
+/* CSS Variable System */
+:root {
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f5f5;
+    --bg-panel: rgba(255, 255, 255, 0.85);
+    --bg-panel-header: #f3f3f3;
+    --text-primary: #333333;
+    --text-secondary: #666666;
+    --text-muted: #999999;
+    --border-color: #dddddd;
+    --border-light: #eeeeee;
+    --shadow-color: rgba(0, 0, 0, 0.2);
+    --shadow-heavy: rgba(0, 0, 0, 0.3);
+    --accent-blue: #2196F3;
+    --accent-green: #4CAF50;
+    --accent-red: #F44336;
+    --accent-orange: #FF9800;
+    --chart-bg: #ffffff;
+    --hover-bg: rgba(0, 0, 0, 0.05);
+    --scrollbar-track: #f1f1f1;
+    --scrollbar-thumb: #888888;
+    --scrollbar-thumb-hover: #555555;
+    --glass-border: rgba(255, 255, 255, 0.18);
+    --glass-border-inner: rgba(255, 255, 255, 0.1);
+    --highlight-bg: #FFFF88;
+    --active-item-bg: #e3f2fd;
+    --button-hover-bg: #0b7dda;
+}
+
+[data-theme="dark"] {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #16213e;
+    --bg-panel: rgba(30, 30, 50, 0.85);
+    --bg-panel-header: #16213e;
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    --text-muted: #707070;
+    --border-color: #2a2a4a;
+    --border-light: #252545;
+    --shadow-color: rgba(0, 0, 0, 0.5);
+    --shadow-heavy: rgba(0, 0, 0, 0.6);
+    --accent-blue: #64B5F6;
+    --accent-green: #81C784;
+    --accent-red: #EF5350;
+    --accent-orange: #FFB74D;
+    --chart-bg: #1a1a2e;
+    --hover-bg: rgba(255, 255, 255, 0.05);
+    --scrollbar-track: #16213e;
+    --scrollbar-thumb: #3a3a5a;
+    --scrollbar-thumb-hover: #5a5a7a;
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --glass-border-inner: rgba(255, 255, 255, 0.05);
+    --highlight-bg: #444400;
+    --active-item-bg: #1a3a5c;
+    --button-hover-bg: #4a8fd4;
+}
+
+/* Base styles */
 body,
 html {
     margin: 0;
     padding: 0;
     height: 100%;
     overflow: hidden;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background-color 0.3s, color 0.3s;
 }
 
 #map {
@@ -16,14 +77,18 @@ html {
     top: 12px;
     left: 50px;
     z-index: 1000;
-    background-color: white;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     padding: 5px;
-    border-radius: 4px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 8px 32px var(--shadow-color);
     display: flex;
     flex-direction: column;
     gap: 0px;
     align-items: flex-start;
+    transition: background-color 0.3s, box-shadow 0.3s;
 }
 
 .gpx-controls {
@@ -35,37 +100,43 @@ html {
 #gpxUpload input[type="file"] {
     font-size: 12px;
     max-width: 200px;
+    color: var(--text-primary);
 }
 
 #gpxUpload button {
     padding: 4px 8px;
-    background-color: white;
-    border: 2px solid rgba(0,0,0,0.2);
+    background-color: var(--bg-primary);
+    border: 2px solid var(--border-color);
     border-radius: 4px;
     font-size: 12px;
     cursor: pointer;
-    color: #666;
+    color: var(--text-secondary);
+    transition: background-color 0.2s;
 }
 
 #gpxUpload button:hover {
-    background-color: #f4f4f4;
+    background-color: var(--bg-secondary);
 }
 
-/* Modified speedDisplay to have a fixed height and scrolling */
+/* Speed Display Panel - Glassmorphism */
 #speedDisplay {
     position: absolute;
     top: 10px;
     right: 10px;
     z-index: 1000;
-    background-color: white;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
     padding: 10px 0;
-    border-radius: 5px;
-    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px var(--shadow-color);
     font-family: Arial, sans-serif;
     width: 280px;
-    max-height: 600px; /* Set a max height for 2 sessions */
-    overflow-y: auto; /* Enable scrolling */
+    max-height: 600px;
+    overflow-y: auto;
     display: block;
+    transition: background-color 0.3s, box-shadow 0.3s;
 }
 
 .stats-grid {
@@ -76,40 +147,45 @@ html {
 }
 
 .stat-box {
-    background-color: #f5f5f5;
+    background-color: var(--bg-secondary);
     padding: 10px;
-    border-radius: 4px;
+    border-radius: 8px;
     text-align: center;
+    border: 1px solid var(--glass-border-inner);
+    transition: background-color 0.3s;
 }
 
 .speed-value, .heart-rate-value {
     font-size: 24px;
     font-weight: bold;
-    color: #2196F3;
+    color: var(--accent-blue);
 }
 
 .elevation-value {
     font-size: 24px;
     font-weight: bold;
-    color: #4CAF50;
+    color: var(--accent-green);
 }
 
 .speed-unit, .elevation-unit, .heart-rate-unit {
     font-size: 14px;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 .speed-label, .elevation-label, .heart-rate-label {
     font-size: 12px;
-    color: #999;
+    color: var(--text-muted);
     margin-bottom: 5px;
 }
 
+/* Charts container */
 .charts-container {
     height: 33vh;
     width: 100%;
     display: flex;
     padding: 0;
+    background-color: var(--chart-bg);
+    transition: background-color 0.3s;
 }
 
 #altitudeChartContainer,
@@ -117,6 +193,8 @@ html {
     height: 100%;
     width: 50%;
     padding: 0;
+    background-color: var(--chart-bg);
+    transition: background-color 0.3s;
 }
 
 #altitudeChart,
@@ -125,26 +203,31 @@ html {
     width: 100%;
 }
 
+/* Session Info - Glassmorphism */
 .session-info {
     position: fixed;
     bottom: 10px;
     left: 10px;
-    background-color: white;
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
     padding: 5px 10px;
-    border-radius: 3px;
-    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px var(--shadow-color);
     font-family: Arial, sans-serif;
     font-size: 12px;
-    color: #333;
+    color: var(--text-primary);
     z-index: 1000;
     transform: none;
     display: inline-block;
+    transition: background-color 0.3s, color 0.3s;
 }
 
 /* Session container styles */
 .session-container {
     margin-bottom: 10px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-light);
     padding-bottom: 10px;
 }
 
@@ -158,7 +241,7 @@ html {
     font-weight: bold;
     padding: 0 10px;
     margin-bottom: 5px;
-    color: #333;
+    color: var(--text-primary);
 }
 
 /* Scrollbar styling */
@@ -167,17 +250,17 @@ html {
 }
 
 #speedDisplay::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--scrollbar-track);
     border-radius: 3px;
 }
 
 #speedDisplay::-webkit-scrollbar-thumb {
-    background: #888;
+    background: var(--scrollbar-thumb);
     border-radius: 3px;
 }
 
 #speedDisplay::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: var(--scrollbar-thumb-hover);
 }
 
 /* Debug Popup Styles */
@@ -186,16 +269,18 @@ html {
     top: 38px;
     left: 0px;
     z-index: 1000;
-    background-color: white;
+    background-color: var(--bg-primary);
     padding: 5px 12px;
     border: none;
     border-radius: 4px;
     cursor: pointer;
     font-size: 12px;
+    color: var(--text-primary);
+    transition: background-color 0.2s;
 }
 
 #debugToggle:hover {
-    background-color: #0b7dda;
+    background-color: var(--button-hover-bg);
 }
 
 #debugPopup {
@@ -208,12 +293,14 @@ html {
     max-width: 900px;
     height: 80%;
     max-height: 600px;
-    background-color: white;
+    background-color: var(--bg-primary);
     border-radius: 8px;
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 20px var(--shadow-heavy);
     z-index: 2000;
     overflow: hidden;
     flex-direction: column;
+    color: var(--text-primary);
+    transition: background-color 0.3s;
 }
 
 #debugPopupHeader {
@@ -221,13 +308,14 @@ html {
     justify-content: space-between;
     align-items: center;
     padding: 10px 15px;
-    background-color: #f3f3f3;
-    border-bottom: 1px solid #ddd;
+    background-color: var(--bg-panel-header);
+    border-bottom: 1px solid var(--border-color);
 }
 
 #debugPopupTitle {
     font-weight: bold;
     margin: 0;
+    color: var(--text-primary);
 }
 
 #debugPopupClose {
@@ -235,7 +323,7 @@ html {
     border: none;
     font-size: 18px;
     cursor: pointer;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 #debugContent {
@@ -245,19 +333,20 @@ html {
     font-family: monospace;
     font-size: 13px;
     line-height: 1.5;
+    color: var(--text-primary);
 }
 
 .debug-controls {
     display: flex;
     padding: 10px 15px;
-    background-color: #f3f3f3;
-    border-top: 1px solid #ddd;
+    background-color: var(--bg-panel-header);
+    border-top: 1px solid var(--border-color);
     gap: 10px;
 }
 
 .debug-controls button {
     padding: 6px 12px;
-    background-color: #2196F3;
+    background-color: var(--accent-blue);
     color: white;
     border: none;
     border-radius: 4px;
@@ -266,40 +355,42 @@ html {
 }
 
 .debug-controls button:hover {
-    background-color: #0b7dda;
+    background-color: var(--button-hover-bg);
 }
 
 #debugFilter {
     flex: 1;
     padding: 6px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     font-size: 12px;
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 #debugContent .message {
     margin-bottom: 8px;
     padding-bottom: 8px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-light);
     word-wrap: break-word;
 }
 
 #debugContent .message-timestamp {
-    color: #999;
+    color: var(--text-muted);
     font-size: 11px;
     margin-right: 8px;
 }
 
 #debugContent .update-message {
-    color: #4CAF50;
+    color: var(--accent-green);
 }
 
 #debugContent .batch-message {
-    color: #2196F3;
+    color: var(--accent-blue);
 }
 
 .message-highlight {
-    background-color: #FFFF88;
+    background-color: var(--highlight-bg);
 }
 
 #debugOverlay {
@@ -316,7 +407,7 @@ html {
 /* Add button active state */
 #resetMapBtn:active, #gpxUpload button:active {
     background-color: #e6e6e6 !important;
-    border-color: #999 !important;
+    border-color: var(--text-muted) !important;
     transform: translateY(1px);
 }
 
@@ -326,22 +417,27 @@ html {
 }
 
 @keyframes flash-background {
-    0% { background-color: white; }
-    50% { background-color: #f0f0f0; }
-    100% { background-color: white; }
+    0% { background-color: var(--bg-primary); }
+    50% { background-color: var(--bg-secondary); }
+    100% { background-color: var(--bg-primary); }
 }
 
+/* Control Panel - Glassmorphism */
 .control-panel {
     position: absolute;
     top: 110px;
     left: 10px;
     z-index: 1000;
-    background-color: white;
-    border-radius: 5px;
-    box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.2);
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px var(--shadow-color);
     width: 280px;
     font-family: Arial, sans-serif;
     overflow: hidden;
+    transition: background-color 0.3s, box-shadow 0.3s;
 }
 
 .panel-header {
@@ -349,14 +445,15 @@ html {
     justify-content: space-between;
     align-items: center;
     padding: 8px 12px;
-    background-color: #f3f3f3;
-    border-bottom: 1px solid #ddd;
+    background-color: var(--bg-panel-header);
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.3s;
 }
 
 .panel-header h3 {
     margin: 0;
     font-size: 14px;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .panel-toggle {
@@ -364,7 +461,7 @@ html {
     border: none;
     font-size: 16px;
     cursor: pointer;
-    color: #666;
+    color: var(--text-secondary);
     width: 24px;
     height: 24px;
     display: flex;
@@ -387,7 +484,7 @@ html {
     padding: 8px 10px;
     border-radius: 4px;
     margin-bottom: 5px;
-    background-color: #f5f5f5;
+    background-color: var(--bg-secondary);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -396,12 +493,12 @@ html {
 }
 
 .session-item:hover {
-    background-color: #e9e9e9;
+    background-color: var(--hover-bg);
 }
 
 .session-item.active {
-    background-color: #e3f2fd;
-    border-left: 3px solid #2196F3;
+    background-color: var(--active-item-bg);
+    border-left: 3px solid var(--accent-blue);
 }
 
 .session-item-info {
@@ -411,12 +508,12 @@ html {
 .session-item-name {
     font-weight: bold;
     font-size: 12px;
-    color: #333;
+    color: var(--text-primary);
 }
 
 .session-item-time {
     font-size: 10px;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 .session-actions {
@@ -429,7 +526,7 @@ html {
     border: none;
     cursor: pointer;
     font-size: 14px;
-    color: #666;
+    color: var(--text-secondary);
     width: 24px;
     height: 24px;
     display: flex;
@@ -439,15 +536,15 @@ html {
 }
 
 .session-action-btn:hover {
-    background-color: rgba(0, 0, 0, 0.05);
+    background-color: var(--hover-bg);
 }
 
 .session-action-btn.delete {
-    color: #F44336;
+    color: var(--accent-red);
 }
 
 .session-action-btn.zoom-to-session {
-    color: #2196F3;
+    color: var(--accent-blue);
 }
 
 .session-action-btn.zoom-to-session:hover {
@@ -464,12 +561,12 @@ html {
 .session-list-header h4 {
     margin: 0;
     font-size: 13px;
-    color: #666;
+    color: var(--text-secondary);
 }
 
 .no-sessions {
     font-size: 12px;
-    color: #999;
+    color: var(--text-muted);
     text-align: center;
     padding: 20px 0;
 }
@@ -479,13 +576,14 @@ html {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    background-color: white;
+    background-color: var(--bg-primary);
     padding: 20px;
     border-radius: 5px;
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 0 20px var(--shadow-heavy);
     z-index: 2001;
     text-align: center;
     width: 300px;
+    color: var(--text-primary);
 }
 
 .confirm-delete h3 {
@@ -510,32 +608,36 @@ html {
 }
 
 .confirm-btn.cancel {
-    background-color: #f5f5f5;
-    color: #333;
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 .confirm-btn.delete {
-    background-color: #F44336;
+    background-color: var(--accent-red);
     color: white;
 }
 
-/* Enhanced popup styling with barometer data support */
+/* Enhanced popup styling with barometer data support - Glassmorphism */
 #chartInfoPopup {
     position: fixed !important;
-    background: white !important;
-    border: 2px solid #333 !important;
-    border-radius: 8px !important;
+    background: var(--bg-panel) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid var(--glass-border) !important;
+    border-radius: 12px !important;
     padding: 12px !important;
     font-family: Arial, sans-serif !important;
     font-size: 12px !important;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3) !important;
+    box-shadow: 0 8px 32px var(--shadow-color) !important;
     z-index: 9999 !important;
-    display: none;  /* JavaScript controls visibility */
+    display: none;
     pointer-events: none !important;
-    max-width: 380px !important;  /* Increased width for barometer data */
+    max-width: 380px !important;
     line-height: 1.4 !important;
     visibility: visible !important;
     opacity: 1 !important;
+    color: var(--text-primary) !important;
+    transition: background-color 0.3s;
 }
 
 /* Specific class for when popup should be visible */
@@ -547,7 +649,7 @@ html {
 
 /* Weather & Barometer info popup styling */
 #chartInfoPopup .weather-section {
-    background-color: #f8f9fa;
+    background-color: var(--bg-secondary);
     border-radius: 4px;
     padding: 8px;
     margin: 8px 0;
@@ -581,14 +683,14 @@ html {
 }
 
 #chartInfoPopup .weather-value {
-    color: #333;
+    color: var(--text-primary);
     font-size: 11px;
 }
 
 #chartInfoPopup .weather-footer {
     margin-top: 6px;
     font-size: 9px;
-    color: #666;
+    color: var(--text-secondary);
     font-style: italic;
     text-align: center;
 }
@@ -597,7 +699,7 @@ html {
 .temp-color { color: #FF5722; }
 .humidity-color { color: #607D8B; }
 .wind-color { color: #795548; }
-.weather-desc-color { color: #4CAF50; }
+.weather-desc-color { color: var(--accent-green); }
 
 /* Weather icon styling */
 .weather-icon {
@@ -638,7 +740,7 @@ html {
 
 /* Additional styling for better barometer data visibility */
 .barometer-section {
-    background-color: #f0f4ff;
+    background-color: var(--bg-secondary);
     border-left: 3px solid #9C27B0;
     margin-top: 4px;
 }
@@ -650,11 +752,11 @@ html {
 
 .altitude-diff {
     font-size: 9px;
-    color: #666;
+    color: var(--text-secondary);
     font-style: italic;
 }
 
-/* Add subtle animation for weather section */
+/* Weather section animation */
 @keyframes fadeInWeather {
     from {
         opacity: 0;
@@ -668,6 +770,49 @@ html {
 
 .weather-section {
     animation: fadeInWeather 0.3s ease-in;
+}
+
+/* Stat value animations */
+@keyframes pulse-value {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.08); }
+    100% { transform: scale(1); }
+}
+
+.value-changed {
+    animation: pulse-value 0.4s ease-out;
+}
+
+@keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    15% { transform: scale(1.05); }
+    30% { transform: scale(1); }
+    45% { transform: scale(1.03); }
+}
+
+.heartbeat-active {
+    animation: heartbeat 1.2s ease-in-out infinite;
+}
+
+/* Theme toggle button */
+.theme-toggle {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.theme-toggle:hover {
+    background-color: var(--hover-bg);
+    color: var(--text-primary);
 }
 
 /* Responsive adjustments for smaller screens */
