@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import android.content.Context
 import at.co.netconsulting.geotracker.data.AltitudeInfo
 import at.co.netconsulting.geotracker.data.DistanceInfo
+import at.co.netconsulting.geotracker.data.SpeedInfo
 import at.co.netconsulting.geotracker.data.TimeInfo
 import at.co.netconsulting.geotracker.domain.Metric
 import kotlin.math.roundToInt
@@ -162,6 +163,19 @@ fun HeartRateDetailScreen(
                     description = "Tap on the graph to see detailed information at any point"
                 ) {
                     InteractiveHeartRateVsAltitudeScatterPlot(
+                        metrics = validMetrics,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                    )
+                }
+
+                // Speed vs Heart Rate Scatter Plot
+                GraphCard(
+                    title = "Speed vs Heart Rate",
+                    description = "Tap on the graph to see detailed information at any point"
+                ) {
+                    InteractiveSpeedVsHeartRateScatterPlot(
                         metrics = validMetrics,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -840,6 +854,223 @@ fun InteractiveHeartRateVsAltitudeScatterPlot(
 }
 
 @Composable
+fun InteractiveSpeedVsHeartRateScatterPlot(
+    metrics: List<Metric>,
+    modifier: Modifier = Modifier
+) {
+    var showInfo by remember { mutableStateOf<SpeedInfo?>(null) }
+
+    // Filter metrics that have both heart rate and speed data
+    val validMetrics = remember(metrics) {
+        metrics.filter { it.heartRate > 0 && it.speed > 0 }
+    }
+
+    Box(modifier = modifier) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (validMetrics.isNotEmpty()) {
+                        Modifier.pointerInput(Unit) {
+                            detectTapGestures { offset ->
+                                val info = findClosestSpeedPoint(validMetrics, offset, Size(size.width.toFloat(), size.height.toFloat()))
+                                showInfo = info
+                            }
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            if (validMetrics.isEmpty()) {
+                val paint = Paint().asFrameworkPaint().apply {
+                    color = Color.Gray.toArgb()
+                    textSize = 16.sp.toPx()
+                    textAlign = android.graphics.Paint.Align.CENTER
+                }
+
+                drawContext.canvas.nativeCanvas.drawText(
+                    "No speed data available",
+                    size.width / 2,
+                    size.height / 2,
+                    paint
+                )
+                return@Canvas
+            }
+
+            val padding = 60.dp.toPx()
+            val graphWidth = size.width - 2 * padding
+            val graphHeight = size.height - 2 * padding
+
+            val minSpeed = validMetrics.minOf { it.speed }
+            val maxSpeed = validMetrics.maxOf { it.speed }
+            val minHeartRate = validMetrics.minOf { it.heartRate }.toFloat()
+            val maxHeartRate = validMetrics.maxOf { it.heartRate }.toFloat()
+
+            val speedRange = maxSpeed - minSpeed
+            val heartRateRange = maxHeartRate - minHeartRate
+
+            // Draw axes
+            drawLine(
+                color = Color.Gray,
+                start = Offset(padding, padding),
+                end = Offset(padding, size.height - padding),
+                strokeWidth = 2.dp.toPx()
+            )
+            drawLine(
+                color = Color.Gray,
+                start = Offset(padding, size.height - padding),
+                end = Offset(size.width - padding, size.height - padding),
+                strokeWidth = 2.dp.toPx()
+            )
+
+            // Draw grid lines and axis values
+            val paint = Paint().asFrameworkPaint().apply {
+                color = Color.Gray.toArgb()
+                textSize = 10.sp.toPx()
+                textAlign = android.graphics.Paint.Align.RIGHT
+            }
+
+            // Y-axis grid lines and values (Heart Rate)
+            for (i in 0..5) {
+                val y = padding + (graphHeight * i / 5)
+                if (i > 0 && i < 5) {
+                    drawLine(
+                        color = Color.LightGray,
+                        start = Offset(padding, y),
+                        end = Offset(size.width - padding, y),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                val heartRateValue = (maxHeartRate - (heartRateRange * i / 5)).toInt()
+                drawContext.canvas.nativeCanvas.drawText(
+                    "$heartRateValue",
+                    padding - 10.dp.toPx(),
+                    y + 4.dp.toPx(),
+                    paint
+                )
+            }
+
+            // X-axis grid lines and values (Speed)
+            paint.textAlign = android.graphics.Paint.Align.CENTER
+            for (i in 0..4) {
+                val x = padding + (graphWidth * i / 4)
+                if (i > 0 && i < 4) {
+                    drawLine(
+                        color = Color.LightGray,
+                        start = Offset(x, padding),
+                        end = Offset(x, size.height - padding),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+
+                val speedValue = minSpeed + (speedRange * i / 4)
+                drawContext.canvas.nativeCanvas.drawText(
+                    String.format("%.1f", speedValue),
+                    x,
+                    size.height - padding + 20.dp.toPx(),
+                    paint
+                )
+            }
+
+            // Draw scatter points with color coding
+            validMetrics.forEach { metric ->
+                val x = if (speedRange > 0) {
+                    padding + ((metric.speed - minSpeed) / speedRange * graphWidth)
+                } else {
+                    padding + graphWidth / 2
+                }
+
+                val y = if (heartRateRange > 0) {
+                    size.height - padding - ((metric.heartRate - minHeartRate) / heartRateRange * graphHeight)
+                } else {
+                    size.height - padding - graphHeight / 2
+                }
+
+                val color = when {
+                    metric.heartRate < (minHeartRate + heartRateRange * 0.3) -> Color.Green
+                    metric.heartRate < (minHeartRate + heartRateRange * 0.7) -> Color.Yellow
+                    else -> Color.Red
+                }
+
+                drawCircle(
+                    color = color,
+                    radius = 4.dp.toPx(),
+                    center = Offset(x, y)
+                )
+            }
+
+            // Draw axis labels
+            val labelPaint = Paint().asFrameworkPaint().apply {
+                color = Color.Black.toArgb()
+                textSize = 14.sp.toPx()
+                isFakeBoldText = true
+            }
+
+            drawContext.canvas.nativeCanvas.save()
+            drawContext.canvas.nativeCanvas.rotate(-90f, 20.dp.toPx(), size.height / 2)
+            labelPaint.textAlign = android.graphics.Paint.Align.CENTER
+            drawContext.canvas.nativeCanvas.drawText(
+                "Heart Rate (bpm)",
+                20.dp.toPx(),
+                size.height / 2,
+                labelPaint
+            )
+            drawContext.canvas.nativeCanvas.restore()
+
+            labelPaint.textAlign = android.graphics.Paint.Align.CENTER
+            drawContext.canvas.nativeCanvas.drawText(
+                "Speed (km/h)",
+                size.width / 2,
+                size.height - 5.dp.toPx(),
+                labelPaint
+            )
+
+            // Draw legend
+            val legendPaint = Paint().asFrameworkPaint().apply {
+                color = Color.Black.toArgb()
+                textSize = 12.sp.toPx()
+            }
+
+            val legendX = size.width - 120.dp.toPx()
+            val legendY = padding + 20.dp.toPx()
+
+            drawCircle(color = Color.Red, radius = 6.dp.toPx(), center = Offset(legendX, legendY))
+            drawContext.canvas.nativeCanvas.drawText("High HR", legendX + 15.dp.toPx(), legendY + 4.dp.toPx(), legendPaint)
+
+            drawCircle(color = Color.Yellow, radius = 6.dp.toPx(), center = Offset(legendX, legendY + 20.dp.toPx()))
+            drawContext.canvas.nativeCanvas.drawText("Med HR", legendX + 15.dp.toPx(), legendY + 24.dp.toPx(), legendPaint)
+
+            drawCircle(color = Color.Green, radius = 6.dp.toPx(), center = Offset(legendX, legendY + 40.dp.toPx()))
+            drawContext.canvas.nativeCanvas.drawText("Low HR", legendX + 15.dp.toPx(), legendY + 44.dp.toPx(), legendPaint)
+        }
+
+        // Show info window
+        showInfo?.let { info ->
+            InfoWindow(
+                position = info.position,
+                onDismiss = { showInfo = null }
+            ) {
+                Column(
+                    modifier = Modifier.padding(8.dp)
+                ) {
+                    Text(
+                        text = "Heart Rate: ${info.heartRate} bpm",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Speed: ${String.format("%.1f", info.speed)} km/h",
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun InfoWindow(
     position: Offset,
     onDismiss: () -> Unit,
@@ -1008,6 +1239,54 @@ private fun findClosestAltitudePoint(
         AltitudeInfo(
             heartRate = metric.heartRate,
             elevation = metric.elevation,
+            position = Offset(x, y)
+        )
+    }
+}
+
+private fun findClosestSpeedPoint(
+    validMetrics: List<Metric>,
+    clickOffset: Offset,
+    canvasSize: androidx.compose.ui.geometry.Size
+): SpeedInfo? {
+    if (validMetrics.isEmpty()) return null
+
+    val padding = 60 * 3f
+    val graphWidth = canvasSize.width - 2 * padding
+    val graphHeight = canvasSize.height - 2 * padding
+
+    val minSpeed = validMetrics.minOf { it.speed }
+    val maxSpeed = validMetrics.maxOf { it.speed }
+    val minHeartRate = validMetrics.minOf { it.heartRate }.toFloat()
+    val maxHeartRate = validMetrics.maxOf { it.heartRate }.toFloat()
+
+    val speedRange = maxSpeed - minSpeed
+    val heartRateRange = maxHeartRate - minHeartRate
+
+    if (speedRange == 0f || heartRateRange == 0f) return null
+
+    var closestMetric: Metric? = null
+    var minDistanceToPoint = Float.MAX_VALUE
+
+    validMetrics.forEach { metric ->
+        val x = padding + ((metric.speed - minSpeed) / speedRange * graphWidth)
+        val y = canvasSize.height - padding - ((metric.heartRate - minHeartRate) / heartRateRange * graphHeight)
+
+        val distance = sqrt((clickOffset.x - x) * (clickOffset.x - x) + (clickOffset.y - y) * (clickOffset.y - y))
+
+        if (distance < minDistanceToPoint) {
+            minDistanceToPoint = distance
+            closestMetric = metric
+        }
+    }
+
+    return closestMetric?.let { metric ->
+        val x = padding + ((metric.speed - minSpeed) / speedRange * graphWidth)
+        val y = canvasSize.height - padding - ((metric.heartRate - minHeartRate) / heartRateRange * graphHeight)
+
+        SpeedInfo(
+            heartRate = metric.heartRate,
+            speed = metric.speed,
             position = Offset(x, y)
         )
     }
