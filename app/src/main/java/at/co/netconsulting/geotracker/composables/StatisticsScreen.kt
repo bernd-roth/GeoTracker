@@ -670,6 +670,107 @@ fun StatisticsScreen() {
             }
         )
 
+        // Heart Rate vs Altitude Card
+        StatisticsCard(
+            title = "Heart Rate vs Altitude",
+            content = {
+                if (metrics != null && metrics!!.coveredDistance > 0 && heartRateHistory.isNotEmpty() &&
+                    altitudeHistory.isNotEmpty() && heartRateData?.isConnected == true) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    ) {
+                        // Match heart rate and altitude by closest distance values
+                        val heartRateAltitudeEntries = remember(heartRateHistory, altitudeHistory) {
+                            heartRateHistory.mapNotNull { (hrDistance, rate) ->
+                                // Find the altitude entry closest to this heart rate's distance
+                                val closestAltitude = altitudeHistory.minByOrNull {
+                                    kotlin.math.abs(it.first - hrDistance)
+                                }
+                                if (closestAltitude != null) {
+                                    Entry(closestAltitude.second.toFloat(), rate.toFloat())
+                                } else {
+                                    null
+                                }
+                            }
+                        }
+
+                        HeartRateAltitudeChart(
+                            entries = heartRateAltitudeEntries,
+                            lineColor = Color(0xFF9C27B0), // Purple color to distinguish from HR vs Distance
+                            fillColor = Color(0xFF9C27B0).copy(alpha = 0.2f)
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .background(Color.LightGray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (heartRateData?.isConnected == true)
+                                "Chart will appear as you move"
+                            else
+                                "Connect a heart rate sensor to see data"
+                        )
+                    }
+                }
+            }
+        )
+
+        // Heart Rate vs Speed Card
+        StatisticsCard(
+            title = "Heart Rate vs Speed",
+            content = {
+                if (metrics != null && metrics!!.coveredDistance > 0 && heartRateHistory.isNotEmpty() &&
+                    speedHistory.isNotEmpty() && heartRateData?.isConnected == true) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    ) {
+                        // Match heart rate and speed by closest distance values
+                        val heartRateSpeedEntries = remember(heartRateHistory, speedHistory) {
+                            heartRateHistory.mapNotNull { (hrDistance, rate) ->
+                                val closestSpeed = speedHistory.minByOrNull {
+                                    kotlin.math.abs(it.first - hrDistance)
+                                }
+                                if (closestSpeed != null) {
+                                    Entry(closestSpeed.second, rate.toFloat())
+                                } else {
+                                    null
+                                }
+                            }
+                        }
+
+                        HeartRateSpeedChart(
+                            entries = heartRateSpeedEntries,
+                            lineColor = Color(0xFFFF5722), // Deep orange to distinguish from other HR charts
+                            fillColor = Color(0xFFFF5722).copy(alpha = 0.2f)
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                            .background(Color.LightGray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            if (heartRateData?.isConnected == true)
+                                "Chart will appear as you move"
+                            else
+                                "Connect a heart rate sensor to see data"
+                        )
+                    }
+                }
+            }
+        )
+
         // Followed Users Statistics
         if (followingState.isFollowing && followingState.followedUsers.isNotEmpty()) {
             followingState.followedUsers.forEach { sessionId ->

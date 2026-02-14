@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("7.33")} (09-02-2026: adding directional arrows along the route)"
+        versionName = "${getNextVersion("8.01")} (14-02-2026: adding 'Heart Rate vs Altitude', and 'Heart Rate vs Speed' in StatisticsScreen)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
