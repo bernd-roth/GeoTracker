@@ -69,25 +69,42 @@ function applyTheme(theme) {
         btn.title = theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode';
     }
 
-    // Swap map style
-    if (map && map.isStyleLoaded()) {
+    // Swap map style while preserving custom track layers
+    if (map) {
         const darkStyle = 'https://tiles.openfreemap.org/styles/dark';
         const lightStyle = 'https://tiles.openfreemap.org/styles/liberty';
         const newStyle = theme === 'dark' ? darkStyle : lightStyle;
 
-        // Save current sources/layers before style swap
-        const savedSources = {};
-        const savedLayers = [];
+        // Use transformStyle to carry custom sources/layers across the style swap.
+        // Without this, setStyle() destroys all custom layers and they must be
+        // re-created — but the style.load callback is unreliable in MapLibre v4.
+        map.setStyle(newStyle, {
+            transformStyle: (prevStyle, nextStyle) => {
+                const customSources = {};
+                const customLayers = [];
 
-        // Re-add track data after style loads
-        map.once('style.load', () => {
-            // Re-render all tracks
-            Object.keys(trackPoints).forEach(sessionId => {
-                updateMapTrack(sessionId);
-            });
+                if (prevStyle) {
+                    // Preserve all GeoJSON track sources (track-<sessionId>-seg-N)
+                    for (const [key, value] of Object.entries(prevStyle.sources || {})) {
+                        if (key.startsWith('track-')) {
+                            customSources[key] = value;
+                        }
+                    }
+                    // Preserve all polyline layers (polyline-<sessionId>-seg-N)
+                    for (const layer of (prevStyle.layers || [])) {
+                        if (layer.id.startsWith('polyline-')) {
+                            customLayers.push(layer);
+                        }
+                    }
+                }
+
+                return {
+                    ...nextStyle,
+                    sources: { ...(nextStyle.sources || {}), ...customSources },
+                    layers: [...(nextStyle.layers || []), ...customLayers]
+                };
+            }
         });
-
-        map.setStyle(newStyle);
     }
 
     // Update chart colors
@@ -230,11 +247,18 @@ function initMap() {
             connectToWebSocket();
         });
 
-        // If the vector style fails, fall back to OSM raster
-        map.on('error', (e) => {
-            console.error('Vector map failed, falling back to OSM raster:', e);
-            addDebugMessage(`Vector map error, using OSM fallback: ${e.message}`, 'warning');
-            initOSMRasterMap();
+        // If the vector style fails on initial load, fall back to OSM raster
+        // Use 'once' to avoid replacing the map on every transient error (e.g. tile 404)
+        map.once('error', (e) => {
+            // Only fall back if the map has no loaded style (initial load failure)
+            if (!map.isStyleLoaded()) {
+                console.error('Vector map failed, falling back to OSM raster:', e);
+                addDebugMessage(`Vector map error, using OSM fallback: ${e.message}`, 'warning');
+                initOSMRasterMap();
+            } else {
+                console.warn('Map error (non-fatal):', e);
+                addDebugMessage(`Map error: ${e.message || 'unknown'}`, 'warning');
+            }
         });
 
     } catch (error) {
