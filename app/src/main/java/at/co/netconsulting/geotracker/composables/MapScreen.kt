@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Satellite
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -141,13 +143,35 @@ private fun createDarkTileSource(): OnlineTileSourceBase {
     }
 }
 
-private fun updateMapStyle(mapView: MapView, isDarkMode: Boolean) {
-    val tileSource = if (isDarkMode) {
-        createDarkTileSource()
-    } else {
-        TileSourceFactory.MAPNIK
+private fun createSatelliteTileSource(): OnlineTileSourceBase {
+    return object : OnlineTileSourceBase(
+        "ArcGIS World Imagery",
+        0,
+        19,
+        256,
+        ".jpg",
+        arrayOf(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"
+        )
+    ) {
+        override fun getTileURLString(aMapTileIndex: Long): String {
+            val zoom = MapTileIndex.getZoom(aMapTileIndex)
+            val x = MapTileIndex.getX(aMapTileIndex)
+            val y = MapTileIndex.getY(aMapTileIndex)
+            return "${baseUrl}${zoom}/${y}/${x}"
+        }
     }
-    mapView.setTileSource(tileSource)
+}
+
+private fun getAppropriateTileSource(isDarkMode: Boolean, isSatellite: Boolean) =
+    when {
+        isSatellite -> createSatelliteTileSource()
+        isDarkMode -> createDarkTileSource()
+        else -> TileSourceFactory.MAPNIK
+    }
+
+private fun updateMapStyle(mapView: MapView, isDarkMode: Boolean, isSatellite: Boolean = false) {
+    mapView.setTileSource(getAppropriateTileSource(isDarkMode, isSatellite))
     mapView.invalidate()
 }
 
@@ -262,6 +286,14 @@ fun MapScreen(
         mutableStateOf(
             context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
                 .getBoolean("darkModeEnabled", false)
+        )
+    }
+
+    // Satellite view state
+    var isSatelliteView by remember {
+        mutableStateOf(
+            context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                .getBoolean("satelliteViewEnabled", false)
         )
     }
 
@@ -1499,7 +1531,7 @@ fun MapScreen(
                 Timber.d("Dark mode changed from $isDarkMode to $newDarkMode")
                 isDarkMode = newDarkMode
                 mapViewRef.value?.let { mapView ->
-                    updateMapStyle(mapView, newDarkMode)
+                    updateMapStyle(mapView, newDarkMode, isSatelliteView)
                 }
             }
             delay(1000)
@@ -1746,12 +1778,11 @@ fun MapScreen(
         AndroidView(
             factory = { ctx ->
                 MapView(ctx).apply {
-                    val initialDarkMode = ctx.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-                        .getBoolean("darkModeEnabled", false)
+                    val prefs = ctx.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                    val initialDarkMode = prefs.getBoolean("darkModeEnabled", false)
+                    val initialSatellite = prefs.getBoolean("satelliteViewEnabled", false)
 
-                    setTileSource(
-                        if (initialDarkMode) createDarkTileSource() else TileSourceFactory.MAPNIK
-                    )
+                    setTileSource(getAppropriateTileSource(initialDarkMode, initialSatellite))
 
                     setMultiTouchControls(true)
                     controller.setZoom(6)
@@ -2316,6 +2347,39 @@ fun MapScreen(
                     Icon(
                         imageVector = Icons.Default.Group,
                         contentDescription = if (followingState.isFollowing) "Stop Following" else "Follow Users",
+                        tint = Color.White
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Satellite view toggle button
+            Surface(
+                modifier = Modifier.size(56.dp),
+                shape = CircleShape,
+                color = if (isSatelliteView) Color(0xFF4CAF50) else Color(0xFF546E7A),
+                shadowElevation = 8.dp,
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable {
+                            isSatelliteView = !isSatelliteView
+                            context.getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                                .edit()
+                                .putBoolean("satelliteViewEnabled", isSatelliteView)
+                                .apply()
+                            mapViewRef.value?.let { mapView ->
+                                updateMapStyle(mapView, isDarkMode, isSatelliteView)
+                            }
+                            Timber.d("Satellite view toggled: $isSatelliteView")
+                        }
+                ) {
+                    Icon(
+                        imageVector = if (isSatelliteView) Icons.Default.Map else Icons.Default.Satellite,
+                        contentDescription = if (isSatelliteView) "Switch to Map" else "Switch to Satellite",
                         tint = Color.White
                     )
                 }

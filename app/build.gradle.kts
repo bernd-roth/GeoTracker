@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.04")} (14-02-2026: adding a searchbox in 'Download Events')"
+        versionName = "${getNextVersion("8.05")} (14-02-2026: adding a toggle button for satellite/street map view on main screen)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
