@@ -8,10 +8,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,11 +39,12 @@ fun DownloadEventsDialog(
 
     // Filter state - hide sessions with few GPS points
     var hideSmallSessions by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
     val minGpsPoints = 10
 
     // First deduplicate by sessionId (server may return duplicates), then apply filters
     val maxDisplaySessions = 200
-    val filteredSessions = remember(availableSessions, hideSmallSessions) {
+    val filteredSessions = remember(availableSessions, hideSmallSessions, searchQuery) {
         // Deduplicate by sessionId, keeping the first occurrence
         val deduplicated = availableSessions.distinctBy { it.sessionId }
 
@@ -50,8 +53,23 @@ fun DownloadEventsDialog(
         } else {
             deduplicated
         }
+
+        // Apply search filter
+        val searched = if (searchQuery.isBlank()) {
+            filtered
+        } else {
+            val query = searchQuery.lowercase()
+            filtered.filter { session ->
+                (session.eventName?.lowercase()?.contains(query) == true) ||
+                (session.sportType?.lowercase()?.contains(query) == true) ||
+                (session.startDateTime?.lowercase()?.contains(query) == true) ||
+                (session.startCity?.lowercase()?.contains(query) == true) ||
+                (session.startCountry?.lowercase()?.contains(query) == true)
+            }
+        }
+
         // Limit to prevent UI crash with too many items
-        filtered.take(maxDisplaySessions)
+        searched.take(maxDisplaySessions)
     }
     val deduplicatedSessions = remember(availableSessions) {
         availableSessions.distinctBy { it.sessionId }
@@ -112,6 +130,26 @@ fun DownloadEventsDialog(
                         modifier = Modifier.height(24.dp)
                     )
                 }
+
+                // Search box
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    placeholder = { Text("Search events, dates, sport...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                            }
+                        }
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall
+                )
 
                 // Info text or empty state
                 if (filteredSessions.isEmpty()) {

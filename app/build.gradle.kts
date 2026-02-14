@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.03")} (14-02-2026: adding 'Heart Rate vs Altitude', and 'Heart Rate vs Speed' to StatisticsScreen when following another user)"
+        versionName = "${getNextVersion("8.04")} (14-02-2026: adding a searchbox in 'Download Events')"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
