@@ -1409,6 +1409,102 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
             }
         }
     )
+
+    // Heart Rate vs Altitude Chart
+    StatisticsCard(
+        title = "Heart Rate vs Altitude - ${latestPoint.person}",
+        content = {
+            if (totalDistance > 0 && heartRateEntries.isNotEmpty() && altitudeEntries.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                ) {
+                    val heartRateAltitudeEntries = remember(trail) {
+                        trail.filter { it.heartRate != null }.mapNotNull { point ->
+                            val closestAltitude = trail.minByOrNull {
+                                kotlin.math.abs(it.distance - point.distance)
+                            }
+                            if (closestAltitude != null) {
+                                Entry(closestAltitude.altitude.toFloat(), point.heartRate!!.toFloat())
+                            } else {
+                                null
+                            }
+                        }
+                    }
+
+                    HeartRateAltitudeChart(
+                        entries = heartRateAltitudeEntries,
+                        lineColor = Color(0xFF9C27B0),
+                        fillColor = Color(0xFF9C27B0).copy(alpha = 0.2f)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .background(Color.LightGray.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (currentHeartRate != null)
+                            "Chart will appear as user moves"
+                        else
+                            "Heart rate data not available from remote user"
+                    )
+                }
+            }
+        }
+    )
+
+    // Heart Rate vs Speed Chart
+    StatisticsCard(
+        title = "Heart Rate vs Speed - ${latestPoint.person}",
+        content = {
+            if (totalDistance > 0 && heartRateEntries.isNotEmpty() && speedEntries.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(160.dp)
+                ) {
+                    val heartRateSpeedEntries = remember(trail) {
+                        trail.filter { it.heartRate != null }.mapNotNull { point ->
+                            val closestSpeed = trail.minByOrNull {
+                                kotlin.math.abs(it.distance - point.distance)
+                            }
+                            if (closestSpeed != null) {
+                                Entry(closestSpeed.currentSpeed, point.heartRate!!.toFloat())
+                            } else {
+                                null
+                            }
+                        }
+                    }
+
+                    HeartRateSpeedChart(
+                        entries = heartRateSpeedEntries,
+                        lineColor = Color(0xFFFF5722),
+                        fillColor = Color(0xFFFF5722).copy(alpha = 0.2f)
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp)
+                        .background(Color.LightGray.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        if (currentHeartRate != null)
+                            "Chart will appear as user moves"
+                        else
+                            "Heart rate data not available from remote user"
+                    )
+                }
+            }
+        }
+    )
 }
 
 @Composable
