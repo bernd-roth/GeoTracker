@@ -15,6 +15,8 @@ let statsVisible = true; // Track the visibility state of stat boxes
 let sessionPersonNames = {};
 let availableSessions = [];
 let sessionPanelVisible = true;
+let hrMiniCharts = {};
+let hrMiniChartData = {};
 
 // Interactive chart variables
 let hoverMarker = null;
@@ -1218,7 +1220,7 @@ function connectToWebSocket() {
                 handleHistoryBatch(message.points);
                 break;
             case 'history_complete':
-                finalizeBatchProcessing();
+                finalizeBatchProcessing(message.sessionLapTimes);
                 break;
             case 'update':
                 handlePoint(message.point);
@@ -1427,12 +1429,34 @@ function handleHistoryBatch(points) {
             history.avgPressure = history.pressures.reduce((a, b) => a + b, 0) / history.pressures.length;
         }
 
+        // Capture lap times from batch points (last point with lapTimes wins)
+        if (point.lapTimes && point.lapTimes.length > 0) {
+            history.lapTimes = point.lapTimes;
+        }
+
         trackPoints[sessionId].push(processedPoint);
     });
 }
 
-function finalizeBatchProcessing() {
+function finalizeBatchProcessing(sessionLapTimes) {
     if (!isProcessingBatch) return;
+
+    // Store lap times from history_complete message
+    if (sessionLapTimes) {
+        Object.keys(sessionLapTimes).forEach(sessionId => {
+            if (!speedHistory[sessionId]) {
+                speedHistory[sessionId] = {
+                    speeds: [], maxSpeed: 0, avgSpeed: 0, movingAvg: 0,
+                    currentAltitude: 0, elevationGain: 0, heartRate: 0,
+                    slope: 0, averageSlope: 0, maxUphillSlope: 0, maxDownhillSlope: 0,
+                    totalDistance: 0, lastUpdate: new Date(), personName: '',
+                    temperatures: [], minTemperature: null, maxTemperature: null, avgTemperature: null,
+                    pressures: [], minPressure: null, maxPressure: null, avgPressure: null
+                };
+            }
+            speedHistory[sessionId].lapTimes = sessionLapTimes[sessionId];
+        });
+    }
 
     Object.keys(trackPoints).forEach(sessionId => {
         trackPoints[sessionId].sort((a, b) => a.timestamp - b.timestamp);
@@ -1475,6 +1499,23 @@ function finalizeBatchProcessing() {
                             pressureAccuracy: latestPoint.pressureAccuracy
                         }
                     });
+                }
+                // Restore lap table from saved history if available
+                if (speedHistory[sessionId] && speedHistory[sessionId].lapTimes) {
+                    updateLapTable(sessionId, speedHistory[sessionId].lapTimes);
+                }
+
+                // Populate mini HR chart from all history points
+                const points = trackPoints[sessionId];
+                if (points && points.length > 0) {
+                    hrMiniChartData[sessionId] = points
+                        .filter(p => p.heartRate && p.heartRate > 0)
+                        .map(p => ({ x: p.distance, y: p.heartRate }));
+                    const miniChart = hrMiniCharts[sessionId];
+                    if (miniChart) {
+                        miniChart.data.datasets[0].data = hrMiniChartData[sessionId];
+                        miniChart.update('none');
+                    }
                 }
             } else {
                 addDebugMessage(`Skipping visualization update for filtered session: ${sessionId}`, 'system');
@@ -2030,6 +2071,61 @@ function getHeartRateColor(heartRate) {
     return '#F44336';
 }
 
+function createHrMiniChart(canvasId, sessionId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+    const ctx = canvas.getContext('2d');
+    const chart = new Chart(ctx, {
+        type: 'line',
+        data: { datasets: [{
+            data: [],
+            borderColor: '#F44336',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.3,
+            fill: {
+                target: 'origin',
+                above: 'rgba(244, 67, 54, 0.15)'
+            }
+        }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+                x: {
+                    type: 'linear',
+                    display: true,
+                    grid: { display: false },
+                    ticks: { display: true, font: { size: 8 }, color: '#999', maxTicksLimit: 4, callback: v => v.toFixed(1) },
+                    title: { display: false }
+                },
+                y: {
+                    display: true,
+                    grid: { display: false },
+                    ticks: { display: true, font: { size: 8 }, color: '#999', maxTicksLimit: 3 },
+                    title: { display: false }
+                }
+            },
+            layout: { padding: { left: 2, right: 2, top: 2, bottom: 0 } }
+        }
+    });
+    hrMiniCharts[sessionId] = chart;
+    hrMiniChartData[sessionId] = [];
+    return chart;
+}
+
+function updateHrMiniChart(sessionId, distance, heartRate) {
+    if (!heartRate || heartRate <= 0) return;
+    if (!hrMiniChartData[sessionId]) hrMiniChartData[sessionId] = [];
+    hrMiniChartData[sessionId].push({ x: distance, y: heartRate });
+    const chart = hrMiniCharts[sessionId];
+    if (!chart) return;
+    chart.data.datasets[0].data = hrMiniChartData[sessionId];
+    chart.update('none');
+}
+
 function getSlopeColor(slope) {
     if (slope === null || slope === undefined) return '#999';
     if (slope < -10) return '#F44336';  // Steep downhill - red
@@ -2167,6 +2263,8 @@ function updateSpeedDisplay(sessionId, speed, data) {
     const defaultDisplay = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
     if (defaultDisplay) {
         defaultDisplay.remove();
+        const defaultMiniChart = speedDisplay.querySelector('#hrMiniChart');
+        if (defaultMiniChart) defaultMiniChart.closest('.hr-mini-chart-container').remove();
         console.log("Removed default display when handling session: " + sessionId);
     }
 
@@ -2283,6 +2381,13 @@ function updateSpeedDisplay(sessionId, speed, data) {
             </div>
         `;
 
+        const miniChartDiv = document.createElement('div');
+        miniChartDiv.className = 'hr-mini-chart-container';
+        miniChartDiv.innerHTML = `<canvas id="hrMiniChart-${sessionId}"></canvas>`;
+        speedContainer.appendChild(miniChartDiv);
+
+        createHrMiniChart(`hrMiniChart-${sessionId}`, sessionId);
+
         speedDisplay.scrollTop = speedDisplay.scrollHeight;
     } else {
         const sessionLabel = speedContainer.querySelector('.session-label');
@@ -2348,6 +2453,11 @@ function updateSpeedDisplay(sessionId, speed, data) {
         } else {
             heartRateElement.classList.remove('heartbeat-active');
         }
+    }
+
+    // Update mini HR vs Distance chart
+    if (data.heartRate !== undefined && history.totalDistance !== undefined) {
+        updateHrMiniChart(sessionId, history.totalDistance, data.heartRate);
     }
 
     const slopeElement = document.getElementById(`slope-${sessionId}`);
@@ -2563,7 +2673,12 @@ function updateLapTable(sessionId, lapTimes) {
 
         container.appendChild(header);
         container.appendChild(scrollDiv);
-        speedContainer.appendChild(container);
+        const miniChartEl = speedContainer.querySelector('.hr-mini-chart-container');
+        if (miniChartEl) {
+            speedContainer.insertBefore(container, miniChartEl);
+        } else {
+            speedContainer.appendChild(container);
+        }
     }
 
     const scrollDiv = container.querySelector('.lap-table-scroll');
@@ -3056,6 +3171,12 @@ function handleSessionDeleted(sessionId) {
     if (speedContainer) {
         speedContainer.remove();
     }
+
+    if (hrMiniCharts[sessionId]) {
+        hrMiniCharts[sessionId].destroy();
+        delete hrMiniCharts[sessionId];
+    }
+    delete hrMiniChartData[sessionId];
 
     if (sessionPersonNames[sessionId]) {
         delete sessionPersonNames[sessionId];

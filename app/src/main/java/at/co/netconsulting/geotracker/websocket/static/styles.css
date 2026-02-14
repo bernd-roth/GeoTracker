@@ -178,6 +178,18 @@ html {
     margin-bottom: 5px;
 }
 
+/* Mini HR chart in stats panel */
+.hr-mini-chart-container {
+    height: 60px;
+    margin: 0 10px 6px 10px;
+    background: transparent;
+}
+
+.hr-mini-chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
 /* Charts container */
 .charts-container {
     height: 33vh;

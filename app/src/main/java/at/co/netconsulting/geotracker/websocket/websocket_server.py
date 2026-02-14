@@ -1823,9 +1823,23 @@ class TrackingServer:
                 'sessions': session_info
             }))
 
-            # Send completion message
+            # Gather lap times for all sessions
+            session_lap_times = {}
+            for session_id in self.tracking_history.keys():
+                lap_times = await self.get_lap_times_for_session(session_id)
+                if lap_times:
+                    session_lap_times[session_id] = [
+                        {
+                            'lapNumber': lap['lapNumber'],
+                            'duration': lap['duration'],
+                            'distance': lap['distance']
+                        } for lap in lap_times
+                    ]
+
+            # Send completion message with lap times
             await websocket.send(json.dumps({
-                'type': 'history_complete'
+                'type': 'history_complete',
+                'sessionLapTimes': session_lap_times if session_lap_times else None
             }))
 
             logging.info(f"Sent {len(all_points)} historical points to client")
