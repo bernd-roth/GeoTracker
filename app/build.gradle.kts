@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.05")} (14-02-2026: adding a toggle button for satellite/street map view on main screen)"
+        versionName = "${getNextVersion("8.06")} (15-02-2026: bug fixed in lap counting which sends wrong lap numbers to server)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

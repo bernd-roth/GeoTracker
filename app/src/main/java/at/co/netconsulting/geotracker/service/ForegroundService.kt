@@ -1323,7 +1323,8 @@ class ForegroundService : Service() {
             distance = metrics.coveredDistance
             altitude = metrics.altitude
             bearing = metrics.bearing
-            lap = metrics.lap
+            // Don't overwrite lap from metrics - ForegroundService tracks its own lap count
+            // via checkLapCompletionAndSave() to avoid double-counting (which caused lap 1 to be skipped)
             satellites = (metrics.satellites ?: 0).toString()
 
             // Calculate distance increment for lap tracking
