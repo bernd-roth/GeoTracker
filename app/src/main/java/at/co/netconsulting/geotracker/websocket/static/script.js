@@ -2407,7 +2407,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         const miniChartDiv = document.createElement('div');
         miniChartDiv.className = 'hr-mini-chart-container';
-        miniChartDiv.innerHTML = `<canvas id="hrMiniChart-${sessionId}"></canvas>`;
+        miniChartDiv.innerHTML = `<h4 class="hr-mini-chart-title">Heart Rate</h4><canvas id="hrMiniChart-${sessionId}"></canvas>`;
         speedContainer.appendChild(miniChartDiv);
 
         createHrMiniChart(`hrMiniChart-${sessionId}`, sessionId);

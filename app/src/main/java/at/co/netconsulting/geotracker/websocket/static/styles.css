@@ -185,6 +185,12 @@ html {
     background: transparent;
 }
 
+.hr-mini-chart-title {
+    margin: 0 0 2px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
 .hr-mini-chart-container canvas {
     width: 100% !important;
     height: 100% !important;
