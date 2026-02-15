@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.06")} (15-02-2026: bug fixed in lap counting which sends wrong lap numbers to server)"
+        versionName = "${getNextVersion("8.07")} (15-02-2026: bug fixed in Statistics screen when following user: Barometer Altitude chart showed irregular data)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

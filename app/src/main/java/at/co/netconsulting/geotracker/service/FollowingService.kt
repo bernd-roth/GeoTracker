@@ -391,8 +391,9 @@ class FollowingService private constructor(private val context: Context) {
                     val temperature = if (point.has("temperature")) point.getDouble("temperature") else null
                     val weatherCode = if (point.has("weatherCode")) point.getInt("weatherCode") else null
                     val pressure = if (point.has("pressure")) point.getDouble("pressure") else null
+                    val altitudeFromPressure = if (point.has("altitudeFromPressure")) point.getDouble("altitudeFromPressure") else null
                     val relativeHumidity = if (point.has("relativeHumidity")) point.getInt("relativeHumidity") else null
-                    
+
                     // Handle wind data (could be string or double)
                     val windSpeed = when {
                         point.has("windSpeed") -> {
@@ -437,6 +438,7 @@ class FollowingService private constructor(private val context: Context) {
                         temperature = temperature,
                         weatherCode = weatherCode,
                         pressure = pressure,
+                        altitudeFromPressure = altitudeFromPressure,
                         relativeHumidity = relativeHumidity,
                         windSpeed = windSpeed,
                         windDirection = windDirection
@@ -458,8 +460,9 @@ class FollowingService private constructor(private val context: Context) {
             val temperature = if (pointJson.has("temperature")) pointJson.getDouble("temperature") else null
             val weatherCode = if (pointJson.has("weatherCode")) pointJson.getInt("weatherCode") else null
             val pressure = if (pointJson.has("pressure")) pointJson.getDouble("pressure") else null
+            val altitudeFromPressure = if (pointJson.has("altitudeFromPressure")) pointJson.getDouble("altitudeFromPressure") else null
             val relativeHumidity = if (pointJson.has("relativeHumidity")) pointJson.getInt("relativeHumidity") else null
-            
+
             // Try different possible wind field names
             val windSpeed = when {
                 pointJson.has("windSpeed") -> pointJson.getDouble("windSpeed")
@@ -514,6 +517,7 @@ class FollowingService private constructor(private val context: Context) {
                 temperature = temperature,
                 weatherCode = weatherCode,
                 pressure = pressure,
+                altitudeFromPressure = altitudeFromPressure,
                 relativeHumidity = relativeHumidity,
                 windSpeed = windSpeed,
                 windDirection = windDirection,
@@ -558,6 +562,7 @@ class FollowingService private constructor(private val context: Context) {
                     temperature = if (pointJson.has("temperature") && !pointJson.isNull("temperature")) pointJson.getDouble("temperature") else null,
                     weatherCode = if (pointJson.has("weatherCode") && !pointJson.isNull("weatherCode")) pointJson.getInt("weatherCode") else null,
                     pressure = if (pointJson.has("pressure") && !pointJson.isNull("pressure")) pointJson.getDouble("pressure") else null,
+                    altitudeFromPressure = if (pointJson.has("altitudeFromPressure") && !pointJson.isNull("altitudeFromPressure")) pointJson.getDouble("altitudeFromPressure") else null,
                     relativeHumidity = if (pointJson.has("relativeHumidity") && !pointJson.isNull("relativeHumidity")) pointJson.getInt("relativeHumidity") else null,
                     windSpeed = if (pointJson.has("windSpeed") && !pointJson.isNull("windSpeed")) pointJson.getDouble("windSpeed") else null,
                     windDirection = if (pointJson.has("windDirection") && !pointJson.isNull("windDirection")) pointJson.getDouble("windDirection") else null
@@ -670,17 +675,20 @@ class FollowingService private constructor(private val context: Context) {
                     val lastPoint = existingTrail.last()
                     
                     // Preserve existing weather data if the new point doesn't have weather data
-                    val mergedPoint = if (newPoint.temperature == null && newPoint.weatherCode == null && 
-                                         newPoint.pressure == null && newPoint.relativeHumidity == null && 
+                    val mergedPoint = if (newPoint.temperature == null && newPoint.weatherCode == null &&
+                                         newPoint.pressure == null && newPoint.altitudeFromPressure == null &&
+                                         newPoint.relativeHumidity == null &&
                                          newPoint.windSpeed == null && newPoint.windDirection == null &&
                                          (lastPoint.temperature != null || lastPoint.weatherCode != null ||
-                                          lastPoint.pressure != null || lastPoint.relativeHumidity != null ||
+                                          lastPoint.pressure != null || lastPoint.altitudeFromPressure != null ||
+                                          lastPoint.relativeHumidity != null ||
                                           lastPoint.windSpeed != null || lastPoint.windDirection != null)) {
                         // New point has no weather data but old point does - preserve weather data
                         newPoint.copy(
                             temperature = lastPoint.temperature,
                             weatherCode = lastPoint.weatherCode,
                             pressure = lastPoint.pressure,
+                            altitudeFromPressure = lastPoint.altitudeFromPressure,
                             relativeHumidity = lastPoint.relativeHumidity,
                             windSpeed = lastPoint.windSpeed,
                             windDirection = lastPoint.windDirection
