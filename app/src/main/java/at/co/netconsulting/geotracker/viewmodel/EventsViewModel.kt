@@ -6,6 +6,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import at.co.netconsulting.geotracker.data.MediaUploadProgress
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.EventMedia
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
@@ -54,8 +55,8 @@ class EventsViewModel(
     private val _isLoadingMedia = MutableStateFlow<Set<Int>>(emptySet())
     val isLoadingMedia: StateFlow<Set<Int>> = _isLoadingMedia.asStateFlow()
 
-    private val _isUploadingMedia = MutableStateFlow(false)
-    val isUploadingMedia: StateFlow<Boolean> = _isUploadingMedia.asStateFlow()
+    private val _mediaUploadProgress = MutableStateFlow(MediaUploadProgress())
+    val mediaUploadProgress: StateFlow<MediaUploadProgress> = _mediaUploadProgress.asStateFlow()
 
     private val apiClient = GeoTrackerApiClient(context)
 
@@ -849,101 +850,140 @@ class EventsViewModel(
     }
 
     /**
-     * Upload media file for an event.
+     * Upload multiple media files for an event with progress tracking.
      * If the event is not yet uploaded, media is stored locally and will be uploaded
      * when the event is synced to the server.
      */
-    fun uploadMediaForEvent(eventId: Int, uri: Uri) {
+    fun uploadMediaForEvent(eventId: Int, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+
         val event = _eventsWithDetails.value.find { it.event.eventId == eventId }?.event
         val sessionId = event?.sessionId
+        val totalFiles = uris.size
 
-        _isUploadingMedia.value = true
+        _mediaUploadProgress.value = MediaUploadProgress(
+            isUploading = true,
+            currentFile = 0,
+            totalFiles = totalFiles,
+            status = "Preparing..."
+        )
 
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    // Copy file to local storage
-                    val contentResolver = context.contentResolver
-                    val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
-                    val mediaType = if (mimeType.startsWith("video")) "video" else "image"
-                    val extension = when {
-                        mimeType.contains("jpeg") || mimeType.contains("jpg") -> "jpg"
-                        mimeType.contains("png") -> "png"
-                        mimeType.contains("heic") || mimeType.contains("heif") -> "heic"
-                        mimeType.contains("mp4") -> "mp4"
-                        mimeType.contains("quicktime") -> "mov"
-                        else -> "jpg"
-                    }
+                    uris.forEachIndexed { index, uri ->
+                        val fileIndex = index + 1
 
-                    // Store in persistent media directory (not temp cache)
-                    val mediaDir = File(context.filesDir, "event_media/$eventId").also { it.mkdirs() }
-                    val mediaUuid = UUID.randomUUID().toString()
-                    val localFile = File(mediaDir, "$mediaUuid.$extension")
+                        // Resolve file name from URI
+                        val displayName = try {
+                            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                                val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                                if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                            }
+                        } catch (_: Exception) { null } ?: "file_$fileIndex"
 
-                    contentResolver.openInputStream(uri)?.use { input ->
-                        FileOutputStream(localFile).use { output ->
-                            input.copyTo(output)
+                        _mediaUploadProgress.value = _mediaUploadProgress.value.copy(
+                            currentFile = fileIndex,
+                            currentFileName = displayName,
+                            currentFileProgress = 0f,
+                            status = "Saving $fileIndex/$totalFiles..."
+                        )
+
+                        // Copy file to local storage
+                        val contentResolver = context.contentResolver
+                        val mimeType = contentResolver.getType(uri) ?: "application/octet-stream"
+                        val mediaType = if (mimeType.startsWith("video")) "video" else "image"
+                        val extension = when {
+                            mimeType.contains("jpeg") || mimeType.contains("jpg") -> "jpg"
+                            mimeType.contains("png") -> "png"
+                            mimeType.contains("heic") || mimeType.contains("heif") -> "heic"
+                            mimeType.contains("mp4") -> "mp4"
+                            mimeType.contains("quicktime") -> "mov"
+                            else -> "jpg"
                         }
-                    }
 
-                    // Generate local thumbnail for images
-                    var localThumbnailPath: String? = null
-                    if (mediaType == "image") {
-                        localThumbnailPath = generateLocalThumbnail(localFile, mediaUuid)
-                    }
+                        // Store in persistent media directory (not temp cache)
+                        val mediaDir = File(context.filesDir, "event_media/$eventId").also { it.mkdirs() }
+                        val mediaUuid = UUID.randomUUID().toString()
+                        val localFile = File(mediaDir, "$mediaUuid.$extension")
 
-                    // Create local media record
-                    val localMedia = EventMedia(
-                        eventId = eventId,
-                        mediaUuid = mediaUuid,
-                        mediaType = mediaType,
-                        fileExtension = extension,
-                        localFilePath = localFile.absolutePath,
-                        localThumbnailPath = localThumbnailPath,
-                        isUploaded = false,
-                        fileSizeBytes = localFile.length()
-                    )
-                    val mediaId = database.eventMediaDao().insertMedia(localMedia).toInt()
+                        contentResolver.openInputStream(uri)?.use { input ->
+                            FileOutputStream(localFile).use { output ->
+                                input.copyTo(output)
+                            }
+                        }
 
-                    Log.d("EventsViewModel", "Media saved locally: $mediaUuid")
+                        // Generate local thumbnail for images
+                        var localThumbnailPath: String? = null
+                        if (mediaType == "image") {
+                            localThumbnailPath = generateLocalThumbnail(localFile, mediaUuid)
+                        }
 
-                    // If event is already uploaded, upload media to server immediately
-                    if (!sessionId.isNullOrBlank()) {
-                        val result = apiClient.uploadMedia(sessionId, localFile, mediaType)
-                        result.onSuccess { uploadResult ->
-                            // Update local record with server data
-                            database.eventMediaDao().updateMediaUploadStatus(
-                                mediaId,
-                                true,
-                                uploadResult.thumbnailUrl,
-                                uploadResult.fullUrl
+                        // Create local media record
+                        val localMedia = EventMedia(
+                            eventId = eventId,
+                            mediaUuid = mediaUuid,
+                            mediaType = mediaType,
+                            fileExtension = extension,
+                            localFilePath = localFile.absolutePath,
+                            localThumbnailPath = localThumbnailPath,
+                            isUploaded = false,
+                            fileSizeBytes = localFile.length()
+                        )
+                        val mediaId = database.eventMediaDao().insertMedia(localMedia).toInt()
+
+                        Log.d("EventsViewModel", "Media saved locally: $mediaUuid")
+
+                        // If event is already uploaded, upload media to server immediately
+                        if (!sessionId.isNullOrBlank()) {
+                            _mediaUploadProgress.value = _mediaUploadProgress.value.copy(
+                                status = "Uploading $fileIndex/$totalFiles..."
                             )
 
-                            // Update the UUID to match server
-                            val updatedMedia = database.eventMediaDao().getMediaById(mediaId)
-                            if (updatedMedia != null) {
-                                database.eventMediaDao().updateMedia(
-                                    updatedMedia.copy(mediaUuid = uploadResult.mediaUuid)
+                            val result = apiClient.uploadMedia(
+                                sessionId, localFile, mediaType,
+                                onProgress = { bytesWritten, totalBytes ->
+                                    if (totalBytes > 0) {
+                                        _mediaUploadProgress.value = _mediaUploadProgress.value.copy(
+                                            currentFileProgress = bytesWritten.toFloat() / totalBytes.toFloat()
+                                        )
+                                    }
+                                }
+                            )
+                            result.onSuccess { uploadResult ->
+                                // Update local record with server data
+                                database.eventMediaDao().updateMediaUploadStatus(
+                                    mediaId,
+                                    true,
+                                    uploadResult.thumbnailUrl,
+                                    uploadResult.fullUrl
                                 )
+
+                                // Update the UUID to match server
+                                val updatedMedia = database.eventMediaDao().getMediaById(mediaId)
+                                if (updatedMedia != null) {
+                                    database.eventMediaDao().updateMedia(
+                                        updatedMedia.copy(mediaUuid = uploadResult.mediaUuid)
+                                    )
+                                }
+
+                                Log.d("EventsViewModel", "Media uploaded to server: ${uploadResult.mediaUuid}")
+                            }.onFailure { error ->
+                                Log.e("EventsViewModel", "Media server upload failed (kept locally): ${error.message}")
                             }
-
-                            Log.d("EventsViewModel", "Media uploaded to server: ${uploadResult.mediaUuid}")
-                        }.onFailure { error ->
-                            Log.e("EventsViewModel", "Media server upload failed (kept locally): ${error.message}")
-                            // Keep local record - will retry on next sync
+                        } else {
+                            Log.d("EventsViewModel", "Event not yet uploaded - media stored locally for later sync")
                         }
-                    } else {
-                        Log.d("EventsViewModel", "Event not yet uploaded - media stored locally for later sync")
-                    }
 
-                    // Update media list in memory
-                    val updatedMedia = database.eventMediaDao().getMediaForEvent(eventId)
-                    _mediaForEvent.value = _mediaForEvent.value + (eventId to updatedMedia)
+                        // Update media list in memory after each file
+                        val updatedMedia = database.eventMediaDao().getMediaForEvent(eventId)
+                        _mediaForEvent.value = _mediaForEvent.value + (eventId to updatedMedia)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e("EventsViewModel", "Error saving media: ${e.message}")
             } finally {
-                _isUploadingMedia.value = false
+                _mediaUploadProgress.value = MediaUploadProgress()
             }
         }
     }

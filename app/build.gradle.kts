@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.07")} (15-02-2026: bug fixed in Statistics screen when following user: Barometer Altitude chart showed irregular data)"
+        versionName = "${getNextVersion("8.08")} (15-02-2026: progress bar implemented when uploading media files)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

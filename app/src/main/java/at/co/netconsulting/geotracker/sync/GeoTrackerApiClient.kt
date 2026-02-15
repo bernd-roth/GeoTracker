@@ -6,12 +6,16 @@ import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.BufferedSink
+import okio.buffer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -524,13 +528,40 @@ class GeoTrackerApiClient(private val context: Context) {
     )
 
     /**
+     * A RequestBody wrapper that reports upload progress via a callback.
+     */
+    private class CountingRequestBody(
+        private val delegate: RequestBody,
+        private val onProgress: (bytesWritten: Long, totalBytes: Long) -> Unit
+    ) : RequestBody() {
+        override fun contentType(): MediaType? = delegate.contentType()
+        override fun contentLength(): Long = delegate.contentLength()
+
+        override fun writeTo(sink: BufferedSink) {
+            val totalBytes = contentLength()
+            val countingSink = object : okio.ForwardingSink(sink) {
+                private var bytesWritten = 0L
+                override fun write(source: okio.Buffer, byteCount: Long) {
+                    super.write(source, byteCount)
+                    bytesWritten += byteCount
+                    onProgress(bytesWritten, totalBytes)
+                }
+            }
+            val bufferedSink = countingSink.buffer()
+            delegate.writeTo(bufferedSink)
+            bufferedSink.flush()
+        }
+    }
+
+    /**
      * Upload media file to server for a session
      */
     suspend fun uploadMedia(
         sessionId: String,
         file: File,
         mediaType: String,
-        caption: String? = null
+        caption: String? = null,
+        onProgress: ((bytesWritten: Long, totalBytes: Long) -> Unit)? = null
     ): Result<MediaUploadResult> = withContext(Dispatchers.IO) {
         try {
             val baseUrl = getApiBaseUrl()
@@ -548,12 +579,19 @@ class GeoTrackerApiClient(private val context: Context) {
                 else -> "application/octet-stream"
             }
 
+            val fileBody: RequestBody = file.asRequestBody(mimeType.toMediaType())
+            val wrappedFileBody = if (onProgress != null) {
+                CountingRequestBody(fileBody, onProgress)
+            } else {
+                fileBody
+            }
+
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart(
                     "file",
                     file.name,
-                    file.asRequestBody(mimeType.toMediaType())
+                    wrappedFileBody
                 )
                 .addFormDataPart("media_type", mediaType)
                 .apply {

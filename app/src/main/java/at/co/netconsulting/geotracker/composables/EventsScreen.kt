@@ -74,6 +74,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.DropdownMenu
@@ -189,7 +190,7 @@ fun EventsScreen(
     // Media state
     val mediaForEvent by eventsViewModel.mediaForEvent.collectAsState()
     val isLoadingMedia by eventsViewModel.isLoadingMedia.collectAsState()
-    val isUploadingMedia by eventsViewModel.isUploadingMedia.collectAsState()
+    val mediaUploadProgress by eventsViewModel.mediaUploadProgress.collectAsState()
 
     // State for media picker - which event to add media to
     var mediaPickerEventId by remember { mutableStateOf<Int?>(null) }
@@ -206,10 +207,7 @@ fun EventsScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty() && mediaPickerEventId != null) {
-            uris.forEach { uri ->
-                eventsViewModel.uploadMediaForEvent(mediaPickerEventId!!, uri)
-            }
-            Toast.makeText(context, "Uploading ${uris.size} media file(s)...", Toast.LENGTH_SHORT).show()
+            eventsViewModel.uploadMediaForEvent(mediaPickerEventId!!, uris)
         }
         mediaPickerEventId = null
     }
@@ -985,7 +983,8 @@ fun EventsScreen(
                             },
                             mediaList = mediaForEvent[eventWithDetails.event.eventId] ?: emptyList(),
                             isLoadingMedia = isLoadingMedia.contains(eventWithDetails.event.eventId),
-                            mediaCacheDir = eventsViewModel.mediaCacheDir
+                            mediaCacheDir = eventsViewModel.mediaCacheDir,
+                            mediaUploadProgress = if (mediaUploadProgress.isUploading) mediaUploadProgress else null
                         )
                     }
                 }
@@ -1086,7 +1085,8 @@ fun EventCard(
     onDeleteMedia: (EventMedia) -> Unit = {},
     mediaList: List<EventMedia> = emptyList(),
     isLoadingMedia: Boolean = false,
-    mediaCacheDir: File? = null
+    mediaCacheDir: File? = null,
+    mediaUploadProgress: at.co.netconsulting.geotracker.data.MediaUploadProgress? = null
 ) {
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -2626,6 +2626,54 @@ fun EventCard(
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+
+                // Media upload progress bar
+                if (mediaUploadProgress != null && mediaUploadProgress.isUploading) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Uploading ${mediaUploadProgress.currentFile}/${mediaUploadProgress.totalFiles}...",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "${(mediaUploadProgress.currentFileProgress * 100).toInt()}%",
+                                fontSize = 13.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LinearProgressIndicator(
+                            progress = { mediaUploadProgress.currentFileProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp),
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                        if (mediaUploadProgress.currentFileName.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = mediaUploadProgress.currentFileName,
+                                fontSize = 11.sp,
+                                color = Color.Gray,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                     }
