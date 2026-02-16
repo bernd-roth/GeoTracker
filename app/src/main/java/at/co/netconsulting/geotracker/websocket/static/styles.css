@@ -443,7 +443,7 @@ html {
 /* Control Panel - Glassmorphism */
 .control-panel {
     position: absolute;
-    top: 110px;
+    top: 10px;
     left: 10px;
     z-index: 1000;
     background: var(--bg-panel);
