@@ -26,6 +26,10 @@
     <string name="widget_temperature">Temperature</string>
     <string name="widget_barometer">Barometer</string>
     <string name="widget_heartrate">Heart Rate</string>
+    <string name="widget_following">Following: %s</string>
+    <string name="widget_not_following">Not Following</string>
+    <string name="widget_config_title">Select Runner to Follow</string>
+    <string name="widget_config_no_users">No active runners found</string>
     <!--Download Events-->
     <string name="download_events">Download Events from Server</string>
     <string name="download_events_desc">Download events recorded on other devices</string>

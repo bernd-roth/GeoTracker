@@ -1916,9 +1916,22 @@ class ForegroundService : Service() {
             Log.d(TAG, "Not clearing session data - might be a crash")
         }
 
-        // Reset widget to not tracking state
+        // Reset widget - restart following service if a followed runner is configured, else reset to not tracking
         try {
-            GeoTrackerWidget.updateWidgetNotTracking(this)
+            val widgetPrefs = getSharedPreferences(GeoTrackerWidget.WIDGET_CONFIG_PREFS, MODE_PRIVATE)
+            val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(this)
+            val widgetIds = appWidgetManager.getAppWidgetIds(
+                android.content.ComponentName(this, GeoTrackerWidget::class.java)
+            )
+            val hasFollowingConfig = widgetIds.any { id ->
+                widgetPrefs.getString("widget_${id}_session_id", null) != null
+            }
+            if (hasFollowingConfig) {
+                Log.d(TAG, "Recording stopped, restarting WidgetFollowingService")
+                startForegroundService(Intent(this, WidgetFollowingService::class.java))
+            } else {
+                GeoTrackerWidget.updateWidgetNotTracking(this)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error resetting widget", e)
         }

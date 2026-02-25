@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.08")} (15-02-2026: progress bar implemented when uploading media files)"
+        versionName = "${getNextVersion("8.09")} (17-02-2026: added following user as a widget implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -10,6 +10,8 @@ import android.util.Log
 import android.widget.RemoteViews
 import at.co.netconsulting.geotracker.MainActivity
 import at.co.netconsulting.geotracker.R
+import at.co.netconsulting.geotracker.data.FollowedUserPoint
+import at.co.netconsulting.geotracker.service.WidgetFollowingService
 import java.util.Locale
 
 class GeoTrackerWidget : AppWidgetProvider() {
@@ -20,9 +22,17 @@ class GeoTrackerWidget : AppWidgetProvider() {
         appWidgetIds: IntArray
     ) {
         Log.d(TAG, "onUpdate called for ${appWidgetIds.size} widgets")
+        val prefs = context.getSharedPreferences(WIDGET_CONFIG_PREFS, Context.MODE_PRIVATE)
         for (appWidgetId in appWidgetIds) {
             try {
-                updateAppWidget(context, appWidgetManager, appWidgetId, WidgetData())
+                val configuredPerson = prefs.getString("widget_${appWidgetId}_person", null)
+                if (configuredPerson != null) {
+                    // Following widget - show waiting state with person name
+                    val data = WidgetData(isFollowing = true, personName = configuredPerson)
+                    updateAppWidget(context, appWidgetManager, appWidgetId, data)
+                } else {
+                    updateAppWidget(context, appWidgetManager, appWidgetId, WidgetData())
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating widget $appWidgetId", e)
             }
@@ -31,40 +41,7 @@ class GeoTrackerWidget : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-
         Log.d(TAG, "onReceive: ${intent.action}")
-
-        if (intent.action == ACTION_UPDATE_WIDGET) {
-            try {
-                val data = WidgetData(
-                    totalActivity = intent.getStringExtra(EXTRA_TOTAL_ACTIVITY) ?: "--:--:--",
-                    duration = intent.getStringExtra(EXTRA_DURATION) ?: "--:--:--",
-                    inactivity = intent.getStringExtra(EXTRA_INACTIVITY) ?: "--:--:--",
-                    distance = intent.getDoubleExtra(EXTRA_DISTANCE, 0.0),
-                    speed = intent.getFloatExtra(EXTRA_SPEED, 0.0f),
-                    altitude = intent.getDoubleExtra(EXTRA_ALTITUDE, 0.0),
-                    temperature = intent.getFloatExtra(EXTRA_TEMPERATURE, Float.MIN_VALUE),
-                    barometer = intent.getFloatExtra(EXTRA_BAROMETER, 0.0f),
-                    heartRate = intent.getIntExtra(EXTRA_HEARTRATE, 0),
-                    isTracking = intent.getBooleanExtra(EXTRA_IS_TRACKING, false)
-                )
-
-                Log.d(TAG, "Updating widget: $data")
-
-                val appWidgetManager = AppWidgetManager.getInstance(context)
-                val appWidgetIds = appWidgetManager.getAppWidgetIds(
-                    ComponentName(context, GeoTrackerWidget::class.java)
-                )
-
-                Log.d(TAG, "Found ${appWidgetIds.size} widget instances")
-
-                for (appWidgetId in appWidgetIds) {
-                    updateAppWidget(context, appWidgetManager, appWidgetId, data)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in onReceive", e)
-            }
-        }
     }
 
     override fun onEnabled(context: Context) {
@@ -73,6 +50,30 @@ class GeoTrackerWidget : AppWidgetProvider() {
 
     override fun onDisabled(context: Context) {
         Log.d(TAG, "Widget disabled (last instance removed)")
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        Log.d(TAG, "onDeleted called for ${appWidgetIds.size} widgets")
+        val prefs = context.getSharedPreferences(WIDGET_CONFIG_PREFS, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
+        for (id in appWidgetIds) {
+            editor.remove("widget_${id}_session_id")
+            editor.remove("widget_${id}_person")
+        }
+        editor.apply()
+
+        // Check if any remaining widgets have following configured
+        val appWidgetManager = AppWidgetManager.getInstance(context)
+        val remainingIds = appWidgetManager.getAppWidgetIds(
+            ComponentName(context, GeoTrackerWidget::class.java)
+        )
+        val hasFollowingWidgets = remainingIds.any { id ->
+            prefs.getString("widget_${id}_session_id", null) != null
+        }
+        if (!hasFollowingWidgets) {
+            Log.d(TAG, "No more following widgets, stopping WidgetFollowingService")
+            context.stopService(Intent(context, WidgetFollowingService::class.java))
+        }
     }
 
     data class WidgetData(
@@ -85,23 +86,19 @@ class GeoTrackerWidget : AppWidgetProvider() {
         val temperature: Float = Float.MIN_VALUE,
         val barometer: Float = 0.0f,
         val heartRate: Int = 0,
-        val isTracking: Boolean = false
+        val isTracking: Boolean = false,
+        val isFollowing: Boolean = false,
+        val personName: String? = null
     )
 
     companion object {
         private const val TAG = "GeoTrackerWidget"
-        const val ACTION_UPDATE_WIDGET = "at.co.netconsulting.geotracker.UPDATE_WIDGET"
-        private const val EXTRA_TOTAL_ACTIVITY = "extra_total_activity"
-        private const val EXTRA_DURATION = "extra_duration"
-        private const val EXTRA_INACTIVITY = "extra_inactivity"
-        private const val EXTRA_DISTANCE = "extra_distance"
-        private const val EXTRA_SPEED = "extra_speed"
-        private const val EXTRA_ALTITUDE = "extra_altitude"
-        private const val EXTRA_TEMPERATURE = "extra_temperature"
-        private const val EXTRA_BAROMETER = "extra_barometer"
-        private const val EXTRA_HEARTRATE = "extra_heartrate"
-        private const val EXTRA_IS_TRACKING = "extra_is_tracking"
+        const val WIDGET_CONFIG_PREFS = "WidgetConfig"
 
+        /**
+         * Update own-stats widgets only (widgets without following config).
+         * Called by ForegroundService during recording.
+         */
         fun updateWidget(
             context: Context,
             totalActivity: String,
@@ -116,28 +113,137 @@ class GeoTrackerWidget : AppWidgetProvider() {
             isTracking: Boolean
         ) {
             try {
-                val intent = Intent(context, GeoTrackerWidget::class.java).apply {
-                    action = ACTION_UPDATE_WIDGET
-                    putExtra(EXTRA_TOTAL_ACTIVITY, totalActivity)
-                    putExtra(EXTRA_DURATION, duration)
-                    putExtra(EXTRA_INACTIVITY, inactivity)
-                    putExtra(EXTRA_DISTANCE, distance)
-                    putExtra(EXTRA_SPEED, speed)
-                    putExtra(EXTRA_ALTITUDE, altitude)
-                    putExtra(EXTRA_TEMPERATURE, temperature ?: Float.MIN_VALUE)
-                    putExtra(EXTRA_BAROMETER, barometer)
-                    putExtra(EXTRA_HEARTRATE, heartRate)
-                    putExtra(EXTRA_IS_TRACKING, isTracking)
+                val data = WidgetData(
+                    totalActivity = totalActivity,
+                    duration = duration,
+                    inactivity = inactivity,
+                    distance = distance,
+                    speed = speed,
+                    altitude = altitude,
+                    temperature = temperature ?: Float.MIN_VALUE,
+                    barometer = barometer,
+                    heartRate = heartRate,
+                    isTracking = isTracking
+                )
+
+                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val prefs = context.getSharedPreferences(WIDGET_CONFIG_PREFS, Context.MODE_PRIVATE)
+                val allIds = appWidgetManager.getAppWidgetIds(
+                    ComponentName(context, GeoTrackerWidget::class.java)
+                )
+
+                for (id in allIds) {
+                    // Only update widgets that are NOT configured for following
+                    if (prefs.getString("widget_${id}_session_id", null) == null) {
+                        updateAppWidget(context, appWidgetManager, id, data)
+                    }
                 }
-                context.sendBroadcast(intent)
-                Log.d(TAG, "Broadcast sent: totalActivity=$totalActivity, duration=$duration, inactivity=$inactivity, distance=$distance, speed=$speed, altitude=$altitude, temp=$temperature, baro=$barometer, hr=$heartRate, tracking=$isTracking")
+
+                Log.d(TAG, "Own stats updated: distance=$distance, speed=$speed, tracking=$isTracking")
             } catch (e: Exception) {
-                Log.e(TAG, "Error sending widget update broadcast", e)
+                Log.e(TAG, "Error updating own-stats widgets", e)
             }
         }
 
+        /**
+         * Reset own-stats widgets to not-tracking state.
+         * Only affects widgets without following config.
+         */
         fun updateWidgetNotTracking(context: Context) {
-            updateWidget(context, "--:--:--", "--:--:--", "--:--:--", 0.0, 0.0f, 0.0, null, 0.0f, 0, false)
+            try {
+                val data = WidgetData()
+                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val prefs = context.getSharedPreferences(WIDGET_CONFIG_PREFS, Context.MODE_PRIVATE)
+                val allIds = appWidgetManager.getAppWidgetIds(
+                    ComponentName(context, GeoTrackerWidget::class.java)
+                )
+
+                for (id in allIds) {
+                    if (prefs.getString("widget_${id}_session_id", null) == null) {
+                        updateAppWidget(context, appWidgetManager, id, data)
+                    }
+                }
+
+                Log.d(TAG, "Own stats widgets reset to not-tracking")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error resetting own-stats widgets", e)
+            }
+        }
+
+        /**
+         * Update following widgets with followed runner data.
+         * Only affects widgets configured to follow the given session.
+         */
+        fun updateWidgetFollowing(
+            context: Context,
+            point: FollowedUserPoint,
+            duration: String,
+            temperature: Float?,
+            barometer: Float?
+        ) {
+            try {
+                val data = WidgetData(
+                    totalActivity = duration,
+                    duration = duration,
+                    inactivity = "---",
+                    distance = point.distance,
+                    speed = point.currentSpeed,
+                    altitude = point.altitude,
+                    temperature = temperature ?: Float.MIN_VALUE,
+                    barometer = barometer ?: 0.0f,
+                    heartRate = point.heartRate ?: 0,
+                    isTracking = true,
+                    isFollowing = true,
+                    personName = point.person
+                )
+
+                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val prefs = context.getSharedPreferences(WIDGET_CONFIG_PREFS, Context.MODE_PRIVATE)
+                val allIds = appWidgetManager.getAppWidgetIds(
+                    ComponentName(context, GeoTrackerWidget::class.java)
+                )
+
+                for (id in allIds) {
+                    // Only update widgets configured to follow this session
+                    val configuredSession = prefs.getString("widget_${id}_session_id", null)
+                    if (configuredSession == point.sessionId) {
+                        updateAppWidget(context, appWidgetManager, id, data)
+                    }
+                }
+
+                Log.d(TAG, "Following widget updated for ${point.person}: distance=${point.distance}, speed=${point.currentSpeed}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating following widgets", e)
+            }
+        }
+
+        /**
+         * Reset following widgets to not-tracking state.
+         * Called when followed runner goes offline.
+         */
+        fun resetFollowingWidgets(context: Context, sessionId: String) {
+            try {
+                val data = WidgetData()
+                val appWidgetManager = AppWidgetManager.getInstance(context)
+                val prefs = context.getSharedPreferences(WIDGET_CONFIG_PREFS, Context.MODE_PRIVATE)
+                val allIds = appWidgetManager.getAppWidgetIds(
+                    ComponentName(context, GeoTrackerWidget::class.java)
+                )
+
+                for (id in allIds) {
+                    val configuredSession = prefs.getString("widget_${id}_session_id", null)
+                    if (configuredSession == sessionId) {
+                        // Show person name with offline state
+                        val personName = prefs.getString("widget_${id}_person", null)
+                        val offlineData = data.copy(isFollowing = true, personName = personName)
+                        updateAppWidget(context, appWidgetManager, id, offlineData)
+                    }
+                }
+
+                Log.d(TAG, "Following widgets reset for session $sessionId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error resetting following widgets", e)
+            }
         }
 
         private fun updateAppWidget(
@@ -149,17 +255,30 @@ class GeoTrackerWidget : AppWidgetProvider() {
             try {
                 val views = RemoteViews(context.packageName, R.layout.widget_geotracker)
 
-                // Set click listener to open MainActivity
+                // Set click listener - open config activity when following, MainActivity otherwise
+                val clickIntent = if (data.isFollowing) {
+                    Intent(context, WidgetConfigActivity::class.java).apply {
+                        putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                    }
+                } else {
+                    Intent(context, MainActivity::class.java)
+                }
                 val pendingIntent = PendingIntent.getActivity(
                     context,
-                    0,
-                    Intent(context, MainActivity::class.java),
+                    appWidgetId, // unique requestCode per widget so each gets its own PendingIntent
+                    clickIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
                 views.setOnClickPendingIntent(R.id.widget_root, pendingIntent)
 
                 // Update status text
-                if (data.isTracking) {
+                if (data.isFollowing && data.personName != null) {
+                    views.setTextViewText(
+                        R.id.widget_status,
+                        context.getString(R.string.widget_following, data.personName)
+                    )
+                    views.setTextColor(R.id.widget_status, 0xFF2196F3.toInt()) // Blue
+                } else if (data.isTracking) {
                     views.setTextViewText(R.id.widget_status, "Recording...")
                     views.setTextColor(R.id.widget_status, 0xFF4CAF50.toInt()) // Green
                 } else {
@@ -168,7 +287,7 @@ class GeoTrackerWidget : AppWidgetProvider() {
                 }
 
                 // Update values
-                if (data.isTracking) {
+                if (data.isTracking || (data.isFollowing && data.distance > 0)) {
                     // Total Activity
                     views.setTextViewText(R.id.widget_total_activity_value, data.totalActivity)
 
