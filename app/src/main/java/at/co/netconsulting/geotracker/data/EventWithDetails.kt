@@ -16,6 +16,7 @@ data class EventWithDetails(
 
     // Always loaded (minimal data)
     val locationPointCount: Int = 0, // Number of location points (for memory efficiency)
+    val waypointCount: Int = 0,
 
     // Lazy-loaded fields (only calculated when event card is expanded)
     val totalDistance: Double = 0.0,

@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
@@ -1360,6 +1361,32 @@ fun EventCard(
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    if (event.waypointCount > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .background(
+                                    color = Color(0xFFFF5722).copy(alpha = 0.12f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = "Waypoints",
+                                tint = Color(0xFFFF5722),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = "${event.waypointCount}",
+                                fontSize = 11.sp,
+                                color = Color(0xFFFF5722),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
                 }
 
                 // Expand/Collapse icon

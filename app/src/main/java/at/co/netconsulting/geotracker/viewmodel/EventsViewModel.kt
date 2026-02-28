@@ -318,13 +318,15 @@ class EventsViewModel(
 
             // ALWAYS load location point count (minimal data)
             val locationPointCount = database.locationDao().getLocationCountForEvent(eventId)
+            val waypointCount = database.waypointDao().getWaypointCountForEvent(eventId)
 
             // If NOT loading full details, return minimal EventWithDetails
             if (!loadFullDetails) {
                 return@map EventWithDetails(
                     event = event,
                     hasFullDetails = false,
-                    locationPointCount = locationPointCount
+                    locationPointCount = locationPointCount,
+                    waypointCount = waypointCount
                 )
             }
 
@@ -518,6 +520,7 @@ class EventsViewModel(
                 laps = lapTimes,
                 locationPoints = geoPoints,
                 locationPointCount = locationPointCount,
+                waypointCount = waypointCount,
                 // Updated satellite fields
                 minSatellites = minSatellites,
                 maxSatellites = maxSatellites,
