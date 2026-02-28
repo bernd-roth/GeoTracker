@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.09")} (17-02-2026: added following user as a widget implemented)"
+        versionName = "${getNextVersion("8.10")} (28-02-2026: added thumbnails to waypoint marker)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

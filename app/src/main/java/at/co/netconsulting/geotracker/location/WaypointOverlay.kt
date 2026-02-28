@@ -6,18 +6,21 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Point
 import android.graphics.Rect
+import android.view.MotionEvent
 import at.co.netconsulting.geotracker.domain.Waypoint
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
-import org.osmdroid.views.Projection
 import org.osmdroid.views.overlay.Overlay
 import timber.log.Timber
+import kotlin.math.sqrt
 
 class WaypointOverlay(
     private val context: Context
 ) : Overlay() {
 
     private var waypoints = listOf<Waypoint>()
+
+    var onWaypointTapped: ((Waypoint) -> Unit)? = null
     
     // Paint objects for drawing waypoint markers
     private val waypointPaint = Paint().apply {
@@ -49,6 +52,24 @@ class WaypointOverlay(
     fun updateWaypoints(newWaypoints: List<Waypoint>) {
         waypoints = newWaypoints
         Timber.d("WaypointOverlay updated with ${waypoints.size} waypoints")
+    }
+
+    override fun onSingleTapConfirmed(e: MotionEvent, mapView: MapView): Boolean {
+        val tapX = e.x
+        val tapY = e.y
+        val point = Point()
+        val projection = mapView.projection
+        waypoints.forEach { waypoint ->
+            val geoPoint = GeoPoint(waypoint.latitude, waypoint.longitude)
+            projection.toPixels(geoPoint, point)
+            val dx = tapX - point.x
+            val dy = tapY - point.y
+            if (sqrt(dx * dx + dy * dy) <= 35f) {
+                onWaypointTapped?.invoke(waypoint)
+                return true
+            }
+        }
+        return false
     }
 
     override fun draw(canvas: Canvas, mapView: MapView, shadow: Boolean) {

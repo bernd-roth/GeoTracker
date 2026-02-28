@@ -25,9 +25,10 @@ import android.util.Log
         Network::class,
         Waypoint::class,
         EventMedia::class,
-        DisciplineTransition::class
+        DisciplineTransition::class,
+        WaypointPhoto::class
     ],
-    version = 23, // INCREMENTED FROM 22 TO 23 for backyardLap column in locations
+    version = 24, // INCREMENTED FROM 23 TO 24 for waypoint_photos table
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -48,6 +49,7 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
     abstract fun waypointDao(): WaypointDao
     abstract fun eventMediaDao(): EventMediaDao
     abstract fun disciplineTransitionDao(): DisciplineTransitionDao
+    abstract fun waypointPhotoDao(): WaypointPhotoDao
 
     companion object {
         @Volatile
@@ -700,6 +702,27 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 23->24 - adding waypoint_photos table")
+                try {
+                    database.execSQL("""
+                        CREATE TABLE waypoint_photos (
+                            photoId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            waypointId INTEGER NOT NULL,
+                            photoPath TEXT NOT NULL,
+                            FOREIGN KEY(waypointId) REFERENCES waypoints(waypointId) ON DELETE CASCADE
+                        )
+                    """)
+                    database.execSQL("CREATE INDEX index_waypoint_photos_waypointId ON waypoint_photos(waypointId)")
+                    Log.d(TAG, "Migration 23->24 completed - waypoint_photos table created")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 23->24", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -730,7 +753,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_19_20,
                             MIGRATION_20_21,
                             MIGRATION_21_22,
-                            MIGRATION_22_23
+                            MIGRATION_22_23,
+                            MIGRATION_23_24
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

@@ -1,8 +1,11 @@
 package at.co.netconsulting.geotracker.composables
 
 import android.content.Context
+import android.net.Uri
 import android.util.DisplayMetrics
 import android.view.View
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,7 +15,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.AlertDialog
@@ -20,6 +26,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,10 +47,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Waypoint
+import at.co.netconsulting.geotracker.domain.WaypointPhoto
 import at.co.netconsulting.geotracker.data.WaypointData
 import at.co.netconsulting.geotracker.data.WebSocketMessage
+import coil.compose.AsyncImage
 import org.greenrobot.eventbus.EventBus
-import java.time.LocalDateTime
+import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -52,8 +62,6 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
-import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import timber.log.Timber
 
 @Composable
@@ -68,13 +76,20 @@ fun WaypointDialog(
     var waypointName by remember { mutableStateOf("") }
     var waypointDescription by remember { mutableStateOf("") }
     var isSaving by remember { mutableStateOf(false) }
-    
+    var selectedUris by remember { mutableStateOf(listOf<Uri>()) }
+
     // Map state
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
     val currentLocation = remember { GeoPoint(currentLatitude, currentLongitude) }
-    
+
     // Database
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        selectedUris = selectedUris + uris
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -138,7 +153,6 @@ fun WaypointDialog(
                 ) {
                     AndroidView(
                         factory = { ctx ->
-                            // Initialize OSMDroid configuration if not already done
                             try {
                                 Configuration.getInstance().load(
                                     ctx,
@@ -152,21 +166,15 @@ fun WaypointDialog(
                             MapView(ctx).apply {
                                 setTileSource(TileSourceFactory.MAPNIK)
                                 setMultiTouchControls(true)
-                                controller.setZoom(16.0) // Close zoom for waypoint detail
+                                controller.setZoom(16.0)
                                 controller.setCenter(currentLocation)
-                                
-                                // Disable hardware acceleration for the small preview
                                 setLayerType(View.LAYER_TYPE_SOFTWARE, null)
-                                
-                                // Add current location marker
                                 val marker = Marker(this).apply {
                                     position = currentLocation
                                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                     title = "Waypoint Location"
                                 }
                                 overlays.add(marker)
-                                
-                                // Store reference
                                 mapViewRef.value = this
                             }
                         },
@@ -200,6 +208,36 @@ fun WaypointDialog(
                     modifier = Modifier.fillMaxWidth(),
                     maxLines = 2
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Add Photos button
+                OutlinedButton(
+                    onClick = { photoPickerLauncher.launch("image/*") },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddAPhoto,
+                        contentDescription = "Add Photos",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Add Photos")
+                }
+
+                // Thumbnail row
+                if (selectedUris.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(selectedUris) { uri ->
+                            AsyncImage(
+                                model = uri,
+                                contentDescription = "Selected photo",
+                                modifier = Modifier.size(64.dp)
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -207,8 +245,7 @@ fun WaypointDialog(
                 onClick = {
                     if (waypointName.trim().isNotEmpty() && !isSaving) {
                         isSaving = true
-                        
-                        // Save waypoint to database
+
                         kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
                             try {
                                 val waypoint = Waypoint(
@@ -218,14 +255,30 @@ fun WaypointDialog(
                                     name = waypointName.trim(),
                                     description = if (waypointDescription.trim().isEmpty()) null else waypointDescription.trim()
                                 )
-                                
-                                withContext(Dispatchers.IO) {
+
+                                val waypointId = withContext(Dispatchers.IO) {
                                     database.waypointDao().insertWaypoint(waypoint)
                                 }
-                                
+
+                                // Save photos
+                                if (selectedUris.isNotEmpty()) {
+                                    withContext(Dispatchers.IO) {
+                                        selectedUris.forEach { uri ->
+                                            try {
+                                                val path = copyPhotoToStorage(context, uri)
+                                                database.waypointPhotoDao().insertPhoto(
+                                                    WaypointPhoto(waypointId = waypointId, photoPath = path)
+                                                )
+                                            } catch (e: Exception) {
+                                                Timber.e(e, "Error saving waypoint photo")
+                                            }
+                                        }
+                                    }
+                                }
+
                                 // Send waypoint to websocket server
                                 sendWaypointToWebSocket(waypoint, context)
-                                
+
                                 Timber.d("Waypoint saved: ${waypoint.name} at ${waypoint.latitude}, ${waypoint.longitude}")
                                 onWaypointSaved()
                             } catch (e: Exception) {
@@ -249,7 +302,7 @@ fun WaypointDialog(
             }
         }
     )
-    
+
     // Cleanup map view when dialog is dismissed
     DisposableEffect(Unit) {
         onDispose {
@@ -259,21 +312,32 @@ fun WaypointDialog(
 }
 
 /**
+ * Copies a content URI to filesDir/waypoint_photos/<uuid>.jpg and returns the absolute path.
+ */
+internal suspend fun copyPhotoToStorage(context: Context, uri: Uri): String =
+    withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, "waypoint_photos").also { it.mkdirs() }
+        val dest = File(dir, "${UUID.randomUUID()}.jpg")
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
+        }
+        dest.absolutePath
+    }
+
+/**
  * Sends waypoint data to websocket server as separate message
  */
 private fun sendWaypointToWebSocket(waypoint: Waypoint, context: Context) {
     try {
-        // Get session ID and event name from SharedPreferences
         val sessionPrefs = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
         val sessionId = sessionPrefs.getString("current_session_id", "") ?: ""
         val eventName = sessionPrefs.getString("current_event_name", "Unknown Event") ?: "Unknown Event"
-        
+
         if (sessionId.isEmpty()) {
             Timber.w("Cannot send waypoint - no sessionId available")
             return
         }
-        
-        // Create WaypointData for websocket transmission
+
         val waypointData = WaypointData(
             latitude = waypoint.latitude,
             longitude = waypoint.longitude,
@@ -282,17 +346,15 @@ private fun sendWaypointToWebSocket(waypoint: Waypoint, context: Context) {
             elevation = waypoint.elevation,
             timestamp = System.currentTimeMillis()
         )
-        
-        // Create dedicated waypoint message
+
         val waypointMessage = WebSocketMessage.WaypointMessage(
             sessionId = sessionId,
             eventName = eventName,
             waypoint = waypointData
         )
-        
-        // Send via EventBus - CustomLocationListener will handle this separately from regular metrics
+
         EventBus.getDefault().post(waypointMessage)
-        
+
         Timber.d("Waypoint message sent: '${waypoint.name}' at (${waypoint.latitude}, ${waypoint.longitude}) for session $sessionId")
     } catch (e: Exception) {
         Timber.e(e, "Error sending waypoint to websocket")

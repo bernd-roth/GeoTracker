@@ -74,6 +74,7 @@ import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.data.RouteWeatherData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.domain.Waypoint
 import at.co.netconsulting.geotracker.location.CurrentLocationInfoOverlay
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
@@ -263,6 +264,7 @@ fun MapScreen(
     var showRecordingDialog by remember { mutableStateOf(false) }
     var showUserSelectionDialog by remember { mutableStateOf(false) }
     var showWaypointDialog by remember { mutableStateOf(false) }
+    var selectedWaypoint by remember { mutableStateOf<Waypoint?>(null) }
 
     var showSettingsValidationDialog by remember { mutableStateOf(false) }
     var missingSettingsFields by remember { mutableStateOf(listOf<String>()) }
@@ -704,6 +706,12 @@ fun MapScreen(
 
         // Clear weather overlays from map
         clearWeatherOverlays()
+    }
+
+    // Set tap callbacks on waypoint overlays so tapping a waypoint opens the popup
+    LaunchedEffect(waypointOverlayRef.value, gpxWaypointOverlayRef.value) {
+        waypointOverlayRef.value?.onWaypointTapped = { w -> selectedWaypoint = w }
+        gpxWaypointOverlayRef.value?.onWaypointTapped = { w -> selectedWaypoint = w }
     }
 
     // Efficient track monitoring using timestamp
@@ -3009,6 +3017,14 @@ fun MapScreen(
                 }
                 Toast.makeText(context, "Waypoint saved", Toast.LENGTH_SHORT).show()
             }
+        )
+    }
+
+    // Waypoint popup (shown when a waypoint marker is tapped)
+    selectedWaypoint?.let { wp ->
+        WaypointPopupDialog(
+            waypoint = wp,
+            onDismiss = { selectedWaypoint = null }
         )
     }
 
