@@ -128,14 +128,6 @@ class WidgetFollowingService : Service() {
 
             // Collect state updates
             followingService.followingState.collect { state ->
-                val isRecording = getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
-                    .getBoolean("is_recording", false)
-
-                if (isRecording) {
-                    Log.d(TAG, "Recording active, skipping widget following updates")
-                    return@collect
-                }
-
                 // Update each tracked session's widget
                 for ((sessionId, tracker) in trackedSessions) {
                     val latestPoint = state.getCurrentPosition(sessionId) ?: continue
