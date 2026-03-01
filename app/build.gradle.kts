@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.11")} (28-02-2026: overview of numbers of waypoints in eventsscreen)"
+        versionName = "${getNextVersion("8.12")} (01-03-2026: barometer altitude wrong data fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

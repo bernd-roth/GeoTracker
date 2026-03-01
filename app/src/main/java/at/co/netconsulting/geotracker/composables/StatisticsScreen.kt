@@ -842,13 +842,13 @@ fun FollowedUserStatistics(sessionId: String, trail: List<FollowedUserPoint>) {
     }
 
     val pressureEntries = remember(trail) {
-        trail.filter { it.pressure != null }.map { point ->
+        trail.filter { it.pressure != null && it.pressure!! > 0.0 }.map { point ->
             Entry((point.distance / 1000.0).toFloat(), point.pressure!!.toFloat())
         }
     }
 
     val barometerAltitudeEntries = remember(trail) {
-        trail.filter { it.altitudeFromPressure != null }.map { point ->
+        trail.filter { it.altitudeFromPressure != null && it.altitudeFromPressure!! > 0.0 }.map { point ->
             Entry((point.distance / 1000.0).toFloat(), point.altitudeFromPressure!!.toFloat())
         }
     }

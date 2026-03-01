@@ -48,6 +48,7 @@ import android.os.Build
 import at.co.netconsulting.geotracker.data.BarometerData
 import at.co.netconsulting.geotracker.data.HeartRateData
 import at.co.netconsulting.geotracker.data.LapTimeData
+import kotlin.math.pow
 
 class CustomLocationListener: LocationListener {
     var startDateTime: LocalDateTime = LocalDateTime.now()
@@ -153,6 +154,8 @@ class CustomLocationListener: LocationListener {
     private var currentPressureAccuracy: Int = 0
     private var currentAltitudeFromPressure: Float = 0f
     private var currentSeaLevelPressure: Float = 1013.25f
+    private var barometerQnh: Float = 1013.25f        // GPS-calibrated sea-level pressure
+    private var isBarometerCalibrated: Boolean = false
 
     // Real-time slope data
     private var currentSlope: Double = 0.0
@@ -1194,14 +1197,30 @@ class CustomLocationListener: LocationListener {
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onBarometerUpdate(barometerData: BarometerData) {
-        Log.d(TAG_WEBSOCKET, "Received barometer update: pressure=${barometerData.pressure} hPa, altitude=${barometerData.altitudeFromPressure}m")
-
         currentPressure = barometerData.pressure
         currentPressureAccuracy = barometerData.accuracy
-        currentAltitudeFromPressure = barometerData.altitudeFromPressure
-        currentSeaLevelPressure = barometerData.seaLevelPressure
 
-        Log.d(TAG_WEBSOCKET, "Barometer data updated - will be included in next metrics transmission")
+        if (barometerData.pressure > 0f) {
+            // On the first valid reading, derive the actual QNH from the current GPS altitude.
+            // ForegroundService tries this at service start but the barometer hasn't fired yet;
+            // here we retry as soon as the first real pressure value arrives.
+            if (!isBarometerCalibrated) {
+                val gpsAlt = lastKnownAltitude ?: startingAltitude
+                if (gpsAlt != null && gpsAlt > 0.0) {
+                    val ratio = 1f - 0.0065f * gpsAlt.toFloat() / 288.15f
+                    barometerQnh = barometerData.pressure / ratio.pow(5.255f)
+                    isBarometerCalibrated = true
+                    Log.d(TAG_WEBSOCKET, "Barometer calibrated: QNH=${barometerQnh} hPa from GPS alt=${gpsAlt}m, pressure=${barometerData.pressure} hPa")
+                }
+            }
+            currentAltitudeFromPressure = 44330f * (1f - (barometerData.pressure / barometerQnh).pow(1f / 5.255f))
+            currentSeaLevelPressure = barometerQnh
+        } else {
+            currentAltitudeFromPressure = 0f
+            currentSeaLevelPressure = barometerData.seaLevelPressure
+        }
+
+        Log.d(TAG_WEBSOCKET, "Barometer update: pressure=${barometerData.pressure} hPa, calibrated altitude=${currentAltitudeFromPressure}m (QNH=${currentSeaLevelPressure} hPa)")
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
