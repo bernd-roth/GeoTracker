@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.12")} (01-03-2026: barometer altitude wrong data fixed)"
+        versionName = "${getNextVersion("8.13")} (01-03-2026: fixed wrong km/h calculation in overlay location display)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

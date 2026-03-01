@@ -144,7 +144,7 @@ class CurrentLocationInfoOverlay(private val context: Context) : Overlay() {
         val activityTime = calculateActivityTime()
 
         // Prepare text lines
-        val speedKmh = currentSpeed * 3.6
+        val speedKmh = currentSpeed
         val distanceKm = currentDistance / 1000.0
         val lines = mutableListOf(
             "Current Location",
