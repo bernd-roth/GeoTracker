@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.16")} (05-03-2026: pace distribution implemented)"
+        versionName = "${getNextVersion("8.16")} (05-03-2026: bugfixing-removedFirst changed to removedAt(0))"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

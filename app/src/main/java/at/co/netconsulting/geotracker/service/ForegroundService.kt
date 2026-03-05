@@ -2260,7 +2260,6 @@ class ForegroundService : Service() {
     /**
      * Calculate real-time slope based on distance and elevation changes
      */
-    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     private fun calculateRealTimeSlope(currentDistance: Double, currentAltitude: Double): Double {
         if (previousDistance == 0.0) {
             // First measurement - initialize
@@ -2282,7 +2281,7 @@ class ForegroundService : Service() {
                 // Add to history for smoothing
                 slopeHistory.add(slope)
                 if (slopeHistory.size > maxSlopeHistorySize) {
-                    slopeHistory.removeFirst()
+                    slopeHistory.removeAt(0)
                 }
 
                 // Calculate smoothed slope using moving average
