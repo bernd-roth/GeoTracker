@@ -97,6 +97,10 @@ class MainActivity : ComponentActivity() {
     private var altitudeEventName by mutableStateOf("")
     private var altitudeMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
+    // pace data
+    private var paceEventName by mutableStateOf("")
+    private var paceMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
+
     // Route navigation state
     private val routeToDisplay = mutableStateOf<RouteDisplayData?>(null)
     private val routeRerunData = mutableStateOf<RouteRerunData?>(null)
@@ -109,6 +113,7 @@ class MainActivity : ComponentActivity() {
         const val WEATHER_DETAIL = "weather_detail"
         const val BAROMETER_DETAIL = "barometer_detail"
         const val ALTITUDE_DETAIL = "altitude_detail"
+        const val PACE_DETAIL = "pace_detail"
         const val ROUTE_COMPARISON = "route_comparison/{eventId}"
         const val EXPORT_SYNC = "export_sync"
 
@@ -118,6 +123,7 @@ class MainActivity : ComponentActivity() {
         fun weatherDetail() = "weather_detail"
         fun barometerDetail() = "barometer_detail"
         fun altitudeDetail() = "altitude_detail"
+        fun paceDetail() = "pace_detail"
         fun routeComparison(eventId: Int) = "route_comparison/$eventId"
         fun exportSync() = "export_sync"
     }
@@ -600,6 +606,12 @@ class MainActivity : ComponentActivity() {
                         altitudeMetrics = metrics
                         navController.navigate(Routes.altitudeDetail())
                     },
+                    onNavigateToPaceDetail = { eventName, metrics ->
+                        Log.d("MainActivity", "Navigating to pace detail for event: $eventName")
+                        paceEventName = eventName
+                        paceMetrics = metrics
+                        navController.navigate(Routes.paceDetail())
+                    },
                     onNavigateToMapWithRoute = onNavigateToMapWithRoute,
                     onNavigateToMapWithRouteRerun = onNavigateToMapWithRouteRerun,
                     onNavigateToRouteComparison = { eventId, eventName ->
@@ -697,6 +709,21 @@ class MainActivity : ComponentActivity() {
                         // Clear the data when navigating back
                         altitudeEventName = ""
                         altitudeMetrics = emptyList()
+                    }
+                )
+            }
+
+            // Pace detail screen
+            composable(Routes.PACE_DETAIL) {
+                Log.d("MainActivity", "Showing pace detail screen")
+                at.co.netconsulting.geotracker.composables.PaceDetailScreen(
+                    eventName = paceEventName,
+                    metrics = paceMetrics,
+                    onBackClick = {
+                        Log.d("MainActivity", "Navigating back from pace detail")
+                        navController.popBackStack()
+                        paceEventName = ""
+                        paceMetrics = emptyList()
                     }
                 )
             }

@@ -17,6 +17,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.data.Metrics
@@ -2259,6 +2260,7 @@ class ForegroundService : Service() {
     /**
      * Calculate real-time slope based on distance and elevation changes
      */
+    @RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     private fun calculateRealTimeSlope(currentDistance: Double, currentAltitude: Double): Double {
         if (previousDistance == 0.0) {
             // First measurement - initialize

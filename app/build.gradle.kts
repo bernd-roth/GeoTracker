@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.15")} (01-03-2026: wrong stranger's imported barometric altitude fixed)"
+        versionName = "${getNextVersion("8.16")} (05-03-2026: pace distribution implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

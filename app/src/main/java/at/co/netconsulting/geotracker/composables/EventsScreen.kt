@@ -157,6 +157,7 @@ fun EventsScreen(
     onNavigateToWeatherDetail: (String, List<Metric>) -> Unit,
     onNavigateToBarometerDetail: (String, List<Metric>) -> Unit,
     onNavigateToAltitudeDetail: (String, List<Metric>) -> Unit,
+    onNavigateToPaceDetail: (String, List<Metric>) -> Unit = { _, _ -> },
     onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
     onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit,
     onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> }
@@ -949,6 +950,9 @@ fun EventsScreen(
                             onAltitudeClick = {
                                 onNavigateToAltitudeDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
                             },
+                            onPaceClick = {
+                                onNavigateToPaceDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
+                            },
                             // Pass the map navigation callback and recording state
                             onViewOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId))
@@ -1074,6 +1078,7 @@ fun EventCard(
     onWeatherClick: () -> Unit = {},
     onBarometerClick: () -> Unit = {},
     onAltitudeClick: () -> Unit = {},
+    onPaceClick: () -> Unit = {},
     onViewOnMap: (List<GeoPoint>) -> Unit = {},
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     onViewSlopeOnMap: (List<GeoPoint>) -> Unit = {},
@@ -1803,6 +1808,76 @@ fun EventCard(
                     } else {
                         Text(
                             text = "No heart rate data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+
+                // Pace Distribution section
+                Spacer(modifier = Modifier.height(4.dp))
+                val hasPaceData = event.metrics.count { it.speed >= 0.5f } >= 2
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasPaceData) Modifier.clickable { onPaceClick() } else Modifier
+                        )
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Pace Distribution",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (hasPaceData) {
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "View detailed pace analysis",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    if (hasPaceData && event.averageSpeed > 0.0) {
+                        val avgPaceSeconds = (3600.0 / event.averageSpeed).toInt()
+                        Text(
+                            text = "avg %d:%02d /km".format(avgPaceSeconds / 60, avgPaceSeconds % 60),
+                            fontSize = 12.sp,
+                            color = Color(0xFF4CAF50)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (hasPaceData) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF5F5F5))
+                                .padding(8.dp)
+                        ) {
+                            PaceGraph(
+                                metrics = event.metrics,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap for detailed pace analysis",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Text(
+                            text = "No pace data available",
                             fontSize = 14.sp,
                             color = Color.Gray
                         )
