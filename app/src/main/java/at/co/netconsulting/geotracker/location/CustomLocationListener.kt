@@ -1475,13 +1475,8 @@ class CustomLocationListener: LocationListener {
         }
     }
 
-    fun updateBarometerData(pressure: Float, accuracy: Int, altitudeFromPressure: Float, seaLevelPressure: Float) {
-        currentPressure = pressure
-        currentPressureAccuracy = accuracy
-        currentAltitudeFromPressure = altitudeFromPressure
-        currentSeaLevelPressure = seaLevelPressure
-        Log.d(TAG_WEBSOCKET, "Barometer data updated in CustomLocationListener")
-    }
+    fun getCalibratedAltitudeFromPressure(): Float = currentAltitudeFromPressure
+    fun getCalibratedSeaLevelPressure(): Float = currentSeaLevelPressure
 
     fun updateSlopeData(slope: Double, avgSlope: Double, maxUphill: Double, maxDownhill: Double) {
         currentSlope = slope

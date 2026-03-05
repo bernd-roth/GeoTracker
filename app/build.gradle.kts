@@ -31,7 +31,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.14")} (01-03-2026: following another runner widget not showing any data fixed)"
+        versionName = "${getNextVersion("8.15")} (01-03-2026: wrong stranger's imported barometric altitude fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

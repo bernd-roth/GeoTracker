@@ -1253,11 +1253,18 @@ class ForegroundService : Service() {
                     temperature = currentTemperature?.toFloat(),
                     accuracy = null,
 
-                    // Include barometer data
+                    // Include barometer data — use QNH-calibrated values from CustomLocationListener
+                    // (ForegroundService.currentAltitudeFromPressure comes from BarometerSensorService
+                    // which always uses ICAO standard 1013.25 hPa; CustomLocationListener applies the
+                    // GPS-derived QNH calibration so its value matches what is sent via WebSocket)
                     pressure = if (currentPressure > 0) currentPressure else null,
                     pressureAccuracy = if (currentPressureAccuracy > 0) currentPressureAccuracy else null,
-                    altitudeFromPressure = if (currentAltitudeFromPressure != 0f) currentAltitudeFromPressure else null,
-                    seaLevelPressure = if (currentSeaLevelPressure > 0) currentSeaLevelPressure else null
+                    altitudeFromPressure = customLocationListener?.getCalibratedAltitudeFromPressure()
+                        ?.takeIf { it != 0f }
+                        ?: if (currentAltitudeFromPressure != 0f) currentAltitudeFromPressure else null,
+                    seaLevelPressure = customLocationListener?.getCalibratedSeaLevelPressure()
+                        ?.takeIf { it > 0f }
+                        ?: if (currentSeaLevelPressure > 0) currentSeaLevelPressure else null
                 )
                 database.metricDao().insertMetric(metric)
                 Log.d(TAG, "Metric saved with barometer data: pressure=$currentPressure hPa, barometric altitude=$currentAltitudeFromPressure m")
@@ -1393,9 +1400,6 @@ class ForegroundService : Service() {
             currentSeaLevelPressure = data.seaLevelPressure
 
             Log.d(TAG, "Barometer data updated: ${data.pressure} hPa, altitude: ${data.altitudeFromPressure}m, accuracy: ${data.accuracy}")
-
-            // Update CustomLocationListener with the latest barometer data
-            customLocationListener?.updateBarometerData(data.pressure, data.accuracy, data.altitudeFromPressure, data.seaLevelPressure)
         }
     }
 
