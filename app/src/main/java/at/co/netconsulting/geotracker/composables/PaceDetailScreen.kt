@@ -88,9 +88,13 @@ private fun percentileRange(values: List<Float>, lo: Double = 0.05, hi: Double =
     return p5 to p95
 }
 
-/** From the pace-metric pairs, find the one with the actual minimum pace (excluding cap artefacts). */
-private fun findBestPair(paceMetrics: List<Pair<Metric, Float>>): Pair<Metric, Float>? =
-    paceMetrics.filter { it.second < DETAIL_MAX_PACE }.minByOrNull { it.second }
+/** Find the pair closest to the 5th-percentile pace (i.e. the typical fastest point, matching PaceStatsSummary). */
+private fun findBestPair(paceMetrics: List<Pair<Metric, Float>>): Pair<Metric, Float>? {
+    val uncapped = paceMetrics.filter { it.second < DETAIL_MAX_PACE }
+    if (uncapped.isEmpty()) return null
+    val (p5, _) = percentileRange(uncapped.map { it.second })
+    return uncapped.minByOrNull { abs(it.second - p5) }
+}
 
 /** Find the pair closest to the 95th-percentile pace (i.e. the typical slowest point). */
 private fun findSlowestPair(paceMetrics: List<Pair<Metric, Float>>): Pair<Metric, Float>? {
@@ -202,7 +206,8 @@ fun PaceDetailScreen(
 
 @Composable
 fun PaceStatsSummary(paceMetrics: List<Pair<Metric, Float>>) {
-    val paces = paceMetrics.map { it.second }
+    val uncapped = paceMetrics.filter { it.second < DETAIL_MAX_PACE }
+    val paces = uncapped.map { it.second }
     val (p5, p95) = percentileRange(paces)
     val avgPace = paces.average().toFloat()
 
