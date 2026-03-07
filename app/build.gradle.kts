@@ -1,19 +1,5 @@
 import org.gradle.api.JavaVersion.VERSION_11
 
-// Helper function to auto-increment version
-fun getNextVersion(currentVersion: String): String {
-    val versionPattern = Regex("""(\d+)\.(\d+)""")
-    val matchResult = versionPattern.find(currentVersion)
-    
-    return if (matchResult != null) {
-        val major = matchResult.groupValues[1].toInt()
-        val minor = matchResult.groupValues[2].toInt()
-        "$major.${minor + 1}"
-    } else {
-        "3.5" // Fallback version
-    }
-}
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
@@ -31,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 4
-        versionName = "${getNextVersion("8.17")} (05-03-2026: bugfixing-best and slowest values differ in pace analysis)"
+        versionName = "8.19 (07-03-2026: version field implemented; 'pace distribution' graph flipped)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -73,6 +59,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

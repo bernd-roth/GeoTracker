@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.data
 
+import at.co.netconsulting.geotracker.BuildConfig
 import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
@@ -43,6 +44,7 @@ data class Metrics(
 
     // WebSocket server fields
     val sessionId: String = "",
+    val version: String = BuildConfig.VERSION_NAME,
     val firstname: String = "",
     val lastname: String = "",
     val birthdate: String = "",

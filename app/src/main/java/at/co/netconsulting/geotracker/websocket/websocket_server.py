@@ -352,9 +352,15 @@ class TrackingServer:
                     min_distance_meters INTEGER,
                     min_time_seconds INTEGER,
                     voice_announcement_interval INTEGER,
+                    app_version VARCHAR(255),
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW()
                 )
+            """)
+
+            # Migration: add app_version to existing deployments
+            await conn.execute("""
+                ALTER TABLE tracking_sessions ADD COLUMN IF NOT EXISTS app_version VARCHAR(255)
             """)
 
             # Create gps_tracking_points table with weather and barometer columns
@@ -619,8 +625,9 @@ class TrackingServer:
         await conn.execute("""
             INSERT INTO tracking_sessions (
                 session_id, user_id, event_name, sport_type, comment, clothing,
-                start_date_time, min_distance_meters, min_time_seconds, voice_announcement_interval
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                start_date_time, min_distance_meters, min_time_seconds, voice_announcement_interval,
+                app_version
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (session_id) DO NOTHING
         """,
                            session_id, user_id,
@@ -631,7 +638,8 @@ class TrackingServer:
                            start_date_time,
                            int(message_data.get('minDistanceMeters', 0)) if message_data.get('minDistanceMeters') else None,
                            int(message_data.get('minTimeSeconds', 0)) if message_data.get('minTimeSeconds') else None,
-                           int(message_data.get('voiceAnnouncementInterval', 0)) if message_data.get('voiceAnnouncementInterval') else None
+                           int(message_data.get('voiceAnnouncementInterval', 0)) if message_data.get('voiceAnnouncementInterval') else None,
+                           message_data.get('version') or None
                            )
 
     async def _compare_gps_samples(
@@ -1087,6 +1095,14 @@ class TrackingServer:
                             WHERE session_id = $1
                         """, session_id, start_city, start_country, start_address, end_city, end_country, end_address)
                         logging.info(f"Updated location geocoding data for session {session_id}: start={start_address or f'{start_city}, {start_country}'}, end={end_address or f'{end_city}, {end_country}'}")
+
+                    # Update app_version whenever a new or changed version is received
+                    app_version = message_data.get('version') or None
+                    if app_version:
+                        await conn.execute("""
+                            UPDATE tracking_sessions SET app_version = $2, updated_at = NOW()
+                            WHERE session_id = $1 AND (app_version IS NULL OR app_version != $2)
+                        """, session_id, app_version)
 
             logging.info(f"Successfully saved normalized tracking data with barometer data for session {session_id}")
             return True

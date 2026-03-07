@@ -408,7 +408,7 @@ fun InteractivePaceVsTimeGraph(
             val chartHeight = size.height - 2 * padding
 
             fun toX(timeMs: Long)  = padding + chartWidth * (timeMs - minTime).toFloat() / timeRange
-            fun toY(pace: Float)   = padding + chartHeight * (pace - displayMin) / displayRange
+            fun toY(pace: Float)   = padding + chartHeight * (displayMax - pace) / displayRange
 
             // Axes
             drawLine(Color.Gray, Offset(padding, padding), Offset(padding, size.height - padding), 2.dp.toPx())
@@ -563,7 +563,7 @@ fun InteractivePaceVsDistanceGraph(
             val chartHeight = size.height - 2 * padding
 
             fun toX(dist: Double) = (padding + chartWidth * (dist - minDist) / distRange).toFloat()
-            fun toY(pace: Float)  = padding + chartHeight * (pace - displayMin) / displayRange
+            fun toY(pace: Float)  = padding + chartHeight * (displayMax - pace) / displayRange
 
             // Axes
             drawLine(Color.Gray, Offset(padding, padding), Offset(padding, size.height - padding), 2.dp.toPx())

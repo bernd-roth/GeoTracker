@@ -63,9 +63,9 @@ fun PaceGraph(
         fun toX(timeMs: Long): Float =
             padding + chartWidth * (timeMs - minTime).toFloat() / timeRange.toFloat()
 
-        // Note: pace axis is inverted — lower pace (faster) at bottom, higher pace (slower) at top
+        // Standard chart orientation: faster pace (lower value) at bottom, slower pace (higher value) at top
         fun toY(pace: Float): Float =
-            padding + chartHeight * (pace - displayMin) / displayRange
+            padding + chartHeight * (displayMax - pace) / displayRange
 
         // Grid lines
         val gridColor = Color.Gray.copy(alpha = 0.25f)
