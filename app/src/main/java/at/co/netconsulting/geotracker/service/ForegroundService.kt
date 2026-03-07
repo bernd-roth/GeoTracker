@@ -88,13 +88,13 @@ class ForegroundService : Service() {
     private lateinit var artofsport: String
     private lateinit var comment: String
     private lateinit var clothing: String
-    private var speed: Float = 0.0f
+    @Volatile private var speed: Float = 0.0f
     private var eventId: Int = 0
-    private var distance: Double = 0.0
-    private var altitude: Double = 0.0
-    private var bearing: Float = 0.0f
-    private var latitude: Double = -999.0
-    private var longitude: Double = -999.0
+    @Volatile private var distance: Double = 0.0
+    @Volatile private var altitude: Double = 0.0
+    @Volatile private var bearing: Float = 0.0f
+    @Volatile private var latitude: Double = -999.0
+    @Volatile private var longitude: Double = -999.0
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
     private var lap: Int = 0

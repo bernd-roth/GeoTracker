@@ -16,8 +16,8 @@ android {
         applicationId = "at.co.netconsulting.geotracker"
         minSdk = 29
         targetSdk = 34
-        versionCode = 4
-        versionName = "8.19 (07-03-2026: version field implemented; 'pace distribution' graph flipped)"
+        versionCode = 5
+        versionName = "8.20 (07-03-2026: @Volatile on latitude/longitude/distance/speed/altitude/bearing fixes notification stuck at 0.01 km and blank map when GPS acquired after app started indoors)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
