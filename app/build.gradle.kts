@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.21 (08-03-2026: 'Comment' field added to EditEventScreen.kt)"
+        versionName = "8.22 (08-03-2026: split recorded vs imported events with My Events / Ghost Racers tab bar; db v26 fixes eventSource nullability)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

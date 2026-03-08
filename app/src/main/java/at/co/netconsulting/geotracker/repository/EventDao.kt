@@ -60,6 +60,20 @@ interface EventDao {
     """)
     suspend fun getEventsPaged(limit: Int, offset: Int): List<Event>
 
+    // Method for source-filtered pagination (recorded vs imported)
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId, MIN(timeInMilliseconds) as startTime
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        WHERE e.eventSource = :source
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getEventsPagedBySource(source: String, limit: Int, offset: Int): List<Event>
+
     // Count total events
     @Query("SELECT COUNT(*) FROM events")
     suspend fun getEventCount(): Int

@@ -89,6 +89,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -338,6 +340,7 @@ fun EventsScreen(
     var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
     val isDateFilterActive by eventsViewModel.isDateFilterActive.collectAsState() // Track if date filter is active from ViewModel
+    val selectedTab by eventsViewModel.selectedTab.collectAsState()
 
     // Media viewer dialog
     mediaToView?.let { media ->
@@ -565,11 +568,28 @@ fun EventsScreen(
             }
         }
     ) { paddingValues ->
-        LazyColumn(
-            state = listState,
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues),
+                .padding(paddingValues)
+        ) {
+            TabRow(selectedTabIndex = selectedTab) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { eventsViewModel.setSelectedTab(0) },
+                    text = { Text("My Events") }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { eventsViewModel.setSelectedTab(1) },
+                    text = { Text("Ghost Racers") }
+                )
+            }
+            LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
@@ -829,7 +849,9 @@ fun EventsScreen(
                             modifier = Modifier.padding(32.dp)
                         ) {
                             Text(
-                                text = if (searchQuery.isEmpty()) "No activities found" else "No events match your search",
+                                text = if (searchQuery.isEmpty()) {
+                                    if (selectedTab == 1) "No ghost racers imported yet" else "No activities found"
+                                } else "No events match your search",
                                 fontSize = 18.sp,
                                 color = Color.Gray,
                                 modifier = Modifier.padding(bottom = 16.dp)
@@ -846,9 +868,14 @@ fun EventsScreen(
                                 )
 
                                 Text(
-                                    text = "• No activities have been recorded yet\n" +
-                                          "• Database upgrade may have affected data\n" +
-                                          "• Try importing a GPX file to get started",
+                                    text = if (selectedTab == 1) {
+                                        "• Import a GPX file to use as a ghost racer\n" +
+                                        "• Use the + button to import a GPX file"
+                                    } else {
+                                        "• No activities have been recorded yet\n" +
+                                        "• Database upgrade may have affected data\n" +
+                                        "• Try importing a GPX file to get started"
+                                    },
                                     fontSize = 14.sp,
                                     color = Color.Gray,
                                     modifier = Modifier.padding(bottom = 16.dp)
@@ -1008,6 +1035,7 @@ fun EventsScreen(
                 }
             }
         }
+        } // closes Column
     }
 }
 

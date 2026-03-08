@@ -28,7 +28,7 @@ import android.util.Log
         DisciplineTransition::class,
         WaypointPhoto::class
     ],
-    version = 24, // INCREMENTED FROM 23 TO 24 for waypoint_photos table
+    version = 26, // INCREMENTED FROM 25 TO 26 to fix eventSource nullability mismatch
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -723,6 +723,66 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 24->25 - adding event_source column to events table")
+                try {
+                    database.execSQL("ALTER TABLE events ADD COLUMN eventSource TEXT")
+                    Log.d(TAG, "Migration 24->25 completed - event_source column added")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 24->25", e)
+                    throw e
+                }
+            }
+        }
+
+        // Migration 25->26: Recreate events table to guarantee eventSource is nullable TEXT.
+        // Needed because the first build of v8.22 mistakenly added it as NOT NULL DEFAULT 'recorded',
+        // which causes a Room schema-validation failure on devices that had that intermediate build.
+        private val MIGRATION_25_26 = object : Migration(25, 26) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 25->26 - fixing eventSource nullability in events table")
+                try {
+                    database.execSQL("""
+                        CREATE TABLE events_new (
+                            eventId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                            userId INTEGER NOT NULL,
+                            eventName TEXT NOT NULL,
+                            eventDate TEXT NOT NULL,
+                            artOfSport TEXT NOT NULL,
+                            comment TEXT NOT NULL,
+                            sessionId TEXT,
+                            isUploaded INTEGER NOT NULL DEFAULT 0,
+                            uploadedAt INTEGER,
+                            startCity TEXT,
+                            startCountry TEXT,
+                            endCity TEXT,
+                            endCountry TEXT,
+                            startAddress TEXT,
+                            endAddress TEXT,
+                            eventSource TEXT,
+                            FOREIGN KEY(userId) REFERENCES User(userId) ON DELETE CASCADE
+                        )
+                    """)
+                    database.execSQL("""
+                        INSERT INTO events_new (eventId, userId, eventName, eventDate, artOfSport, comment,
+                            sessionId, isUploaded, uploadedAt, startCity, startCountry, endCity, endCountry,
+                            startAddress, endAddress, eventSource)
+                        SELECT eventId, userId, eventName, eventDate, artOfSport, comment,
+                            sessionId, isUploaded, uploadedAt, startCity, startCountry, endCity, endCountry,
+                            startAddress, endAddress, eventSource
+                        FROM events
+                    """)
+                    database.execSQL("DROP TABLE events")
+                    database.execSQL("ALTER TABLE events_new RENAME TO events")
+                    Log.d(TAG, "Migration 25->26 completed - eventSource is now nullable TEXT")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 25->26", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -754,7 +814,9 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_20_21,
                             MIGRATION_21_22,
                             MIGRATION_22_23,
-                            MIGRATION_23_24
+                            MIGRATION_23_24,
+                            MIGRATION_24_25,
+                            MIGRATION_25_26
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

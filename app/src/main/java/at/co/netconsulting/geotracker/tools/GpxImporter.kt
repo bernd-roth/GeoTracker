@@ -426,7 +426,8 @@ class GpxImporter(private val context: Context) {
                 eventName = truncatedEventName,
                 eventDate = eventDate,
                 artOfSport = normalizedSportType,
-                comment = "Imported from GPX file"
+                comment = "Imported from GPX file",
+                eventSource = "imported"
             )
 
             val eventId = database.eventDao().insertEvent(event).toInt()

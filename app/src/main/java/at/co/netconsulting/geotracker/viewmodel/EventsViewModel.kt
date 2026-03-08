@@ -82,6 +82,10 @@ class EventsViewModel(
     // Sport type filter
     private var sportTypeFilter: String? = null
 
+    // Tab selection: 0 = "My Events" (recorded), 1 = "Ghost Racers" (imported)
+    private val _selectedTab = MutableStateFlow(0)
+    val selectedTab: StateFlow<Int> = _selectedTab.asStateFlow()
+
     private val _isDateFilterActive = MutableStateFlow(false)
     val isDateFilterActive: StateFlow<Boolean> = _isDateFilterActive.asStateFlow()
 
@@ -190,11 +194,33 @@ class EventsViewModel(
         }
     }
 
+    fun setSelectedTab(tab: Int) {
+        _selectedTab.value = tab
+        currentPage = 0
+        viewModelScope.launch {
+            if (tab == 1) {
+                // Ghost Racers tab – load all events so imported ones are never missed by pagination
+                loadEventsWithCustomPageSize(maxPageSize)
+            } else {
+                isSearchMode = false
+                currentPageSize = normalPageSize
+                loadEvents()
+            }
+        }
+    }
+
     private suspend fun updateFilteredEvents() {
         val query = _searchQuery.value.lowercase().trim()
         val events = _eventsWithDetails.value
+        val ghostTab = _selectedTab.value == 1
 
         val filtered = events.filter { event ->
+            // "imported" = Ghost Racer; null or anything else = My Event
+            val matchesSource = if (ghostTab) {
+                event.event.eventSource == "imported"
+            } else {
+                event.event.eventSource != "imported"
+            }
             val matchesSearch = query.isEmpty() ||
                     event.event.eventName.lowercase().contains(query) ||
                     event.event.artOfSport.lowercase().contains(query) ||
@@ -210,12 +236,12 @@ class EventsViewModel(
             val matchesSportType = sportTypeFilter == null ||
                     event.event.artOfSport.equals(sportTypeFilter, ignoreCase = true)
 
-            matchesSearch && matchesDateRange && matchesSportType
+            matchesSource && matchesSearch && matchesDateRange && matchesSportType
         }
 
         _filteredEventsWithDetails.value = filtered
 
-        Log.d("EventsViewModel", "Filtered ${filtered.size} events from ${events.size} total (query: '$query', sport: '$sportTypeFilter')")
+        Log.d("EventsViewModel", "Filtered ${filtered.size} events from ${events.size} total (tab: ${_selectedTab.value}, query: '$query', sport: '$sportTypeFilter')")
     }
 
     private fun isDateInRange(dateStr: String, startDateStr: String, endDateStr: String): Boolean {

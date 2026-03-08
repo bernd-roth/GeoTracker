@@ -30,5 +30,6 @@ data class Event(
     val endCity: String? = null, // City name at recording end
     val endCountry: String? = null, // Country name at recording end
     val startAddress: String? = null, // Full street address at recording start
-    val endAddress: String? = null // Full street address at recording end
+    val endAddress: String? = null, // Full street address at recording end
+    val eventSource: String? = null // null/"recorded" = my event, "imported" = ghost racer
 )
