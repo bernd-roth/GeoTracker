@@ -35,6 +35,9 @@ class EventsViewModel(
     private val _filteredEventsWithDetails = MutableStateFlow<List<EventWithDetails>>(emptyList())
     val filteredEventsWithDetails: StateFlow<List<EventWithDetails>> = _filteredEventsWithDetails.asStateFlow()
 
+    // Pre-loaded cache for the Ghost Racers tab so it is ready immediately on first open
+    private val _ghostRacerEvents = MutableStateFlow<List<EventWithDetails>>(emptyList())
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -109,6 +112,11 @@ class EventsViewModel(
 
                 delay(1000) // Check every 1 second
             }
+        }
+
+        // Pre-load ghost racer events so the tab is ready without delay on first open
+        viewModelScope.launch {
+            preloadGhostRacers()
         }
     }
 
@@ -199,8 +207,11 @@ class EventsViewModel(
         currentPage = 0
         viewModelScope.launch {
             if (tab == 1) {
-                // Ghost Racers tab – load all events so imported ones are never missed by pagination
-                loadEventsWithCustomPageSize(maxPageSize)
+                // Ghost Racers tab – use pre-loaded cache; reload only if cache is still empty
+                if (_ghostRacerEvents.value.isEmpty()) {
+                    preloadGhostRacers()
+                }
+                updateFilteredEvents()
             } else {
                 isSearchMode = false
                 currentPageSize = normalPageSize
@@ -211,8 +222,9 @@ class EventsViewModel(
 
     private suspend fun updateFilteredEvents() {
         val query = _searchQuery.value.lowercase().trim()
-        val events = _eventsWithDetails.value
         val ghostTab = _selectedTab.value == 1
+        // Use the dedicated ghost racer cache for tab 1 so it displays instantly
+        val events = if (ghostTab) _ghostRacerEvents.value else _eventsWithDetails.value
 
         val filtered = events.filter { event ->
             // "imported" = Ghost Racer; null or anything else = My Event
@@ -242,6 +254,18 @@ class EventsViewModel(
         _filteredEventsWithDetails.value = filtered
 
         Log.d("EventsViewModel", "Filtered ${filtered.size} events from ${events.size} total (tab: ${_selectedTab.value}, query: '$query', sport: '$sportTypeFilter')")
+    }
+
+    private suspend fun preloadGhostRacers() {
+        withContext(Dispatchers.IO) {
+            try {
+                val events = database.eventDao().getEventsPagedBySource("imported", maxPageSize, 0)
+                _ghostRacerEvents.value = processEvents(events)
+                Log.d("EventsViewModel", "Pre-loaded ${events.size} ghost racer events")
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error preloading ghost racers: ${e.message}")
+            }
+        }
     }
 
     private fun isDateInRange(dateStr: String, startDateStr: String, endDateStr: String): Boolean {
@@ -288,6 +312,10 @@ class EventsViewModel(
             } finally {
                 _isLoading.value = false
             }
+        }
+        // Refresh ghost racer cache in the background (handles new imports)
+        viewModelScope.launch {
+            preloadGhostRacers()
         }
     }
 
