@@ -169,8 +169,8 @@ fun EventsScreen(
             context
         )
     )
-    val events by eventsViewModel.filteredEventsWithDetails.collectAsState(initial = emptyList())
-    val allEvents by eventsViewModel.eventsWithDetails.collectAsState(initial = emptyList())
+    val events by eventsViewModel.filteredEventsWithDetails.collectAsState()
+    val allEvents by eventsViewModel.eventsWithDetails.collectAsState()
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
     val coroutineScope = rememberCoroutineScope()

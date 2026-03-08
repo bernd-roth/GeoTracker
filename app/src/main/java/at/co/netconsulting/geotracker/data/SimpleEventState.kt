@@ -7,6 +7,8 @@ data class SimpleEventState(
     val eventName: String = "",
     val eventDate: String = "",
     val artOfSport: String = "",
+    val comment: String = "",
+    val clothing: String = "",
 
     // Original event to detect changes
     val originalEvent: Event? = null

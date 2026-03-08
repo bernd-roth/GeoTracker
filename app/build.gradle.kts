@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.20 (07-03-2026: @Volatile on latitude/longitude/distance/speed/altitude/bearing fixes notification stuck at 0.01 km and blank map when GPS acquired after app started indoors)"
+        versionName = "8.21 (08-03-2026: 'Comment' field added to EditEventScreen.kt)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

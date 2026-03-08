@@ -65,6 +65,15 @@ fun EditEventScreen(
     // State to track if date picker should be shown
     var showDatePicker by remember { mutableStateOf(false) }
 
+    // Guard to ensure we never call onNavigateBack() more than once
+    var hasNavigated by remember { mutableStateOf(false) }
+    val navigateBack = {
+        if (!hasNavigated) {
+            hasNavigated = true
+            onNavigateBack()
+        }
+    }
+
     // Load event data
     LaunchedEffect(eventId) {
         editEventViewModel.loadEvent(eventId)
@@ -94,7 +103,7 @@ fun EditEventScreen(
     // Handle navigation after save (only after sync completes)
     LaunchedEffect(saveSuccess, syncStatus) {
         if (saveSuccess && syncStatus !is SimpleEditEventViewModel.SyncStatus.Syncing) {
-            onNavigateBack()
+            navigateBack()
         }
     }
 
@@ -140,7 +149,7 @@ fun EditEventScreen(
             TopAppBar(
                 title = { Text("Edit Event") },
                 navigationIcon = {
-                    IconButton(onClick = onNavigateBack, enabled = !isSyncing) {
+                    IconButton(onClick = navigateBack, enabled = !isSyncing) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
@@ -219,6 +228,24 @@ fun EditEventScreen(
                                 value = eventState.artOfSport,
                                 onValueChange = { editEventViewModel.updateEventField("sport", it) },
                                 label = { Text("Sport Type") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            // Comment
+                            OutlinedTextField(
+                                value = eventState.comment,
+                                onValueChange = { editEventViewModel.updateEventField("comment", it) },
+                                label = { Text("Comment") },
+                                modifier = Modifier.fillMaxWidth(),
+                                minLines = 2
+                            )
+
+                            // Clothing
+                            OutlinedTextField(
+                                value = eventState.clothing,
+                                onValueChange = { editEventViewModel.updateEventField("clothing", it) },
+                                label = { Text("Clothing") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true
                             )

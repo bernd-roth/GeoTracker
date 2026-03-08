@@ -967,7 +967,7 @@ fun RecordingDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp),
-                    singleLine = true
+                    minLines = 2
                 )
 
                 // Clothing field

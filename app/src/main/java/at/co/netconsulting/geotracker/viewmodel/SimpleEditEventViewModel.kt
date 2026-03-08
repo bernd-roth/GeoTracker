@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import at.co.netconsulting.geotracker.data.SimpleEventState
+import at.co.netconsulting.geotracker.domain.Clothing
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
@@ -52,11 +53,15 @@ class SimpleEditEventViewModel(
                 val event = database.eventDao().getEventById(eventId)
 
                 if (event != null) {
+                    val clothingList = database.clothingDao().getClothingForEvent(event.eventId)
+                    val clothingText = clothingList.firstOrNull()?.clothing ?: ""
                     _eventState.value = SimpleEventState(
                         eventId = event.eventId,
                         eventName = event.eventName,
                         eventDate = event.eventDate,
                         artOfSport = event.artOfSport,
+                        comment = event.comment,
+                        clothing = clothingText,
                         originalEvent = event
                     )
                 }
@@ -76,6 +81,8 @@ class SimpleEditEventViewModel(
             "name" -> currentState.copy(eventName = value)
             "date" -> currentState.copy(eventDate = value)
             "sport" -> currentState.copy(artOfSport = value)
+            "comment" -> currentState.copy(comment = value)
+            "clothing" -> currentState.copy(clothing = value)
             else -> currentState
         }
     }
@@ -95,12 +102,24 @@ class SimpleEditEventViewModel(
                     val updatedEvent = originalEvent.copy(
                         eventName = currentState.eventName,
                         eventDate = currentState.eventDate,
-                        artOfSport = currentState.artOfSport
+                        artOfSport = currentState.artOfSport,
+                        comment = currentState.comment
                     )
 
                     // Save to local database first
                     database.eventDao().updateEvent(updatedEvent)
                     Log.d(TAG, "Event saved locally: ${updatedEvent.eventId}")
+
+                    // Save clothing: delete existing and re-insert if non-empty
+                    database.clothingDao().deleteClothingForEvent(updatedEvent.eventId)
+                    if (currentState.clothing.isNotBlank()) {
+                        database.clothingDao().insertClothing(
+                            Clothing(
+                                eventId = updatedEvent.eventId,
+                                clothing = currentState.clothing.trim()
+                            )
+                        )
+                    }
 
                     // Now sync with remote server via REST API
                     syncWithRemote(updatedEvent)
