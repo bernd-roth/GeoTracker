@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.22 (08-03-2026: split recorded vs imported events with My Events / Ghost Racers tab bar; db v26 fixes eventSource nullability)"
+        versionName = "8.23 (08-03-2026: preload 'Ghost Racers' events in event tab)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
