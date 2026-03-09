@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.23 (08-03-2026: preload 'Ghost Racers' events in event tab)"
+        versionName = "8.24 (09-03-2026: unfolding of 'Ghost Racers' event did not work, fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

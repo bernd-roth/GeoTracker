@@ -634,6 +634,10 @@ class EventsViewModel(
                         _eventsWithDetails.value = _eventsWithDetails.value.map {
                             if (it.event.eventId == eventId) eventWithDetails else it
                         }
+                        // Also update the ghost racer cache so the Ghost Racers tab reflects full details
+                        _ghostRacerEvents.value = _ghostRacerEvents.value.map {
+                            if (it.event.eventId == eventId) eventWithDetails else it
+                        }
                         updateFilteredEvents()
 
                         Log.d("EventsViewModel", "Loaded full details for event $eventId")
