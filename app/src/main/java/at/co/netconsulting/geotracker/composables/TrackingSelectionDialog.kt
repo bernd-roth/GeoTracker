@@ -74,9 +74,14 @@ fun TrackSelectionDialog(
     val eventsViewModel: EventsViewModel = viewModel(
         factory = EventsViewModelFactory(database, context)
     )
-    // Use filteredEvents which supports search across all loaded events
-    val events by eventsViewModel.filteredEventsWithDetails.collectAsState(initial = emptyList())
+    // Use all events (no source filter) so both "My Events" and "Ghost Racers" appear
+    val allEvents by eventsViewModel.eventsWithDetails.collectAsState(initial = emptyList())
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
+    val events = if (searchQuery.isBlank()) allEvents else allEvents.filter { event ->
+        event.event.eventName.lowercase().contains(searchQuery.lowercase()) ||
+        event.event.eventDate.lowercase().contains(searchQuery.lowercase()) ||
+        event.event.artOfSport.lowercase().contains(searchQuery.lowercase())
+    }
 
     // Load events with larger page size for better search coverage
     LaunchedEffect(Unit) {
