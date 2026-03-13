@@ -10,6 +10,7 @@ import at.co.netconsulting.geotracker.data.MediaUploadProgress
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.EventMedia
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.service.MediaSyncWorker
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -1031,6 +1032,7 @@ class EventsViewModel(
                                 Log.d("EventsViewModel", "Media uploaded to server: ${uploadResult.mediaUuid}")
                             }.onFailure { error ->
                                 Log.e("EventsViewModel", "Media server upload failed (kept locally): ${error.message}")
+                                MediaSyncWorker.triggerOneTimeSync(context)
                             }
                         } else {
                             Log.d("EventsViewModel", "Event not yet uploaded - media stored locally for later sync")

@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker
 import android.app.Application
 import android.util.Log
 import at.co.netconsulting.geotracker.reminder.ReminderManager
+import at.co.netconsulting.geotracker.service.MediaSyncWorker
 import timber.log.Timber
 
 class GeoTrackerApplication : Application() {
@@ -24,6 +25,13 @@ class GeoTrackerApplication : Application() {
             reminderManager.ensureAlarmsAreScheduled()
         } catch (e: Exception) {
             Log.e("GeoTrackerApplication", "Failed to ensure alarms on app start", e)
+        }
+
+        // Schedule periodic background sync for any media stuck as "Pending"
+        try {
+            MediaSyncWorker.schedulePeriodicSync(this)
+        } catch (e: Exception) {
+            Log.e("GeoTrackerApplication", "Failed to schedule media sync worker", e)
         }
     }
 }

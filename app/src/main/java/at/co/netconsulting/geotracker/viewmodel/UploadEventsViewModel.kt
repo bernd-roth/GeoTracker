@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.service.MediaSyncWorker
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -365,6 +366,7 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
                             Log.d(TAG, "Pending media uploaded: ${result.mediaUuid}")
                         }.onFailure { error ->
                             Log.e(TAG, "Failed to upload pending media ${media.mediaUuid}: ${error.message}")
+                            MediaSyncWorker.triggerOneTimeSync(getApplication())
                         }
                     } else {
                         Log.w(TAG, "Local file not found for media ${media.mediaUuid}")

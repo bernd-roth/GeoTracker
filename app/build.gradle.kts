@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.25 (09-03-2026: selecting an imported event when recording a new event does not show imported 'Ghost Racers' events)"
+        versionName = "8.26 (13-03-2026: retry of upload media files to server, if sync fails)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -104,6 +104,9 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.1")
     implementation("androidx.room:room-runtime:2.7.1")
     ksp("androidx.room:room-compiler:2.7.1")
+
+    // WorkManager for background sync
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
 
     // Location services
     implementation(libs.play.services.location)
