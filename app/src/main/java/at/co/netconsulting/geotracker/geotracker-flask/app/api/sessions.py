@@ -1,6 +1,7 @@
 from flask import Blueprint, request, current_app
 from datetime import datetime
 from dateutil import parser as date_parser
+from sqlalchemy import func
 from ..extensions import db
 from ..models import TrackingSession, User, GPSTrackingPoint, LapTime
 from ..utils.responses import success_response, error_response, paginated_response
@@ -104,6 +105,10 @@ def list_sessions():
         firstname: Filter by user's first name
         lastname: Filter by user's last name (optional, used with firstname)
         birthdate: Filter by user's birthdate (optional, used with firstname)
+        hide_resets: true → exclude _reset_ fragment sessions
+        min_total_points: when hide_resets=true, exclude base sessions whose
+                          combined GPS point count (base + all _reset_ variants)
+                          is below this threshold (default 0 = no filter)
     """
     page = request.args.get('page', 1, type=int)
     per_page = request.args.get('per_page', 20, type=int)
@@ -111,11 +116,48 @@ def list_sessions():
     firstname = request.args.get('firstname')
     lastname = request.args.get('lastname')
     birthdate = request.args.get('birthdate')
+    hide_resets      = request.args.get('hide_resets',      'false').lower() == 'true'
+    min_total_points = request.args.get('min_total_points', 0, type=int)
 
     # Limit per_page to prevent abuse
     per_page = min(per_page, 100)
 
     query = TrackingSession.query
+
+    # Hide _reset_ fragment sessions — show only the base sessions.
+    # Use an escaped LIKE so the underscores are literal, not SQL wildcards.
+    if hide_resets:
+        query = query.filter(
+            ~TrackingSession.session_id.like('%\\_reset\\_%', escape='\\')
+        )
+
+    # Exclude base sessions whose total GPS point count (base + all resets) is
+    # below the threshold.  Uses regexp_replace to map every reset variant back
+    # to its base ID so the count is aggregated across the whole family.
+    if hide_resets and min_total_points > 0:
+        point_totals = (
+            db.session.query(
+                func.regexp_replace(
+                    GPSTrackingPoint.session_id,
+                    '_reset_[0-9]+$',
+                    ''
+                ).label('base_id'),
+                func.count(GPSTrackingPoint.id).label('total_count')
+            )
+            .group_by(
+                func.regexp_replace(
+                    GPSTrackingPoint.session_id,
+                    '_reset_[0-9]+$',
+                    ''
+                )
+            )
+            .subquery()
+        )
+        query = (
+            query
+            .join(point_totals, TrackingSession.session_id == point_totals.c.base_id)
+            .filter(point_totals.c.total_count >= min_total_points)
+        )
 
     if user_id:
         query = query.filter(TrackingSession.user_id == user_id)
