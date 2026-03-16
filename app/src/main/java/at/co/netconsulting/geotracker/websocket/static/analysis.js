@@ -22,6 +22,8 @@ let allSessions       = [];       // all pages loaded so far
 let hasNextPage       = false;
 let currentTheme      = localStorage.getItem('theme') || 'light';
 let browserVisible    = true;
+let lightboxItems     = [];       // current session's media list
+let lightboxIndex     = 0;
 
 // ─────────────────────────────────────────────────────────────
 // INIT
@@ -247,18 +249,20 @@ async function selectSession(sessionId) {
     document.getElementById('lapTableContainer').innerHTML = '';
 
     try {
-        const [trackResp, summaryResp, lapsResp] = await Promise.all([
+        const [trackResp, summaryResp, lapsResp, mediaResp] = await Promise.all([
             fetch(`${API_BASE}/sessions/${sessionId}/track?max_points=${MAX_TRACK_POINTS}&include_resets=true`),
             fetch(`${API_BASE}/sessions/${sessionId}/summary?include_resets=true`),
-            fetch(`${API_BASE}/sessions/${sessionId}/laps?include_resets=true`)
+            fetch(`${API_BASE}/sessions/${sessionId}/laps?include_resets=true`),
+            fetch(`${API_BASE}/sessions/${sessionId}/media`)
         ]);
 
         if (!trackResp.ok || !summaryResp.ok || !lapsResp.ok) {
             throw new Error('One or more API requests failed');
         }
 
-        const [trackJson, summaryJson, lapsJson] = await Promise.all([
-            trackResp.json(), summaryResp.json(), lapsResp.json()
+        const [trackJson, summaryJson, lapsJson, mediaJson] = await Promise.all([
+            trackResp.json(), summaryResp.json(), lapsResp.json(),
+            mediaResp.ok ? mediaResp.json() : Promise.resolve({ data: { media: [] } })
         ]);
 
         currentTrack = trackJson.data.points;
@@ -276,6 +280,7 @@ async function selectSession(sessionId) {
         renderSummary(summary);
         renderLaps(lapsJson.data.laps);
         renderCharts(currentTrack);
+        renderMedia(mediaJson.data.media);
 
     } catch (err) {
         console.error('selectSession failed:', err);
@@ -448,6 +453,111 @@ function renderCharts(points) {
             }
         }
     });
+}
+
+// ─────────────────────────────────────────────────────────────
+// MEDIA
+// ─────────────────────────────────────────────────────────────
+function renderMedia(mediaList) {
+    // Remove any previous media section
+    const existing = document.querySelector('.media-section');
+    if (existing) existing.remove();
+
+    lightboxItems = mediaList || [];
+    if (lightboxItems.length === 0) return;
+
+    const thumbsHtml = lightboxItems.map((m, i) => {
+        const isVideo  = m.media_type === 'video';
+        const thumbSrc = `${API_BASE}/media/${m.media_uuid}/thumbnail`;
+        const badge    = isVideo ? '<div class="video-badge">&#9654;</div>' : '';
+        const title    = escapeHtml(m.caption || '');
+        // onerror: hide broken img and show the video badge at full opacity as fallback
+        const onerror  = isVideo
+            ? `this.style.display='none';this.nextElementSibling.style.background='rgba(0,0,0,0.6)'`
+            : `this.style.display='none'`;
+        return `<div class="media-thumb" onclick="openLightbox(${i})" title="${title}">
+            <img src="${thumbSrc}" loading="lazy" alt="${title}" onerror="${onerror}" />
+            ${badge}
+        </div>`;
+    }).join('');
+
+    const section = document.createElement('div');
+    section.className = 'media-section';
+    section.innerHTML = `
+        <div class="media-section-header" onclick="toggleMediaSection(this)">
+            <span>Media (${lightboxItems.length})</span>
+            <span>&#9660;</span>
+        </div>
+        <div class="media-grid">${thumbsHtml}</div>
+    `;
+
+    document.getElementById('summaryContent').appendChild(section);
+}
+
+function toggleMediaSection(header) {
+    const grid  = header.nextElementSibling;
+    const arrow = header.querySelector('span:last-child');
+    const hide  = grid.style.display !== 'none';
+    grid.style.display  = hide ? 'none' : '';
+    arrow.innerHTML     = hide ? '&#9654;' : '&#9660;';
+}
+
+function openLightbox(index) {
+    lightboxIndex = index;
+    renderLightboxItem();
+    document.getElementById('lightbox').style.display = 'flex';
+    document.addEventListener('keydown', lightboxKeyHandler);
+}
+
+function closeLightbox() {
+    document.getElementById('lightbox').style.display = 'none';
+    document.getElementById('lbContent').innerHTML = '';  // stop video playback
+    document.removeEventListener('keydown', lightboxKeyHandler);
+}
+
+function lightboxBackdropClick(e) {
+    if (e.target === document.getElementById('lightbox')) closeLightbox();
+}
+
+function lightboxNav(dir) {
+    lightboxIndex = (lightboxIndex + dir + lightboxItems.length) % lightboxItems.length;
+    renderLightboxItem();
+}
+
+function lightboxKeyHandler(e) {
+    if      (e.key === 'Escape')     closeLightbox();
+    else if (e.key === 'ArrowRight') lightboxNav(1);
+    else if (e.key === 'ArrowLeft')  lightboxNav(-1);
+}
+
+function renderLightboxItem() {
+    const m = lightboxItems[lightboxIndex];
+    if (!m) return;
+
+    const src     = `${API_BASE}/media/${m.media_uuid}`;
+    const content = document.getElementById('lbContent');
+
+    // Fallback: if lightbox HTML is missing (e.g. stale cached page), open in new tab
+    if (!content) {
+        window.open(src, '_blank');
+        return;
+    }
+
+    if (m.media_type === 'video') {
+        content.innerHTML = `<video controls autoplay src="${src}"></video>`;
+    } else {
+        content.innerHTML = `<img src="${src}" alt="${escapeHtml(m.caption || '')}" />`;
+    }
+
+    document.getElementById('lbCaption').textContent = m.caption || '';
+
+    const count   = lightboxItems.length;
+    const counter = document.getElementById('lbCounter');
+    counter.textContent = count > 1 ? `${lightboxIndex + 1} / ${count}` : '';
+
+    const showNav = count > 1;
+    document.getElementById('lbPrev').style.display = showNav ? '' : 'none';
+    document.getElementById('lbNext').style.display = showNav ? '' : 'none';
 }
 
 // ─────────────────────────────────────────────────────────────

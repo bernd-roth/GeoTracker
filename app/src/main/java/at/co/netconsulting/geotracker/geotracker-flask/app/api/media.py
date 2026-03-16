@@ -1,7 +1,7 @@
 import os
 import uuid
 import subprocess
-from flask import Blueprint, request, jsonify, send_file, current_app
+from flask import Blueprint, request, jsonify, send_file, current_app, Response
 from werkzeug.utils import secure_filename
 from ..extensions import db
 from ..models import SessionMedia, TrackingSession
@@ -250,9 +250,26 @@ def list_session_media(session_id):
     })
 
 
+MIME_TYPES = {
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'heic': 'image/heic',
+    'heif': 'image/heif',
+    'mp4': 'video/mp4',
+    'mov': 'video/quicktime',
+    'avi': 'video/x-msvideo',
+    'mkv': 'video/x-matroska',
+}
+
+
 @media_bp.route('/media/<media_uuid>', methods=['GET'])
 def get_media(media_uuid):
-    """Get original media file."""
+    """Get original media file.
+
+    Supports HTTP Range requests so that browsers can stream video without
+    buffering the entire file first (required for <video> playback to work).
+    """
     media = SessionMedia.query.filter_by(media_uuid=media_uuid).first()
     if not media:
         return jsonify({'success': False, 'error': 'Media not found'}), 404
@@ -262,27 +279,50 @@ def get_media(media_uuid):
     if not os.path.exists(original_path):
         return jsonify({'success': False, 'error': 'Media file not found on disk'}), 404
 
-    # Determine MIME type
-    mime_types = {
-        'jpg': 'image/jpeg',
-        'jpeg': 'image/jpeg',
-        'png': 'image/png',
-        'heic': 'image/heic',
-        'heif': 'image/heif',
-        'mp4': 'video/mp4',
-        'mov': 'video/quicktime',
-        'avi': 'video/x-msvideo',
-        'mkv': 'video/x-matroska'
-    }
+    mimetype  = MIME_TYPES.get(media.file_extension, 'application/octet-stream')
+    file_size = os.path.getsize(original_path)
 
-    mimetype = mime_types.get(media.file_extension, 'application/octet-stream')
+    range_header = request.headers.get('Range')
+    if range_header:
+        # Parse "bytes=start-end" (end is optional)
+        try:
+            byte_range = range_header.strip().replace('bytes=', '')
+            parts      = byte_range.split('-')
+            start      = int(parts[0])
+            end        = int(parts[1]) if parts[1].strip() else file_size - 1
+        except (IndexError, ValueError):
+            return jsonify({'success': False, 'error': 'Invalid Range header'}), 416
 
-    return send_file(
+        end    = min(end, file_size - 1)
+        length = end - start + 1
+
+        def _stream():
+            chunk_size = 256 * 1024  # 256 KB
+            with open(original_path, 'rb') as f:
+                f.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = f.read(min(chunk_size, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        resp = Response(_stream(), status=206, mimetype=mimetype, direct_passthrough=True)
+        resp.headers['Content-Range']  = f'bytes {start}-{end}/{file_size}'
+        resp.headers['Content-Length'] = length
+        resp.headers['Accept-Ranges']  = 'bytes'
+        return resp
+
+    # No Range header — serve the whole file (images, direct downloads)
+    resp = send_file(
         original_path,
         mimetype=mimetype,
         as_attachment=False,
         download_name=media.original_filename or f'{media_uuid}.{media.file_extension}'
     )
+    resp.headers['Accept-Ranges'] = 'bytes'
+    return resp
 
 
 @media_bp.route('/media/<media_uuid>/thumbnail', methods=['GET'])

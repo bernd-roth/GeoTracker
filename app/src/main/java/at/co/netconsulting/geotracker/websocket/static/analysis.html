@@ -131,6 +131,126 @@
             color: var(--text-muted);
             font-family: Arial, sans-serif;
         }
+
+        /* ── Media section (inside summary panel) ────────────────── */
+        .media-section {
+            border-top: 1px solid var(--border-color);
+            margin-top: 4px;
+        }
+        .media-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-family: Arial, sans-serif;
+            user-select: none;
+        }
+        .media-section-header:hover { background: var(--hover-bg); }
+        .media-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 3px;
+            padding: 4px 6px 8px;
+        }
+        .media-thumb {
+            position: relative;
+            aspect-ratio: 1;
+            overflow: hidden;
+            border-radius: 4px;
+            cursor: pointer;
+            background: var(--bg-secondary);
+        }
+        .media-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            transition: transform 0.15s;
+        }
+        .media-thumb:hover img { transform: scale(1.05); }
+        .media-thumb .video-badge {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.35);
+            color: white;
+            font-size: 20px;
+            pointer-events: none;
+        }
+
+        /* ── Lightbox ─────────────────────────────────────────────── */
+        #lightbox {
+            position: fixed;
+            inset: 0;
+            z-index: 9999;
+            background: rgba(0,0,0,0.92);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        #lbContent img, #lbContent video {
+            max-width: 90vw;
+            max-height: 80vh;
+            object-fit: contain;
+            border-radius: 4px;
+            display: block;
+        }
+        #lbCaption {
+            color: rgba(255,255,255,0.75);
+            font-size: 12px;
+            margin-top: 10px;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            max-width: 80vw;
+        }
+        .lb-nav {
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255,255,255,0.12);
+            border: none;
+            color: white;
+            font-size: 36px;
+            padding: 8px 16px;
+            cursor: pointer;
+            border-radius: 6px;
+            z-index: 10000;
+            line-height: 1;
+        }
+        .lb-nav:hover { background: rgba(255,255,255,0.25); }
+        #lbPrev { left: 12px; }
+        #lbNext { right: 12px; }
+        #lbClose {
+            position: fixed;
+            top: 12px;
+            right: 16px;
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.7);
+            font-size: 32px;
+            cursor: pointer;
+            z-index: 10000;
+            line-height: 1;
+            padding: 4px 8px;
+        }
+        #lbClose:hover { color: white; }
+        #lbCounter {
+            position: fixed;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.6);
+            font-size: 11px;
+            font-family: Arial, sans-serif;
+            z-index: 10000;
+        }
     </style>
 </head>
 <body>
@@ -187,6 +307,16 @@
     <div class="panel-content">
         <div id="summaryContent"></div>
     </div>
+</div>
+
+<!-- Lightbox -->
+<div id="lightbox" style="display:none" onclick="lightboxBackdropClick(event)">
+    <button id="lbClose" onclick="event.stopPropagation(); closeLightbox()">×</button>
+    <button id="lbPrev" class="lb-nav" onclick="event.stopPropagation(); lightboxNav(-1)">&#8249;</button>
+    <div id="lbContent"></div>
+    <button id="lbNext" class="lb-nav" onclick="event.stopPropagation(); lightboxNav(1)">&#8250;</button>
+    <div id="lbCaption"></div>
+    <div id="lbCounter"></div>
 </div>
 
 <script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
