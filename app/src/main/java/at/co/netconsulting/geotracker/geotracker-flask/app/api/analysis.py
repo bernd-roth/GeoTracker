@@ -106,6 +106,18 @@ def get_track(session_id):
             'lap':      p.lap,
             'slope':    float(p.slope)                     if p.slope                     is not None else None,
             'ele_gain': float(p.cumulative_elevation_gain) if p.cumulative_elevation_gain is not None else None,
+            # weather data
+            'temperature':    float(p.temperature)    if p.temperature    is not None else None,
+            'wind_speed':     float(p.wind_speed)     if p.wind_speed     is not None else None,
+            'wind_direction': float(p.wind_direction) if p.wind_direction is not None else None,
+            'humidity':       p.humidity,
+            'weather_code':   p.weather_code,
+            'weather_time':   p.weather_timestamp,
+            # barometer data
+            'pressure':               float(p.pressure)               if p.pressure               is not None else None,
+            'pressure_accuracy':      p.pressure_accuracy,
+            'altitude_from_pressure': float(p.altitude_from_pressure) if p.altitude_from_pressure is not None else None,
+            'sea_level_pressure':     float(p.sea_level_pressure)     if p.sea_level_pressure     is not None else None,
         }
         for p in points
     ]

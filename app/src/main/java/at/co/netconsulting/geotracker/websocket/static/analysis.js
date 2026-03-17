@@ -24,6 +24,7 @@ let currentTheme      = localStorage.getItem('theme') || 'light';
 let browserVisible    = true;
 let lightboxItems     = [];       // current session's media list
 let lightboxIndex     = 0;
+let infoPopup         = null;     // chart hover info popup element
 
 // ─────────────────────────────────────────────────────────────
 // INIT
@@ -31,6 +32,7 @@ let lightboxIndex     = 0;
 document.addEventListener('DOMContentLoaded', () => {
     applyTheme(currentTheme, false);
     initMap();
+    createInfoPopup();
     loadSessions(1, true);
 });
 
@@ -386,8 +388,14 @@ function renderCharts(points) {
         title: { display: true, text: 'Distance (km)', color: 'var(--text-muted)', font: { size: 10 } }
     };
 
-    const onHover = (_evt, elements) => {
-        if (elements && elements.length > 0) updateHoverMarker(elements[0].index);
+    const onHover = (evt, elements) => {
+        if (elements && elements.length > 0) {
+            const idx = elements[0].index;
+            updateHoverMarker(idx);
+            showInfoPopup(evt, currentTrack[idx]);
+        } else {
+            hideInfoPopup();
+        }
     };
 
     const baseOptions = {
@@ -453,6 +461,10 @@ function renderCharts(points) {
             }
         }
     });
+
+    // Hide popup when cursor leaves chart area
+    document.getElementById('elevChart').addEventListener('mouseleave', hideInfoPopup);
+    document.getElementById('spdChart').addEventListener('mouseleave', hideInfoPopup);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -569,6 +581,266 @@ function toggleBrowser() {
     browserVisible = !browserVisible;
     content.style.display = browserVisible ? 'flex' : 'none';
     btn.textContent = browserVisible ? '-' : '+';
+}
+
+// ─────────────────────────────────────────────────────────────
+// INFO POPUP
+// ─────────────────────────────────────────────────────────────
+function createInfoPopup() {
+    const existing = document.getElementById('chartInfoPopup');
+    if (existing) existing.remove();
+
+    infoPopup = document.createElement('div');
+    infoPopup.id = 'chartInfoPopup';
+    infoPopup.style.cssText = 'position:fixed;z-index:9999;display:none;pointer-events:none;max-width:320px;line-height:1.4;';
+    document.body.appendChild(infoPopup);
+}
+
+function hideInfoPopup() {
+    if (infoPopup) {
+        infoPopup.style.display = 'none';
+        infoPopup.classList.remove('popup-visible');
+    }
+}
+
+function showInfoPopup(event, point) {
+    if (!infoPopup || !point) return;
+
+    const timeStr = point.ts ? new Date(point.ts).toLocaleTimeString() : 'N/A';
+    const dateStr = point.ts ? new Date(point.ts).toLocaleDateString() : 'N/A';
+
+    const weatherData = extractWeatherData(point);
+    const barometerData = extractBarometerData(point);
+
+    let weatherSection = '';
+    if (weatherData.hasData || barometerData.hasData) {
+        const weatherDescription = getWeatherDescription(weatherData.weatherCode || 0);
+        const weatherEmoji = getWeatherEmoji(weatherData.weatherCode || 0);
+        const windDirectionText = getWindDirectionText(weatherData.windDirection);
+        const weatherTimeFormatted = formatWeatherTime(weatherData.weatherTime);
+
+        weatherSection = `
+            <div class="weather-section">
+                <div class="weather-header">
+                    ${weatherEmoji} Weather & Atmospheric Conditions
+                </div>
+                <div class="weather-grid">
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#FF5722">Temperature</div>
+                        <div class="weather-value" style="color:#FF5722;font-weight:bold">
+                            ${weatherData.temperature != null ? weatherData.temperature.toFixed(1) + '\u00B0C' : 'N/A'}
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#2196F3">Humidity</div>
+                        <div class="weather-value" style="color:#2196F3;font-weight:bold">
+                            ${weatherData.humidity != null ? weatherData.humidity + '%' : 'N/A'}
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#795548">Wind Speed</div>
+                        <div class="weather-value" style="color:#795548;font-weight:bold">
+                            ${weatherData.windSpeed != null ? weatherData.windSpeed.toFixed(1) + ' km/h' : 'N/A'}
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#795548">Wind Dir</div>
+                        <div class="weather-value" style="color:#795548;font-weight:bold">
+                            ${windDirectionText}
+                        </div>
+                    </div>`;
+
+        if (barometerData.hasData) {
+            weatherSection += `
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#9C27B0">Pressure</div>
+                        <div class="weather-value" style="color:#9C27B0;font-weight:bold">
+                            ${barometerData.pressure != null ? barometerData.pressure.toFixed(1) + ' hPa' : 'N/A'}
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#9C27B0">Sea Level</div>
+                        <div class="weather-value" style="color:#9C27B0;font-weight:bold">
+                            ${barometerData.seaLevelPressure != null ? barometerData.seaLevelPressure.toFixed(1) + ' hPa' : 'N/A'}
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#607D8B">Baro Alt</div>
+                        <div class="weather-value" style="color:#607D8B;font-weight:bold">
+                            ${barometerData.altitudeFromPressure != null ? barometerData.altitudeFromPressure.toFixed(1) + ' m' : 'N/A'}
+                        </div>
+                    </div>
+                    <div class="weather-item">
+                        <div class="weather-label" style="color:#607D8B">Accuracy</div>
+                        <div class="weather-value" style="color:#607D8B;font-weight:bold">
+                            ${barometerData.pressureAccuracy != null ? barometerData.pressureAccuracy + ' Pa' : 'N/A'}
+                        </div>
+                    </div>`;
+        }
+
+        weatherSection += `
+                </div>
+                ${weatherDescription !== 'Code 0' ? `
+                    <div class="weather-footer" style="margin-top:6px;font-size:9px;color:#666;font-style:italic;text-align:center">
+                        ${weatherDescription} \u2022 ${weatherTimeFormatted}
+                    </div>` : ''}
+            </div>`;
+    }
+
+    infoPopup.innerHTML = `
+        <div style="border-bottom:1px solid #ddd;margin-bottom:6px;padding-bottom:4px">
+            <strong>Time:</strong> ${timeStr}<br>
+            <strong>Date:</strong> ${dateStr}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px">
+            <div>
+                <strong style="color:#2196F3">Distance</strong><br>
+                ${point.distance != null ? point.distance.toFixed(2) : '--'} km
+            </div>
+            <div>
+                <strong style="color:#4CAF50">Altitude</strong><br>
+                ${point.alt != null ? point.alt.toFixed(1) : '--'} m
+            </div>
+            <div>
+                <strong style="color:#FF9800">Speed</strong><br>
+                ${point.speed != null ? point.speed.toFixed(1) : '--'} km/h
+            </div>
+            <div>
+                <strong style="color:${getHeartRateColor(point.hr || 0)}">Heart Rate</strong><br>
+                ${point.hr || 0} bpm
+            </div>
+            <div>
+                <strong style="color:${getSlopeColor(point.slope || 0)}">Slope</strong><br>
+                ${point.slope != null ? point.slope.toFixed(1) : '0.0'}%
+            </div>
+        </div>
+        ${weatherSection}
+        <div style="margin-top:8px;padding-top:6px;border-top:1px solid #ddd;font-size:10px;color:#666">
+            Coordinates: ${point.lat.toFixed(6)}, ${point.lon.toFixed(6)}
+        </div>
+    `;
+
+    // Position near cursor
+    let x, y;
+    if (event.native) {
+        x = event.native.pageX || event.native.clientX + window.scrollX || 0;
+        y = event.native.pageY || event.native.clientY + window.scrollY || 0;
+    } else {
+        x = event.pageX || event.clientX + window.scrollX || 0;
+        y = event.pageY || event.clientY + window.scrollY || 0;
+    }
+
+    const finalX = Math.max(10, Math.min(x + 15, window.innerWidth - 420));
+    const finalY = Math.max(10, Math.min(y - 10, window.innerHeight - 350));
+
+    infoPopup.style.left = finalX + 'px';
+    infoPopup.style.top = finalY + 'px';
+    infoPopup.style.display = 'block';
+    infoPopup.classList.add('popup-visible');
+
+    // Reposition if overflowing
+    setTimeout(() => {
+        const rect = infoPopup.getBoundingClientRect();
+        let newX = finalX, newY = finalY;
+        if (rect.right > window.innerWidth) newX = x - rect.width - 15;
+        if (rect.bottom > window.innerHeight) newY = y - rect.height + 10;
+        if (newX !== finalX || newY !== finalY) {
+            infoPopup.style.left = newX + 'px';
+            infoPopup.style.top = newY + 'px';
+        }
+    }, 1);
+}
+
+// ── Weather / barometer extraction ──────────────────────────
+function extractWeatherData(point) {
+    const hasTemperature = point.temperature != null;
+    const hasWindSpeed = point.wind_speed != null && point.wind_speed > 0;
+    const hasHumidity = point.humidity != null && point.humidity > 0;
+    const hasWeatherCode = point.weather_code != null && point.weather_code > 0;
+    const hasWindDirection = point.wind_direction != null;
+
+    return {
+        hasData: hasTemperature || hasWindSpeed || hasHumidity || hasWeatherCode || hasWindDirection,
+        temperature: hasTemperature ? point.temperature : null,
+        windSpeed: hasWindSpeed ? point.wind_speed : null,
+        windDirection: hasWindDirection ? point.wind_direction : null,
+        humidity: hasHumidity ? point.humidity : null,
+        weatherCode: hasWeatherCode ? point.weather_code : null,
+        weatherTime: point.weather_time || ''
+    };
+}
+
+function extractBarometerData(point) {
+    const hasPressure = point.pressure != null && point.pressure > 0;
+    const hasAltFromPressure = point.altitude_from_pressure != null;
+    const hasSeaLevel = point.sea_level_pressure != null && point.sea_level_pressure > 0;
+    const hasAccuracy = point.pressure_accuracy != null;
+
+    return {
+        hasData: hasPressure || hasAltFromPressure || hasSeaLevel || hasAccuracy,
+        pressure: hasPressure ? point.pressure : null,
+        altitudeFromPressure: hasAltFromPressure ? point.altitude_from_pressure : null,
+        seaLevelPressure: hasSeaLevel ? point.sea_level_pressure : null,
+        pressureAccuracy: hasAccuracy ? point.pressure_accuracy : null
+    };
+}
+
+// ── Weather helpers ─────────────────────────────────────────
+function getWeatherDescription(code) {
+    const map = {
+        0:"Clear sky",1:"Mainly clear",2:"Partly cloudy",3:"Overcast",
+        45:"Fog",48:"Depositing rime fog",51:"Light drizzle",53:"Moderate drizzle",
+        55:"Dense drizzle",61:"Slight rain",63:"Moderate rain",65:"Heavy rain",
+        71:"Slight snow",73:"Moderate snow",75:"Heavy snow",77:"Snow grains",
+        80:"Slight rain showers",81:"Moderate rain showers",82:"Violent rain showers",
+        85:"Slight snow showers",86:"Heavy snow showers",95:"Thunderstorm",
+        96:"Thunderstorm with hail",99:"Thunderstorm with heavy hail"
+    };
+    return map[code] || `Code ${code}`;
+}
+
+function getWeatherEmoji(code) {
+    const map = {
+        0:"\u2600\uFE0F",1:"\uD83C\uDF24\uFE0F",2:"\u26C5",3:"\u2601\uFE0F",
+        45:"\uD83C\uDF2B\uFE0F",48:"\uD83C\uDF2B\uFE0F",51:"\uD83C\uDF26\uFE0F",
+        53:"\uD83C\uDF26\uFE0F",55:"\uD83C\uDF27\uFE0F",61:"\uD83C\uDF27\uFE0F",
+        63:"\uD83C\uDF27\uFE0F",65:"\u26C8\uFE0F",71:"\uD83C\uDF28\uFE0F",
+        73:"\u2744\uFE0F",75:"\u2744\uFE0F",77:"\u2744\uFE0F",80:"\uD83C\uDF26\uFE0F",
+        81:"\uD83C\uDF27\uFE0F",82:"\u26C8\uFE0F",85:"\uD83C\uDF28\uFE0F",
+        86:"\u2744\uFE0F",95:"\u26C8\uFE0F",96:"\u26C8\uFE0F",99:"\u26C8\uFE0F"
+    };
+    return map[code] || "\uD83C\uDF24\uFE0F";
+}
+
+function getWindDirectionText(degrees) {
+    if (degrees == null || degrees === 0) return 'N/A';
+    const deg = parseFloat(degrees);
+    if (isNaN(deg)) return 'N/A';
+    const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+    const norm = ((deg % 360) + 360) % 360;
+    return `${dirs[Math.round(norm / 22.5) % 16]} (${norm.toFixed(0)}\u00B0)`;
+}
+
+function formatWeatherTime(ts) {
+    if (!ts) return 'N/A';
+    try { return new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}); }
+    catch { return String(ts); }
+}
+
+function getHeartRateColor(hr) {
+    if (hr <= 0)   return '#999';
+    if (hr < 120)  return '#4CAF50';
+    if (hr < 150)  return '#FF9800';
+    if (hr < 170)  return '#FF5722';
+    return '#F44336';
+}
+
+function getSlopeColor(slope) {
+    const abs = Math.abs(slope);
+    if (abs < 3)  return '#4CAF50';
+    if (abs < 8)  return '#FF9800';
+    if (abs < 15) return '#FF5722';
+    return '#F44336';
 }
 
 // ─────────────────────────────────────────────────────────────
