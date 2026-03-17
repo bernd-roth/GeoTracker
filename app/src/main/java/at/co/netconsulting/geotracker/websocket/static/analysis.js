@@ -26,6 +26,12 @@ let lightboxItems     = [];       // current session's media list
 let lightboxIndex     = 0;
 let infoPopup         = null;     // chart hover info popup element
 
+// ── Range selection state ───────────────────────────────────
+let rangeStartIdx     = null;     // first click index into currentTrack
+let rangeEndIdx       = null;     // second click index
+let rangeMarkerA      = null;     // map marker for start of range
+let rangeMarkerB      = null;     // map marker for end of range
+
 // ─────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────
@@ -96,11 +102,13 @@ function initMap() {
 function renderTrackOnMap(points) {
     if (!points || points.length === 0) return;
 
-    // Clean up previous track and markers
+    // Clean up previous track, markers, and range segment
     if (map.getSource('track')) {
         map.removeLayer('track-line');
         map.removeSource('track');
     }
+    if (map.getLayer('range-line')) map.removeLayer('range-line');
+    if (map.getSource('range-segment')) map.removeSource('range-segment');
     if (window._startMarker) { window._startMarker.remove(); window._startMarker = null; }
     if (window._endMarker)   { window._endMarker.remove();   window._endMarker = null; }
     if (hoverMarkerOnMap)    { hoverMarker.remove(); hoverMarkerOnMap = false; }
@@ -241,6 +249,12 @@ function renderSessionList(sessions) {
 // ─────────────────────────────────────────────────────────────
 async function selectSession(sessionId) {
     currentSessionId = sessionId;
+    // Clear any previous range selection
+    rangeStartIdx = null;
+    rangeEndIdx = null;
+    clearRangeMapMarkers();
+    const rp = document.getElementById('rangeStatsPanel');
+    if (rp) rp.style.display = 'none';
     applyFilter();  // refresh active state in list
 
     // Show summary panel with loading state
@@ -398,6 +412,57 @@ function renderCharts(points) {
         }
     };
 
+    const onClick = (_evt, elements) => {
+        if (!elements || elements.length === 0) return;
+        const idx = elements[0].index;
+        handleRangeClick(idx);
+    };
+
+    // Chart.js plugin: draws a shaded rectangle for the selected range
+    const rangeHighlightPlugin = {
+        id: 'rangeHighlight',
+        beforeDraw(chart) {
+            if (rangeStartIdx == null) return;
+            const endIdx = rangeEndIdx != null ? rangeEndIdx : rangeStartIdx;
+            const lo = Math.min(rangeStartIdx, endIdx);
+            const hi = Math.max(rangeStartIdx, endIdx);
+            if (lo === hi) {
+                // Single selection line
+                const xScale = chart.scales.x;
+                const yScale = chart.scales.y;
+                const xPx = xScale.getPixelForValue(distances[lo]);
+                const ctx = chart.ctx;
+                ctx.save();
+                ctx.strokeStyle = '#FF9800';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([4, 3]);
+                ctx.beginPath();
+                ctx.moveTo(xPx, yScale.top);
+                ctx.lineTo(xPx, yScale.bottom);
+                ctx.stroke();
+                ctx.restore();
+                return;
+            }
+            const xScale = chart.scales.x;
+            const yScale = chart.scales.y;
+            const xL = xScale.getPixelForValue(distances[lo]);
+            const xR = xScale.getPixelForValue(distances[hi]);
+            const ctx = chart.ctx;
+            ctx.save();
+            ctx.fillStyle = 'rgba(255, 152, 0, 0.15)';
+            ctx.fillRect(xL, yScale.top, xR - xL, yScale.bottom - yScale.top);
+            // Border lines
+            ctx.strokeStyle = '#FF9800';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath();
+            ctx.moveTo(xL, yScale.top); ctx.lineTo(xL, yScale.bottom);
+            ctx.moveTo(xR, yScale.top); ctx.lineTo(xR, yScale.bottom);
+            ctx.stroke();
+            ctx.restore();
+        }
+    };
+
     const baseOptions = {
         responsive: true,
         maintainAspectRatio: false,
@@ -405,6 +470,7 @@ function renderCharts(points) {
         interaction: { mode: 'index', axis: 'x', intersect: false },
         plugins: { legend: { display: false }, tooltip: { enabled: false } },
         onHover,
+        onClick,
         scales: { x: xAxis }
     };
 
@@ -432,7 +498,8 @@ function renderCharts(points) {
                     title: { display: true, text: 'Altitude (m)', color: 'var(--text-muted)', font: { size: 10 } }
                 }
             }
-        }
+        },
+        plugins: [rangeHighlightPlugin]
     });
 
     // ── Speed chart
@@ -459,7 +526,8 @@ function renderCharts(points) {
                     title: { display: true, text: 'Speed (km/h)', color: 'var(--text-muted)', font: { size: 10 } }
                 }
             }
-        }
+        },
+        plugins: [rangeHighlightPlugin]
     });
 
     // Hide popup when cursor leaves chart area
@@ -581,6 +649,254 @@ function toggleBrowser() {
     browserVisible = !browserVisible;
     content.style.display = browserVisible ? 'flex' : 'none';
     btn.textContent = browserVisible ? '-' : '+';
+}
+
+// ─────────────────────────────────────────────────────────────
+// RANGE SELECTION
+// ─────────────────────────────────────────────────────────────
+function handleRangeClick(idx) {
+    if (rangeStartIdx == null) {
+        // First click — set start
+        rangeStartIdx = idx;
+        rangeEndIdx = null;
+        clearRangeMapMarkers();
+        clearRangeSegment();
+        addRangeMapMarker(idx, 'A');
+        redrawCharts();
+    } else if (rangeEndIdx == null) {
+        // Second click — set end, show stats
+        rangeEndIdx = idx;
+        addRangeMapMarker(idx, 'B');
+        drawRangeSegmentOnMap();
+        redrawCharts();
+        showRangeStats();
+    } else {
+        // Third click — reset, start new selection
+        clearRangeSelection();
+        rangeStartIdx = idx;
+        addRangeMapMarker(idx, 'A');
+        redrawCharts();
+    }
+}
+
+function clearRangeSelection() {
+    rangeStartIdx = null;
+    rangeEndIdx = null;
+    clearRangeMapMarkers();
+    clearRangeSegment();
+    redrawCharts();
+}
+
+function redrawCharts() {
+    if (elevChart) elevChart.update('none');
+    if (speedChart) speedChart.update('none');
+}
+
+function clearRangeMapMarkers() {
+    if (rangeMarkerA) { rangeMarkerA.remove(); rangeMarkerA = null; }
+    if (rangeMarkerB) { rangeMarkerB.remove(); rangeMarkerB = null; }
+}
+
+function clearRangeSegment() {
+    if (map.getLayer('range-line')) map.removeLayer('range-line');
+    if (map.getSource('range-segment')) map.removeSource('range-segment');
+}
+
+function addRangeMapMarker(idx, label) {
+    const p = currentTrack[idx];
+    if (!p) return;
+
+    const el = document.createElement('div');
+    el.style.cssText = 'width:22px;height:22px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:bold;color:white;font-family:Arial,sans-serif;';
+    el.style.background = label === 'A' ? '#FF9800' : '#E91E63';
+    el.textContent = label;
+
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([p.lon, p.lat])
+        .addTo(map);
+
+    if (label === 'A') rangeMarkerA = marker;
+    else rangeMarkerB = marker;
+}
+
+function drawRangeSegmentOnMap() {
+    clearRangeSegment();
+    if (rangeStartIdx == null || rangeEndIdx == null) return;
+
+    const lo = Math.min(rangeStartIdx, rangeEndIdx);
+    const hi = Math.max(rangeStartIdx, rangeEndIdx);
+    const segment = currentTrack.slice(lo, hi + 1);
+    if (segment.length < 2) return;
+
+    map.addSource('range-segment', {
+        type: 'geojson',
+        data: {
+            type: 'Feature',
+            geometry: {
+                type: 'LineString',
+                coordinates: segment.map(p => [p.lon, p.lat])
+            }
+        }
+    });
+
+    map.addLayer({
+        id: 'range-line',
+        type: 'line',
+        source: 'range-segment',
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+        paint: { 'line-color': '#FF9800', 'line-width': 5, 'line-opacity': 0.8 }
+    });
+}
+
+// ── Range stats computation & display ───────────────────────
+function showRangeStats() {
+    const lo = Math.min(rangeStartIdx, rangeEndIdx);
+    const hi = Math.max(rangeStartIdx, rangeEndIdx);
+    const slice = currentTrack.slice(lo, hi + 1);
+    if (slice.length < 2) return;
+
+    const pA = slice[0];
+    const pB = slice[slice.length - 1];
+
+    // Helpers for numeric aggregation
+    const vals = (key) => slice.map(p => p[key]).filter(v => v != null);
+    const minV = (arr) => arr.length ? Math.min(...arr) : null;
+    const maxV = (arr) => arr.length ? Math.max(...arr) : null;
+    const avgV = (arr) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
+    const fmt  = (v, d) => v != null ? v.toFixed(d) : '--';
+
+    // Distance
+    const distA = pA.distance || 0;
+    const distB = pB.distance || 0;
+    const rangeDist = Math.abs(distB - distA);
+
+    // Duration
+    let durationMs = null;
+    if (pA.ts && pB.ts) {
+        durationMs = Math.abs(new Date(pB.ts) - new Date(pA.ts));
+    }
+
+    // Core metrics
+    const speeds = vals('speed');
+    const alts   = vals('alt');
+    const hrs    = vals('hr');
+    const slopes = vals('slope');
+
+    // Elevation gain/loss within range
+    let elevGain = 0, elevLoss = 0;
+    for (let i = 1; i < slice.length; i++) {
+        const prev = slice[i - 1].alt, curr = slice[i].alt;
+        if (prev != null && curr != null) {
+            const diff = curr - prev;
+            if (diff > 0) elevGain += diff; else elevLoss += Math.abs(diff);
+        }
+    }
+
+    // Weather
+    const temps     = vals('temperature');
+    const humids    = vals('humidity');
+    const winds     = vals('wind_speed');
+    // Barometer
+    const pressures = vals('pressure');
+    const seaLevels = vals('sea_level_pressure');
+    const baroAlts  = vals('altitude_from_pressure');
+
+    const statRow = (label, min, avg, max, unit) =>
+        `<tr>
+            <td style="font-weight:600">${label}</td>
+            <td>${min}</td>
+            <td>${avg}</td>
+            <td>${max}</td>
+            <td style="color:var(--text-muted)">${unit}</td>
+        </tr>`;
+
+    const hasWeather = temps.length > 0 || humids.length > 0 || winds.length > 0;
+    const hasBaro    = pressures.length > 0 || seaLevels.length > 0 || baroAlts.length > 0;
+
+    let weatherRows = '';
+    if (hasWeather) {
+        weatherRows = `
+            <tr><td colspan="5" style="font-weight:700;padding-top:10px;color:#FF5722">Weather</td></tr>
+            ${temps.length ? statRow('Temperature', fmt(minV(temps),1), fmt(avgV(temps),1), fmt(maxV(temps),1), '\u00B0C') : ''}
+            ${humids.length ? statRow('Humidity', fmt(minV(humids),0), fmt(avgV(humids),0), fmt(maxV(humids),0), '%') : ''}
+            ${winds.length ? statRow('Wind Speed', fmt(minV(winds),1), fmt(avgV(winds),1), fmt(maxV(winds),1), 'km/h') : ''}`;
+    }
+
+    let baroRows = '';
+    if (hasBaro) {
+        baroRows = `
+            <tr><td colspan="5" style="font-weight:700;padding-top:10px;color:#9C27B0">Barometer</td></tr>
+            ${pressures.length ? statRow('Pressure', fmt(minV(pressures),1), fmt(avgV(pressures),1), fmt(maxV(pressures),1), 'hPa') : ''}
+            ${seaLevels.length ? statRow('Sea Level', fmt(minV(seaLevels),1), fmt(avgV(seaLevels),1), fmt(maxV(seaLevels),1), 'hPa') : ''}
+            ${baroAlts.length ? statRow('Baro Alt', fmt(minV(baroAlts),1), fmt(avgV(baroAlts),1), fmt(maxV(baroAlts),1), 'm') : ''}`;
+    }
+
+    const timeA = pA.ts ? new Date(pA.ts).toLocaleTimeString() : '--';
+    const timeB = pB.ts ? new Date(pB.ts).toLocaleTimeString() : '--';
+
+    const html = `
+        <div class="range-stats-header">
+            <span>Range Analysis</span>
+            <button class="range-stats-close" onclick="closeRangeStats()">\u00D7</button>
+        </div>
+        <div class="range-stats-body">
+            <div class="range-stats-overview">
+                <div class="range-stat-card">
+                    <div class="range-stat-label">Distance</div>
+                    <div class="range-stat-value">${rangeDist.toFixed(2)}<span class="range-stat-unit">km</span></div>
+                </div>
+                <div class="range-stat-card">
+                    <div class="range-stat-label">Duration</div>
+                    <div class="range-stat-value">${durationMs != null ? formatDuration(durationMs) : '--'}</div>
+                </div>
+                <div class="range-stat-card">
+                    <div class="range-stat-label">Elev. Gain</div>
+                    <div class="range-stat-value">${Math.round(elevGain)}<span class="range-stat-unit">m</span></div>
+                </div>
+                <div class="range-stat-card">
+                    <div class="range-stat-label">Elev. Loss</div>
+                    <div class="range-stat-value">${Math.round(elevLoss)}<span class="range-stat-unit">m</span></div>
+                </div>
+            </div>
+            <div class="range-stats-time">
+                ${timeA} \u2192 ${timeB} &nbsp;\u00B7&nbsp; ${slice.length} points
+            </div>
+            <table class="range-stats-table">
+                <thead><tr><th></th><th>Min</th><th>Avg</th><th>Max</th><th></th></tr></thead>
+                <tbody>
+                    ${statRow('Speed', fmt(minV(speeds),1), fmt(avgV(speeds),1), fmt(maxV(speeds),1), 'km/h')}
+                    ${statRow('Altitude', fmt(minV(alts),1), fmt(avgV(alts),1), fmt(maxV(alts),1), 'm')}
+                    ${hrs.length ? statRow('Heart Rate', fmt(minV(hrs),0), fmt(avgV(hrs),0), fmt(maxV(hrs),0), 'bpm') : ''}
+                    ${slopes.length ? statRow('Slope', fmt(minV(slopes),1), fmt(avgV(slopes),1), fmt(maxV(slopes),1), '%') : ''}
+                    ${weatherRows}
+                    ${baroRows}
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    let panel = document.getElementById('rangeStatsPanel');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'rangeStatsPanel';
+        document.body.appendChild(panel);
+    }
+    panel.innerHTML = html;
+    panel.style.display = 'flex';
+
+    // Register Escape to close
+    document.addEventListener('keydown', rangeStatsKeyHandler);
+}
+
+function closeRangeStats() {
+    const panel = document.getElementById('rangeStatsPanel');
+    if (panel) panel.style.display = 'none';
+    document.removeEventListener('keydown', rangeStatsKeyHandler);
+    clearRangeSelection();
+}
+
+function rangeStatsKeyHandler(e) {
+    if (e.key === 'Escape') closeRangeStats();
 }
 
 // ─────────────────────────────────────────────────────────────
