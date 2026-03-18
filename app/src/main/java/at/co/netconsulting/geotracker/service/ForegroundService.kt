@@ -104,20 +104,20 @@ class ForegroundService : Service() {
     private val serviceJob = SupervisorJob() // Changed to SupervisorJob for better error handling
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private var wakeLock: PowerManager.WakeLock? = null // Made nullable for safer handling
-    private var lastUpdateTimestamp: Long = currentTimeMillis()
+    @Volatile private var lastUpdateTimestamp: Long = currentTimeMillis()
     private var isCurrentlyMoving = false
     private val movementState = StopwatchState()
     private val lazyState = StopwatchState()
     private var customLocationListener: CustomLocationListener? = null
     private var currentEventId: Int = -1
-    private var satellites: String = "0"
+    @Volatile private var satellites: String = "0"
     private var hasReceivedValidWeather = false
 
     // Heart rate monitoring
     private var heartRateSensorService: HeartRateSensorService? = null
     private var heartRateDeviceAddress: String? = null
     private var heartRateDeviceName: String? = null
-    private var currentHeartRate: Int = 0
+    @Volatile private var currentHeartRate: Int = 0
     private var isHrRegistered = false
 
     // Barometer sensor monitoring
@@ -142,7 +142,7 @@ class ForegroundService : Service() {
     //sessionId
     private var sessionId: String = ""
 
-    private var isServiceStarted = false
+    @Volatile private var isServiceStarted = false
 
     //restoring destroyed session
     private var isRestoredSession = false
@@ -180,7 +180,7 @@ class ForegroundService : Service() {
     private var enableWebSocketTransfer: Boolean = true
 
     // Pause/Resume functionality
-    private var isPaused = false
+    @Volatile private var isPaused = false
     private var pauseStartTime: Long = 0
     private var totalPausedDurationMs: Long = 0
 
@@ -685,6 +685,9 @@ class ForegroundService : Service() {
                 val restoredSegments: List<TimeSegment> = gson.fromJson(serializedState, type)
                 segments.clear()
                 segments.addAll(restoredSegments)
+                // Restore currentSegment from the last open (unfinished) segment
+                // so getTotalDuration() continues advancing instead of appearing frozen
+                currentSegment = segments.lastOrNull { it.endTime == null }
             } catch (e: Exception) {
                 Log.e("StopwatchState", "Error restoring state: ${e.message}")
             }
@@ -695,6 +698,7 @@ class ForegroundService : Service() {
         serviceScope.launch {
             try {
                 isServiceStarted = true
+                hasFinalized = false // Reset static flag for new recording
 
                 // If we're restoring, first try to get the latest state from the database
                 if (isRestoredSession) {
@@ -1617,7 +1621,24 @@ class ForegroundService : Service() {
             val prefs = getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
             val wasRunning = prefs.getBoolean("was_running", false)
 
-            if (wasRunning || isRestoredSession) {
+            // Detect stale recovery: if wasRunning is true but the intent has explicit start extras
+            // (eventName), this is a genuinely new recording — the stale was_running flag was left
+            // over from a previous session (race condition in onDestroy). In that case, skip recovery
+            // and treat this as a fresh start.
+            val isGenuineNewStart = !isRestoredSession && intent?.hasExtra("eventName") == true
+            val shouldRestore = (wasRunning || isRestoredSession) && !isGenuineNewStart
+
+            if (isGenuineNewStart && wasRunning) {
+                Log.w(TAG, "Stale was_running=true detected for new recording start — clearing recovery state")
+                prefs.edit()
+                    .putBoolean("was_running", false)
+                    .putBoolean("is_paused", false)
+                    .putLong("pause_start_time_saved", 0)
+                    .putLong("total_paused_duration_ms", 0)
+                    .apply()
+            }
+
+            if (shouldRestore) {
                 Log.d(TAG, "Restoring from previous session (wasRunning=$wasRunning, isRestoredSession=$isRestoredSession)")
 
                 // Restore state
@@ -1865,6 +1886,40 @@ class ForegroundService : Service() {
         super.onDestroy()
         Log.d(TAG, "onDestroy called, isStoppingIntentionally: $isStoppingIntentionally")
 
+        // CRITICAL: Set isServiceStarted to false FIRST, before cancelling jobs.
+        // This prevents the periodic state saver from writing was_running=true
+        // after we clear it below (race condition that caused stale recovery on next start).
+        isServiceStarted = false
+
+        // Cancel all background jobs IMMEDIATELY to prevent them from overwriting
+        // SharedPreferences state (was_running, is_paused) after we clean up below.
+        try {
+            currentStateJob?.cancel()
+            currentStateJob = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling state saving job", e)
+        }
+
+        try {
+            stateConsistencyCheckerJob?.cancel()
+            stateConsistencyCheckerJob = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling state consistency checker", e)
+        }
+
+        try {
+            connectionMonitorJob?.cancel()
+            connectionMonitorJob = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling connection monitor", e)
+        }
+
+        try {
+            serviceJob.cancel()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling service job", e)
+        }
+
         try {
             stopWeatherUpdates()
         } catch (e: Exception) {
@@ -1896,10 +1951,13 @@ class ForegroundService : Service() {
                 // Clear session data when stopping intentionally
                 clearSessionDataFromPreferences()
 
-                // Add this block to explicitly clear the recovery state immediately
+                // Clear the recovery state — safe now because all background jobs are cancelled
                 getSharedPreferences(SessionRecoveryManager.PREF_SERVICE_STATE, Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean(SessionRecoveryManager.PREF_WAS_RUNNING, false)
+                    .putBoolean("is_paused", false)
+                    .putLong("pause_start_time_saved", 0)
+                    .putLong("total_paused_duration_ms", 0)
                     .apply()
 
                 Log.d(TAG, "Cleared recovery state and session data in SharedPreferences")
@@ -1948,10 +2006,6 @@ class ForegroundService : Service() {
             Log.e(TAG, "Error cleaning up location listener", e)
         }
 
-        // Cancel state saving job
-        currentStateJob?.cancel()
-        currentStateJob = null
-
         releaseWakeLock()
 
         try {
@@ -1963,21 +2017,10 @@ class ForegroundService : Service() {
         }
 
         try {
-            serviceJob.cancel()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error cancelling service job", e)
-        }
-
-        isServiceStarted = false
-
-        try {
             stopForeground(STOP_FOREGROUND_REMOVE)
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping foreground service", e)
         }
-
-        connectionMonitorJob?.cancel()
-        connectionMonitorJob = null
     }
 
     private suspend fun finalizeRecording() {

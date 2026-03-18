@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.26 (13-03-2026: retry of upload media files to server, if sync fails)"
+        versionName = "8.27 (18-03-2026: bugfix recording sometimes sticks when starting a new one)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
