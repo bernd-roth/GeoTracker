@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoTracker - Heatmap</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+        /* ── Nav bar ───────────────────────────────────────── */
+        #navBar {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1001;
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            box-shadow: 0 4px 16px var(--shadow-color);
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            padding: 4px 8px;
+        }
+        .nav-link {
+            padding: 4px 14px;
+            border-radius: 16px;
+            font-size: 12px;
+            font-weight: 500;
+            text-decoration: none;
+            color: var(--text-secondary);
+            font-family: Arial, sans-serif;
+            transition: background-color 0.2s, color 0.2s;
+        }
+        .nav-link:hover  { background: var(--hover-bg); color: var(--text-primary); }
+        .nav-link.active { background: var(--accent-blue); color: #fff; }
+        .nav-divider { width: 1px; height: 16px; background: var(--border-color); margin: 0 4px; }
+
+        /* ── Full-size map ─────────────────────────────────── */
+        #map { height: 100vh; width: 100%; }
+
+        /* ── Control panel ─────────────────────────────────── */
+        #heatmapControls {
+            position: absolute;
+            top: 54px;
+            left: 10px;
+            z-index: 1000;
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px var(--shadow-color);
+            width: 220px;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        #heatmapControls .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background-color: var(--bg-panel-header);
+            border-bottom: 1px solid var(--border-color);
+        }
+        #heatmapControls .panel-header h3 {
+            margin: 0;
+            font-size: 14px;
+            color: var(--text-primary);
+        }
+        .ctrl-section {
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .ctrl-section:last-child { border-bottom: none; }
+        .ctrl-label {
+            font-size: 10px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .ctrl-section select {
+            width: 100%;
+            padding: 4px 6px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 11px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .slider-row input[type="range"] {
+            flex: 1;
+            height: 4px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: var(--border-color);
+            border-radius: 2px;
+            outline: none;
+        }
+        .slider-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: var(--accent-blue);
+            cursor: pointer;
+        }
+        .slider-value {
+            font-size: 11px;
+            color: var(--text-secondary);
+            min-width: 24px;
+            text-align: right;
+        }
+
+        /* ── Status bar ────────────────────────────────────── */
+        #statusBar {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            box-shadow: 0 4px 16px var(--shadow-color);
+            padding: 4px 14px;
+            font-size: 11px;
+            font-family: Arial, sans-serif;
+            color: var(--text-secondary);
+        }
+
+        /* ── Legend ─────────────────────────────────────────── */
+        .legend-bar {
+            height: 10px;
+            border-radius: 5px;
+            background: linear-gradient(to right,
+                #3b528b 0%,
+                #2c728e 15%,
+                #21918c 28%,
+                #27ad81 40%,
+                #5ec962 55%,
+                #fde725 70%,
+                #FF9800 85%,
+                #F44336 100%
+            );
+            margin: 4px 0 2px;
+        }
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 9px;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+
+<!-- Navigation -->
+<div id="navBar">
+    <a href="/" class="nav-link">Live</a>
+    <div class="nav-divider"></div>
+    <a href="/analysis.html" class="nav-link">Analysis</a>
+    <div class="nav-divider"></div>
+    <a href="/heatmap.html" class="nav-link active">Heatmap</a>
+    <div class="nav-divider"></div>
+    <button id="themeBtn" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
+</div>
+
+<!-- Controls -->
+<div id="heatmapControls">
+    <div class="panel-header">
+        <h3>Heatmap</h3>
+    </div>
+
+    <div class="ctrl-section">
+        <div class="ctrl-label">Sport</div>
+        <select id="sportFilter" onchange="onFilterChange()">
+            <option value="">All sports</option>
+        </select>
+    </div>
+
+    <div class="ctrl-section">
+        <div class="ctrl-label">Year</div>
+        <select id="yearFilter" onchange="onFilterChange()">
+            <option value="">All years</option>
+        </select>
+    </div>
+
+    <div class="ctrl-section">
+        <div class="ctrl-label">Radius</div>
+        <div class="slider-row">
+            <input type="range" id="radiusSlider" min="2" max="40" value="15" step="1"
+                   oninput="onRadiusChange(this.value)" />
+            <span id="radiusValue" class="slider-value">15</span>
+        </div>
+    </div>
+
+    <div class="ctrl-section">
+        <div class="ctrl-label">Opacity</div>
+        <div class="slider-row">
+            <input type="range" id="opacitySlider" min="0.1" max="1.0" value="0.8" step="0.1"
+                   oninput="onOpacityChange(this.value)" />
+            <span id="opacityValue" class="slider-value">0.8</span>
+        </div>
+    </div>
+
+    <div class="ctrl-section">
+        <div class="ctrl-label">Density</div>
+        <div class="legend-bar"></div>
+        <div class="legend-labels">
+            <span>Low</span>
+            <span>High</span>
+        </div>
+    </div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Status -->
+<div id="statusBar">
+    <span id="statusText">Loading...</span>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+<script src="heatmap.js"></script>
+</body>
+</html>
