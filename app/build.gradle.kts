@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.27 (18-03-2026: bugfix recording sometimes sticks when starting a new one)"
+        versionName = "8.28 (19-03-2026: excluded 'Ghost Racer' from yearly statistics)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

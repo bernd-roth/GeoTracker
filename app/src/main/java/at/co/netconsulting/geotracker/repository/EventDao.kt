@@ -42,6 +42,18 @@ interface EventDao {
             FROM metrics
             GROUP BY eventId
         ) m ON e.eventId = m.eventId
+        WHERE e.eventSource IS NULL OR e.eventSource = 'recorded'
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+    """)
+    fun getRecordedEvents(): Flow<List<Event>>
+
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId, MIN(timeInMilliseconds) as startTime
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
         WHERE e.userId = :userId
         ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
     """)

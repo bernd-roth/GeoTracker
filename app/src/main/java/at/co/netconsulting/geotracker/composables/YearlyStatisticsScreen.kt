@@ -770,7 +770,7 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
         val result = mutableListOf<EventWithTotalDistance>()
 
         try {
-            val eventsFlow = database.eventDao().getAllEvents()
+            val eventsFlow = database.eventDao().getRecordedEvents()
             val events = eventsFlow.first()
 
             // Get all event IDs at once

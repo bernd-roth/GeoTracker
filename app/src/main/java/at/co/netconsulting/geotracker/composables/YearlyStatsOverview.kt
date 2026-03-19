@@ -516,7 +516,7 @@ private suspend fun getAllEventsBasic(database: FitnessTrackerDatabase): List<Ev
         val result = mutableListOf<EventWithTotalDistance>()
 
         try {
-            val eventsFlow = database.eventDao().getAllEvents()
+            val eventsFlow = database.eventDao().getRecordedEvents()
             val events = eventsFlow.first()
 
             // Process events with basic distance calculation
@@ -547,8 +547,8 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
         val result = mutableListOf<EventWithTotalDistance>()
 
         try {
-            // Get events as a Flow and collect the latest value
-            val eventsFlow = database.eventDao().getAllEvents()
+            // Get events as a Flow and collect the latest value (exclude imported ghost racer events)
+            val eventsFlow = database.eventDao().getRecordedEvents()
             val events = eventsFlow.first() // Get the first emission from the Flow
 
             val multisportTypes = setOf("Triathlon", "Duathlon", "Ultratriathlon")
