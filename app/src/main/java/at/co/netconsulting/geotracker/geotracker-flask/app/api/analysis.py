@@ -260,7 +260,9 @@ def get_summary(session_id):
         # distance stored in metres → convert to km
         'total_distance_km': _m_to_km(totals.max_distance)        if totals and totals.max_distance  else None,
         'max_speed_kmh':     round(float(agg.max_speed),  2)      if agg.max_speed                   else None,
-        'avg_speed_kmh':     round(float(agg.avg_speed),  2)      if agg.avg_speed                   else None,
+        'avg_speed_kmh':     round(float(totals.max_distance) / (duration_ms / 1000) * 3.6, 2)
+                             if totals and totals.max_distance and duration_ms
+                             else None,
         # elevation_gain stored in metres already
         'elevation_gain_m':  round(float(totals.max_ele_gain), 1) if totals and totals.max_ele_gain  else None,
         'avg_heart_rate':    round(float(agg.avg_hr),     1)      if agg.avg_hr                      else None,
