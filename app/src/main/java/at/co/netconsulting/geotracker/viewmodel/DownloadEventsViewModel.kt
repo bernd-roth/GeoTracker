@@ -43,6 +43,7 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
         object Checking : DownloadState()
         object ReadyToDownload : DownloadState()
         object AlreadyDownloaded : DownloadState()
+        object ActivelyRecording : DownloadState()
         object Downloading : DownloadState()
         data class Success(val message: String) : DownloadState()
         data class Error(val message: String) : DownloadState()
@@ -136,6 +137,13 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     private suspend fun checkSessionStatus(session: GeoTrackerApiClient.RemoteSessionSummary) {
         Log.d(TAG, "Checking session: ${session.eventName} (ID: ${session.sessionId})")
         updateProgress(session.sessionId, DownloadState.Checking)
+
+        // Block download of sessions that are currently being recorded
+        if (session.isRecording) {
+            Log.d(TAG, "Session is actively recording: ${session.sessionId}")
+            updateProgress(session.sessionId, DownloadState.ActivelyRecording)
+            return
+        }
 
         // Check if session is already in local database
         val existingEvent = withContext(Dispatchers.IO) {

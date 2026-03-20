@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -311,6 +312,7 @@ fun SessionDownloadItemCompact(
         is DownloadEventsViewModel.DownloadState.Success -> Color(0xFFE8F5E9)
         is DownloadEventsViewModel.DownloadState.AlreadyDownloaded -> Color(0xFFE3F2FD)
         is DownloadEventsViewModel.DownloadState.ReadyToDownload -> Color(0xFFF3E5F5)
+        is DownloadEventsViewModel.DownloadState.ActivelyRecording -> Color(0xFFFFEBEE)
         is DownloadEventsViewModel.DownloadState.Error -> Color(0xFFFFEBEE)
         is DownloadEventsViewModel.DownloadState.Downloading,
         is DownloadEventsViewModel.DownloadState.Checking -> Color(0xFFFFF9C4)
@@ -369,6 +371,8 @@ fun SessionDownloadItemCompact(
                     Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF1565C0), modifier = Modifier.size(20.dp))
                 is DownloadEventsViewModel.DownloadState.ReadyToDownload ->
                     Icon(Icons.Default.CloudDownload, null, tint = Color(0xFF7B1FA2), modifier = Modifier.size(20.dp))
+                is DownloadEventsViewModel.DownloadState.ActivelyRecording ->
+                    Icon(Icons.Default.FiberManualRecord, "Recording", tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
                 is DownloadEventsViewModel.DownloadState.Error ->
                     Icon(Icons.Default.Error, null, tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
                 is DownloadEventsViewModel.DownloadState.Downloading,
@@ -401,6 +405,7 @@ fun SessionDownloadItem(
                 is DownloadEventsViewModel.DownloadState.Success -> Color(0xFFE8F5E9)
                 is DownloadEventsViewModel.DownloadState.AlreadyDownloaded -> Color(0xFFE3F2FD)
                 is DownloadEventsViewModel.DownloadState.ReadyToDownload -> Color(0xFFF3E5F5) // Purple for ready
+                is DownloadEventsViewModel.DownloadState.ActivelyRecording -> Color(0xFFFFEBEE)
                 is DownloadEventsViewModel.DownloadState.Error -> Color(0xFFFFEBEE)
                 is DownloadEventsViewModel.DownloadState.Downloading -> Color(0xFFFFF9C4)
                 is DownloadEventsViewModel.DownloadState.Checking -> Color(0xFFFFF3E0)
@@ -495,6 +500,14 @@ fun SessionDownloadItem(
                             color = Color(0xFF7B1FA2) // Purple
                         )
                     }
+                    is DownloadEventsViewModel.DownloadState.ActivelyRecording -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "\u26A0 Currently being recorded — download blocked",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFC62828)
+                        )
+                    }
                     is DownloadEventsViewModel.DownloadState.Error -> {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
@@ -564,6 +577,14 @@ fun SessionDownloadItem(
                             imageVector = Icons.Default.CloudDownload,
                             contentDescription = "Ready to download",
                             tint = Color(0xFF7B1FA2), // Purple
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    is DownloadEventsViewModel.DownloadState.ActivelyRecording -> {
+                        Icon(
+                            imageVector = Icons.Default.FiberManualRecord,
+                            contentDescription = "Recording",
+                            tint = Color(0xFFC62828),
                             modifier = Modifier.size(24.dp)
                         )
                     }

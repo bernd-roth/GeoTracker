@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from ..extensions import db
 
 
@@ -58,6 +58,26 @@ class TrackingSession(db.Model):
         if include_stats:
             result['gps_point_count'] = self.gps_points.count()
             result['lap_count'] = self.lap_times.count()
+
+            # Check if session is actively recording by looking at the most
+            # recent GPS point.  If it arrived within the last 5 minutes the
+            # session is considered active.
+            from .gps_point import GPSTrackingPoint
+            latest_point = (
+                GPSTrackingPoint.query
+                .filter_by(session_id=self.session_id)
+                .order_by(GPSTrackingPoint.received_at.desc())
+                .first()
+            )
+            if latest_point and latest_point.received_at:
+                cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+                received = latest_point.received_at
+                # Make offset-naive timestamps comparable
+                if received.tzinfo is None:
+                    received = received.replace(tzinfo=timezone.utc)
+                result['is_recording'] = received > cutoff
+            else:
+                result['is_recording'] = False
 
         return result
 

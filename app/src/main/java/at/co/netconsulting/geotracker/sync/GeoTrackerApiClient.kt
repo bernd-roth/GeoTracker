@@ -87,7 +87,8 @@ class GeoTrackerApiClient(private val context: Context) {
         val startDateTime: String?,
         val gpsPointCount: Int,
         val startCity: String?,
-        val startCountry: String?
+        val startCountry: String?,
+        val isRecording: Boolean = false
     )
 
     data class FullSessionData(
@@ -837,7 +838,8 @@ class GeoTrackerApiClient(private val context: Context) {
                                 startDateTime = sessionJson.optString("start_date_time")?.takeIf { it.isNotBlank() && it != "null" },
                                 gpsPointCount = sessionJson.optInt("gps_point_count", 0),
                                 startCity = sessionJson.optString("start_city")?.takeIf { it.isNotBlank() && it != "null" },
-                                startCountry = sessionJson.optString("start_country")?.takeIf { it.isNotBlank() && it != "null" }
+                                startCountry = sessionJson.optString("start_country")?.takeIf { it.isNotBlank() && it != "null" },
+                                isRecording = sessionJson.optBoolean("is_recording", false)
                             )
                         )
                     }
