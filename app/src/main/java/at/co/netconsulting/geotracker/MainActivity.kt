@@ -440,37 +440,39 @@ class MainActivity : ComponentActivity() {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
             sheetContent = {
-                if(latitudeState.value != -999.0 && longitudeState.value != -999.0) {
-                    BottomSheetContent(
-                        latitude = latitudeState.value,
-                        longitude = longitudeState.value,
-                        speed = speedState.value,
-                        speedAccuracyInMeters = speedAccuracyInMetersState.value,
-                        altitude = altitudeState.value,
-                        verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
-                        horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
-                        numberOfSatellites = satelliteInfo.totalSatellites,
-                        usedNumberOfSatellites = satelliteInfo.visibleSatellites,
-                        coveredDistance = coveredDistanceState.value,
-                        bearing = bearingState.value
-                    )
-                } else {
-                    BottomSheetContent(
-                        latitude = Double.NaN,
-                        longitude = Double.NaN,
-                        speed = speedState.value,
-                        speedAccuracyInMeters = speedAccuracyInMetersState.value,
-                        altitude = altitudeState.value,
-                        verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
-                        horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
-                        numberOfSatellites = satelliteInfo.totalSatellites,
-                        usedNumberOfSatellites = satelliteInfo.visibleSatellites,
-                        coveredDistance = coveredDistanceState.value,
-                        bearing = bearingState.value
-                    )
+                if (selectedTabIndex == 0) {
+                    if(latitudeState.value != -999.0 && longitudeState.value != -999.0) {
+                        BottomSheetContent(
+                            latitude = latitudeState.value,
+                            longitude = longitudeState.value,
+                            speed = speedState.value,
+                            speedAccuracyInMeters = speedAccuracyInMetersState.value,
+                            altitude = altitudeState.value,
+                            verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
+                            horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
+                            numberOfSatellites = satelliteInfo.totalSatellites,
+                            usedNumberOfSatellites = satelliteInfo.visibleSatellites,
+                            coveredDistance = coveredDistanceState.value,
+                            bearing = bearingState.value
+                        )
+                    } else {
+                        BottomSheetContent(
+                            latitude = Double.NaN,
+                            longitude = Double.NaN,
+                            speed = speedState.value,
+                            speedAccuracyInMeters = speedAccuracyInMetersState.value,
+                            altitude = altitudeState.value,
+                            verticalAccuracyInMeters = verticalAccuracyInMetersState.value,
+                            horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
+                            numberOfSatellites = satelliteInfo.totalSatellites,
+                            usedNumberOfSatellites = satelliteInfo.visibleSatellites,
+                            coveredDistance = coveredDistanceState.value,
+                            bearing = bearingState.value
+                        )
+                    }
                 }
             },
-            sheetPeekHeight = 20.dp,
+            sheetPeekHeight = if (selectedTabIndex == 0) 20.dp else 0.dp,
             sheetContentColor = Color.Transparent,
             sheetContainerColor = Color.Transparent
         ) {

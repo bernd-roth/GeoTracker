@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.30 (20-03-2026: Downloading other events from server prevented, if recording is still ongoing)"
+        versionName = "8.31 (21-03-2026: BottomSheetContent is not available to other tabs except 'Map' anymore)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
