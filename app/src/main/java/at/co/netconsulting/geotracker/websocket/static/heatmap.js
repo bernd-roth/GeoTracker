@@ -262,10 +262,25 @@ function addHeatmapLayer(geojson) {
 // ─────────────────────────────────────────────────────────────
 function onRadiusChange(val) {
     document.getElementById('radiusValue').textContent = val;
-    if (heatmapData) addHeatmapLayer(heatmapData);
+    if (!map.getLayer('heatmap-heat')) return;
+    const r = parseFloat(val);
+    map.setPaintProperty('heatmap-heat', 'heatmap-radius', [
+        'interpolate', ['linear'], ['zoom'],
+        0,  r * 0.5,
+        8,  r,
+        14, r * 2,
+        17, r * 3
+    ]);
 }
 
 function onOpacityChange(val) {
     document.getElementById('opacityValue').textContent = parseFloat(val).toFixed(1);
-    if (heatmapData) addHeatmapLayer(heatmapData);
+    if (!map.getLayer('heatmap-heat')) return;
+    const o = parseFloat(val);
+    map.setPaintProperty('heatmap-heat', 'heatmap-opacity', [
+        'interpolate', ['linear'], ['zoom'],
+        0,  o,
+        15, o * 0.8,
+        17, 0.2
+    ]);
 }
