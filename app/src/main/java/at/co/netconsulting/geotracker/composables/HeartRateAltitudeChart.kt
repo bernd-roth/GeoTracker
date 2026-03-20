@@ -57,7 +57,6 @@ fun HeartRateAltitudeChart(
                     setDrawGridLines(false)
                     labelCount = 6
                     isGranularityEnabled = true
-                    granularity = 10f
                 }
 
                 // Left Y-axis setup (Heart Rate)
@@ -99,6 +98,18 @@ fun HeartRateAltitudeChart(
 
             val lineData = LineData(dataSet)
             chart.data = lineData
+
+            // Calculate dynamic granularity based on altitude range
+            val minX = chartEntries.minOfOrNull { it.x } ?: 0f
+            val maxX = chartEntries.maxOfOrNull { it.x } ?: 0f
+            val range = maxX - minX
+            chart.xAxis.granularity = when {
+                range < 10f -> 1f     // very narrow range: every 1m
+                range < 50f -> 5f     // narrow range: every 5m
+                range < 200f -> 10f   // moderate range: every 10m
+                range < 500f -> 50f
+                else -> 100f
+            }
 
             // X-axis formatter for altitude
             chart.xAxis.valueFormatter = object : ValueFormatter() {

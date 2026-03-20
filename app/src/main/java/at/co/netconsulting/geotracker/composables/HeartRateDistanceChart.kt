@@ -51,7 +51,6 @@ fun HeartRateDistanceChart(
                     position = XAxis.XAxisPosition.BOTTOM
                     textSize = 10f
                     setDrawGridLines(false)
-                    granularity = 1.0f
                     labelCount = 6
                     isGranularityEnabled = true
                 }
@@ -98,10 +97,33 @@ fun HeartRateDistanceChart(
             val lineData = LineData(dataSet)
             chart.data = lineData
 
+            // Calculate dynamic granularity based on data range
+            val minX = chartEntries.minOfOrNull { it.x } ?: 0f
+            val maxX = chartEntries.maxOfOrNull { it.x } ?: 0f
+            val range = maxX - minX
+            val useMeters = range < 1f // Less than 1 km — show in meters
+            chart.xAxis.granularity = if (useMeters) {
+                // Show in meters: granularity based on meter range
+                val meterRange = range * 1000f
+                when {
+                    meterRange < 100f -> 10f / 1000f   // every 10m
+                    meterRange < 500f -> 50f / 1000f   // every 50m
+                    else -> 100f / 1000f                // every 100m
+                }
+            } else {
+                when {
+                    range < 5f -> 0.5f
+                    range < 20f -> 1f
+                    else -> 5f
+                }
+            }
+
             // X-axis formatter for distance
             chart.xAxis.valueFormatter = object : ValueFormatter() {
                 override fun getFormattedValue(value: Float): String {
-                    return if (value % 1.0f == 0.0f) {
+                    return if (useMeters) {
+                        "${(value * 1000).toInt()} m"
+                    } else if (value % 1.0f == 0.0f) {
                         "${value.toInt()} km"
                     } else {
                         String.format("%.1f km", value)

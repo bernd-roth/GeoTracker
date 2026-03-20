@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.28 (19-03-2026: excluded 'Ghost Racer' from yearly statistics)"
+        versionName = "8.29 (20-03-2026: added labels to charts)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
