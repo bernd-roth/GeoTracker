@@ -1713,8 +1713,11 @@ function updateMapTrack(sessionId) {
         return R * c;
     }
 
-    // Break track into segments when there are large gaps (> 500 meters between consecutive points)
+    // Break track into segments when there are large gaps.
+    // Both distance (> 500 m) AND time (> 10 min) must exceed thresholds
+    // to avoid splitting at brief app-restart gaps where the runner kept moving.
     const maxGapDistance = 500; // meters
+    const maxGapTimeMs = 30 * 60 * 1000; // 30 minutes in milliseconds
     const trackSegments = [];
     let currentSegment = [];
 
@@ -1732,13 +1735,18 @@ function updateMapTrack(sessionId) {
                 currentPoint.lat, currentPoint.lng
             );
 
-            if (distance > maxGapDistance) {
-                // Large gap detected - finish current segment and start new one
+            // Check time gap between consecutive points
+            const timeGap = (currentPoint.timestamp && prevPoint.timestamp)
+                ? Math.abs(currentPoint.timestamp - prevPoint.timestamp)
+                : 0;
+
+            if (distance > maxGapDistance && timeGap > maxGapTimeMs) {
+                // Large gap in both space and time - finish current segment and start new one
                 if (currentSegment.length > 1) {
                     trackSegments.push([...currentSegment]);
                 }
                 currentSegment = [[currentPoint.lng, currentPoint.lat]];
-                addDebugMessage(`Track gap detected in session ${sessionId}: ${distance.toFixed(0)}m between points`, 'system');
+                addDebugMessage(`Track gap detected in session ${sessionId}: ${distance.toFixed(0)}m, ${(timeGap/60000).toFixed(1)}min between points`, 'system');
             } else {
                 // Normal point - add to current segment
                 currentSegment.push([currentPoint.lng, currentPoint.lat]);
@@ -1956,8 +1964,10 @@ function updateCharts(sessionId) {
         return R * c;
     }
 
-    // Break data into segments when there are large gaps (same logic as map)
+    // Break data into segments when there are large gaps (same logic as map).
+    // Both distance (> 500 m) AND time (> 10 min) must exceed thresholds.
     const maxGapDistance = 500; // meters
+    const maxGapTimeMs = 30 * 60 * 1000; // 30 minutes in milliseconds
     const dataSegments = [];
     let currentSegment = [];
 
@@ -1978,13 +1988,18 @@ function updateCharts(sessionId) {
                 currentPoint.lat, currentPoint.lng
             );
 
-            if (distance > maxGapDistance) {
-                // Large gap detected - finish current segment and start new one
+            // Check time gap between consecutive points
+            const timeGap = (currentPoint.timestamp && prevPoint.timestamp)
+                ? Math.abs(currentPoint.timestamp - prevPoint.timestamp)
+                : 0;
+
+            if (distance > maxGapDistance && timeGap > maxGapTimeMs) {
+                // Large gap in both space and time - finish current segment and start new one
                 if (currentSegment.length > 1) {
                     dataSegments.push([...currentSegment]);
                 }
                 currentSegment = [currentPoint];
-                addDebugMessage(`Chart gap detected in session ${sessionId}: ${distance.toFixed(0)}m between points`, 'system');
+                addDebugMessage(`Chart gap detected in session ${sessionId}: ${distance.toFixed(0)}m, ${(timeGap/60000).toFixed(1)}min between points`, 'system');
             } else {
                 // Normal point - add to current segment
                 currentSegment.push(currentPoint);

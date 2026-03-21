@@ -9,6 +9,7 @@ from logging.handlers import RotatingFileHandler
 import os
 from collections import defaultdict
 from typing import Set, DefaultDict, List, Dict, Any, Optional
+import re
 import asyncpg
 from dateutil import parser
 
@@ -1222,7 +1223,17 @@ class TrackingServer:
 
                 self.tracking_history[row['session_id']].append(tracking_point)
 
-            logging.info(f"Loaded {len(rows)} tracking points from database (last {self.data_retention_hours} hours)")
+            # Remove _reset_ fragments from tracking_history so they don't
+            # appear as separate sessions in the live UI.  Their points are
+            # typically GPS outliers (the coordinate jump / distance reset that
+            # triggered the reset detection) and belong to neither segment.
+            # The base session already has continuous data before and after
+            # each restart.
+            reset_keys = [sid for sid in self.tracking_history if re.search(r'_reset_\d+$', sid)]
+            for reset_sid in reset_keys:
+                del self.tracking_history[reset_sid]
+
+            logging.info(f"Loaded {len(rows)} tracking points from database (last {self.data_retention_hours} hours, {len(reset_keys)} reset fragments hidden)")
 
         except Exception as e:
             logging.error(f"Error loading tracking history from normalized database: {str(e)}")
