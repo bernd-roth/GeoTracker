@@ -112,6 +112,20 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
         _selectedSessions.value = emptySet()
     }
 
+    /** Select all sessions belonging to a specific user */
+    fun selectAllForUser(userKey: String, sessions: List<GeoTrackerApiClient.RemoteSessionSummary>) {
+        val currentSelected = _selectedSessions.value.toMutableSet()
+        sessions.forEach { currentSelected.add(it.sessionId) }
+        _selectedSessions.value = currentSelected
+    }
+
+    /** Deselect all sessions belonging to a specific user */
+    fun deselectAllForUser(userKey: String, sessions: List<GeoTrackerApiClient.RemoteSessionSummary>) {
+        val currentSelected = _selectedSessions.value.toMutableSet()
+        sessions.forEach { currentSelected.remove(it.sessionId) }
+        _selectedSessions.value = currentSelected
+    }
+
     fun checkSelectedSessions() {
         val selectedIds = _selectedSessions.value
         val sessionsToCheck = _availableSessions.value.filter { it.sessionId in selectedIds }
@@ -128,6 +142,54 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
                 sessionsToCheck.forEach { session ->
                     checkSessionStatus(session)
                 }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /** Check only the selected sessions for a specific user */
+    fun checkSessionsForUser(sessions: List<GeoTrackerApiClient.RemoteSessionSummary>) {
+        val selectedIds = _selectedSessions.value
+        val sessionsToCheck = sessions.filter { it.sessionId in selectedIds }
+
+        if (sessionsToCheck.isEmpty()) {
+            Log.w(TAG, "No sessions selected for this user")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                sessionsToCheck.forEach { session ->
+                    checkSessionStatus(session)
+                }
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /** Download only the ready sessions for a specific user */
+    fun downloadSessionsForUser(sessions: List<GeoTrackerApiClient.RemoteSessionSummary>) {
+        val selectedIds = _selectedSessions.value
+        val sessionsToDownload = sessions.filter { session ->
+            session.sessionId in selectedIds &&
+            _downloadProgress.value[session.sessionId] == DownloadState.ReadyToDownload
+        }
+
+        if (sessionsToDownload.isEmpty()) {
+            Log.w(TAG, "No sessions ready to download for this user")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                sessionsToDownload.forEach { session ->
+                    performDownload(session)
+                }
+                loadAvailableSessions()
             } finally {
                 _isLoading.value = false
             }

@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -26,6 +27,13 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import at.co.netconsulting.geotracker.viewmodel.DownloadEventsViewModel
+
+/** Grouping key for a user based on firstname + lastname */
+private fun userKey(session: GeoTrackerApiClient.RemoteSessionSummary): String {
+    val first = session.firstname?.trim().orEmpty()
+    val last = session.lastname?.trim().orEmpty()
+    return if (first.isEmpty() && last.isEmpty()) "Unknown" else "$first $last".trim()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +53,6 @@ fun DownloadEventsDialog(
 
     // First deduplicate by sessionId (server may return duplicates), then apply filters
     val filteredSessions = remember(availableSessions, hideSmallSessions, searchQuery) {
-        // Deduplicate by sessionId, keeping the first occurrence
         val deduplicated = availableSessions.distinctBy { it.sessionId }
 
         val filtered = if (hideSmallSessions) {
@@ -54,7 +61,6 @@ fun DownloadEventsDialog(
             deduplicated
         }
 
-        // Apply search filter
         if (searchQuery.isBlank()) {
             filtered
         } else {
@@ -79,11 +85,16 @@ fun DownloadEventsDialog(
         deduplicatedSessions.size
     }
 
+    // Group filtered sessions by user
+    val groupedByUser = remember(filteredSessions) {
+        filteredSessions.groupBy { userKey(it) }.toSortedMap()
+    }
+
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.75f),
+                .fillMaxHeight(0.85f),
             shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surface
         ) {
@@ -189,113 +200,168 @@ fun DownloadEventsDialog(
                         }
                     }
                 } else {
-                    // Compact selection controls
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        val hiddenByFilter = deduplicatedSessions.size - totalFilteredCount
-                        val filterInfo = if (hiddenByFilter > 0) " ($hiddenByFilter hidden)" else ""
-                        Text(
-                            text = "$totalFilteredCount events$filterInfo",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row {
-                            TextButton(
-                                onClick = {
-                                    filteredSessions.forEach { session ->
-                                        if (!selectedSessions.contains(session.sessionId)) {
-                                            viewModel.toggleSessionSelection(session.sessionId)
-                                        }
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                            ) {
-                                Text("All", style = MaterialTheme.typography.bodySmall)
-                            }
-                            TextButton(
-                                onClick = { viewModel.deselectAll() },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                            ) {
-                                Text("None", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
+                    // Total count info
+                    val hiddenByFilter = deduplicatedSessions.size - totalFilteredCount
+                    val filterInfo = if (hiddenByFilter > 0) " ($hiddenByFilter hidden)" else ""
+                    Text(
+                        text = "$totalFilteredCount events from ${groupedByUser.size} users$filterInfo",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 2.dp)
+                    )
 
-                    // Sessions list - compact spacing
+                    // Grouped sessions list
                     LazyColumn(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(filteredSessions, key = { it.sessionId }) { session ->
-                            SessionDownloadItemCompact(
-                                session = session,
-                                isSelected = selectedSessions.contains(session.sessionId),
-                                downloadState = downloadProgress[session.sessionId] ?: DownloadEventsViewModel.DownloadState.Idle,
-                                onSelectionChange = { viewModel.toggleSessionSelection(session.sessionId) }
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Count sessions that need download
-                    val readyToDownloadCount = downloadProgress.count { (sessionId, state) ->
-                        sessionId in selectedSessions && state is DownloadEventsViewModel.DownloadState.ReadyToDownload
-                    }
-
-                    // Compact buttons in a row
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Check Status button
-                        OutlinedButton(
-                            onClick = { viewModel.checkSelectedSessions() },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(40.dp),
-                            enabled = selectedSessions.isNotEmpty() && !isLoading,
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) {
-                            if (isLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = if (selectedSessions.isEmpty()) "Check" else "Check ${selectedSessions.size}",
-                                    style = MaterialTheme.typography.bodySmall
+                        groupedByUser.forEach { (userName, userSessions) ->
+                            // User header
+                            item(key = "header_$userName") {
+                                UserSectionHeader(
+                                    userName = userName,
+                                    sessionCount = userSessions.size,
+                                    selectedCount = userSessions.count { it.sessionId in selectedSessions },
+                                    isLoading = isLoading,
+                                    readyToDownloadCount = userSessions.count { session ->
+                                        session.sessionId in selectedSessions &&
+                                        downloadProgress[session.sessionId] is DownloadEventsViewModel.DownloadState.ReadyToDownload
+                                    },
+                                    onSelectAll = { viewModel.selectAllForUser(userName, userSessions) },
+                                    onDeselectAll = { viewModel.deselectAllForUser(userName, userSessions) },
+                                    onCheck = { viewModel.checkSessionsForUser(userSessions) },
+                                    onDownload = { viewModel.downloadSessionsForUser(userSessions) }
                                 )
                             }
-                        }
 
-                        // Download button
-                        Button(
-                            onClick = { viewModel.downloadSelectedSessions() },
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(40.dp),
-                            enabled = readyToDownloadCount > 0 && !isLoading,
-                            contentPadding = PaddingValues(horizontal = 8.dp)
-                        ) {
-                            Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (readyToDownloadCount == 0) "Download" else "Download $readyToDownloadCount",
-                                style = MaterialTheme.typography.bodySmall
-                            )
+                            // Sessions for this user
+                            items(userSessions, key = { it.sessionId }) { session ->
+                                SessionDownloadItemCompact(
+                                    session = session,
+                                    isSelected = selectedSessions.contains(session.sessionId),
+                                    downloadState = downloadProgress[session.sessionId] ?: DownloadEventsViewModel.DownloadState.Idle,
+                                    onSelectionChange = { viewModel.toggleSessionSelection(session.sessionId) }
+                                )
+                            }
+
+                            // Divider after each user group
+                            item(key = "divider_$userName") {
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun UserSectionHeader(
+    userName: String,
+    sessionCount: Int,
+    selectedCount: Int,
+    isLoading: Boolean,
+    readyToDownloadCount: Int,
+    onSelectAll: () -> Unit,
+    onDeselectAll: () -> Unit,
+    onCheck: () -> Unit,
+    onDownload: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.primary,
+            thickness = 1.dp
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // User name + event count
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Default.Person,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = userName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = "$sessionCount events",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // Per-user controls: Select All/None + Check/Download
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Select All / None
+            Row {
+                TextButton(
+                    onClick = onSelectAll,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) {
+                    Text("All", style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(
+                    onClick = onDeselectAll,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                ) {
+                    Text("None", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            // Check / Download
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                OutlinedButton(
+                    onClick = onCheck,
+                    enabled = selectedCount > 0 && !isLoading,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    if (isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp)
+                    } else {
+                        Icon(Icons.Default.Refresh, null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = if (selectedCount == 0) "Check" else "Check $selectedCount",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+                Button(
+                    onClick = onDownload,
+                    enabled = readyToDownloadCount > 0 && !isLoading,
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.height(30.dp)
+                ) {
+                    Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text(
+                        text = if (readyToDownloadCount == 0) "Download" else "Download $readyToDownloadCount",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
     }
 }
 
@@ -343,7 +409,7 @@ fun SessionDownloadItemCompact(
 
             Spacer(modifier = Modifier.width(8.dp))
 
-            // Event info - compact
+            // Event info - compact (no "Recorded by" since sessions are grouped by user)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = session.eventName ?: "Unnamed",
@@ -359,16 +425,6 @@ fun SessionDownloadItemCompact(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
-                val recordedBy = listOfNotNull(session.firstname, session.lastname)
-                    .joinToString(" ")
-                if (recordedBy.isNotBlank()) {
-                    Text(
-                        text = "Recorded by: $recordedBy",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1
-                    )
-                }
             }
 
             // Status indicator
