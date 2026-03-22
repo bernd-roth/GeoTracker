@@ -1,7 +1,7 @@
 from flask import Blueprint, request, current_app
 from datetime import datetime
 from dateutil import parser as date_parser
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from ..extensions import db
 from ..models import TrackingSession, User, GPSTrackingPoint, LapTime
 from ..utils.responses import success_response, error_response, paginated_response
@@ -120,7 +120,7 @@ def list_sessions():
     min_total_points = request.args.get('min_total_points', 0, type=int)
 
     # Limit per_page to prevent abuse
-    per_page = min(per_page, 100)
+    per_page = min(per_page, 500)
 
     query = TrackingSession.query
 
@@ -157,6 +157,19 @@ def list_sessions():
             query
             .join(point_totals, TrackingSession.session_id == point_totals.c.base_id)
             .filter(point_totals.c.total_count >= min_total_points)
+        )
+
+    # Free-text search across event_name, sport_type, comment, start_city
+    search = request.args.get('search', '').strip()
+    if search:
+        like_pat = f'%{search}%'
+        query = query.filter(
+            or_(
+                TrackingSession.event_name.ilike(like_pat),
+                TrackingSession.sport_type.ilike(like_pat),
+                TrackingSession.comment.ilike(like_pat),
+                TrackingSession.start_city.ilike(like_pat),
+            )
         )
 
     if user_id:

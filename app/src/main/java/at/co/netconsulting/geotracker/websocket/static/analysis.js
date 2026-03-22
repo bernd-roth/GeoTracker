@@ -4,7 +4,7 @@
 // CONFIG
 // ─────────────────────────────────────────────────────────────
 const API_BASE        = '/api';
-const SESSIONS_PER_PAGE = 50;
+const SESSIONS_PER_PAGE = 200;
 const MAX_TRACK_POINTS  = 3000;
 
 // ─────────────────────────────────────────────────────────────
@@ -25,6 +25,8 @@ let browserVisible    = true;
 let lightboxItems     = [];       // current session's media list
 let lightboxIndex     = 0;
 let infoPopup         = null;     // chart hover info popup element
+let searchDebounceTimer = null;   // debounce timer for server-side search
+let isSearchActive      = false;  // true when showing server search results
 
 // ── Range selection state ───────────────────────────────────
 let rangeStartIdx     = null;     // first click index into currentTrack
@@ -207,15 +209,54 @@ function updateSportFilter() {
 }
 
 function applyFilter() {
-    const q     = document.getElementById('searchInput').value.trim().toLowerCase();
+    const q     = document.getElementById('searchInput').value.trim();
     const sport = document.getElementById('sportFilter').value;
 
+    // If there's a text query, debounce a server-side search
+    if (q) {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => searchServer(q, sport), 300);
+        return;
+    }
+
+    // No text query — filter locally from loaded sessions (by sport only)
+    if (isSearchActive) {
+        // Was in search mode, returning to normal — restore pagination state
+        isSearchActive = false;
+        document.getElementById('loadMoreBtn').style.display = hasNextPage ? 'block' : 'none';
+    }
+
     const filtered = allSessions.filter(s => {
-        const name = (s.event_name || '').toLowerCase();
-        return (!q || name.includes(q)) && (!sport || s.sport_type === sport);
+        return !sport || s.sport_type === sport;
     });
 
     renderSessionList(filtered);
+}
+
+async function searchServer(query, sport) {
+    const list = document.getElementById('sessionList');
+    list.innerHTML = '<p class="no-sessions">Searching...</p>';
+
+    try {
+        let url = `${API_BASE}/sessions?per_page=100&page=1&hide_resets=true&min_total_points=10&search=${encodeURIComponent(query)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const json = await resp.json();
+
+        let results = json.data.sessions;
+
+        // Apply sport filter client-side on search results
+        if (sport) {
+            results = results.filter(s => s.sport_type === sport);
+        }
+
+        isSearchActive = true;
+        document.getElementById('loadMoreBtn').style.display = 'none';
+        renderSessionList(results);
+    } catch (err) {
+        console.error('searchServer failed:', err);
+        list.innerHTML = '<p class="no-sessions" style="color:var(--accent-red)">Search failed.</p>';
+    }
 }
 
 function renderSessionList(sessions) {
