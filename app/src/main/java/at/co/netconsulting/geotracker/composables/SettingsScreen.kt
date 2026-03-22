@@ -77,6 +77,33 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Normalize a birthdate string to ISO format (yyyy-MM-dd).
+ * Handles common formats like dd.MM.yyyy, dd/MM/yyyy, MM/dd/yyyy, and yyyy-MM-dd.
+ */
+private fun normalizeBirthdate(raw: String): String {
+    if (raw.isBlank()) return raw
+    // Already ISO format
+    if (raw.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) return raw
+
+    val formats = listOf(
+        "dd.MM.yyyy",
+        "dd/MM/yyyy",
+        "d.M.yyyy",
+        "d/M/yyyy"
+    )
+    val isoFormat = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT)
+    for (pattern in formats) {
+        try {
+            val sdf = SimpleDateFormat(pattern, Locale.ROOT)
+            sdf.isLenient = false
+            val date = sdf.parse(raw) ?: continue
+            return isoFormat.format(date)
+        } catch (_: Exception) { }
+    }
+    return raw
+}
+
 @Composable
 fun SettingsScreen(
     onNavigateToExportSync: () -> Unit = {}
@@ -99,7 +126,12 @@ fun SettingsScreen(
         mutableStateOf(sharedPreferences.getString("lastname", "") ?: "")
     }
     var birthDate by remember {
-        mutableStateOf(sharedPreferences.getString("birthdate", "") ?: "")
+        val raw = sharedPreferences.getString("birthdate", "") ?: ""
+        val normalized = normalizeBirthdate(raw)
+        if (normalized != raw) {
+            sharedPreferences.edit().putString("birthdate", normalized).apply()
+        }
+        mutableStateOf(normalized)
     }
     var height by remember {
         val savedHeight = sharedPreferences.getFloat("height", 0f)
@@ -199,7 +231,7 @@ fun SettingsScreen(
         context,
         { _, year, month, dayOfMonth ->
             birthDateCalendar.set(year, month, dayOfMonth)
-            birthDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(birthDateCalendar.time)
+            birthDate = SimpleDateFormat("yyyy-MM-dd", Locale.ROOT).format(birthDateCalendar.time)
             autoSaveSettings()
         },
         birthDateCalendar.get(Calendar.YEAR),

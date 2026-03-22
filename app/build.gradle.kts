@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.32 (22-03-2026: added firstname, and lastname to 'Download Events')"
+        versionName = "8.33 (22-03-2026: normalize birthdate to ISO format yyyy-MM-dd)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
