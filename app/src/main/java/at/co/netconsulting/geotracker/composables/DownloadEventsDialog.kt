@@ -44,7 +44,6 @@ fun DownloadEventsDialog(
     val minGpsPoints = 10
 
     // First deduplicate by sessionId (server may return duplicates), then apply filters
-    val maxDisplaySessions = 200
     val filteredSessions = remember(availableSessions, hideSmallSessions, searchQuery) {
         // Deduplicate by sessionId, keeping the first occurrence
         val deduplicated = availableSessions.distinctBy { it.sessionId }
@@ -56,7 +55,7 @@ fun DownloadEventsDialog(
         }
 
         // Apply search filter
-        val searched = if (searchQuery.isBlank()) {
+        if (searchQuery.isBlank()) {
             filtered
         } else {
             val query = searchQuery.lowercase()
@@ -65,12 +64,11 @@ fun DownloadEventsDialog(
                 (session.sportType?.lowercase()?.contains(query) == true) ||
                 (session.startDateTime?.lowercase()?.contains(query) == true) ||
                 (session.startCity?.lowercase()?.contains(query) == true) ||
-                (session.startCountry?.lowercase()?.contains(query) == true)
+                (session.startCountry?.lowercase()?.contains(query) == true) ||
+                (session.firstname?.lowercase()?.contains(query) == true) ||
+                (session.lastname?.lowercase()?.contains(query) == true)
             }
         }
-
-        // Limit to prevent UI crash with too many items
-        searched.take(maxDisplaySessions)
     }
     val deduplicatedSessions = remember(availableSessions) {
         availableSessions.distinctBy { it.sessionId }
@@ -361,6 +359,16 @@ fun SessionDownloadItemCompact(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1
                 )
+                val recordedBy = listOfNotNull(session.firstname, session.lastname)
+                    .joinToString(" ")
+                if (recordedBy.isNotBlank()) {
+                    Text(
+                        text = "Recorded by: $recordedBy",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
             }
 
             // Status indicator
@@ -473,6 +481,17 @@ fun SessionDownloadItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                // Recorded by
+                val recordedBy = listOfNotNull(session.firstname, session.lastname)
+                    .joinToString(" ")
+                if (recordedBy.isNotBlank()) {
+                    Text(
+                        text = "Recorded by: $recordedBy",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 // Show download status
                 when (downloadState) {

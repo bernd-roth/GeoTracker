@@ -55,6 +55,11 @@ class TrackingSession(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
 
+        # Include user name from the related User record
+        if self.user:
+            result['firstname'] = self.user.firstname
+            result['lastname'] = self.user.lastname
+
         if include_stats:
             result['gps_point_count'] = self.gps_points.count()
             result['lap_count'] = self.lap_times.count()
