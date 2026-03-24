@@ -1106,7 +1106,19 @@ function toggleCharts() {
         chartsVisible = false;
     } else {
         chartsContainer.style.display = 'flex';
-        mapElement.style.height = '67vh';
+        // Restore saved chart height or default to 33vh
+        var savedH = null;
+        try {
+            var raw = localStorage.getItem('panelSize_live_chartsHeight');
+            if (raw) savedH = JSON.parse(raw).h;
+        } catch (_) {}
+        if (savedH) {
+            chartsContainer.style.height = savedH + 'px';
+            mapElement.style.height = 'calc(100vh - ' + savedH + 'px)';
+        } else {
+            chartsContainer.style.height = '33vh';
+            mapElement.style.height = '67vh';
+        }
         toggleBtn.title = 'Hide Charts';
         chartsVisible = true;
     }
@@ -3468,6 +3480,30 @@ document.addEventListener('DOMContentLoaded', () => {
         addDebugMessage('Running Tracker application initialized with MapLibre GL JS, session management and weather data support', 'system');
 
         setupChartEventListeners();
+
+        // Make panels resizable by dragging edges
+        if (window.PanelResize) {
+            PanelResize.makeResizable(document.getElementById('sessionManagerPanel'), {
+                key: 'live_sessionManager', edges: ['right', 'bottom']
+            });
+            PanelResize.makeResizable(document.getElementById('speedDisplay'), {
+                key: 'live_statsBox', edges: ['left', 'bottom']
+            });
+            PanelResize.makeChartsResizable(
+                document.querySelector('.charts-container'),
+                document.getElementById('map'),
+                {
+                    key: 'live_chartsHeight',
+                    onResize: function () {
+                        if (typeof map !== 'undefined' && map) {
+                            map.resize ? map.resize() : (map.invalidateSize && map.invalidateSize());
+                        }
+                        if (altitudeChart) altitudeChart.resize();
+                        if (speedChart) speedChart.resize();
+                    }
+                }
+            );
+        }
 
         setTimeout(() => {
             if (altitudeChart && speedChart) {

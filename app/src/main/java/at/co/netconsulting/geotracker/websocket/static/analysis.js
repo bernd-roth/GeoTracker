@@ -42,6 +42,28 @@ document.addEventListener('DOMContentLoaded', () => {
     initMap();
     createInfoPopup();
     loadSessions(1, true);
+
+    // Make panels resizable by dragging edges
+    if (window.PanelResize) {
+        PanelResize.makeResizable(document.getElementById('sessionBrowser'), {
+            key: 'analysis_sessionBrowser', edges: ['right', 'bottom']
+        });
+        PanelResize.makeResizable(document.getElementById('summaryPanel'), {
+            key: 'analysis_summaryPanel', edges: ['left', 'bottom']
+        });
+        PanelResize.makeChartsResizable(
+            document.querySelector('.charts-container'),
+            document.getElementById('map'),
+            {
+                key: 'analysis_chartsHeight',
+                onResize: function () {
+                    if (map) { map.resize(); }
+                    if (elevChart)  elevChart.resize();
+                    if (speedChart) speedChart.resize();
+                }
+            }
+        );
+    }
 });
 
 // ─────────────────────────────────────────────────────────────

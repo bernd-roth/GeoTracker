@@ -141,9 +141,10 @@ html {
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(115px, 1fr));
     gap: 10px;
     padding: 10px;
+    align-content: start;
 }
 
 .stat-box {
@@ -263,21 +264,25 @@ html {
 }
 
 /* Scrollbar styling */
-#speedDisplay::-webkit-scrollbar {
+#speedDisplay::-webkit-scrollbar,
+.resize-scroll-wrap::-webkit-scrollbar {
     width: 6px;
 }
 
-#speedDisplay::-webkit-scrollbar-track {
+#speedDisplay::-webkit-scrollbar-track,
+.resize-scroll-wrap::-webkit-scrollbar-track {
     background: var(--scrollbar-track);
     border-radius: 3px;
 }
 
-#speedDisplay::-webkit-scrollbar-thumb {
+#speedDisplay::-webkit-scrollbar-thumb,
+.resize-scroll-wrap::-webkit-scrollbar-thumb {
     background: var(--scrollbar-thumb);
     border-radius: 3px;
 }
 
-#speedDisplay::-webkit-scrollbar-thumb:hover {
+#speedDisplay::-webkit-scrollbar-thumb:hover,
+.resize-scroll-wrap::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover);
 }
 
@@ -929,6 +934,70 @@ html {
     font-weight: bold;
     color: var(--text-secondary);
     font-size: 10px;
+}
+
+/* ── Resize handles ──────────────────────────────────────── */
+.resize-handle {
+    position: absolute;
+    z-index: 10;
+    background: transparent;
+    transition: background-color 0.15s;
+}
+.resize-handle:hover,
+.resize-handle:active {
+    background-color: var(--accent-blue);
+    opacity: 0.35;
+}
+
+/* Edge handles — sit just inside the panel border */
+.resize-handle-right {
+    top: 0; right: 0;
+    width: 6px; height: 100%;
+    cursor: ew-resize;
+    border-radius: 0 12px 12px 0;
+}
+.resize-handle-left {
+    top: 0; left: 0;
+    width: 6px; height: 100%;
+    cursor: ew-resize;
+    border-radius: 12px 0 0 12px;
+}
+.resize-handle-bottom {
+    bottom: 0; left: 0;
+    width: 100%; height: 6px;
+    cursor: ns-resize;
+    border-radius: 0 0 12px 12px;
+}
+
+/* Corner handles */
+.resize-handle-corner-br {
+    position: absolute;
+    bottom: 0; right: 0;
+    width: 14px; height: 14px;
+    cursor: nwse-resize;
+    border-radius: 0 0 12px 0;
+}
+.resize-handle-corner-bl {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 14px; height: 14px;
+    cursor: nesw-resize;
+    border-radius: 0 0 0 12px;
+}
+
+/* Charts top-edge drag bar */
+.charts-resize-handle {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 7px;
+    cursor: ns-resize;
+    z-index: 10;
+    border-radius: 0;
+}
+.charts-resize-handle:hover,
+.charts-resize-handle:active {
+    background-color: var(--accent-blue);
+    opacity: 0.5;
 }
 
 /* Responsive adjustments for smaller screens */

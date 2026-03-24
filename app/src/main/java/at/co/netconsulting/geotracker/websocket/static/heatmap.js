@@ -21,6 +21,13 @@ document.addEventListener('DOMContentLoaded', () => {
     initMap();
     loadFilters();
     loadHeatmap();
+
+    // Make heatmap controls panel resizable
+    if (window.PanelResize) {
+        PanelResize.makeResizable(document.getElementById('heatmapControls'), {
+            key: 'heatmap_controls', edges: ['right', 'bottom']
+        });
+    }
 });
 
 // ─────────────────────────────────────────────────────────────
