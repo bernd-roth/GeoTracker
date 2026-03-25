@@ -2310,6 +2310,10 @@ function updateSpeedDisplay(sessionId, speed, data) {
     }
 
     const speedDisplay = document.getElementById('speedDisplay');
+    // panelResize.js may have wrapped children in .resize-scroll-wrap;
+    // append new containers there so they stay inside the scrollable area.
+    const scrollWrap = speedDisplay.querySelector('.resize-scroll-wrap');
+    const appendTarget = scrollWrap || speedDisplay;
 
     const defaultDisplay = speedDisplay.querySelector('.stats-grid:not([id^="speed-grid-"])');
     if (defaultDisplay) {
@@ -2337,7 +2341,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
         speedContainer.appendChild(sessionLabel);
         speedContainer.appendChild(statsGrid);
 
-        speedDisplay.appendChild(speedContainer);
+        appendTarget.appendChild(speedContainer);
 
         statsGrid.innerHTML = `
             <div class="stat-box">

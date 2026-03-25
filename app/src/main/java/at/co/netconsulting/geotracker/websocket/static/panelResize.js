@@ -83,9 +83,10 @@
             if (computed.overflowY === 'auto' || computed.overflowY === 'scroll') {
                 var scrollWrap = document.createElement('div');
                 scrollWrap.className = 'resize-scroll-wrap';
-                scrollWrap.style.overflowY = computed.overflowY;
-                scrollWrap.style.height    = '100%';
-                scrollWrap.style.boxSizing = 'border-box';
+                scrollWrap.style.overflowY  = computed.overflowY;
+                scrollWrap.style.height     = '100%';
+                scrollWrap.style.maxHeight  = 'inherit';
+                scrollWrap.style.boxSizing  = 'border-box';
                 // Transfer padding from panel to wrapper
                 scrollWrap.style.padding = computed.padding;
                 while (panel.firstChild) scrollWrap.appendChild(panel.firstChild);
