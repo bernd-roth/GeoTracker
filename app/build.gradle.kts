@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "8.34 (22-03-2026: Downloadable sessions are grouped by user)"
+        versionName = "9.00 (26-03-2026: Lactate threshold implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

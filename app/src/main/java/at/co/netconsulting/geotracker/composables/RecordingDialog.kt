@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Landscape
 import androidx.compose.material.icons.filled.LocationCity
+import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Motorcycle
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pool
@@ -459,7 +460,8 @@ fun RecordingDialog(
         SportType("Walking", listOf("Nordic Walking", "Urban Walking")),
         SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
         SportType("Motorsport", listOf("Car", "Motorcycle")),
-        SportType("Multisport Race", listOf("Duathlon", "Triathlon", "Ultratriathlon"))
+        SportType("Multisport Race", listOf("Duathlon", "Triathlon", "Ultratriathlon")),
+        SportType("Fitness Test", listOf("Lactate Threshold (30min TT)"))
     )
 
     // Function to get appropriate icon for sport type with specific subcategory icons
@@ -517,6 +519,10 @@ fun RecordingDialog(
         "Triathlon" -> Icons.Default.Waves  // Swim-Bike-Run
         "Ultratriathlon" -> Icons.Default.Timer  // Endurance
         "Multisport Race" -> Icons.Default.FitnessCenter
+
+        // Fitness Test subcategories
+        "Lactate Threshold (30min TT)" -> Icons.Default.MonitorHeart
+        "Fitness Test" -> Icons.Default.FitnessCenter
 
         // Default fallback
         else -> Icons.Default.DirectionsRun
@@ -1015,6 +1021,17 @@ fun RecordingDialog(
                     }
                 }
 
+                // Warning: HR sensor required for Lactate Threshold test
+                val isLactateThresholdTest = artOfSport.equals("Lactate Threshold (30min TT)", ignoreCase = true)
+                if (isLactateThresholdTest && selectedHeartRateSensor == null) {
+                    Text(
+                        text = "Heart rate sensor must be connected for Lactate Threshold test",
+                        color = Color.Red,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+
                 // WebSocket Transfer Setting
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1228,7 +1245,8 @@ fun RecordingDialog(
         },
         confirmButton = {
             Button(
-                enabled = gpsStatus.isReadyToRecord && !gpxImportProgress.isImporting,
+                enabled = gpsStatus.isReadyToRecord && !gpxImportProgress.isImporting
+                    && !(artOfSport.equals("Lactate Threshold (30min TT)", ignoreCase = true) && selectedHeartRateSensor == null),
                 onClick = {
                     // Use current date as event name if eventName is empty or just whitespace
                     val finalEventName = if (eventName.trim().isEmpty()) {
@@ -1267,6 +1285,7 @@ fun RecordingDialog(
                     text = when {
                         gpxImportProgress.isImporting -> "Importing GPX..."
                         !gpsStatus.isReadyToRecord -> "Waiting for GPS..."
+                        artOfSport.equals("Lactate Threshold (30min TT)", ignoreCase = true) && selectedHeartRateSensor == null -> "HR Sensor Required"
                         else -> "Start Recording"
                     },
                     color = when {

@@ -26,6 +26,8 @@ import at.co.netconsulting.geotracker.data.WeatherResponse
 import at.co.netconsulting.geotracker.data.HeartRateData
 import at.co.netconsulting.geotracker.data.BarometerData
 import at.co.netconsulting.geotracker.data.DisciplineTransitionData
+import at.co.netconsulting.geotracker.data.LtPhaseChanged
+import at.co.netconsulting.geotracker.data.LtTestResult
 import at.co.netconsulting.geotracker.data.WebSocketMessage
 import at.co.netconsulting.geotracker.domain.CurrentRecording
 import at.co.netconsulting.geotracker.domain.DeviceStatus
@@ -188,6 +190,16 @@ class ForegroundService : Service() {
     private var isBackyardUltraMode = false
     private var backyardLapNumber: Int = 0
     private var backyardLapStartTime: Long = 0L
+
+    // Lactate Threshold mode
+    private var isLactateThresholdMode = false
+    private var ltTestStartTime: Long = 0L
+    private var ltMeasurementPhaseStartTime: Long = 0L
+    private var ltHeartRateSamples = mutableListOf<Int>()
+    private var ltSpeedSamples = mutableListOf<Double>()
+    private var ltCountdownJob: Job? = null
+    private val LT_TOTAL_DURATION_MS = 30 * 60 * 1000L     // 30 minutes
+    private val LT_SETTLE_DURATION_MS = 10 * 60 * 1000L    // 10 minutes settle-in
 
     // Geocoding flag to track if start location has been geocoded
     private var hasGeocodedStartLocation = false
@@ -1045,6 +1057,81 @@ class ForegroundService : Service() {
         }
     }
 
+    // ── Lactate Threshold 30-min Time Trial ──────────────────────────
+
+    private fun startLtCountdownTimer() {
+        ltCountdownJob?.cancel()
+        ltCountdownJob = serviceScope.launch {
+            var lastPhase = "settle"
+            while (isActive) {
+                val elapsed = System.currentTimeMillis() - ltTestStartTime
+                val remainingMs = (LT_TOTAL_DURATION_MS - elapsed).coerceAtLeast(0)
+                val remainingSeconds = remainingMs / 1000
+
+                val phase = if (elapsed < LT_SETTLE_DURATION_MS) "settle" else "measurement"
+                if (phase != lastPhase) {
+                    lastPhase = phase
+                    Log.d(TAG, "LT test phase changed to: $phase")
+                }
+
+                EventBus.getDefault().post(
+                    LtPhaseChanged(
+                        phase = phase,
+                        remainingSeconds = remainingSeconds,
+                        totalSeconds = LT_TOTAL_DURATION_MS / 1000
+                    )
+                )
+
+                if (remainingMs <= 0) {
+                    // 30 minutes elapsed — auto-stop
+                    Log.d(TAG, "LT test completed (30 min)")
+                    finalizeLtTest()
+
+                    // Send stop_recording action to self
+                    val stopIntent = Intent(this@ForegroundService, ForegroundService::class.java).apply {
+                        putExtra("action", "stop_recording")
+                    }
+                    startService(stopIntent)
+                    break
+                }
+
+                delay(1000)
+            }
+        }
+    }
+
+    private fun finalizeLtTest() {
+        val avgHr = if (ltHeartRateSamples.isNotEmpty())
+            ltHeartRateSamples.average().toInt() else 0
+        val avgSpeedMs = if (ltSpeedSamples.isNotEmpty())
+            ltSpeedSamples.average() else 0.0
+        // pace = minutes per km; speed is m/s
+        val avgPaceMinPerKm = if (avgSpeedMs > 0) (1000.0 / avgSpeedMs) / 60.0 else 0.0
+
+        Log.d(TAG, "LT test finalized: avgHR=$avgHr, avgPace=${"%.2f".format(avgPaceMinPerKm)} min/km, " +
+                "samples=${ltHeartRateSamples.size}")
+
+        // Persist results to UserSettings
+        getSharedPreferences("UserSettings", MODE_PRIVATE).edit()
+            .putInt("lactate_threshold_hr", avgHr)
+            .putFloat("lactate_threshold_pace", avgPaceMinPerKm.toFloat())
+            .putString("lactate_threshold_date", java.time.LocalDate.now().toString())
+            .apply()
+
+        // Post result to UI via EventBus
+        EventBus.getDefault().post(
+            LtTestResult(
+                avgHeartRate = avgHr,
+                avgPaceMinPerKm = avgPaceMinPerKm,
+                totalSamples = ltHeartRateSamples.size,
+                testDate = java.time.LocalDate.now().toString()
+            )
+        )
+
+        // Mark mode as done so we don't finalize twice
+        isLactateThresholdMode = false
+    }
+
     private fun checkLatitudeLongitude(): Boolean {
         return latitude != -999.0 && longitude != -999.0
     }
@@ -1346,6 +1433,15 @@ class ForegroundService : Service() {
                 checkLapCompletionAndSave(distanceIncrement)
             }
 
+            // Collect HR and speed samples during LT measurement phase
+            if (isLactateThresholdMode && ltTestStartTime > 0) {
+                val elapsed = System.currentTimeMillis() - ltTestStartTime
+                if (elapsed >= LT_SETTLE_DURATION_MS && currentHeartRate > 0) {
+                    ltHeartRateSamples.add(currentHeartRate)
+                    if (speed > 0) ltSpeedSamples.add(speed.toDouble())
+                }
+            }
+
             Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed, satellites=$satellites")
 
             // Update home screen widget with current metrics
@@ -1422,6 +1518,12 @@ class ForegroundService : Service() {
                 "stop_recording" -> {
                     Log.d(TAG, "Stop recording action received")
                     isStoppingIntentionally = true
+
+                    // Finalize Lactate Threshold test if active
+                    if (isLactateThresholdMode) {
+                        ltCountdownJob?.cancel()
+                        finalizeLtTest()
+                    }
 
                     // Finalize recording synchronously before stopping
                     runBlocking {
@@ -1799,6 +1901,23 @@ class ForegroundService : Service() {
                 backyardLapNumber = recordingPrefs.getInt("backyard_lap_number", 1)
                 backyardLapStartTime = recordingPrefs.getLong("backyard_lap_start_time", System.currentTimeMillis())
                 Log.d(TAG, "Backyard Ultra mode initialized: lap=$backyardLapNumber")
+            }
+
+            // Initialize Lactate Threshold mode
+            isLactateThresholdMode = artofsport.equals("Lactate Threshold (30min TT)", ignoreCase = true)
+            if (isLactateThresholdMode) {
+                val recordingPrefs = getSharedPreferences("RecordingState", MODE_PRIVATE)
+                ltTestStartTime = recordingPrefs.getLong("lt_test_start_time", System.currentTimeMillis())
+                ltMeasurementPhaseStartTime = ltTestStartTime + LT_SETTLE_DURATION_MS
+                // Clear any previous samples
+                ltHeartRateSamples.clear()
+                ltSpeedSamples.clear()
+                // Persist start time
+                recordingPrefs.edit()
+                    .putLong("lt_test_start_time", ltTestStartTime)
+                    .apply()
+                startLtCountdownTimer()
+                Log.d(TAG, "Lactate Threshold mode initialized: startTime=$ltTestStartTime")
             }
 
             Log.d(TAG, "Starting service with event: $eventname, sport: $artofsport, comment: $comment, clothing: $clothing, websocketTransfer: $enableWebSocketTransfer")

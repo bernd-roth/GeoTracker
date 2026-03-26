@@ -51,6 +51,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -68,6 +69,8 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
+import at.co.netconsulting.geotracker.data.LtPhaseChanged
+import at.co.netconsulting.geotracker.data.LtTestResult
 import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.data.RouteDisplayData
@@ -260,6 +263,12 @@ fun MapScreen(
                 .getLong("backyard_hour_start_time", 0L)
         )
     }
+
+    // Lactate Threshold state
+    var ltPhase by remember { mutableStateOf("settle") }
+    var ltRemainingSeconds by remember { mutableLongStateOf(1800L) }
+    var showLtResultDialog by remember { mutableStateOf(false) }
+    var ltResult by remember { mutableStateOf<LtTestResult?>(null) }
 
     var showRecordingDialog by remember { mutableStateOf(false) }
     var showUserSelectionDialog by remember { mutableStateOf(false) }
@@ -1718,6 +1727,34 @@ fun MapScreen(
         }
     }
 
+    // Lactate Threshold EventBus observer
+    val ltObserver = remember {
+        object : Any() {
+            @Subscribe(threadMode = ThreadMode.MAIN)
+            fun onLtPhaseChanged(event: LtPhaseChanged) {
+                ltPhase = event.phase
+                ltRemainingSeconds = event.remainingSeconds
+            }
+
+            @Subscribe(threadMode = ThreadMode.MAIN)
+            fun onLtTestResult(event: LtTestResult) {
+                ltResult = event
+                showLtResultDialog = true
+            }
+        }
+    }
+
+    DisposableEffect(ltObserver) {
+        if (!EventBus.getDefault().isRegistered(ltObserver)) {
+            EventBus.getDefault().register(ltObserver)
+        }
+        onDispose {
+            if (EventBus.getDefault().isRegistered(ltObserver)) {
+                EventBus.getDefault().unregister(ltObserver)
+            }
+        }
+    }
+
     // COMBINED DISPOSABLE EFFECT - handles all lifecycle-related side effects
     DisposableEffect(Unit) {
         val intentFilter = IntentFilter().apply {
@@ -2679,11 +2716,16 @@ fun MapScreen(
                                     .remove("current_sport_type")
                                     .remove("current_discipline")
                                     .remove("discipline_transition_count")
+                                    .remove("lt_test_start_time")
                                     .apply()
 
                                 currentSportType = ""
                                 currentDiscipline = "Run"
                                 disciplineTransitionCount = 0
+
+                                // Reset LT state
+                                ltPhase = "settle"
+                                ltRemainingSeconds = 1800L
 
                                 // Stop the service by sending stop_recording action
                                 val stopIntent = Intent(context, ForegroundService::class.java).apply {
@@ -2903,6 +2945,60 @@ fun MapScreen(
             }
         }
 
+        // Lactate Threshold test info overlay
+        if (isRecording && currentSportType.equals("Lactate Threshold (30min TT)", ignoreCase = true)) {
+            val remainingMin = ltRemainingSeconds / 60
+            val remainingSec = ltRemainingSeconds % 60
+            val isSettlePhase = ltPhase == "settle"
+            val phaseColor = if (isSettlePhase) Color(0xFFFF9800) else Color(0xFF4CAF50)
+
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = Color.Black.copy(alpha = 0.7f),
+                shadowElevation = 4.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "LACTATE THRESHOLD TEST",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (isSettlePhase) "Settle-in Phase" else "Measurement Phase",
+                        color = phaseColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Remaining: ${remainingMin}:${String.format("%02d", remainingSec)}",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (!isSettlePhase) {
+                        Text(
+                            text = "Recording HR & Pace...",
+                            color = phaseColor,
+                            fontSize = 11.sp
+                        )
+                    } else {
+                        Text(
+                            text = "Warm up - data collection starts at 10:00",
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        }
+
         // Compact slope legend - bottom left, only when viewing event route with slope colors
         if (showSlopeLegend && showRouteDisplayIndicator && displayedRoute?.showSlopeColors == true) {
             CompactSlopeColorLegend(
@@ -3025,6 +3121,17 @@ fun MapScreen(
         WaypointPopupDialog(
             waypoint = wp,
             onDismiss = { selectedWaypoint = null }
+        )
+    }
+
+    // Lactate Threshold result dialog
+    if (showLtResultDialog && ltResult != null) {
+        LtResultDialog(
+            result = ltResult!!,
+            onDismiss = {
+                showLtResultDialog = false
+                ltResult = null
+            }
         )
     }
 
