@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.00 (26-03-2026: Lactate threshold implemented)"
+        versionName = "9.01 (28-03-2026: Calendar overview of sport types)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

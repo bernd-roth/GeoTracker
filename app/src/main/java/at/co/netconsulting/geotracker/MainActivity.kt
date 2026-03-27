@@ -45,6 +45,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import at.co.netconsulting.geotracker.composables.BottomSheetContent
+import at.co.netconsulting.geotracker.composables.CalendarScreen
 import at.co.netconsulting.geotracker.composables.CompetitionsScreen
 import at.co.netconsulting.geotracker.composables.EditEventScreen
 import at.co.netconsulting.geotracker.composables.EventsScreen
@@ -116,6 +117,7 @@ class MainActivity : ComponentActivity() {
         const val PACE_DETAIL = "pace_detail"
         const val ROUTE_COMPARISON = "route_comparison/{eventId}"
         const val EXPORT_SYNC = "export_sync"
+        const val CALENDAR = "calendar"
 
         // Create actual navigation path with parameters
         fun editEvent(eventId: Int) = "edit_event/$eventId"
@@ -503,7 +505,7 @@ class MainActivity : ComponentActivity() {
                         when (selectedTabIndex) {
                             0 -> MapScreen(
                                 onNavigateToSettings = {
-                                    selectedTabIndex = 4 // Navigate to Settings tab (now index 4)
+                                    selectedTabIndex = 4 // Navigate to Settings tab (index 4)
                                 },
                                 routeToDisplay = routeToDisplay.value,
                                 onRouteDisplayed = {
@@ -619,6 +621,9 @@ class MainActivity : ComponentActivity() {
                     onNavigateToRouteComparison = { eventId, eventName ->
                         Log.d("MainActivity", "Navigating to route comparison for event: $eventName (ID: $eventId)")
                         navController.navigate(Routes.routeComparison(eventId))
+                    },
+                    onNavigateToCalendar = {
+                        navController.navigate(Routes.CALENDAR)
                     }
                 )
             }
@@ -754,6 +759,15 @@ class MainActivity : ComponentActivity() {
             // Export sync screen
             composable(route = Routes.EXPORT_SYNC) {
                 ExportSyncScreen(
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            // Calendar screen
+            composable(route = Routes.CALENDAR) {
+                CalendarScreen(
                     onNavigateBack = {
                         navController.popBackStack()
                     }

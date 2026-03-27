@@ -6,6 +6,7 @@
     <string name="events">Events</string>
     <string name="competitions">Competitions</string>
     <string name="settings">Settings</string>
+    <string name="calendar">Calendar</string>
     <!--Marker-->
     <string name="marker_title">Start</string>
     <!--Toast messages-->

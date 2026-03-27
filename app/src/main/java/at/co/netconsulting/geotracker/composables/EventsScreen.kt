@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.CompareArrows
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsRun
@@ -162,7 +163,8 @@ fun EventsScreen(
     onNavigateToPaceDetail: (String, List<Metric>) -> Unit = { _, _ -> },
     onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
     onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit,
-    onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> }
+    onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> },
+    onNavigateToCalendar: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val eventsViewModel: EventsViewModel = viewModel(
@@ -606,6 +608,21 @@ fun EventsScreen(
                         modifier = Modifier.horizontalScroll(rememberScrollState()),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Calendar button
+                        TextButton(
+                            onClick = onNavigateToCalendar,
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text("Calendar")
+                            Icon(
+                                imageVector = Icons.Default.DateRange,
+                                contentDescription = "Calendar",
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
+
                         // Detailed Statistics button
                         TextButton(
                             onClick = {

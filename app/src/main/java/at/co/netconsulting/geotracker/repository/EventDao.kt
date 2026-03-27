@@ -214,6 +214,14 @@ interface EventDao {
     suspend fun getEventBySessionId(sessionId: String): Event?
 
     @Query("""
+        SELECT * FROM events
+        WHERE eventDate LIKE :yearPrefix || '%'
+        AND (eventSource IS NULL OR eventSource = 'recorded')
+        ORDER BY eventDate ASC
+    """)
+    suspend fun getEventsForYear(yearPrefix: String): List<Event>
+
+    @Query("""
         UPDATE events
         SET startCity = :startCity,
             startCountry = :startCountry,
