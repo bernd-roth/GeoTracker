@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.01 (28-03-2026: Calendar overview of sport types)"
+        versionName = "9.02 (28-03-2026: Competitions integration in Calendar)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

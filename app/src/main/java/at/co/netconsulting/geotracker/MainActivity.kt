@@ -46,7 +46,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import at.co.netconsulting.geotracker.composables.BottomSheetContent
 import at.co.netconsulting.geotracker.composables.CalendarScreen
-import at.co.netconsulting.geotracker.composables.CompetitionsScreen
 import at.co.netconsulting.geotracker.composables.EditEventScreen
 import at.co.netconsulting.geotracker.composables.EventsScreen
 import at.co.netconsulting.geotracker.composables.MapScreen
@@ -411,12 +410,10 @@ class MainActivity : ComponentActivity() {
         // Main navigation controller for edit event navigation
         val mainNavController = rememberNavController()
 
-        // Updated list of tab titles to include Competitions
         val tabs = listOf(
             getString(R.string.map),
             getString(R.string.statistics),
             getString(R.string.events),
-            getString(R.string.competitions),
             getString(R.string.settings),
         )
 
@@ -430,7 +427,7 @@ class MainActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             val navigationPrefs = getSharedPreferences("Navigation", Context.MODE_PRIVATE)
             if (navigationPrefs.getBoolean("navigate_to_competitions", false)) {
-                selectedTabIndex = 3 // Navigate to competitions tab
+                selectedTabIndex = 2 // Navigate to events tab (competitions integrated in calendar)
                 // Clear the flag
                 navigationPrefs.edit()
                     .remove("navigate_to_competitions")
@@ -505,7 +502,7 @@ class MainActivity : ComponentActivity() {
                         when (selectedTabIndex) {
                             0 -> MapScreen(
                                 onNavigateToSettings = {
-                                    selectedTabIndex = 4 // Navigate to Settings tab (index 4)
+                                    selectedTabIndex = 3 // Navigate to Settings tab
                                 },
                                 routeToDisplay = routeToDisplay.value,
                                 onRouteDisplayed = {
@@ -539,8 +536,7 @@ class MainActivity : ComponentActivity() {
                                     selectedTabIndex = 0
                                 }
                             )
-                            3 -> CompetitionsScreen()
-                            4 -> SettingsScreen(
+                            3 -> SettingsScreen(
                                 onNavigateToExportSync = {
                                     // Set flag to trigger navigation and switch to Events tab
                                     pendingNavigationToExportSync = true

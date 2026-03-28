@@ -60,11 +60,19 @@ interface PlannedEventDao {
 
     // Get upcoming events with reminders (for rescheduling after boot)
     @Query("""
-        SELECT * FROM planned_events 
-        WHERE isReminderActive = 1 
-        AND reminderDateTime != '' 
+        SELECT * FROM planned_events
+        WHERE isReminderActive = 1
+        AND reminderDateTime != ''
         AND datetime(reminderDateTime) > datetime('now')
         ORDER BY reminderDateTime ASC
     """)
     suspend fun getUpcomingReminders(): List<PlannedEvent>
+
+    @Query("""
+        SELECT * FROM planned_events
+        WHERE userId = :userId
+        AND plannedEventDate LIKE :yearPrefix || '%'
+        ORDER BY plannedEventDate ASC
+    """)
+    suspend fun getPlannedEventsForYear(userId: Int, yearPrefix: String): List<PlannedEvent>
 }
