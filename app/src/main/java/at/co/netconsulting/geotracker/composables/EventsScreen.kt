@@ -164,7 +164,8 @@ fun EventsScreen(
     onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
     onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit,
     onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> },
-    onNavigateToCalendar: () -> Unit = {}
+    onNavigateToCalendar: () -> Unit = {},
+    initialFilterDate: String? = null
 ) {
     val context = LocalContext.current
     val eventsViewModel: EventsViewModel = viewModel(
@@ -178,6 +179,13 @@ fun EventsScreen(
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
     val coroutineScope = rememberCoroutineScope()
+
+    // Apply date filter when navigating from Calendar
+    LaunchedEffect(initialFilterDate) {
+        if (initialFilterDate != null) {
+            eventsViewModel.setSearchQuery(initialFilterDate)
+        }
+    }
 
     // Observe recording state from ViewModel (managed in viewModelScope to prevent memory leaks)
     val activeEventId by eventsViewModel.activeEventId.collectAsState()

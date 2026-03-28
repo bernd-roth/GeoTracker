@@ -149,7 +149,8 @@ private val CompetitionShape = object : Shape {
 
 @Composable
 fun CalendarScreen(
-    onNavigateBack: () -> Unit = {}
+    onNavigateBack: () -> Unit = {},
+    onNavigateToEvent: (eventId: Int, date: String) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
@@ -303,6 +304,7 @@ fun CalendarScreen(
                         onDateSelected = { date ->
                             selectedDate = if (selectedDate == date) null else date
                         },
+                        onNavigateToEvent = onNavigateToEvent,
                         onAddCompetition = { date ->
                             formDate = date
                             editingCompetition = null
@@ -463,6 +465,7 @@ private fun MonthCard(
     competitionsByDate: Map<String, List<PlannedEvent>>,
     selectedDate: String?,
     onDateSelected: (String) -> Unit,
+    onNavigateToEvent: (eventId: Int, date: String) -> Unit,
     onAddCompetition: (String) -> Unit,
     onEditCompetition: (PlannedEvent) -> Unit,
     onDeleteCompetition: (PlannedEvent) -> Unit
@@ -585,6 +588,7 @@ private fun MonthCard(
                     date = selectedDate,
                     events = eventsByDate[selectedDate],
                     competitions = competitionsByDate[selectedDate],
+                    onNavigateToEvent = onNavigateToEvent,
                     onAddCompetition = { onAddCompetition(selectedDate) },
                     onEditCompetition = onEditCompetition,
                     onDeleteCompetition = onDeleteCompetition
@@ -689,6 +693,7 @@ private fun DayDetails(
     date: String,
     events: List<Event>?,
     competitions: List<PlannedEvent>?,
+    onNavigateToEvent: (eventId: Int, date: String) -> Unit,
     onAddCompetition: () -> Unit,
     onEditCompetition: (PlannedEvent) -> Unit,
     onDeleteCompetition: (PlannedEvent) -> Unit
@@ -811,7 +816,9 @@ private fun DayDetails(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 2.dp),
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onNavigateToEvent(event.eventId, date) }
+                        .padding(vertical = 4.dp, horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -821,7 +828,7 @@ private fun DayDetails(
                         tint = getSportColor(getSportCategory(event.artOfSport))
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = event.eventName,
                             style = MaterialTheme.typography.bodySmall,
@@ -835,6 +842,12 @@ private fun DayDetails(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = "View in Events",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         }

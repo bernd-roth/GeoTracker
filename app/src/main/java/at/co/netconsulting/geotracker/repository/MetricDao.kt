@@ -40,4 +40,7 @@ interface MetricDao {
 
     @Query("SELECT * FROM metrics WHERE eventId = :eventId ORDER BY metricId ASC")
     suspend fun getMetricsByEventId(eventId: Int): List<Metric>
+
+    @Query("SELECT MAX(distance) FROM metrics WHERE eventId = :eventId")
+    suspend fun getMaxDistanceForEvent(eventId: Int): Double?
 }

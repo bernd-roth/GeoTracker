@@ -571,9 +571,16 @@ class MainActivity : ComponentActivity() {
             startDestination = Routes.EVENTS
         ) {
             // Events list screen
-            composable(Routes.EVENTS) {
+            composable(Routes.EVENTS) { backStackEntry ->
+                // Check if returning from Calendar with a date filter
+                val filterDate = backStackEntry.savedStateHandle.get<String>("filterDate")
+                if (filterDate != null) {
+                    backStackEntry.savedStateHandle.remove<String>("filterDate")
+                }
+
                 Log.d("MainActivity", "Navigated to Events screen")
                 EventsScreen(
+                    initialFilterDate = filterDate,
                     onEditEvent = { eventId ->
                         Log.d("MainActivity", "Navigating to edit event with ID: $eventId")
                         navController.navigate(Routes.editEvent(eventId))
@@ -765,6 +772,12 @@ class MainActivity : ComponentActivity() {
             composable(route = Routes.CALENDAR) {
                 CalendarScreen(
                     onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    onNavigateToEvent = { _, date ->
+                        navController.previousBackStackEntry
+                            ?.savedStateHandle
+                            ?.set("filterDate", date)
                         navController.popBackStack()
                     }
                 )
