@@ -478,6 +478,12 @@ function initCharts() {
 
     createInfoPopup();
 
+    // Force charts to match their container size after layout settles
+    requestAnimationFrame(() => {
+        if (altitudeChart) altitudeChart.resize();
+        if (speedChart) speedChart.resize();
+    });
+
     setTimeout(() => {
         testChartSetup();
     }, 100);
@@ -3511,6 +3517,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setTimeout(() => {
             if (altitudeChart && speedChart) {
+                altitudeChart.resize();
+                speedChart.resize();
                 addDebugMessage('Charts initialized successfully with hover support', 'system');
                 updateChartThemeColors();
             } else {
