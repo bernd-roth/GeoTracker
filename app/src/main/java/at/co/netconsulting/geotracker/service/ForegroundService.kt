@@ -712,15 +712,19 @@ class ForegroundService : Service() {
                 isServiceStarted = true
                 hasFinalized = false // Reset static flag for new recording
 
+                // Use a broader flag that covers both explicit restoration (isRestoredSession)
+                // and system auto-restart restoration (isInitialStateRestored via wasRunning).
+                val isRestoring = isRestoredSession || isInitialStateRestored
+
                 // If we're restoring, first try to get the latest state from the database
-                if (isRestoredSession) {
+                if (isRestoring) {
                     restoreFromDatabase()
                 }
 
                 // Create the location listener with restored session context
                 customLocationListener = CustomLocationListener(applicationContext).also {
                     // Use the restored start time if this is a restored session
-                    if (isRestoredSession) {
+                    if (isRestoring) {
                         it.startDateTime = startDateTime
                         Log.d(TAG, "Restored session startDateTime: $startDateTime")
                     } else {
@@ -736,7 +740,7 @@ class ForegroundService : Service() {
                     it.startListener()
 
                     // If we have restored position and distance, initialize the location listener with them
-                    if (isRestoredSession && distance > 0) {
+                    if (isRestoring && distance > 0) {
                         it.resumeFromSavedState(distance, lastKnownPosition, lap, lapCounter)
                         Log.d(TAG, "Resumed from saved state: distance=$distance, position=$lastKnownPosition, lap=$lap, lapCounter=$lapCounter")
                     }
@@ -745,7 +749,7 @@ class ForegroundService : Service() {
                 val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
 
                 // Only create a new event if this is not a restored session with valid eventId
-                if (isRestoredSession && eventId > 0) {
+                if (isRestoring && eventId > 0) {
                     eventIdDeferred.complete(eventId)
                 } else {
                     eventId = createNewEvent(database, userId)
@@ -1716,6 +1720,15 @@ class ForegroundService : Service() {
                 }
             }
 
+            // Guard against duplicate initialization: if the service is already running
+            // (e.g., AlarmManager restart succeeded, then CrashRecoveryActivity also sends
+            // a start intent), skip re-initialization to avoid duplicate coroutines,
+            // overwriting customLocationListener, and potential new-event creation.
+            if (isServiceStarted) {
+                Log.w(TAG, "Service already initialized, skipping duplicate onStartCommand")
+                return START_STICKY
+            }
+
             // Check if this is a restored session
             isRestoredSession = intent?.getBooleanExtra("is_restored_session", false) ?: false
 
@@ -1816,8 +1829,11 @@ class ForegroundService : Service() {
                     enableWebSocketTransfer = enableWebSocketTransfer
                 )
 
-                // Clear restart flag
-                prefs.edit().putBoolean("was_running", false).apply()
+                // Keep was_running=true so that a quick second crash still triggers
+                // recovery. The flag will be cleared properly by onDestroy when
+                // isStoppingIntentionally=true. The isServiceStarted guard above
+                // prevents the CrashRecoveryActivity from re-initialising an
+                // already-running service.
 
                 // Set flag that we've done initial state restoration
                 isInitialStateRestored = true
@@ -1927,8 +1943,10 @@ class ForegroundService : Service() {
 
             val eventIdDeferred = CompletableDeferred<Int>()
 
-            // Only create a new event if this is not a restored session with a valid eventId
-            if (isRestoredSession && eventId > 0) {
+            // Only create a new event if this is not a restored session with a valid eventId.
+            // Use isInitialStateRestored (covers wasRunning path too) — not just isRestoredSession —
+            // so that system auto-restarts (START_STICKY with null intent) also reuse the event.
+            if ((isRestoredSession || isInitialStateRestored) && eventId > 0) {
                 // Use existing event ID
                 eventIdDeferred.complete(eventId)
                 Log.d(TAG, "Using existing event ID for restored session: $eventId")

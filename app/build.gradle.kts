@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.03 (28-03-2026: Open and show recorded event when browsing in Calendar)"
+        versionName = "9.04 (28-03-2026: Resume activity bug fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
