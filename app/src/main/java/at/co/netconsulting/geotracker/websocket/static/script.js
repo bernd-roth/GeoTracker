@@ -352,6 +352,7 @@ function initCharts() {
         responsive: true,
         maintainAspectRatio: false,
         animation: false,
+        layout: { padding: { left: 0, right: 0, top: 0, bottom: 0 } },
         interaction: {
             intersect: false,
             mode: 'index'
@@ -478,11 +479,14 @@ function initCharts() {
 
     createInfoPopup();
 
-    // Force charts to match their container size after layout settles
-    requestAnimationFrame(() => {
-        if (altitudeChart) altitudeChart.resize();
-        if (speedChart) speedChart.resize();
-    });
+    // Use ResizeObserver to reliably resize charts when container dimensions change
+    const chartsContainer = document.querySelector('.charts-container');
+    if (chartsContainer && typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(() => {
+            if (altitudeChart) altitudeChart.resize();
+            if (speedChart) speedChart.resize();
+        }).observe(chartsContainer);
+    }
 
     setTimeout(() => {
         testChartSetup();
@@ -3515,16 +3519,14 @@ document.addEventListener('DOMContentLoaded', () => {
             );
         }
 
-        setTimeout(() => {
+        // Theme colors are applied once charts exist (initCharts is called from map 'load' event)
+        var themeInterval = setInterval(() => {
             if (altitudeChart && speedChart) {
-                altitudeChart.resize();
-                speedChart.resize();
+                clearInterval(themeInterval);
                 addDebugMessage('Charts initialized successfully with hover support', 'system');
                 updateChartThemeColors();
-            } else {
-                addDebugMessage('Chart initialization may have failed', 'error');
             }
-        }, 1000);
+        }, 200);
 
     } catch (error) {
         console.error("Error during application initialization:", error);
