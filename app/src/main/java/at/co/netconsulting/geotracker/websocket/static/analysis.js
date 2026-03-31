@@ -17,6 +17,8 @@ let currentTrack      = [];       // [{lat,lon,alt,speed,hr,distance,ts,lap,slop
 let currentSessionId  = null;
 let elevChart         = null;
 let speedChart        = null;
+let hrChart           = null;
+let hrAltVisible      = false;
 let sessionPage       = 1;
 let allSessions       = [];       // all pages loaded so far
 let hasNextPage       = false;
@@ -60,6 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (map) { map.resize(); }
                     if (elevChart)  elevChart.resize();
                     if (speedChart) speedChart.resize();
+                    if (hrChart)    hrChart.resize();
                 }
             }
         );
@@ -593,6 +596,76 @@ function renderCharts(points) {
         plugins: [rangeHighlightPlugin]
     });
 
+    // ── Heart rate chart (only when HR data exists)
+    const heartRates = points.map(p => p.hr || null);
+    const hasHR = heartRates.some(v => v != null && v > 0);
+    const hrContainer = document.getElementById('hrChartContainer');
+    const chartsContainer = document.querySelector('.charts-container');
+
+    if (hrChart) { hrChart.destroy(); hrChart = null; }
+
+    if (hasHR) {
+        hrContainer.style.display = '';
+        chartsContainer.classList.add('three-charts');
+        // Toggle button state
+        const toggleBtn = document.getElementById('hrAltToggle');
+        if (toggleBtn) toggleBtn.classList.toggle('active', hrAltVisible);
+
+        hrChart = new Chart(document.getElementById('hrChart'), {
+            type: 'line',
+            data: {
+                labels: distances,
+                datasets: [
+                    {
+                        data: heartRates,
+                        borderColor: '#F44336',
+                        backgroundColor: 'rgba(244,67,54,0.15)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: true,
+                        spanGaps: true,
+                        yAxisID: 'y',
+                        order: 1
+                    },
+                    {
+                        data: altitudes,
+                        borderColor: 'rgba(160,160,160,0.4)',
+                        backgroundColor: 'rgba(160,160,160,0.12)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: true,
+                        yAxisID: 'yAlt',
+                        order: 2,
+                        hidden: !hrAltVisible
+                    }
+                ]
+            },
+            options: {
+                ...baseOptions,
+                scales: {
+                    x: xAxis,
+                    y: {
+                        ...axisStyle,
+                        position: 'left',
+                        title: { display: true, text: 'Heart Rate (bpm)', color: 'var(--text-muted)', font: { size: 10 } }
+                    },
+                    yAlt: {
+                        ...axisStyle,
+                        position: 'right',
+                        display: hrAltVisible,
+                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: 'Altitude (m)', color: 'rgba(160,160,160,0.7)', font: { size: 10 } }
+                    }
+                }
+            },
+            plugins: [rangeHighlightPlugin]
+        });
+        document.getElementById('hrChart').addEventListener('mouseleave', hideInfoPopup);
+    } else {
+        hrContainer.style.display = 'none';
+        chartsContainer.classList.remove('three-charts');
+    }
+
     // Hide popup when cursor leaves chart area
     document.getElementById('elevChart').addEventListener('mouseleave', hideInfoPopup);
     document.getElementById('spdChart').addEventListener('mouseleave', hideInfoPopup);
@@ -753,6 +826,19 @@ function clearRangeSelection() {
 function redrawCharts() {
     if (elevChart) elevChart.update('none');
     if (speedChart) speedChart.update('none');
+    if (hrChart) hrChart.update('none');
+}
+
+function toggleHrAltitude() {
+    if (!hrChart) return;
+    hrAltVisible = !hrAltVisible;
+    const btn = document.getElementById('hrAltToggle');
+    if (btn) btn.classList.toggle('active', hrAltVisible);
+    // Toggle altitude dataset visibility (index 1)
+    hrChart.data.datasets[1].hidden = !hrAltVisible;
+    // Toggle right y-axis
+    hrChart.options.scales.yAlt.display = hrAltVisible;
+    hrChart.update();
 }
 
 function clearRangeMapMarkers() {
