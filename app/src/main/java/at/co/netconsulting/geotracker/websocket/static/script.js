@@ -6,6 +6,9 @@ let startMarkers = {};
 let endMarkers = {};
 let altitudeChart;
 let speedChart;
+let hrChart;
+let hrChartVisible = false;
+let hrAltVisible = false;
 let speedHistory = {};
 let elevationHistory = {};
 let userColors = {};
@@ -123,16 +126,18 @@ function getThemeChartColors() {
 function updateChartThemeColors() {
     const colors = getThemeChartColors();
 
-    [altitudeChart, speedChart].forEach(chart => {
+    [altitudeChart, speedChart, hrChart].forEach(chart => {
         if (!chart) return;
 
         // Update scale colors
-        ['x', 'y'].forEach(axis => {
+        ['x', 'y', 'yAlt'].forEach(axis => {
             if (chart.options.scales[axis]) {
                 chart.options.scales[axis].ticks = chart.options.scales[axis].ticks || {};
                 chart.options.scales[axis].ticks.color = colors.textColor;
-                chart.options.scales[axis].title = chart.options.scales[axis].title || {};
-                chart.options.scales[axis].title.color = colors.textColor;
+                if (axis !== 'yAlt') {
+                    chart.options.scales[axis].title = chart.options.scales[axis].title || {};
+                    chart.options.scales[axis].title.color = colors.textColor;
+                }
                 chart.options.scales[axis].grid = chart.options.scales[axis].grid || {};
                 chart.options.scales[axis].grid.color = colors.gridColor;
             }
@@ -355,7 +360,7 @@ function initCharts() {
         layout: { padding: { left: 0, right: 0, top: 0, bottom: 0 } },
         interaction: {
             intersect: false,
-            mode: 'index'
+            mode: 'nearest'
         },
         elements: {
             line: {
@@ -477,6 +482,69 @@ function initCharts() {
         addDebugMessage(`Error creating speed chart: ${error.message}`, 'error');
     }
 
+    const hrChartOptions = {
+        ...baseChartOptions,
+        plugins: {
+            ...baseChartOptions.plugins,
+            legend: {
+                ...baseChartOptions.plugins?.legend,
+                onClick: handleLegendClick,
+                labels: {
+                    filter: item => {
+                        const ds = hrChart?.data?.datasets?.[item.datasetIndex];
+                        return !ds || ds.yAxisID !== 'yAlt';
+                    }
+                }
+            }
+        },
+        scales: {
+            ...baseChartOptions.scales,
+            y: {
+                ...baseChartOptions.scales.y,
+                position: 'left',
+                title: {
+                    display: true,
+                    text: 'Heart Rate (bpm)'
+                }
+            },
+            yAlt: {
+                position: 'right',
+                display: hrAltVisible,
+                grid: { drawOnChartArea: false },
+                title: {
+                    display: true,
+                    text: 'Altitude (m)',
+                    color: 'rgba(160,160,160,0.7)'
+                },
+                min: 0
+            }
+        },
+        onHover: (event, activeElements) => {
+            if (event.native && event.native.target) {
+                event.native.target.style.cursor = activeElements.length > 0 ? 'pointer' : 'default';
+            }
+            handleChartHover(event, activeElements, 'heartrate');
+        },
+        onClick: (event, activeElements) => {
+            handleChartClick(event, activeElements, 'heartrate');
+        }
+    };
+
+    try {
+        hrChart = new Chart(
+            document.getElementById('hrChart').getContext('2d'),
+            {
+                type: 'line',
+                data: { datasets: [] },
+                options: hrChartOptions
+            }
+        );
+        console.log('✅ Heart rate chart created successfully');
+    } catch (error) {
+        console.error('❌ Error creating heart rate chart:', error);
+        addDebugMessage(`Error creating heart rate chart: ${error.message}`, 'error');
+    }
+
     createInfoPopup();
 
     // Use ResizeObserver to reliably resize charts when container dimensions change
@@ -485,6 +553,7 @@ function initCharts() {
         new ResizeObserver(() => {
             if (altitudeChart) altitudeChart.resize();
             if (speedChart) speedChart.resize();
+            if (hrChart) hrChart.resize();
         }).observe(chartsContainer);
     }
 
@@ -553,7 +622,7 @@ function handleChartHover(event, activeElements, chartType) {
             chartType
         });
 
-        const chart = chartType === 'altitude' ? altitudeChart : speedChart;
+        const chart = chartType === 'altitude' ? altitudeChart : chartType === 'heartrate' ? hrChart : speedChart;
         const dataset = chart.data.datasets[datasetIndex];
 
         if (!dataset) {
@@ -624,7 +693,7 @@ function handleChartClick(event, activeElements, chartType) {
     const datasetIndex = element.datasetIndex;
     const dataIndex = element.index;
 
-    const chart = chartType === 'altitude' ? altitudeChart : speedChart;
+    const chart = chartType === 'altitude' ? altitudeChart : chartType === 'heartrate' ? hrChart : speedChart;
     const dataset = chart.data.datasets[datasetIndex];
 
     if (!dataset) return;
@@ -1139,6 +1208,21 @@ function toggleCharts() {
     }
 }
 
+function toggleHrAltitude() {
+    if (!hrChart) return;
+    hrAltVisible = !hrAltVisible;
+    const btn = document.getElementById('hrAltToggle');
+    if (btn) btn.classList.toggle('active', hrAltVisible);
+    // Toggle altitude overlay datasets (those on yAlt axis)
+    hrChart.data.datasets.forEach(ds => {
+        if (ds.yAxisID === 'yAlt') {
+            ds.hidden = !hrAltVisible;
+        }
+    });
+    hrChart.options.scales.yAlt.display = hrAltVisible;
+    hrChart.update();
+}
+
 function handleLegendClick(e, legendItem, legend) {
     const index = legendItem.datasetIndex;
     const clickedDataset = legend.chart.data.datasets[index];
@@ -1157,8 +1241,9 @@ function handleLegendClick(e, legendItem, legend) {
 
     addDebugMessage(`Toggle visibility from legend click: ${clickedLabel} (Session ID: ${sessionId})`, 'ui');
 
-    // Toggle visibility for ALL datasets belonging to this session in both charts
-    [altitudeChart, speedChart].forEach(chart => {
+    // Toggle visibility for ALL datasets belonging to this session in all charts
+    [altitudeChart, speedChart, hrChart].forEach(chart => {
+        if (!chart) return;
         chart.data.datasets.forEach((dataset, i) => {
             // Use stored sessionId if available
             let datasetSessionId = dataset.sessionId;
@@ -2039,7 +2124,7 @@ function updateCharts(sessionId) {
         return;
     }
 
-    // Remove existing datasets for this session from both charts
+    // Remove existing datasets for this session from all charts
     const sessionColor = getColorForUser(sessionId);
 
     // Remove from altitude chart
@@ -2059,6 +2144,20 @@ function updateCharts(sessionId) {
             speedChart.data.datasets.splice(i, 1);
         }
     }
+
+    // Remove from heart rate chart
+    if (hrChart) {
+        for (let i = hrChart.data.datasets.length - 1; i >= 0; i--) {
+            const dataset = hrChart.data.datasets[i];
+            const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+            if (datasetSessionId === sessionId) {
+                hrChart.data.datasets.splice(i, 1);
+            }
+        }
+    }
+
+    // Check if any session has heart rate data
+    const hasHR = validPoints.some(p => p.heartRate > 0);
 
     // Add new datasets for each segment
     dataSegments.forEach((segment, segmentIndex) => {
@@ -2081,7 +2180,7 @@ function updateCharts(sessionId) {
             label: segmentLabel,
             sessionId: sessionId,
             borderColor: sessionColor,
-            backgroundColor: sessionColor + '20', // Add some transparency
+            backgroundColor: sessionColor + '20',
             fill: false,
             data: altitudeData,
             pointRadius: 0,
@@ -2094,22 +2193,82 @@ function updateCharts(sessionId) {
             label: segmentLabel,
             sessionId: sessionId,
             borderColor: sessionColor,
-            backgroundColor: sessionColor + '20', // Add some transparency
+            backgroundColor: sessionColor + '20',
             fill: false,
             data: speedData,
             pointRadius: 0,
             pointHoverRadius: 6,
             tension: 0
         });
+
+        // Add heart rate dataset if HR data exists
+        if (hasHR && hrChart) {
+            const hrData = segment
+                .filter(point => point.heartRate > 0)
+                .map(point => ({
+                    x: point.distance,
+                    y: point.heartRate
+                }));
+
+            if (hrData.length > 0) {
+                hrChart.data.datasets.push({
+                    label: segmentLabel,
+                    sessionId: sessionId,
+                    borderColor: '#F44336',
+                    backgroundColor: 'rgba(244, 67, 54, 0.15)',
+                    fill: true,
+                    data: hrData,
+                    pointRadius: 0,
+                    pointHoverRadius: 6,
+                    tension: 0,
+                    spanGaps: true,
+                    yAxisID: 'y',
+                    order: 1
+                });
+
+                // Altitude overlay dataset on secondary axis
+                const altOverlayData = segment.map(point => ({
+                    x: point.distance,
+                    y: point.altitude
+                }));
+                hrChart.data.datasets.push({
+                    label: segmentLabel + ' alt',
+                    sessionId: sessionId,
+                    borderColor: 'rgba(160,160,160,0.4)',
+                    backgroundColor: 'rgba(160,160,160,0.12)',
+                    borderWidth: 1,
+                    fill: true,
+                    data: altOverlayData,
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    tension: 0,
+                    yAxisID: 'yAlt',
+                    order: 2,
+                    hidden: !hrAltVisible
+                });
+            }
+        }
     });
 
-    // Update both charts
+    // Show/hide HR chart container based on whether any session has HR data
+    if (hasHR && !hrChartVisible) {
+        const hrContainer = document.getElementById('hrChartContainer');
+        const chartsContainer = document.querySelector('.charts-container');
+        if (hrContainer) {
+            hrContainer.style.display = '';
+            chartsContainer.classList.add('three-charts');
+            hrChartVisible = true;
+        }
+    }
+
+    // Update all charts
     requestAnimationFrame(() => {
         altitudeChart.update('none');
         speedChart.update('none');
+        if (hrChart) hrChart.update('none');
     });
 
-    addDebugMessage(`Charts updated for session ${sessionId}: ${dataSegments.length} segment(s) with ${validPoints.length} total points`, 'system');
+    addDebugMessage(`Charts updated for session ${sessionId}: ${dataSegments.length} segment(s) with ${validPoints.length} total points${hasHR ? ' (with HR)' : ''}`, 'system');
 }
 
 function getSpeedColor(speed) {
