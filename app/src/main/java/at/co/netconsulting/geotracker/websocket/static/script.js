@@ -20,6 +20,7 @@ let availableSessions = [];
 let sessionPanelVisible = true;
 let hrMiniCharts = {};
 let hrMiniChartData = {};
+let sessionStartTimes = {};  // sessionId -> Date object from startDateTime
 
 // Interactive chart variables
 let hoverMarker = null;
@@ -49,6 +50,47 @@ let gpxLayerId = null;
 
 function getRandomInRange(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// ==================== Session Start Time & Duration ====================
+function formatDuration(ms) {
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function parseStartDateTime(raw) {
+    if (!raw) return null;
+    // ISO format from Android: "2026-04-02T14:30:00"
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+function setSessionStartTime(sessionId, timestamp) {
+    if (!timestamp || sessionStartTimes[sessionId]) return;
+    sessionStartTimes[sessionId] = timestamp;
+
+    const startTimeEl = document.getElementById(`startTime-${sessionId}`);
+    const startDateEl = document.getElementById(`startDate-${sessionId}`);
+    if (startTimeEl) {
+        startTimeEl.textContent = timestamp.toLocaleTimeString();
+    }
+    if (startDateEl) {
+        startDateEl.textContent = timestamp.toLocaleDateString();
+    }
+}
+
+function updateSessionDuration(sessionId, latestTimestamp) {
+    const startTime = sessionStartTimes[sessionId];
+    if (!startTime || !latestTimestamp) return;
+    const elapsed = latestTimestamp - startTime;
+    if (elapsed < 0) return;
+    const durationEl = document.getElementById(`duration-${sessionId}`);
+    if (durationEl) {
+        durationEl.textContent = formatDuration(elapsed);
+    }
 }
 
 // ==================== Theme Toggle ====================
@@ -1477,6 +1519,7 @@ function handleHistoryBatch(points) {
             maxUphillSlope: parseFloat(point.maxUphillSlope || 0),
             maxDownhillSlope: parseFloat(point.maxDownhillSlope || 0),
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+            startDateTime: point.startDateTime || null,
             personName: personName,
 
             temperature: point.temperature !== undefined && point.temperature !== null ? parseFloat(point.temperature) : null,
@@ -1591,6 +1634,14 @@ function finalizeBatchProcessing(sessionLapTimes) {
 
     Object.keys(trackPoints).forEach(sessionId => {
         trackPoints[sessionId].sort((a, b) => a.timestamp - b.timestamp);
+        // Set session start time and duration from data
+        if (trackPoints[sessionId].length > 0) {
+            const firstPoint = trackPoints[sessionId][0];
+            const lastPoint = trackPoints[sessionId][trackPoints[sessionId].length - 1];
+            const startDt = parseStartDateTime(firstPoint.startDateTime) || firstPoint.timestamp;
+            setSessionStartTime(sessionId, startDt);
+            updateSessionDuration(sessionId, lastPoint.timestamp);
+        }
     });
 
     requestAnimationFrame(() => {
@@ -1752,6 +1803,11 @@ function handlePoint(data) {
             },
             lapTimes: data.lapTimes || null
         });
+
+        // Set session start time from startDateTime field, fallback to first point's timestamp
+        const startDt = parseStartDateTime(data.startDateTime) || processedPoint.timestamp;
+        setSessionStartTime(sessionId, startDt);
+        updateSessionDuration(sessionId, processedPoint.timestamp);
     });
 }
 
@@ -2514,6 +2570,16 @@ function updateSpeedDisplay(sessionId, speed, data) {
 
         statsGrid.innerHTML = `
             <div class="stat-box">
+                <div class="speed-label">Start Time</div>
+                <div class="speed-value" id="startTime-${sessionId}" style="font-size:16px">--:--:--</div>
+                <div class="speed-unit" id="startDate-${sessionId}">--</div>
+            </div>
+            <div class="stat-box">
+                <div class="speed-label">Duration</div>
+                <div class="speed-value" id="duration-${sessionId}" style="font-size:16px">00:00:00</div>
+                <div class="speed-unit">&nbsp;</div>
+            </div>
+            <div class="stat-box">
                 <div class="speed-label">Current Speed</div>
                 <div class="speed-value" id="currentSpeed-${sessionId}">0.0</div>
                 <div class="speed-unit">km/h</div>
@@ -2613,6 +2679,18 @@ function updateSpeedDisplay(sessionId, speed, data) {
         createHrMiniChart(`hrMiniChart-${sessionId}`, sessionId);
 
         speedDisplay.scrollTop = speedDisplay.scrollHeight;
+
+        // Populate start time and duration if already known (e.g. from batch history)
+        if (sessionStartTimes[sessionId]) {
+            const st = sessionStartTimes[sessionId];
+            document.getElementById(`startTime-${sessionId}`).textContent = st.toLocaleTimeString();
+            document.getElementById(`startDate-${sessionId}`).textContent = st.toLocaleDateString();
+            // Set duration from last known point
+            const points = trackPoints[sessionId];
+            if (points && points.length > 0) {
+                updateSessionDuration(sessionId, points[points.length - 1].timestamp);
+            }
+        }
     } else {
         const sessionLabel = speedContainer.querySelector('.session-label');
         if (sessionLabel && personName) {

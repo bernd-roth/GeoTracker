@@ -1136,7 +1136,8 @@ class TrackingServer:
                     gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
                     gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
                     gtp.slope, gtp.average_slope, gtp.max_uphill_slope, gtp.max_downhill_slope,
-                    gtp.received_at
+                    gtp.received_at,
+                    s.start_date_time
                 FROM gps_tracking_points gtp
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
                 JOIN users u ON s.user_id = u.user_id
@@ -1182,7 +1183,8 @@ class TrackingServer:
                     "maxUphillSlope": float(row['max_uphill_slope']) if row['max_uphill_slope'] is not None else 0.0,
                     "maxDownhillSlope": float(row['max_downhill_slope']) if row['max_downhill_slope'] is not None else 0.0,
                     # Keep 'person' for backward compatibility
-                    "person": row['firstname']
+                    "person": row['firstname'],
+                    "startDateTime": row['start_date_time'].isoformat() if row['start_date_time'] else None
                 }
 
                 # Add heart rate data if available
@@ -1486,7 +1488,8 @@ class TrackingServer:
                         gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
                         gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
                         gtp.slope, gtp.average_slope, gtp.max_uphill_slope, gtp.max_downhill_slope,
-                        gtp.received_at
+                        gtp.received_at,
+                        s.start_date_time
                     FROM gps_tracking_points gtp
                     JOIN tracking_sessions s ON gtp.session_id = s.session_id
                     JOIN users u ON s.user_id = u.user_id
@@ -1516,6 +1519,7 @@ class TrackingServer:
                     "averageSlope": float(row['average_slope']) if row['average_slope'] is not None else None,
                     "maxUphillSlope": float(row['max_uphill_slope']) if row['max_uphill_slope'] is not None else None,
                     "maxDownhillSlope": float(row['max_downhill_slope']) if row['max_downhill_slope'] is not None else None,
+                    "startDateTime": row['start_date_time'].isoformat() if row['start_date_time'] else None,
                 }
 
                 # Add heart rate data if available
