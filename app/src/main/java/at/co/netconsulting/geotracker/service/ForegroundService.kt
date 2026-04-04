@@ -1430,11 +1430,27 @@ class ForegroundService : Service() {
             // via checkLapCompletionAndSave() to avoid double-counting (which caused lap 1 to be skipped)
             satellites = (metrics.satellites ?: 0).toString()
 
+            // Keep lastKnownPosition current so connection-monitor listener
+            // recreation uses a fresh position instead of a stale startup value.
+            if (latitude != -999.0 && longitude != -999.0) {
+                lastKnownPosition = Pair(latitude, longitude)
+            }
+
             // Calculate distance increment for lap tracking
             val distanceIncrement = distance - previousDistance
             if (distanceIncrement > 0 && !isBackyardUltraMode) {
-                // Update lap tracking with the new distance increment (skip for Backyard Ultra - manual laps)
-                checkLapCompletionAndSave(distanceIncrement)
+                // Guard against phantom laps: reject increments that are physically
+                // impossible for a single GPS update interval. At 3s intervals even a
+                // car at 200 km/h covers only ~167 m. A 500 m jump in one tick is
+                // certainly a stale-position artefact (e.g. listener recreation with
+                // an outdated lastKnownPosition), NOT real movement.
+                if (distanceIncrement > MAX_REASONABLE_INCREMENT) {
+                    Log.w(TAG, "Rejected implausible distance increment ${distanceIncrement.toInt()}m " +
+                            "(max ${MAX_REASONABLE_INCREMENT.toInt()}m) — likely stale position after listener recreation")
+                } else {
+                    // Update lap tracking with the new distance increment (skip for Backyard Ultra - manual laps)
+                    checkLapCompletionAndSave(distanceIncrement)
+                }
             }
 
             // Collect HR and speed samples during LT measurement phase
@@ -2525,6 +2541,11 @@ class ForegroundService : Service() {
 
         // reconnection logic
         private const val CONNECTION_CHECK_INTERVAL = 60_000L // 1 minute
+
+        // Maximum plausible distance (meters) between two consecutive GPS fixes.
+        // At 3-second intervals, 200 km/h ≈ 167 m.  500 m gives ample headroom
+        // while still catching phantom jumps caused by stale positions.
+        private const val MAX_REASONABLE_INCREMENT = 500.0
 
         // restoring logic
         private const val STATE_CONSISTENCY_CHECK_INTERVAL = 30_000L // 30 seconds

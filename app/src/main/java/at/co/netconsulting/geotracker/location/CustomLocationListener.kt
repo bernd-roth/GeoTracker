@@ -1009,8 +1009,11 @@ class CustomLocationListener: LocationListener {
     }
 
     fun hasValidSession(): Boolean {
-        // Check if sessionId is valid and connection is active
-        return sessionId.isNotEmpty() && isWebSocketConnected
+        // Only check sessionId — WebSocket is optional and should not trigger
+        // listener recreation when disconnected.  The connection monitor was
+        // recreating the listener every 60 s when WebSocket was off, which caused
+        // phantom lap bursts due to stale lastKnownPosition.
+        return sessionId.isNotEmpty()
     }
 
     /**
