@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.05 (05-04-2026: Lap counter bug fixed)"
+        versionName = "9.06 (05-04-2026: Lap counter bug fixed, again)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

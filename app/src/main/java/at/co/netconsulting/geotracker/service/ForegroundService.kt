@@ -989,74 +989,66 @@ class ForegroundService : Service() {
         }
     }
 
-    // This function now tracks lap progress and saves lap times to the database with correct numbering
-    private fun checkLapCompletionAndSave(newDistance: Double) {
+    /**
+     * Detect new lap completions by comparing the authoritative lap count from
+     * CustomLocationListener (metrics.lap) with ForegroundService's current lap.
+     * This replaces the old independent lap counter which could drift due to
+     * rejected distance increments during service restarts or listener recreation.
+     */
+    private fun syncLapFromMetrics(metricsLap: Int) {
+        if (metricsLap <= lap) return  // No new laps
+
         val prevLap = lap
-        val prevLapCounter = lapCounter
+        val completedLaps = metricsLap - prevLap
+        lap = metricsLap
 
-        // Update lap counter with new distance
-        lapCounter += newDistance
+        val currentTime = System.currentTimeMillis()
 
-        // Check if we've completed a new lap (1000 meters)
-        if (lapCounter >= 1000) {
-            val completedLaps = (lapCounter / 1000).toInt()
-            lap += completedLaps
-            lapCounter -= completedLaps * 1000
+        // Save lap time(s) to database
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                for (i in 1..completedLaps) {
+                    val newLapNumber = prevLap + i
 
-            // If we've completed a new lap, save the lap time
-            if (lap > prevLap) {
-                val currentTime = System.currentTimeMillis()
+                    val lapTime = LapTime(
+                        sessionId = sessionId,
+                        eventId = eventId,
+                        lapNumber = newLapNumber,
+                        startTime = lapStartTime,
+                        endTime = currentTime,
+                        distance = 1.0 // 1 km per lap
+                    )
 
-                // Save lap time to database
-                serviceScope.launch(Dispatchers.IO) {
+                    database.lapTimeDao().insertLapTime(lapTime)
+                    Log.d(TAG, "Saved lap time for lap $newLapNumber: ${currentTime - lapStartTime}ms")
+                    Log.d(TAG, "LAP DEBUG: prevLap=$prevLap, newLapNumber=$newLapNumber, total distance=${distance/1000}km")
+                }
+
+                // Update for next lap
+                lastLapCompletionTime = currentTime
+                lapStartTime = currentTime
+
+                // Notify WeatherEventBusHandler to refresh lap times
+                try {
+                    val weatherHandler = WeatherEventBusHandler.getInstance()
+                    weatherHandler.refreshLapTimes()
+                    Log.d(TAG, "Notified WeatherEventBusHandler to refresh lap times")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not notify WeatherEventBusHandler to refresh lap times: ${e.message}")
+                }
+
+                // Transmit updated lap times via WebSocket if enabled
+                if (enableWebSocketTransfer) {
                     try {
-                        for (i in 1..completedLaps) {
-                            // Correct lap numbering - should be prevLap + i
-                            val newLapNumber = prevLap + i
-
-                            val lapTime = LapTime(
-                                sessionId = sessionId,
-                                eventId = eventId,
-                                lapNumber = newLapNumber, // This should be 1, 2, 3, etc.
-                                startTime = lapStartTime,
-                                endTime = currentTime,
-                                distance = 1.0 // 1 km per lap
-                            )
-
-                            database.lapTimeDao().insertLapTime(lapTime)
-                            Log.d(TAG, "Saved lap time for lap $newLapNumber: ${currentTime - lapStartTime}ms")
-
-                            // Debug logging to verify correct lap numbering
-                            Log.d(TAG, "LAP DEBUG: prevLap=$prevLap, newLapNumber=$newLapNumber, total distance=${distance/1000}km")
-                        }
-
-                        // Update for next lap
-                        lastLapCompletionTime = currentTime
-                        lapStartTime = currentTime
-
-                        // Notify WeatherEventBusHandler to refresh lap times
-                        try {
-                            val weatherHandler = WeatherEventBusHandler.getInstance()
-                            weatherHandler.refreshLapTimes()
-                            Log.d(TAG, "Notified WeatherEventBusHandler to refresh lap times")
-                        } catch (e: Exception) {
-                            Log.w(TAG, "Could not notify WeatherEventBusHandler to refresh lap times: ${e.message}")
-                        }
-
-                        // Transmit updated lap times via WebSocket if enabled
-                        if (enableWebSocketTransfer) {
-                            try {
-                                transmitLapTimesToWebSocket()
-                                Log.d(TAG, "Transmitted lap times to WebSocket server")
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Could not transmit lap times to WebSocket: ${e.message}")
-                            }
-                        }
-
+                        transmitLapTimesToWebSocket()
+                        Log.d(TAG, "Transmitted lap times to WebSocket server")
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error saving lap time: ${e.message}")
+                        Log.w(TAG, "Could not transmit lap times to WebSocket: ${e.message}")
                     }
                 }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error saving lap time: ${e.message}")
             }
         }
     }
@@ -1416,9 +1408,6 @@ class ForegroundService : Service() {
             // Update timestamp to prevent timeout
             lastUpdateTimestamp = currentTimeMillis()
 
-            // Get previous distance value to calculate increment
-            val previousDistance = distance
-
             // Update values from location update
             latitude = metrics.latitude
             longitude = metrics.longitude
@@ -1426,8 +1415,6 @@ class ForegroundService : Service() {
             distance = metrics.coveredDistance
             altitude = metrics.altitude
             bearing = metrics.bearing
-            // Don't overwrite lap from metrics - ForegroundService tracks its own lap count
-            // via checkLapCompletionAndSave() to avoid double-counting (which caused lap 1 to be skipped)
             satellites = (metrics.satellites ?: 0).toString()
 
             // Keep lastKnownPosition current so connection-monitor listener
@@ -1436,22 +1423,16 @@ class ForegroundService : Service() {
                 lastKnownPosition = Pair(latitude, longitude)
             }
 
-            // Calculate distance increment for lap tracking
-            val distanceIncrement = distance - previousDistance
-            if (distanceIncrement > 0 && !isBackyardUltraMode) {
-                // Guard against phantom laps: reject increments that are physically
-                // impossible for a single GPS update interval. At 3s intervals even a
-                // car at 200 km/h covers only ~167 m. A 500 m jump in one tick is
-                // certainly a stale-position artefact (e.g. listener recreation with
-                // an outdated lastKnownPosition), NOT real movement.
-                if (distanceIncrement > MAX_REASONABLE_INCREMENT) {
-                    Log.w(TAG, "Rejected implausible distance increment ${distanceIncrement.toInt()}m " +
-                            "(max ${MAX_REASONABLE_INCREMENT.toInt()}m) — likely stale position after listener recreation")
-                } else {
-                    // Update lap tracking with the new distance increment (skip for Backyard Ultra - manual laps)
-                    checkLapCompletionAndSave(distanceIncrement)
-                }
+            // Sync lap count from CustomLocationListener (the single source of truth).
+            // CLL's calculateLap() processes every GPS increment directly without guards,
+            // so it never loses distance. ForegroundService just detects when the lap
+            // number increases and saves the corresponding lap time to the database.
+            if (!isBackyardUltraMode) {
+                syncLapFromMetrics(metrics.lap)
             }
+
+            // Derive partial-lap progress from distance so state saves stay consistent
+            lapCounter = distance % 1000.0
 
             // Collect HR and speed samples during LT measurement phase
             if (isLactateThresholdMode && ltTestStartTime > 0) {
@@ -2541,11 +2522,6 @@ class ForegroundService : Service() {
 
         // reconnection logic
         private const val CONNECTION_CHECK_INTERVAL = 60_000L // 1 minute
-
-        // Maximum plausible distance (meters) between two consecutive GPS fixes.
-        // At 3-second intervals, 200 km/h ≈ 167 m.  500 m gives ample headroom
-        // while still catching phantom jumps caused by stale positions.
-        private const val MAX_REASONABLE_INCREMENT = 500.0
 
         // restoring logic
         private const val STATE_CONSISTENCY_CHECK_INTERVAL = 30_000L // 30 seconds
