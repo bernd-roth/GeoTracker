@@ -991,25 +991,48 @@ class ForegroundService : Service() {
 
     /**
      * Detect new lap completions by comparing the authoritative lap count from
-     * CustomLocationListener (metrics.lap) with ForegroundService's current lap.
-     * This replaces the old independent lap counter which could drift due to
-     * rejected distance increments during service restarts or listener recreation.
+     * CustomLocationListener (metrics.lap) with laps already saved in the database.
+     *
+     * Previous approach compared metrics.lap with an in-memory FS.lap variable,
+     * but FS.lap could silently match CLL.lap after state restoration (SharedPrefs,
+     * database recovery, connection-monitor listener recreation), causing
+     * syncLapFromMetrics to believe all laps were already saved.
+     *
+     * Now we query the actual database for the highest saved lap number.  This is
+     * authoritative — no matter how FS.lap drifts, we always detect truly missing
+     * laps.  The query runs on IO and is guarded by an AtomicBoolean to prevent
+     * overlapping coroutines.
      */
-    private fun syncLapFromMetrics(metricsLap: Int) {
-        if (metricsLap <= lap) return  // No new laps
+    private val isSyncingLaps = java.util.concurrent.atomic.AtomicBoolean(false)
 
-        val prevLap = lap
-        val completedLaps = metricsLap - prevLap
-        lap = metricsLap
+    private fun syncLapFromMetrics(metricsLap: Int) {
+        // Quick check: if metrics reports 0, nothing to do
+        if (metricsLap <= 0) return
+
+        // Keep FS.lap in sync for display / state-save purposes
+        if (metricsLap > lap) {
+            lap = metricsLap
+        }
+
+        // Prevent overlapping sync coroutines
+        if (!isSyncingLaps.compareAndSet(false, true)) return
 
         val currentTime = System.currentTimeMillis()
 
-        // Save lap time(s) to database
         serviceScope.launch(Dispatchers.IO) {
             try {
-                for (i in 1..completedLaps) {
-                    val newLapNumber = prevLap + i
+                // Query the database for the highest lap number already saved for this session.
+                // Using MAX(lapNumber) rather than COUNT(*) so gaps or duplicates don't mislead.
+                val maxSavedLap = database.lapTimeDao().getMaxLapNumberBySession(sessionId)
 
+                if (metricsLap <= maxSavedLap) {
+                    Log.d(TAG, "LAP SYNC: metricsLap=$metricsLap, maxSavedLap=$maxSavedLap — already up to date")
+                    return@launch
+                }
+
+                Log.d(TAG, "LAP SYNC: metricsLap=$metricsLap, maxSavedLap=$maxSavedLap — saving ${metricsLap - maxSavedLap} new lap(s)")
+
+                for (newLapNumber in (maxSavedLap + 1)..metricsLap) {
                     val lapTime = LapTime(
                         sessionId = sessionId,
                         eventId = eventId,
@@ -1021,7 +1044,7 @@ class ForegroundService : Service() {
 
                     database.lapTimeDao().insertLapTime(lapTime)
                     Log.d(TAG, "Saved lap time for lap $newLapNumber: ${currentTime - lapStartTime}ms")
-                    Log.d(TAG, "LAP DEBUG: prevLap=$prevLap, newLapNumber=$newLapNumber, total distance=${distance/1000}km")
+                    Log.d(TAG, "LAP DEBUG: maxSavedLap=$maxSavedLap, newLapNumber=$newLapNumber, total distance=${distance/1000}km")
                 }
 
                 // Update for next lap
@@ -1049,6 +1072,8 @@ class ForegroundService : Service() {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error saving lap time: ${e.message}")
+            } finally {
+                isSyncingLaps.set(false)
             }
         }
     }

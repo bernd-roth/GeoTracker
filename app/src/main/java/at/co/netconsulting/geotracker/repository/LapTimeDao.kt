@@ -50,4 +50,7 @@ interface LapTimeDao {
 
     @Query("SELECT COUNT(*) FROM lap_times WHERE sessionId = :sessionId")
     suspend fun getLapTimesCountBySession(sessionId: String): Int
+
+    @Query("SELECT COALESCE(MAX(lapNumber), 0) FROM lap_times WHERE sessionId = :sessionId")
+    suspend fun getMaxLapNumberBySession(sessionId: String): Int
 }

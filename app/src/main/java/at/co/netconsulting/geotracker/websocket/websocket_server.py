@@ -123,6 +123,14 @@ class TrackingServer:
         # Add session reset detector
         self.session_detector = SessionResetDetector()
 
+        # Track last known lap per session for server-side lap detection.
+        # The app sends 'lap' in every tracking message. When the server detects
+        # that lap increased, it auto-creates lap_times records as a fallback in
+        # case the app's own lap-time saving (syncLapFromMetrics) fails.
+        self.session_last_lap: Dict[str, int] = {}
+        # Track the timestamp when each lap started (used for auto-generated lap times)
+        self.session_lap_start_time: Dict[str, int] = {}
+
         # CONFIGURABLE CLEANUP SETTINGS
         # Data retention period in hours - configurable via environment variable or script modification
         self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '24'))  # Default: 24 hours
@@ -225,6 +233,9 @@ class TrackingServer:
                 del self.tracking_history[session_id]
                 if session_id in self.last_activity:
                     del self.last_activity[session_id]
+                # Clean up lap tracking state
+                self.session_last_lap.pop(session_id, None)
+                self.session_lap_start_time.pop(session_id, None)
                 # Don't remove from active_sessions if it's still actually active
                 if session_id in self.active_sessions:
                     # Check if session is truly inactive before removing
@@ -1074,6 +1085,50 @@ class TrackingServer:
                     # Process lap times if they exist in the message
                     if message_data.get('lapTimes') and isinstance(message_data['lapTimes'], list):
                         await self.save_lap_times(conn, session_id, user_id, message_data['lapTimes'])
+
+                    # Server-side lap detection fallback: if the app didn't send
+                    # lapTimes but the 'lap' field increased, auto-create lap_time
+                    # records.  This covers cases where ForegroundService's
+                    # syncLapFromMetrics silently skips (e.g. FS.lap already matches
+                    # CLL.lap after state restoration).
+                    current_lap = int(message_data.get('lap', 0))
+                    if current_lap > 0 and not (message_data.get('lapTimes') and isinstance(message_data['lapTimes'], list)):
+                        prev_lap = self.session_last_lap.get(session_id, 0)
+                        now_ms = int(datetime.datetime.now().timestamp() * 1000)
+
+                        if prev_lap == 0 and current_lap >= 1:
+                            # First tracking point for this session (or first
+                            # time server sees it).  Seed the lap start time and
+                            # back-fill any laps we missed (current_lap could
+                            # already be > 1 if the server restarted mid-session).
+                            # Check which laps already exist in the DB.
+                            existing_max = await conn.fetchval(
+                                "SELECT COALESCE(MAX(lap_number), 0) FROM lap_times WHERE session_id = $1",
+                                session_id
+                            )
+                            if current_lap > existing_max:
+                                for lap_num in range(existing_max + 1, current_lap + 1):
+                                    await conn.execute("""
+                                        INSERT INTO lap_times (session_id, user_id, lap_number, start_time, end_time, distance)
+                                        VALUES ($1, $2, $3, $4, $5, $6)
+                                        ON CONFLICT (session_id, lap_number) DO NOTHING
+                                    """, session_id, user_id, lap_num, now_ms, now_ms, 1.0)
+                                logging.info(f"Server-side lap backfill: session {session_id} laps {existing_max+1}..{current_lap}")
+                            self.session_lap_start_time[session_id] = now_ms
+
+                        elif current_lap > prev_lap:
+                            # Lap increased — save new lap(s)
+                            lap_start = self.session_lap_start_time.get(session_id, now_ms)
+                            for lap_num in range(prev_lap + 1, current_lap + 1):
+                                await conn.execute("""
+                                    INSERT INTO lap_times (session_id, user_id, lap_number, start_time, end_time, distance)
+                                    VALUES ($1, $2, $3, $4, $5, $6)
+                                    ON CONFLICT (session_id, lap_number) DO NOTHING
+                                """, session_id, user_id, lap_num, lap_start, now_ms, 1.0)
+                            logging.info(f"Server-side lap detect: session {session_id} laps {prev_lap+1}..{current_lap}")
+                            self.session_lap_start_time[session_id] = now_ms
+
+                        self.session_last_lap[session_id] = current_lap
 
                     # Update session location geocoding data if present
                     start_city = message_data.get('startCity')
