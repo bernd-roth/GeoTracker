@@ -1107,24 +1107,51 @@ class TrackingServer:
                                 session_id
                             )
                             if current_lap > existing_max:
-                                for lap_num in range(existing_max + 1, current_lap + 1):
+                                # Derive the session start time from startDateTime
+                                # so the first lap has a real duration instead of 0.
+                                session_start_ms = now_ms
+                                start_dt_str = message_data.get('startDateTime', '')
+                                if start_dt_str:
+                                    try:
+                                        tz_offset_hours = float(message_data.get('timezoneOffsetHours', 0))
+                                        tz = datetime.timezone(datetime.timedelta(hours=tz_offset_hours))
+                                        # Parse ISO local datetime and attach the device timezone
+                                        dt = datetime.datetime.fromisoformat(start_dt_str).replace(tzinfo=tz)
+                                        session_start_ms = int(dt.timestamp() * 1000)
+                                    except Exception as e:
+                                        logging.warning(f"Could not parse startDateTime '{start_dt_str}': {e}")
+
+                                laps_to_fill = current_lap - existing_max
+                                # Spread time evenly across missed laps
+                                total_span = now_ms - session_start_ms
+                                lap_duration = total_span // laps_to_fill if laps_to_fill > 0 and total_span > 0 else 0
+
+                                for idx, lap_num in enumerate(range(existing_max + 1, current_lap + 1)):
+                                    lap_start_ms = session_start_ms + idx * lap_duration
+                                    lap_end_ms = session_start_ms + (idx + 1) * lap_duration
                                     await conn.execute("""
                                         INSERT INTO lap_times (session_id, user_id, lap_number, start_time, end_time, distance)
                                         VALUES ($1, $2, $3, $4, $5, $6)
                                         ON CONFLICT (session_id, lap_number) DO NOTHING
-                                    """, session_id, user_id, lap_num, now_ms, now_ms, 1.0)
+                                    """, session_id, user_id, lap_num, lap_start_ms, lap_end_ms, 1.0)
                                 logging.info(f"Server-side lap backfill: session {session_id} laps {existing_max+1}..{current_lap}")
                             self.session_lap_start_time[session_id] = now_ms
 
                         elif current_lap > prev_lap:
                             # Lap increased — save new lap(s)
                             lap_start = self.session_lap_start_time.get(session_id, now_ms)
-                            for lap_num in range(prev_lap + 1, current_lap + 1):
+                            laps_to_fill = current_lap - prev_lap
+                            total_span = now_ms - lap_start
+                            lap_duration = total_span // laps_to_fill if laps_to_fill > 0 and total_span > 0 else 0
+
+                            for idx, lap_num in enumerate(range(prev_lap + 1, current_lap + 1)):
+                                lap_start_ms = lap_start + idx * lap_duration
+                                lap_end_ms = lap_start + (idx + 1) * lap_duration
                                 await conn.execute("""
                                     INSERT INTO lap_times (session_id, user_id, lap_number, start_time, end_time, distance)
                                     VALUES ($1, $2, $3, $4, $5, $6)
                                     ON CONFLICT (session_id, lap_number) DO NOTHING
-                                """, session_id, user_id, lap_num, lap_start, now_ms, 1.0)
+                                """, session_id, user_id, lap_num, lap_start_ms, lap_end_ms, 1.0)
                             logging.info(f"Server-side lap detect: session {session_id} laps {prev_lap+1}..{current_lap}")
                             self.session_lap_start_time[session_id] = now_ms
 
