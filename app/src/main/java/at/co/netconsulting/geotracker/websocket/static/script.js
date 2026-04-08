@@ -3134,6 +3134,20 @@ function toggleSessionVisibility(sessionId) {
         }
     }
 
+    // Apply same logic to heart rate chart
+    if (hrChart) {
+        const hrDatasets = hrChart.data.datasets;
+        for (let i = 0; i < hrDatasets.length; i++) {
+            const dataset = hrDatasets[i];
+            const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+
+            if (datasetSessionId === sessionId) {
+                hrChart.setDatasetVisibility(i, !currentVisibility);
+            }
+        }
+        hrChart.update();
+    }
+
     altitudeChart.update();
     speedChart.update();
 
