@@ -2986,11 +2986,14 @@ function updateLapTable(sessionId, lapTimes) {
     const scrollDiv = container.querySelector('.lap-table-scroll');
 
     // Find fastest and slowest laps (by pace = duration/distance)
+    // Exclude the last lap: during live tracking its timing may not be finalized,
+    // and it may be incomplete (distance < typical lap distance).
     let fastestIdx = -1, slowestIdx = -1;
     let fastestPace = Infinity, slowestPace = -1;
 
     if (lapTimes.length >= 2) {
         lapTimes.forEach((lap, i) => {
+            if (i === lapTimes.length - 1) return; // skip last lap
             const dist = lap.distance || 1;
             const pace = lap.duration / dist;
             if (pace < fastestPace) { fastestPace = pace; fastestIdx = i; }

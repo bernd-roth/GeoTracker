@@ -415,9 +415,20 @@ function renderLaps(laps) {
     const container = document.getElementById('lapTableContainer');
     if (!laps || laps.length === 0) { container.innerHTML = ''; return; }
 
-    const paces        = laps.filter(l => l.pace_min_per_km).map(l => l.pace_min_per_km);
-    const fastestPace  = paces.length ? Math.min(...paces) : null;
-    const slowestPace  = paces.length ? Math.max(...paces) : null;
+    // Detect incomplete last lap (distance < 90% of typical lap distance)
+    const lastIdx = laps.length - 1;
+    let lastLapIncomplete = false;
+    if (laps.length >= 2) {
+        const allButLast = laps.slice(0, -1);
+        const typicalDist = allButLast.reduce((s, l) => s + l.distance_km, 0) / allButLast.length;
+        lastLapIncomplete = laps[lastIdx].distance_km < typicalDist * 0.9;
+    }
+
+    const eligiblePaces = laps
+        .filter((l, i) => l.pace_min_per_km && !(i === lastIdx && lastLapIncomplete))
+        .map(l => l.pace_min_per_km);
+    const fastestPace  = eligiblePaces.length ? Math.min(...eligiblePaces) : null;
+    const slowestPace  = eligiblePaces.length ? Math.max(...eligiblePaces) : null;
 
     const rows = laps.map(l => {
         let cls = '';
