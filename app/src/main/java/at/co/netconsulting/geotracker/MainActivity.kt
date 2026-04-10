@@ -117,6 +117,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_COMPARISON = "route_comparison/{eventId}"
         const val EXPORT_SYNC = "export_sync"
         const val CALENDAR = "calendar"
+        const val WORKOUT_SHARE = "workout_share/{eventId}"
 
         // Create actual navigation path with parameters
         fun editEvent(eventId: Int) = "edit_event/$eventId"
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
         fun altitudeDetail() = "altitude_detail"
         fun paceDetail() = "pace_detail"
         fun routeComparison(eventId: Int) = "route_comparison/$eventId"
+        fun workoutShare(eventId: Int) = "workout_share/$eventId"
         fun exportSync() = "export_sync"
     }
 
@@ -625,6 +627,9 @@ class MainActivity : ComponentActivity() {
                         Log.d("MainActivity", "Navigating to route comparison for event: $eventName (ID: $eventId)")
                         navController.navigate(Routes.routeComparison(eventId))
                     },
+                    onNavigateToWorkoutShare = { eventId ->
+                        navController.navigate(Routes.workoutShare(eventId))
+                    },
                     onNavigateToCalendar = {
                         navController.navigate(Routes.CALENDAR)
                     }
@@ -754,6 +759,24 @@ class MainActivity : ComponentActivity() {
                     eventId = eventId,
                     onNavigateBack = {
                         Log.d("MainActivity", "Navigating back from route comparison")
+                        navController.popBackStack()
+                    }
+                )
+            }
+
+            // Workout share screen (overlay stats on photo)
+            composable(
+                route = Routes.WORKOUT_SHARE,
+                arguments = listOf(
+                    navArgument("eventId") {
+                        type = NavType.IntType
+                    }
+                )
+            ) { backStackEntry ->
+                val eventId = backStackEntry.arguments?.getInt("eventId") ?: 0
+                at.co.netconsulting.geotracker.composables.WorkoutShareScreen(
+                    eventId = eventId,
+                    onNavigateBack = {
                         navController.popBackStack()
                     }
                 )

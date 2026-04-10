@@ -58,6 +58,9 @@ fun AppNavigation() {
                     } catch (e: Exception) {
                         android.util.Log.e("AppNavigation", "Navigation failed", e)
                     }
+                },
+                onNavigateToWorkoutShare = { eventId ->
+                    navController.navigate("workoutShare/$eventId")
                 }
             )
         }
@@ -91,6 +94,24 @@ fun AppNavigation() {
         ) { backStackEntry ->
             val eventId = backStackEntry.arguments?.getInt("eventId") ?: -1
             RouteComparisonScreen(
+                eventId = eventId,
+                onNavigateBack = {
+                    navController.popBackStack()
+                }
+            )
+        }
+
+        // Workout share screen (overlay stats on photo)
+        composable(
+            route = "workoutShare/{eventId}",
+            arguments = listOf(
+                navArgument("eventId") {
+                    type = NavType.IntType
+                }
+            )
+        ) { backStackEntry ->
+            val eventId = backStackEntry.arguments?.getInt("eventId") ?: -1
+            WorkoutShareScreen(
                 eventId = eventId,
                 onNavigateBack = {
                     navController.popBackStack()

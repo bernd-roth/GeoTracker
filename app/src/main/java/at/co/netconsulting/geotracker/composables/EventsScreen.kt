@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Waves
 import at.co.netconsulting.geotracker.YearlyStatisticsActivity
@@ -164,6 +165,7 @@ fun EventsScreen(
     onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
     onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit,
     onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> },
+    onNavigateToWorkoutShare: (Int) -> Unit = {},
     onNavigateToCalendar: () -> Unit = {},
     initialFilterDate: String? = null
 ) {
@@ -1020,6 +1022,9 @@ fun EventsScreen(
                                 Toast.makeText(context, "Loading route comparison...", Toast.LENGTH_SHORT).show()
                                 onNavigateToRouteComparison(eventWithDetails.event.eventId, eventWithDetails.event.eventName)
                             },
+                            onShare = {
+                                onNavigateToWorkoutShare(eventWithDetails.event.eventId)
+                            },
                             onSync = {
                                 eventToSync = eventWithDetails
                                 showSyncDialog = true
@@ -1136,6 +1141,7 @@ fun EventCard(
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     onViewSlopeOnMap: (List<GeoPoint>) -> Unit = {},
     onCompareRoutes: () -> Unit = {},
+    onShare: () -> Unit = {},
     onSync: () -> Unit = {},
     canViewOnMap: Boolean = true,
     database: FitnessTrackerDatabase? = null,
@@ -1315,6 +1321,18 @@ fun EventCard(
                                 tint = MaterialTheme.colorScheme.tertiary
                             )
                         }
+                    }
+
+                    // Share as image button
+                    IconButton(
+                        onClick = onShare,
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share Workout",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
                     }
 
                     // Sync button - show for all activities (GPS and stationary)

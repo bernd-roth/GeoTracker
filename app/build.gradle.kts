@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.07 (06-04-2026: Lap times use DB as source of truth)"
+        versionName = "9.08 (10-04-2026: take a picture and put an overlay on top of it)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -82,6 +82,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
     implementation("androidx.appcompat:appcompat:1.6.1")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.fragment:fragment-ktx:1.6.2")
 
     // Compose BOM and dependencies

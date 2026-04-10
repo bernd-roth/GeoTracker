@@ -10,6 +10,11 @@
         name="media_cache"
         path="media_thumbnails/" />
 
+    <!-- Shared workout overlay images -->
+    <cache-path
+        name="share_images"
+        path="share_images/" />
+
     <!-- Temporary files -->
     <cache-path
         name="temp_files"
