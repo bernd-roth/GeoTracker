@@ -3320,6 +3320,33 @@ function updateSessionList() {
 
     sessionsList.innerHTML = html;
 
+    // Reset all chart dataset visibility to visible on refresh
+    if (altitudeChart) {
+        for (let i = 0; i < altitudeChart.data.datasets.length; i++) {
+            altitudeChart.setDatasetVisibility(i, true);
+        }
+        altitudeChart.update();
+    }
+
+    if (speedChart) {
+        for (let i = 0; i < speedChart.data.datasets.length; i++) {
+            speedChart.setDatasetVisibility(i, true);
+        }
+        speedChart.update();
+    }
+
+    if (hrChart) {
+        for (let i = 0; i < hrChart.data.datasets.length; i++) {
+            hrChart.setDatasetVisibility(i, true);
+        }
+        hrChart.update();
+    }
+
+    // Reset map elements visibility for all sessions
+    filteredSessions.forEach(session => {
+        toggleMapElementsVisibility(session.sessionId, true);
+    });
+
     addDebugMessage(`Session list updated: ${filteredSessions.length} primary sessions displayed (${availableSessions.length - filteredSessions.length} reset/archived sessions filtered out)`, 'system');
 }
 
