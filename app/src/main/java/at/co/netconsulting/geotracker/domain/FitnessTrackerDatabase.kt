@@ -28,7 +28,7 @@ import android.util.Log
         DisciplineTransition::class,
         WaypointPhoto::class
     ],
-    version = 26, // INCREMENTED FROM 25 TO 26 to fix eventSource nullability mismatch
+    version = 27, // INCREMENTED FROM 26 TO 27 to add bmi column to User table
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -783,6 +783,19 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_26_27 = object : Migration(26, 27) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 26->27 - adding bmi column to User table")
+                try {
+                    database.execSQL("ALTER TABLE User ADD COLUMN bmi REAL NOT NULL DEFAULT 0")
+                    Log.d(TAG, "Migration 26->27 completed - bmi column added to User table")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 26->27", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -816,7 +829,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_22_23,
                             MIGRATION_23_24,
                             MIGRATION_24_25,
-                            MIGRATION_25_26
+                            MIGRATION_25_26,
+                            MIGRATION_26_27
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

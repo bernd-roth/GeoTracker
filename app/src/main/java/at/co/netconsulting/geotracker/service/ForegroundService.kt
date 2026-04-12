@@ -85,6 +85,7 @@ class ForegroundService : Service() {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
+    private var bmi: Float = 0f
     private lateinit var eventname: String
     private lateinit var eventdate: String
     private lateinit var artofsport: String
@@ -608,6 +609,7 @@ class ForegroundService : Service() {
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
         height = sharedPreferences.getFloat("height", 0f)
         weight = sharedPreferences.getFloat("weight", 0f)
+        bmi = sharedPreferences.getFloat("bmi", 0f)
     }
 
     private fun acquireWakeLock() {
@@ -746,7 +748,7 @@ class ForegroundService : Service() {
                     }
                 }
 
-                val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height))
+                val userId = database.userDao().insertUser(User(0, firstname, lastname, birthdate, weight, height, bmi))
 
                 // Only create a new event if this is not a restored session with valid eventId
                 if (isRestoring && eventId > 0) {
@@ -2441,6 +2443,7 @@ class ForegroundService : Service() {
                     birthdate = birthdate,
                     height = height,
                     weight = weight,
+                    bmi = bmi,
                     eventName = eventname,
                     sportType = artofsport,
                     comment = comment,

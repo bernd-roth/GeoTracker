@@ -336,6 +336,7 @@ class TrackingServer:
                     birthdate VARCHAR(20),
                     height NUMERIC(5, 2),
                     weight NUMERIC(5, 2),
+                    bmi NUMERIC(5, 2),
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW(),
                     UNIQUE(firstname, lastname, birthdate)
@@ -558,7 +559,7 @@ class TrackingServer:
 
     async def get_or_create_user(self, conn, firstname: str, lastname: str = None,
                                  birthdate: str = None, height: float = None,
-                                 weight: float = None) -> int:
+                                 weight: float = None, bmi: float = None) -> int:
         """Get existing user or create new one, return user_id."""
         # Try to find existing user
         user_id = await conn.fetchval("""
@@ -569,22 +570,23 @@ class TrackingServer:
 
         if user_id:
             # Update user info if provided and different
-            if height is not None or weight is not None:
+            if height is not None or weight is not None or bmi is not None:
                 await conn.execute("""
                     UPDATE users SET
                         height = COALESCE($1, height),
                         weight = COALESCE($2, weight),
+                        bmi = COALESCE($3, bmi),
                         updated_at = NOW()
-                    WHERE user_id = $3
-                """, height, weight, user_id)
+                    WHERE user_id = $4
+                """, height, weight, bmi, user_id)
             return user_id
 
         # Create new user
         user_id = await conn.fetchval("""
-            INSERT INTO users (firstname, lastname, birthdate, height, weight)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO users (firstname, lastname, birthdate, height, weight, bmi)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING user_id
-        """, firstname, lastname, birthdate, height, weight)
+        """, firstname, lastname, birthdate, height, weight, bmi)
 
         logging.info(f"Created new user: {firstname} {lastname} (ID: {user_id})")
         return user_id
@@ -969,9 +971,10 @@ class TrackingServer:
                     birthdate = message_data.get('birthdate', '')
                     height = float(message_data.get('height', 0)) if message_data.get('height') else None
                     weight = float(message_data.get('weight', 0)) if message_data.get('weight') else None
+                    bmi = float(message_data.get('bmi', 0)) if message_data.get('bmi') else None
 
                     user_id = await self.get_or_create_user(
-                        conn, firstname, lastname, birthdate, height, weight
+                        conn, firstname, lastname, birthdate, height, weight, bmi
                     )
 
                     # Get or create session
@@ -1208,7 +1211,7 @@ class TrackingServer:
             query = """
                 SELECT
                     gtp.session_id,
-                    u.firstname, u.lastname, u.birthdate, u.height, u.weight,
+                    u.firstname, u.lastname, u.birthdate, u.height, u.weight, u.bmi,
                     s.event_name, s.sport_type, s.comment, s.clothing,
                     s.min_distance_meters, s.min_time_seconds, s.voice_announcement_interval,
                     gtp.latitude, gtp.longitude, gtp.altitude,
@@ -1244,6 +1247,7 @@ class TrackingServer:
                     "birthdate": row['birthdate'] or '',
                     "height": float(row['height']) if row['height'] is not None else 0.0,
                     "weight": float(row['weight']) if row['weight'] is not None else 0.0,
+                    "bmi": float(row['bmi']) if row['bmi'] is not None else 0.0,
                     "minDistanceMeters": int(row['min_distance_meters']) if row['min_distance_meters'] is not None else 0,
                     "minTimeSeconds": int(row['min_time_seconds']) if row['min_time_seconds'] is not None else 0,
                     "voiceAnnouncementInterval": int(row['voice_announcement_interval']) if row['voice_announcement_interval'] is not None else 0,
@@ -1560,7 +1564,7 @@ class TrackingServer:
                 rows = await conn.fetch("""
                     SELECT
                         gtp.session_id,
-                        u.firstname, u.lastname, u.birthdate, u.height, u.weight,
+                        u.firstname, u.lastname, u.birthdate, u.height, u.weight, u.bmi,
                         s.event_name, s.sport_type, s.comment, s.clothing,
                         s.min_distance_meters, s.min_time_seconds, s.voice_announcement_interval,
                         gtp.latitude, gtp.longitude, gtp.altitude,

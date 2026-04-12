@@ -374,6 +374,26 @@ fun SettingsScreen(
         )
         Spacer(modifier = Modifier.height(8.dp))
 
+        val bmiValue = remember(height, weight) {
+            val h = height.toFloatOrNull() ?: 0f
+            val w = weight.toFloatOrNull() ?: 0f
+            if (h > 0f && w > 0f) {
+                val heightInMeters = h / 100f
+                String.format("%.1f", w / (heightInMeters * heightInMeters))
+            } else {
+                ""
+            }
+        }
+        OutlinedTextField(
+            value = bmiValue,
+            onValueChange = {},
+            label = { Text("BMI (Body Mass Index)") },
+            readOnly = true,
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
         OutlinedTextField(
             value = maxHeartRate.toString(),
             onValueChange = { input ->
@@ -1092,6 +1112,11 @@ fun saveAllSettings(
         putString("birthdate", birthDate)
         putFloat("height", height)
         putFloat("weight", weight)
+        val bmi = if (height > 0f && weight > 0f) {
+            val heightInMeters = height / 100f
+            weight / (heightInMeters * heightInMeters)
+        } else 0f
+        putFloat("bmi", bmi)
         putInt("maxHeartRate", maxHeartRate)
         putString("websocketserver", websocketserver)
         putBoolean("autoBackupEnabled", autoBackupEnabled)

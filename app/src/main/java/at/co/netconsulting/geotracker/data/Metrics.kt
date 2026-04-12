@@ -50,6 +50,7 @@ data class Metrics(
     val birthdate: String = "",
     val height: Float = 0f,
     val weight: Float = 0f,
+    val bmi: Float = 0f,
 
     // Settings fields
     val minDistanceMeters: Int = 0,

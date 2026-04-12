@@ -72,6 +72,7 @@ class CustomLocationListener: LocationListener {
     private lateinit var birthdate: String
     private var height: Float = 0f
     private var weight: Float = 0f
+    private var bmi: Float = 0f
     private var sessionId: String = ""
     private val job = Job()
     private val coroutineScope = CoroutineScope(Dispatchers.IO + job)
@@ -333,6 +334,7 @@ class CustomLocationListener: LocationListener {
         birthdate = sharedPreferences.getString("birthdate", "") ?: ""
         height = sharedPreferences.getFloat("height", 0f)
         weight = sharedPreferences.getFloat("weight", 0f)
+        bmi = sharedPreferences.getFloat("bmi", 0f)
         websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
 
         // Load voice announcement interval
@@ -367,7 +369,7 @@ class CustomLocationListener: LocationListener {
         )
         Log.d(
             TAG_WEBSOCKET,
-            "Loaded user profile: $firstname $lastname, DOB: $birthdate, Height: ${height}cm, Weight: ${weight}kg"
+            "Loaded user profile: $firstname $lastname, DOB: $birthdate, Height: ${height}cm, Weight: ${weight}kg, BMI: $bmi"
         )
         Log.d(
             TAG_WEBSOCKET,
@@ -1103,6 +1105,7 @@ class CustomLocationListener: LocationListener {
             birthdate = birthdate,
             height = height,
             weight = weight,
+            bmi = bmi,
 
             // Settings data
             minDistanceMeters = minDistanceMeters,
@@ -1345,6 +1348,7 @@ class CustomLocationListener: LocationListener {
             birthdate = birthdate,
             height = height,
             weight = weight,
+            bmi = bmi,
             minDistanceMeters = minDistanceMeters,
             minTimeSeconds = minTimeSeconds,
             voiceAnnouncementInterval = voiceAnnouncementInterval,
@@ -1417,6 +1421,7 @@ class CustomLocationListener: LocationListener {
             birthdate = birthdate,
             height = height,
             weight = weight,
+            bmi = bmi,
             minDistanceMeters = minDistanceMeters,
             minTimeSeconds = minTimeSeconds,
             voiceAnnouncementInterval = voiceAnnouncementInterval,

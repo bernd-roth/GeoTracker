@@ -10,5 +10,6 @@ data class User(
     val lastName: String,
     val birthDate: String, // Store as ISO date (YYYY-MM-DD)
     val weight: Float,
-    val height: Float
+    val height: Float,
+    val bmi: Float = 0f
 )
