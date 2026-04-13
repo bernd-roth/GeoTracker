@@ -128,7 +128,9 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import android.net.Uri
 import java.io.File
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -351,6 +353,12 @@ fun EventsScreen(
     var showSyncDialog by remember { mutableStateOf(false) }
     var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
     var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
+
+    // Connect events mode
+    var isConnectMode by remember { mutableStateOf(false) }
+    var connectSelectedIds by remember { mutableStateOf<List<Int>>(emptyList()) }
+    var showConnectDialog by remember { mutableStateOf(false) }
+    var isCombining by remember { mutableStateOf(false) }
     val isDateFilterActive by eventsViewModel.isDateFilterActive.collectAsState() // Track if date filter is active from ViewModel
     val selectedTab by eventsViewModel.selectedTab.collectAsState()
 
@@ -566,6 +574,136 @@ fun EventsScreen(
         )
     }
 
+    // Connect events confirmation dialog
+    if (showConnectDialog && connectSelectedIds.size >= 2) {
+        val selectedEvents = connectSelectedIds.mapNotNull { id ->
+            events.find { it.event.eventId == id }
+        }
+        val firstEvent = selectedEvents.firstOrNull()
+
+        AlertDialog(
+            onDismissRequest = {
+                if (!isCombining) {
+                    showConnectDialog = false
+                }
+            },
+            title = { Text("Connect Events") },
+            text = {
+                Column {
+                    Text(
+                        text = "Combine the following ${selectedEvents.size} events into one:",
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    selectedEvents.forEachIndexed { index, eventWithDetails ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (index == 0) "1st" else "${index + 1}.",
+                                fontWeight = if (index == 0) FontWeight.Bold else FontWeight.Normal,
+                                color = if (index == 0) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                                fontSize = 13.sp,
+                                modifier = Modifier.width(30.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = eventWithDetails.event.eventName,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 14.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "${eventWithDetails.event.eventDate} - ${eventWithDetails.event.artOfSport}",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "The first event marks the beginning. " +
+                                "Distances will be summed from each event. " +
+                                "A new combined event will be created.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        fontStyle = FontStyle.Italic
+                    )
+
+                    if (isCombining) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Combining events...",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isCombining = true
+                        coroutineScope.launch {
+                            val firstEventId = connectSelectedIds.first()
+                            val result = eventsViewModel.combineEvents(
+                                connectSelectedIds,
+                                firstEventId
+                            )
+                            isCombining = false
+                            showConnectDialog = false
+
+                            if (result != null) {
+                                Toast.makeText(
+                                    context,
+                                    "Events combined successfully (new event ID: $result)",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                                // Exit connect mode
+                                isConnectMode = false
+                                connectSelectedIds = emptyList()
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "Failed to combine events",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        }
+                    },
+                    enabled = !isCombining
+                ) {
+                    Text(if (isCombining) "Combining..." else "Combine")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showConnectDialog = false },
+                    enabled = !isCombining
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
@@ -689,6 +827,27 @@ fun EventsScreen(
                                 tint = MaterialTheme.colorScheme.secondary
                             )
                         }
+
+                        // Connect Events toggle button
+                        TextButton(
+                            onClick = {
+                                isConnectMode = !isConnectMode
+                                if (!isConnectMode) {
+                                    connectSelectedIds = emptyList()
+                                }
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = if (isConnectMode) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(if (isConnectMode) "Cancel" else "Connect")
+                            Icon(
+                                imageVector = Icons.Default.Link,
+                                contentDescription = "Connect Events",
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -713,6 +872,68 @@ fun EventsScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp)
                 )
+            }
+
+            // Connect mode banner
+            if (isConnectMode) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp)
+                        ) {
+                            Text(
+                                text = "Connect Events Mode",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Tap events to select them. The first selected event will be the beginning.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            if (connectSelectedIds.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "${connectSelectedIds.size} event(s) selected",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                // Show which event is the beginning
+                                val firstEvent = events.find { it.event.eventId == connectSelectedIds.first() }
+                                if (firstEvent != null) {
+                                    Text(
+                                        text = "Beginning: ${firstEvent.event.eventName}",
+                                        fontSize = 12.sp,
+                                        fontStyle = FontStyle.Italic,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                            if (connectSelectedIds.size >= 2) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Button(
+                                    onClick = { showConnectDialog = true },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Link,
+                                        contentDescription = null,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                    Text("Combine ${connectSelectedIds.size} Events")
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Yearly Stats Overview (conditionally shown)
@@ -932,30 +1153,98 @@ fun EventsScreen(
                             Log.d("EventsScreen", "Event ${eventWithDetails.event.eventName} (ID: ${eventWithDetails.event.eventId}): isRecordingThisEvent=$isRecordingThisEvent, activeEventId=$activeEventId, isRecording=$isRecording")
                         }
 
-                        EventCard(
-                            event = eventWithDetails,
-                            selected = selectedEventId == eventWithDetails.event.eventId,
-                            onClick = {
-                                val isCurrentlySelected = selectedEventId == eventWithDetails.event.eventId
-                                if (isCurrentlySelected) {
-                                    // Collapsing - just unselect
-                                    selectedEventId = null
-                                } else {
-                                    // Expanding - select and load full details if needed
-                                    selectedEventId = eventWithDetails.event.eventId
+                        // Connect mode: show selection indicator
+                        if (isConnectMode) {
+                            val eventId = eventWithDetails.event.eventId
+                            val isSelected = connectSelectedIds.contains(eventId)
+                            val selectionIndex = connectSelectedIds.indexOf(eventId)
 
-                                    // Load full details on-demand if not already loaded
-                                    if (!eventWithDetails.hasFullDetails) {
-                                        coroutineScope.launch {
-                                            eventsViewModel.loadFullDetailsForEvent(eventWithDetails.event.eventId)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        connectSelectedIds = if (isSelected) {
+                                            connectSelectedIds.filter { it != eventId }
+                                        } else {
+                                            connectSelectedIds + eventId
                                         }
                                     }
+                                    .padding(horizontal = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Selection indicator
+                                Box(
+                                    modifier = Modifier.padding(end = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = "Selected",
+                                            tint = if (selectionIndex == 0) MaterialTheme.colorScheme.primary
+                                                   else MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                        if (selectionIndex == 0) {
+                                            Text(
+                                                text = "1st",
+                                                fontSize = 8.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                modifier = Modifier
+                                                    .background(
+                                                        MaterialTheme.colorScheme.primary,
+                                                        CircleShape
+                                                    )
+                                                    .padding(horizontal = 3.dp, vertical = 1.dp)
+                                            )
+                                        }
+                                    } else {
+                                        Icon(
+                                            imageVector = Icons.Default.RadioButtonUnchecked,
+                                            contentDescription = "Not selected",
+                                            tint = Color.Gray,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
-                                    // Load media for this event (works for both local and uploaded)
-                                    eventsViewModel.loadMediaForEvent(
-                                        eventWithDetails.event.eventId,
-                                        eventWithDetails.event.sessionId
-                                    )
+                        EventCard(
+                            event = eventWithDetails,
+                            selected = if (isConnectMode) false else selectedEventId == eventWithDetails.event.eventId,
+                            onClick = {
+                                if (isConnectMode) {
+                                    // In connect mode, toggle selection
+                                    val eventId = eventWithDetails.event.eventId
+                                    connectSelectedIds = if (connectSelectedIds.contains(eventId)) {
+                                        connectSelectedIds.filter { it != eventId }
+                                    } else {
+                                        connectSelectedIds + eventId
+                                    }
+                                } else {
+                                    val isCurrentlySelected = selectedEventId == eventWithDetails.event.eventId
+                                    if (isCurrentlySelected) {
+                                        // Collapsing - just unselect
+                                        selectedEventId = null
+                                    } else {
+                                        // Expanding - select and load full details if needed
+                                        selectedEventId = eventWithDetails.event.eventId
+
+                                        // Load full details on-demand if not already loaded
+                                        if (!eventWithDetails.hasFullDetails) {
+                                            coroutineScope.launch {
+                                                eventsViewModel.loadFullDetailsForEvent(eventWithDetails.event.eventId)
+                                            }
+                                        }
+
+                                        // Load media for this event (works for both local and uploaded)
+                                        eventsViewModel.loadMediaForEvent(
+                                            eventWithDetails.event.eventId,
+                                            eventWithDetails.event.sessionId
+                                        )
+                                    }
                                 }
                             },
                             onEdit = {

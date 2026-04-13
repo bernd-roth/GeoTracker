@@ -10,6 +10,7 @@ import at.co.netconsulting.geotracker.data.MediaUploadProgress
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.EventMedia
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.service.MediaSyncWorker
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
@@ -593,6 +594,236 @@ class EventsViewModel(
                 lapTimeDetails = lapTimeObjects,
                 disciplineTransitions = disciplineTransitions
             )
+        }
+    }
+
+    /**
+     * Combine multiple events into a single new event.
+     * The firstEventId determines which event is the "beginning" - its start location,
+     * sport type, and date are used for the combined event.
+     * Distances are summed from each event's max distance (not recalculated from GPS).
+     * All data is copied: metrics, locations, weather, device status, lap times,
+     * waypoints (with photos), media, discipline transitions, clothing, and network info.
+     *
+     * @param selectedEventIds The IDs of all events to combine
+     * @param firstEventId The ID of the event that serves as the beginning
+     * @return The new combined event's ID, or null if combination failed
+     */
+    suspend fun combineEvents(selectedEventIds: List<Int>, firstEventId: Int): Int? {
+        return withContext(Dispatchers.IO) {
+            try {
+                // Load all selected events from database
+                val events = selectedEventIds.mapNotNull { database.eventDao().getEventById(it) }
+                if (events.size < 2) {
+                    Log.w("EventsViewModel", "Need at least 2 events to combine")
+                    return@withContext null
+                }
+
+                val firstEvent = events.find { it.eventId == firstEventId } ?: events.first()
+
+                // Order events: first event first, then the rest sorted by their metric start time
+                val orderedEvents = mutableListOf(firstEvent)
+                val otherEvents = events.filter { it.eventId != firstEventId }
+                val timeRangeMap = otherEvents.associate { event ->
+                    event.eventId to (database.metricDao().getEventTimeRange(event.eventId)?.minTime ?: Long.MAX_VALUE)
+                }
+                val remainingEvents = otherEvents.sortedBy { timeRangeMap[it.eventId] }
+                orderedEvents.addAll(remainingEvents)
+
+                // Calculate combined distance by summing each event's max distance
+                val individualDistances = mutableListOf<Double>()
+                for (event in orderedEvents) {
+                    individualDistances.add(database.metricDao().getMaxDistanceForEvent(event.eventId) ?: 0.0)
+                }
+                val totalCombinedDistance = individualDistances.sum()
+
+                val lastEvent = orderedEvents.last()
+                val combinedName = "Connected: " + orderedEvents.joinToString(" + ") { it.eventName }
+
+                // Create the new combined Event
+                val combinedEvent = Event(
+                    userId = firstEvent.userId,
+                    eventName = combinedName,
+                    eventDate = firstEvent.eventDate,
+                    artOfSport = firstEvent.artOfSport,
+                    comment = "Combined from ${orderedEvents.size} events: " +
+                            orderedEvents.joinToString(", ") { "${it.eventName} (ID:${it.eventId})" },
+                    startCity = firstEvent.startCity,
+                    startCountry = firstEvent.startCountry,
+                    startAddress = firstEvent.startAddress,
+                    endCity = lastEvent.endCity,
+                    endCountry = lastEvent.endCountry,
+                    endAddress = lastEvent.endAddress,
+                    eventSource = "recorded"
+                )
+
+                val newEventId = database.eventDao().insertEvent(combinedEvent).toInt()
+                Log.d("EventsViewModel", "Created combined event with ID: $newEventId")
+
+                // ── 1. METRICS (with cumulative distance offset) ──
+                var distanceOffset = 0.0
+                for ((index, event) in orderedEvents.withIndex()) {
+                    val metrics = database.metricDao().getMetricsForEvent(event.eventId)
+                    val adjustedMetrics = metrics.map { metric ->
+                        metric.copy(
+                            metricId = 0,
+                            eventId = newEventId,
+                            distance = metric.distance + distanceOffset
+                        )
+                    }
+                    database.metricDao().insertMetrics(adjustedMetrics)
+                    distanceOffset += individualDistances[index]
+                }
+
+                // ── 2. LOCATIONS ──
+                for (event in orderedEvents) {
+                    val locations = database.locationDao().getLocationsForEvent(event.eventId)
+                    val adjustedLocations = locations.map { location ->
+                        location.copy(
+                            locationId = 0,
+                            eventId = newEventId
+                        )
+                    }
+                    database.locationDao().insertLocations(adjustedLocations)
+                }
+
+                // ── 3. WEATHER ──
+                for (event in orderedEvents) {
+                    val weatherList = database.weatherDao().getWeatherForEvent(event.eventId)
+                    for (weather in weatherList) {
+                        database.weatherDao().insertWeather(
+                            weather.copy(weatherId = 0, eventId = newEventId)
+                        )
+                    }
+                }
+
+                // ── 4. DEVICE STATUS (satellites, battery, signal, etc.) ──
+                for (event in orderedEvents) {
+                    val statusList = database.deviceStatusDao().getDeviceStatusForEvent(event.eventId)
+                    if (statusList.isNotEmpty()) {
+                        database.deviceStatusDao().insertDeviceStatusList(
+                            statusList.map { it.copy(deviceStatusId = 0, eventId = newEventId) }
+                        )
+                    }
+                }
+
+                // ── 5. LAP TIMES ──
+                // Events with laps: copy them with a running offset.
+                // Events with 0 laps: create a synthetic lap covering the whole event
+                // so the combined event has continuous lap numbering.
+                var lapNumberOffset = 0
+                for ((index, event) in orderedEvents.withIndex()) {
+                    val laps = database.lapTimeDao().getLapTimesForEvent(event.eventId)
+                        .sortedBy { it.lapNumber }
+                    if (laps.isNotEmpty()) {
+                        val adjustedLaps = laps.map { lap ->
+                            lap.copy(
+                                id = 0,
+                                eventId = newEventId,
+                                lapNumber = lap.lapNumber + lapNumberOffset
+                            )
+                        }
+                        database.lapTimeDao().insertLapTimes(adjustedLaps)
+                        lapNumberOffset += laps.size
+                    } else {
+                        // No laps recorded for this event — create a synthetic lap
+                        // covering its entire duration so it counts as one segment
+                        val timeRange = database.metricDao().getEventTimeRange(event.eventId)
+                        if (timeRange != null && timeRange.minTime > 0) {
+                            val syntheticLap = LapTime(
+                                sessionId = "",
+                                eventId = newEventId,
+                                lapNumber = lapNumberOffset + 1,
+                                startTime = timeRange.minTime,
+                                endTime = timeRange.maxTime,
+                                distance = individualDistances[index] / 1000.0
+                            )
+                            database.lapTimeDao().insertLapTime(syntheticLap)
+                        }
+                        lapNumberOffset += 1
+                    }
+                }
+
+                // ── 6. WAYPOINTS (with child WaypointPhotos) ──
+                for (event in orderedEvents) {
+                    val waypoints = database.waypointDao().getWaypointsForEvent(event.eventId)
+                    for (waypoint in waypoints) {
+                        val oldWaypointId = waypoint.waypointId
+                        val newWaypointId = database.waypointDao().insertWaypoint(
+                            waypoint.copy(waypointId = 0, eventId = newEventId)
+                        )
+                        // Copy photos linked to this waypoint
+                        val photos = database.waypointPhotoDao().getPhotosForWaypoint(oldWaypointId)
+                        for (photo in photos) {
+                            database.waypointPhotoDao().insertPhoto(
+                                photo.copy(photoId = 0, waypointId = newWaypointId)
+                            )
+                        }
+                    }
+                }
+
+                // ── 7. EVENT MEDIA (regenerate UUIDs for uniqueness) ──
+                for (event in orderedEvents) {
+                    val mediaList = database.eventMediaDao().getMediaForEvent(event.eventId)
+                    if (mediaList.isNotEmpty()) {
+                        val adjustedMedia = mediaList.map { media ->
+                            media.copy(
+                                mediaId = 0,
+                                eventId = newEventId,
+                                mediaUuid = UUID.randomUUID().toString(),
+                                isUploaded = false
+                            )
+                        }
+                        database.eventMediaDao().insertAllMedia(adjustedMedia)
+                    }
+                }
+
+                // ── 8. DISCIPLINE TRANSITIONS ──
+                for (event in orderedEvents) {
+                    val transitions = database.disciplineTransitionDao().getTransitionsForEvent(event.eventId)
+                    for (transition in transitions) {
+                        database.disciplineTransitionDao().insertTransition(
+                            transition.copy(id = 0, eventId = newEventId)
+                        )
+                    }
+                }
+
+                // ── 9. CLOTHING ──
+                val allClothing = mutableSetOf<String>()
+                for (event in orderedEvents) {
+                    val clothingList = database.clothingDao().getClothingForEvent(event.eventId)
+                    for (clothing in clothingList) {
+                        // Avoid duplicate clothing entries
+                        if (allClothing.add(clothing.clothing)) {
+                            database.clothingDao().insertClothing(
+                                clothing.copy(clothingId = 0, eventId = newEventId)
+                            )
+                        }
+                    }
+                }
+
+                // ── 10. NETWORK ──
+                for (event in orderedEvents) {
+                    val networks = database.networkDao().getAllNetworksForEvent(event.eventId)
+                    for (network in networks) {
+                        database.networkDao().insertNetwork(
+                            network.copy(networkId = 0, eventId = newEventId)
+                        )
+                    }
+                }
+
+                // Refresh the event list
+                val refreshedEvents = loadEventsWithDetails(0, (currentPage + 1) * currentPageSize)
+                _eventsWithDetails.value = refreshedEvents
+                updateFilteredEvents()
+
+                Log.d("EventsViewModel", "Combined event created successfully. " +
+                        "Total distance: ${"%.2f".format(totalCombinedDistance)}m from ${orderedEvents.size} events")
+                newEventId
+            } catch (e: Exception) {
+                Log.e("EventsViewModel", "Error combining events: ${e.message}", e)
+                null
+            }
         }
     }
 

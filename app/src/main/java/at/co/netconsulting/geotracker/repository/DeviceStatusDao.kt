@@ -37,4 +37,10 @@ interface DeviceStatusDao {
     // Alternative: Get all satellite data in one query (more efficient)
     @Query("SELECT numberOfSatellites FROM device_status WHERE eventId = :eventId AND numberOfSatellites IS NOT NULL AND numberOfSatellites > '0' ORDER BY deviceStatusId")
     suspend fun getSatelliteCountsForEvent(eventId: Int): List<String>
+
+    @Query("SELECT * FROM device_status WHERE eventId = :eventId ORDER BY deviceStatusId ASC")
+    suspend fun getDeviceStatusForEvent(eventId: Int): List<DeviceStatus>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDeviceStatusList(deviceStatusList: List<DeviceStatus>)
 }
