@@ -22,7 +22,28 @@ object WorkoutOverlayRenderer {
         val result = sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
 
-        val overlayHeight = (height * 0.22f).toInt()
+        // Format stats
+        val sportType = event.event.artOfSport.ifEmpty { "Workout" }
+        val dateStr = formatEventDate(event.event.eventDate)
+        val durationMs = event.endTime - event.startTime
+        val durationStr = if (durationMs > 0) Tools().formatDuration(durationMs) else "--"
+        val distanceKm = event.totalDistance / 1000.0
+        val distanceStr = String.format("%.2f km", distanceKm)
+        val elevationStr = if (event.elevationGain > 0) "+${event.elevationGain.toInt()}m" else null
+        val heartRateStr = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else null
+
+        // Build lines: each stat on its own line
+        val lines = mutableListOf<Pair<String, String>>() // label, value
+        lines.add("Distance:" to distanceStr)
+        lines.add("Duration:" to durationStr)
+        if (elevationStr != null) lines.add("Elev. Gain:" to elevationStr)
+        if (heartRateStr != null) lines.add("Avg HR:" to heartRateStr)
+
+        // Calculate overlay height based on number of lines
+        // Header (sport + date) + stat lines + branding + padding
+        val totalLines = 1 + lines.size + 1 // header + stats + branding
+        val overlayHeight = (height * (0.06f * totalLines + 0.04f)).toInt()
+            .coerceAtMost((height * 0.45f).toInt())
         val overlayTop = height - overlayHeight
 
         // Draw gradient from transparent to dark at top edge of overlay
@@ -48,11 +69,12 @@ object WorkoutOverlayRenderer {
         }
         canvas.drawRect(0f, overlayTop.toFloat(), width.toFloat(), height.toFloat(), barPaint)
 
-        // Scale text sizes relative to overlay height so content always fits
-        val baseFontSize = overlayHeight / 5.5f
-        val smallFontSize = baseFontSize * 0.65f
-        val largeFontSize = baseFontSize * 1.1f
-        val padding = overlayHeight / 8f
+        // Scale text sizes relative to overlay height
+        val lineHeight = overlayHeight.toFloat() / (totalLines + 1.5f)
+        val largeFontSize = lineHeight * 0.85f
+        val baseFontSize = lineHeight * 0.75f
+        val smallFontSize = baseFontSize * 0.7f
+        val padding = overlayHeight / 10f
 
         // Paint styles
         val sportPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -61,9 +83,15 @@ object WorkoutOverlayRenderer {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
+        val datePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xAAFFFFFF.toInt()
+            textSize = baseFontSize * 0.75f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        }
+
         val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xAAFFFFFF.toInt()
-            textSize = smallFontSize
+            textSize = baseFontSize
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         }
 
@@ -80,51 +108,23 @@ object WorkoutOverlayRenderer {
             textAlign = Paint.Align.RIGHT
         }
 
-        // Format stats
-        val sportType = event.event.artOfSport.ifEmpty { "Workout" }
-        val dateStr = formatEventDate(event.event.eventDate)
-        val durationMs = event.endTime - event.startTime
-        val durationStr = if (durationMs > 0) Tools().formatDuration(durationMs) else "--"
-        val distanceKm = event.totalDistance / 1000.0
-        val distanceStr = String.format("%.2f", distanceKm)
-        //val paceStr = formatPace(event.averageSpeed)
-        val elevationStr = if (event.elevationGain > 0) "+${event.elevationGain.toInt()}m" else null
-        val heartRateStr = if (event.avgHeartRate > 0) "${event.avgHeartRate} bpm" else null
-
-        // Layout: Row 1 - Sport type and date
+        // Layout: all left-aligned, one item per line
         var y = overlayTop + padding + largeFontSize
+
+        // Line 1: Sport type
         canvas.drawText(sportType, padding, y, sportPaint)
 
-        // Date aligned right of sport type
-        val sportWidth = sportPaint.measureText(sportType)
-        canvas.drawText("  $dateStr", padding + sportWidth, y, labelPaint.apply {
-            textSize = baseFontSize * 0.75f
-        })
+        // Line 2: Date below sport type
+        y += lineHeight
+        canvas.drawText(dateStr, padding, y, datePaint)
 
-        // Row 2 - Main stats labels
-        y += padding * 0.6f + smallFontSize
-
-        val stats = mutableListOf<Pair<String, String>>()
-        stats.add("DISTANCE" to "$distanceStr km")
-        stats.add("DURATION" to durationStr)
-        //stats.add("PACE" to paceStr)
-        if (elevationStr != null) stats.add("ELEV. GAIN" to elevationStr)
-        if (heartRateStr != null) stats.add("AVG HR" to heartRateStr)
-
-        val availableWidth = width - 2 * padding
-        val statWidth = availableWidth / stats.size
-
-        // Reset label paint size
-        labelPaint.textSize = smallFontSize
-
-        for ((index, stat) in stats.withIndex()) {
-            val x = padding + statWidth * index
-
-            // Draw label
-            canvas.drawText(stat.first, x, y, labelPaint)
-
-            // Draw value below label
-            canvas.drawText(stat.second, x, y + baseFontSize * 0.9f, valuePaint)
+        // Lines 3+: Each stat on its own line as "Label: Value"
+        for (line in lines) {
+            y += lineHeight
+            val labelText = line.first + " "
+            canvas.drawText(labelText, padding, y, labelPaint)
+            val labelWidth = labelPaint.measureText(labelText)
+            canvas.drawText(line.second, padding + labelWidth, y, valuePaint)
         }
 
         // Branding bottom-right
