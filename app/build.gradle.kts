@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.11 (13-04-2026: overlay text aligned horizontally when sharing picture)"
+        versionName = "9.13 (13-04-2026: fix media upload for live-streamed events)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

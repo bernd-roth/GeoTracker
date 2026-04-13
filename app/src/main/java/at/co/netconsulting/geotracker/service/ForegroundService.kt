@@ -2229,6 +2229,17 @@ class ForegroundService : Service() {
                     Log.d(TAG, "Cleared temporary recording records")
                 }
 
+                // 6. If event was live-streamed via WebSocket, mark it as uploaded
+                if (enableWebSocketTransfer && eventId > 0 && sessionId.isNotEmpty()) {
+                    database.eventDao().updateEventUploadStatus(
+                        eventId,
+                        sessionId,
+                        true,
+                        System.currentTimeMillis()
+                    )
+                    Log.d(TAG, "Event marked as uploaded (live WebSocket session: $sessionId)")
+                }
+
                 Log.d(TAG, "Recording finalized successfully")
             } catch (e: Exception) {
                 Log.e(TAG, "Error finalizing recording", e)

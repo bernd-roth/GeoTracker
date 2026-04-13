@@ -1151,7 +1151,7 @@ class EventsViewModel(
         if (uris.isEmpty()) return
 
         val event = _eventsWithDetails.value.find { it.event.eventId == eventId }?.event
-        val sessionId = event?.sessionId
+        var sessionId = event?.sessionId
         val totalFiles = uris.size
 
         _mediaUploadProgress.value = MediaUploadProgress(
@@ -1164,6 +1164,17 @@ class EventsViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
+                    // Recover sessionId from device_status if event was live-tracked but not marked
+                    if (sessionId.isNullOrBlank() && event != null) {
+                        val deviceStatus = database.deviceStatusDao().getLastDeviceStatusByEvent(eventId)
+                        if (deviceStatus != null && deviceStatus.sessionId.isNotBlank()) {
+                            sessionId = deviceStatus.sessionId
+                            database.eventDao().updateEventUploadStatus(
+                                eventId, sessionId, true, System.currentTimeMillis()
+                            )
+                            Log.d("EventsViewModel", "Recovered sessionId from device_status: $sessionId")
+                        }
+                    }
                     uris.forEachIndexed { index, uri ->
                         val fileIndex = index + 1
 
