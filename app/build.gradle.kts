@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.10 (13-04-2026: Combining two or more events together)"
+        versionName = "9.11 (13-04-2026: overlay text aligned horizontally when sharing picture)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
