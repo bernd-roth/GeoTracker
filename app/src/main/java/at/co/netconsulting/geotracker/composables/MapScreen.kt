@@ -112,7 +112,7 @@ import at.co.netconsulting.geotracker.util.DirectionArrowHelper
 import timber.log.Timber
 
 // Dark mode tile source function - works with OSMDroid 6.1.18+
-private fun createDarkTileSource(): OnlineTileSourceBase {
+internal fun createDarkTileSource(): OnlineTileSourceBase {
     return object : OnlineTileSourceBase(
         "CartoDB Dark Matter",  // name
         0,                      // zoomMinLevel
@@ -147,7 +147,7 @@ private fun createDarkTileSource(): OnlineTileSourceBase {
     }
 }
 
-private fun createSatelliteTileSource(): OnlineTileSourceBase {
+internal fun createSatelliteTileSource(): OnlineTileSourceBase {
     return object : OnlineTileSourceBase(
         "ArcGIS World Imagery",
         0,
@@ -167,14 +167,14 @@ private fun createSatelliteTileSource(): OnlineTileSourceBase {
     }
 }
 
-private fun getAppropriateTileSource(isDarkMode: Boolean, isSatellite: Boolean) =
+internal fun getAppropriateTileSource(isDarkMode: Boolean, isSatellite: Boolean) =
     when {
         isSatellite -> createSatelliteTileSource()
         isDarkMode -> createDarkTileSource()
         else -> TileSourceFactory.MAPNIK
     }
 
-private fun updateMapStyle(mapView: MapView, isDarkMode: Boolean, isSatellite: Boolean = false) {
+internal fun updateMapStyle(mapView: MapView, isDarkMode: Boolean, isSatellite: Boolean = false) {
     mapView.setTileSource(getAppropriateTileSource(isDarkMode, isSatellite))
     mapView.invalidate()
 }
@@ -3006,6 +3006,23 @@ fun MapScreen(
                     .align(Alignment.BottomStart)
                     .padding(16.dp)
             )
+        }
+
+        // Mini-map preview of followed user - bottom left
+        if (followingState.isFollowing && followingState.followedUserTrails.isNotEmpty()) {
+            val firstFollowedSessionId = followingState.followedUsers.firstOrNull()
+            val firstTrail = firstFollowedSessionId?.let { followingState.followedUserTrails[it] }
+            if (firstTrail != null && firstTrail.isNotEmpty()) {
+                FollowedUserMiniMap(
+                    trail = firstTrail,
+                    personName = firstTrail.last().person,
+                    isDarkMode = isDarkMode,
+                    isSatelliteView = isSatelliteView,
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(start = 12.dp, bottom = 12.dp)
+                )
+            }
         }
     }
 

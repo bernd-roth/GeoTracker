@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.13 (13-04-2026: fix media upload for live-streamed events)"
+        versionName = "9.14 (15-04-2026: followed user mini-map preview)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
