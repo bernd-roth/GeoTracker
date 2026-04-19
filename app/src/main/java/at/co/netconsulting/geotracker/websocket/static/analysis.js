@@ -545,7 +545,25 @@ function renderCharts(points) {
         maintainAspectRatio: false,
         animation: false,
         interaction: { mode: 'index', axis: 'x', intersect: false },
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
+        plugins: {
+            legend: { display: false },
+            tooltip: { enabled: false },
+            zoom: {
+                pan: {
+                    enabled: true,
+                    mode: 'x',
+                    modifierKey: 'ctrl'
+                },
+                zoom: {
+                    wheel: { enabled: true, speed: 0.1 },
+                    pinch: { enabled: true },
+                    mode: 'x'
+                },
+                limits: {
+                    x: { minRange: 0.05 }
+                }
+            }
+        },
         onHover,
         onClick,
         scales: { x: xAxis }
@@ -680,6 +698,14 @@ function renderCharts(points) {
     // Hide popup when cursor leaves chart area
     document.getElementById('elevChart').addEventListener('mouseleave', hideInfoPopup);
     document.getElementById('spdChart').addEventListener('mouseleave', hideInfoPopup);
+
+    // Double-click any chart to reset zoom
+    const resetZoomFor = (chart) => { if (chart && chart.resetZoom) chart.resetZoom(); };
+    document.getElementById('elevChart').addEventListener('dblclick', () => resetZoomFor(elevChart));
+    document.getElementById('spdChart').addEventListener('dblclick', () => resetZoomFor(speedChart));
+    if (hrChart) {
+        document.getElementById('hrChart').addEventListener('dblclick', () => resetZoomFor(hrChart));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────

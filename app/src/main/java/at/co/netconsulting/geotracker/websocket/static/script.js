@@ -419,6 +419,21 @@ function initCharts() {
             },
             tooltip: {
                 enabled: false
+            },
+            zoom: {
+                pan: {
+                    enabled: true,
+                    mode: 'x',
+                    modifierKey: 'ctrl'
+                },
+                zoom: {
+                    wheel: { enabled: true, speed: 0.1 },
+                    pinch: { enabled: true },
+                    mode: 'x'
+                },
+                limits: {
+                    x: { minRange: 0.05 }
+                }
             }
         },
         scales: {
@@ -588,6 +603,16 @@ function initCharts() {
     }
 
     createInfoPopup();
+
+    // Double-click any chart to reset zoom
+    [
+        ['altitudeChart', () => altitudeChart],
+        ['speedChart',    () => speedChart],
+        ['hrChart',       () => hrChart]
+    ].forEach(([canvasId, getter]) => {
+        const c = document.getElementById(canvasId);
+        if (c) c.addEventListener('dblclick', () => { const ch = getter(); if (ch && ch.resetZoom) ch.resetZoom(); });
+    });
 
     // Use ResizeObserver to reliably resize charts when container dimensions change
     const chartsContainer = document.querySelector('.charts-container');
