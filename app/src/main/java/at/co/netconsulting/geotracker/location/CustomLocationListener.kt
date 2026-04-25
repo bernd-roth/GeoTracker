@@ -112,6 +112,13 @@ class CustomLocationListener: LocationListener {
     private var isCurrentlyTracking = false
     private val THRESHOLD_TIMEOUT_MS = 3000 // 3 seconds
 
+    // Position-delta fallback for when GPS reports speed=0 even though the user
+    // is actually moving (typical at cold fix-acquisition while already running —
+    // Doppler velocity needs several stable fixes to stabilise). We accumulate
+    // positional delta across fixes and, once it clearly exceeds GPS jitter,
+    // commit it and flip tracking on.
+    private var pendingMovementMeters: Double = 0.0
+
     // Pause/Resume functionality
     private var isPaused = false
 
@@ -539,6 +546,7 @@ class CustomLocationListener: LocationListener {
                         // We've been below threshold for too long, stop tracking
                         isCurrentlyTracking = false
                         belowThresholdStartTime = 0
+                        pendingMovementMeters = 0.0
                         Log.d(
                             "CustomLocationListener",
                             "Grace period ended, stopped tracking movement"
@@ -571,11 +579,50 @@ class CustomLocationListener: LocationListener {
                             checkDistanceMilestone()
                         }
                     }
+                } else {
+                    // Speed below threshold and not tracking yet. GPS-reported
+                    // speed can sit at 0 for many seconds when the user starts
+                    // recording while already moving, because Doppler velocity
+                    // needs stable observation. Fall back to position delta,
+                    // gated on accuracy so we don't bank GPS jitter as distance.
+                    if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
+                        (oldLatitude != location.latitude || oldLongitude != location.longitude)
+                    ) {
+                        val delta = calculateDistanceBetweenOldLatLngNewLatLng(
+                            oldLatitude, oldLongitude, location.latitude, location.longitude
+                        )
+                        val accuracyOk = location.accuracy in 0.1f..FALLBACK_MAX_ACCURACY_M
+                        val deltaPlausible = delta in 0.0..FALLBACK_MAX_DELTA_M
+                        if (accuracyOk && deltaPlausible) {
+                            pendingMovementMeters += delta
+                            if (pendingMovementMeters > FALLBACK_CONFIRM_DISTANCE_M) {
+                                // Sustained real movement — commit pending
+                                // distance and start tracking.
+                                isCurrentlyTracking = true
+                                distanceIncrement = pendingMovementMeters
+                                coveredDistance += distanceIncrement
+                                if (!isBackyardUltraMode) {
+                                    lap = calculateLap(distanceIncrement)
+                                }
+                                Log.d(
+                                    "CustomLocationListener",
+                                    "Position-delta fallback: committed ${pendingMovementMeters}m (GPS speed stuck at $currentSpeedKmh km/h, accuracy=${location.accuracy}m)"
+                                )
+                                pendingMovementMeters = 0.0
+                                checkDistanceMilestone()
+                            }
+                        } else {
+                            // Unreliable fix — drop pending so jitter can't
+                            // compound into a spurious start.
+                            pendingMovementMeters = 0.0
+                        }
+                    }
                 }
             } else {
                 // Above threshold - actively moving
                 // Reset the grace period timer since we're above threshold now
                 belowThresholdStartTime = 0
+                pendingMovementMeters = 0.0
 
                 if (!isCurrentlyTracking) {
                     // Start tracking if we weren't already
@@ -1607,5 +1654,13 @@ class CustomLocationListener: LocationListener {
         private const val MAX_RECONNECT_ATTEMPTS_BEFORE_RESET = 10
         private const val WEBSOCKET_HEALTH_CHECK_INTERVAL = 30_000L // 30 seconds
         private const val TAG_VOICE_ANNOUNCEMENT = "Voice message" // 30 seconds
+
+        // Position-delta fallback thresholds. Only used when GPS speed is stuck
+        // below MIN_SPEED_THRESHOLD but positional change suggests real movement
+        // (e.g. starting a recording while already running, before Doppler has
+        // stabilised).
+        private const val FALLBACK_MAX_ACCURACY_M: Float = 25f   // reject fixes worse than this
+        private const val FALLBACK_MAX_DELTA_M: Double = 100.0   // reject per-fix jumps as glitches
+        private const val FALLBACK_CONFIRM_DISTANCE_M: Double = 20.0 // accumulated delta to confirm movement
     }
 }

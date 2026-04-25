@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.14 (15-04-2026: followed user mini-map preview)"
+        versionName = "9.15 (21-04-2026: bug fixing when user starts recording and already moving timer, and distance still sits at 0)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
