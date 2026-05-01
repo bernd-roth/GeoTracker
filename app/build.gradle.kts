@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.16 (30-04-2026: Timer, distance sticks at 1 sec, fixed)"
+        versionName = "9.17 (01-05-2026: osm mini map showing covered path in Events tab)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

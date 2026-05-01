@@ -2946,22 +2946,18 @@ fun EventCard(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 if (event.locationPointCount > 0) {
-                    // MEMORY FIX: Don't render map preview in list view
                     Text(
-                        text = "Route with ${event.locationPointCount} GPS points available",
-                        fontSize = 14.sp,
+                        text = "Route with ${event.locationPointCount} GPS points",
+                        fontSize = 12.sp,
                         color = Color.Gray
                     )
 
-                    // Add a hint for the "View on Map" feature
-                    if (canViewOnMap) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Tap 'View on Map' button above to see the full route",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontStyle = FontStyle.Italic,
-                            modifier = Modifier.fillMaxWidth()
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    if (database != null) {
+                        EventRouteMiniMap(
+                            database = database,
+                            eventId = event.event.eventId
                         )
                     }
                     } else {
