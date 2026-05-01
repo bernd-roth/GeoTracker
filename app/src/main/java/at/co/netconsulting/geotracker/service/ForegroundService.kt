@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.service
 
+import android.app.ActivityManager
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -736,8 +737,15 @@ class ForegroundService : Service() {
                         initializeLapTracking()
                     }
 
-                    // Make sure we wait until sessionId is created and saved
-                    delay(100) // Short delay to ensure sessionId is saved to SharedPreferences
+                    // Make sure we wait until sessionId is created and saved.
+                    // Also wait for BackgroundLocationService to fully stop before
+                    // we requestLocationUpdates: both share the system LocationManager,
+                    // and on several OEM ROMs a near-simultaneous removeUpdates from
+                    // the dying BG service makes GPS_PROVIDER drop into an idle state
+                    // that delivers exactly one cached fix and then nothing more —
+                    // which is what made the timer/distance freeze at ~1 second.
+                    delay(100) // Ensure sessionId is saved to SharedPreferences
+                    waitForBackgroundLocationServiceStopped(timeoutMs = 2000L)
 
                     it.startListener()
 
@@ -2364,6 +2372,28 @@ class ForegroundService : Service() {
             action()
         } else {
             Handler(Looper.getMainLooper()).post(action)
+        }
+    }
+
+    private fun isBackgroundLocationServiceRunning(): Boolean {
+        return try {
+            val manager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            val target = "at.co.netconsulting.geotracker.service.BackgroundLocationService"
+            @Suppress("DEPRECATION")
+            manager.getRunningServices(Integer.MAX_VALUE).any { it.service.className == target }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not query running services", e)
+            false
+        }
+    }
+
+    private suspend fun waitForBackgroundLocationServiceStopped(timeoutMs: Long) {
+        val deadline = currentTimeMillis() + timeoutMs
+        while (isBackgroundLocationServiceRunning() && currentTimeMillis() < deadline) {
+            delay(50)
+        }
+        if (isBackgroundLocationServiceRunning()) {
+            Log.w(TAG, "BackgroundLocationService still running after ${timeoutMs}ms — proceeding anyway")
         }
     }
 
