@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GeoTracker - Rerun Route</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+        /* Make the map fill the whole viewport (override 67vh from styles.css) */
+        html, body, #map { height: 100vh; width: 100%; }
+        #map { height: 100vh !important; }
+
+        /* Session browser (left) */
+        #sessionBrowser {
+            max-height: calc(100vh - 30px);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #sessionBrowser .panel-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+        .search-row {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 6px;
+            flex-shrink: 0;
+        }
+        .search-row input,
+        .search-row select {
+            flex: 1;
+            padding: 4px 6px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 11px;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        #sessionList { flex: 1; overflow-y: auto; }
+        .load-more-btn {
+            display: none;
+            margin-top: 4px;
+            padding: 5px;
+            background: none;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            width: 100%;
+            flex-shrink: 0;
+        }
+        .load-more-btn:hover { background: var(--hover-bg); }
+        .session-sport {
+            display: inline-block;
+            font-size: 9px;
+            background: var(--accent-blue);
+            color: #fff;
+            border-radius: 3px;
+            padding: 0 4px;
+            margin-left: 4px;
+            opacity: 0.85;
+            font-weight: normal;
+        }
+
+        /* Playback panel (bottom centre) */
+        #playbackPanel {
+            position: absolute;
+            bottom: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: var(--bg-panel);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px var(--shadow-color);
+            min-width: 460px;
+            max-width: 90vw;
+            font-family: Arial, sans-serif;
+            color: var(--text-primary);
+            padding: 10px 14px;
+            display: none;
+        }
+        #playbackPanel.visible { display: block; }
+        .playback-title {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            text-align: center;
+        }
+        .playback-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .playback-controls button {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 14px;
+            cursor: pointer;
+            color: var(--text-primary);
+            min-width: 36px;
+            line-height: 1;
+        }
+        .playback-controls button:hover { background: var(--hover-bg); }
+        .playback-controls button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .playback-controls button.playing {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-blue);
+        }
+        .playback-controls .progress {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+        .playback-controls input[type=range] {
+            flex: 1;
+            margin: 0;
+        }
+        .playback-controls select {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-size: 11px;
+            color: var(--text-primary);
+        }
+        .playback-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-top: 8px;
+            font-size: 11px;
+        }
+        .pb-stat {
+            text-align: center;
+            background: var(--bg-secondary);
+            padding: 4px 6px;
+            border-radius: 6px;
+        }
+        .pb-stat-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 600;
+            letter-spacing: 0.4px;
+        }
+        .pb-stat-value {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .pb-stat-unit {
+            font-size: 9px;
+            color: var(--text-muted);
+            margin-left: 2px;
+        }
+
+        /* Hint when nothing selected */
+        #emptyHint {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 999;
+            background: var(--bg-panel);
+            border: 1px solid var(--glass-border);
+            border-radius: 10px;
+            padding: 14px 22px;
+            font-family: Arial, sans-serif;
+            font-size: 13px;
+            color: var(--text-secondary);
+            box-shadow: 0 4px 16px var(--shadow-color);
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<!-- Left: session browser -->
+<div id="sessionBrowser" class="control-panel">
+    <div class="panel-header">
+        <h3>Choose Route</h3>
+        <div style="display: flex; gap: 4px; align-items: center;">
+            <a href="/" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Live">&#128205;</a>
+            <a href="/analysis.html" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Analysis">&#128200;</a>
+            <a href="/heatmap.html" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Heatmap">&#128293;</a>
+            <button id="themeBtn" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
+            <button id="toggleBrowserBtn" class="panel-toggle" onclick="toggleBrowser()" title="Collapse">-</button>
+        </div>
+    </div>
+    <div class="panel-content">
+        <div class="search-row">
+            <input id="searchInput" type="text" placeholder="Search name, sport, city..." oninput="applyFilter()" />
+            <select id="sportFilter" onchange="applyFilter()">
+                <option value="">All sports</option>
+            </select>
+        </div>
+        <div id="sessionList">
+            <p class="no-sessions">Loading...</p>
+        </div>
+        <button id="loadMoreBtn" class="load-more-btn" onclick="loadMoreSessions()">Load more</button>
+    </div>
+</div>
+
+<!-- Map -->
+<div id="map"></div>
+
+<!-- Hint when no route selected -->
+<div id="emptyHint">Select a route on the left to rerun it.</div>
+
+<!-- Playback panel -->
+<div id="playbackPanel">
+    <div class="playback-title" id="playbackTitle">Route</div>
+    <div class="playback-controls">
+        <button id="btnPlayPause" onclick="togglePlay()" title="Play/Pause">&#9654;</button>
+        <button id="btnStop" onclick="stopPlayback()" title="Stop">&#9632;</button>
+        <div class="progress">
+            <span id="elapsedLabel">00:00</span>
+            <input type="range" id="progressSlider" min="0" max="0" value="0" step="1" oninput="onSeek(this.value)" />
+            <span id="totalLabel">00:00</span>
+        </div>
+        <select id="speedSelect" onchange="onSpeedChange(this.value)" title="Playback speed">
+            <option value="1">1×</option>
+            <option value="2">2×</option>
+            <option value="5">5×</option>
+            <option value="10" selected>10×</option>
+            <option value="25">25×</option>
+            <option value="50">50×</option>
+            <option value="100">100×</option>
+            <option value="250">250×</option>
+        </select>
+        <select id="cameraSelect" onchange="onCameraChange(this.value)" title="Camera mode">
+            <option value="overview" selected>Overview</option>
+            <option value="follow">Follow</option>
+            <option value="flyover">Fly-Over</option>
+        </select>
+    </div>
+    <div class="playback-stats">
+        <div class="pb-stat">
+            <div class="pb-stat-label">Distance</div>
+            <div><span class="pb-stat-value" id="pbDistance">0.00</span><span class="pb-stat-unit">km</span></div>
+        </div>
+        <div class="pb-stat">
+            <div class="pb-stat-label">Speed</div>
+            <div><span class="pb-stat-value" id="pbSpeed">0.0</span><span class="pb-stat-unit">km/h</span></div>
+        </div>
+        <div class="pb-stat">
+            <div class="pb-stat-label">Altitude</div>
+            <div><span class="pb-stat-value" id="pbAltitude">0</span><span class="pb-stat-unit">m</span></div>
+        </div>
+        <div class="pb-stat">
+            <div class="pb-stat-label">Heart Rate</div>
+            <div><span class="pb-stat-value" id="pbHeartRate">--</span><span class="pb-stat-unit">bpm</span></div>
+        </div>
+    </div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.js"></script>
+<script src="panelResize.js"></script>
+<script src="rerun.js"></script>
+</body>
+</html>
