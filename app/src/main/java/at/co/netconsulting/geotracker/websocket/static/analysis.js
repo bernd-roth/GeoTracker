@@ -299,12 +299,17 @@ function renderSessionList(sessions) {
         const name  = escapeHtml(s.event_name || 'Unnamed session');
         const sport = s.sport_type ? `<span class="session-sport">${escapeHtml(s.sport_type)}</span>` : '';
         const city  = s.start_city ? ` · ${escapeHtml(s.start_city)}` : '';
+        const recorder = formatRecorder(s);
+        const recorderLine = recorder
+            ? `<div class="session-item-time">Recorded by ${escapeHtml(recorder)}</div>`
+            : '';
         const active = s.session_id === currentSessionId ? ' active' : '';
 
         return `<div class="session-item${active}" onclick="selectSession('${escapeHtml(s.session_id)}')">
             <div class="session-item-info">
                 <div class="session-item-name">${name}${sport}</div>
                 <div class="session-item-time">${date}${city}</div>
+                ${recorderLine}
             </div>
         </div>`;
     }).join('');
@@ -1369,6 +1374,11 @@ function formatDate(iso) {
 }
 
 function pad(n) { return String(n).padStart(2, '0'); }
+
+function formatRecorder(s) {
+    const parts = [s && s.firstname, s && s.lastname].filter(Boolean);
+    return parts.length ? parts.join(' ') : '';
+}
 
 function escapeHtml(str) {
     return String(str)
