@@ -7,45 +7,13 @@
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="styles.css" />
     <style>
-        /* ── Nav bar ───────────────────────────────────────── */
-        #navBar {
-            position: absolute;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1001;
-            background: var(--bg-panel);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            box-shadow: 0 4px 16px var(--shadow-color);
-            display: flex;
-            align-items: center;
-            gap: 2px;
-            padding: 4px 8px;
-        }
-        .nav-link {
-            padding: 4px 14px;
-            border-radius: 16px;
-            font-size: 12px;
-            font-weight: 500;
-            text-decoration: none;
-            color: var(--text-secondary);
-            font-family: Arial, sans-serif;
-            transition: background-color 0.2s, color 0.2s;
-        }
-        .nav-link:hover  { background: var(--hover-bg); color: var(--text-primary); }
-        .nav-link.active { background: var(--accent-blue); color: #fff; }
-        .nav-divider { width: 1px; height: 16px; background: var(--border-color); margin: 0 4px; }
-
         /* ── Full-size map ─────────────────────────────────── */
         #map { height: 100vh; width: 100%; }
 
         /* ── Control panel ─────────────────────────────────── */
         #heatmapControls {
             position: absolute;
-            top: 54px;
+            top: 10px;
             left: 10px;
             z-index: 1000;
             background: var(--bg-panel);
@@ -168,21 +136,16 @@
 </head>
 <body>
 
-<!-- Navigation -->
-<div id="navBar">
-    <a href="/" class="nav-link">Live</a>
-    <div class="nav-divider"></div>
-    <a href="/analysis.html" class="nav-link">Analysis</a>
-    <div class="nav-divider"></div>
-    <a href="/heatmap.html" class="nav-link active">Heatmap</a>
-    <div class="nav-divider"></div>
-    <button id="themeBtn" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
-</div>
-
 <!-- Controls -->
 <div id="heatmapControls">
     <div class="panel-header">
         <h3>Heatmap</h3>
+        <div style="display: flex; gap: 4px; align-items: center;">
+            <a href="/" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Live">&#128205;</a>
+            <a href="/analysis.html" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Analysis">&#128200;</a>
+            <a href="/rerun.html" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Rerun Route">&#9654;</a>
+            <button id="themeBtn" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
+        </div>
     </div>
 
     <div class="ctrl-section">

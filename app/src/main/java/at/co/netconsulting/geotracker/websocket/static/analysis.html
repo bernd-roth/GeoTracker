@@ -7,38 +7,6 @@
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.1.2/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="styles.css" />
     <style>
-        /* ── Nav bar (floats top-centre over map) ───────────────── */
-        #navBar {
-            position: absolute;
-            top: 10px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1001;
-            background: var(--bg-panel);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            box-shadow: 0 4px 16px var(--shadow-color);
-            display: flex;
-            align-items: center;
-            gap: 2px;
-            padding: 4px 8px;
-        }
-        .nav-link {
-            padding: 4px 14px;
-            border-radius: 16px;
-            font-size: 12px;
-            font-weight: 500;
-            text-decoration: none;
-            color: var(--text-secondary);
-            font-family: Arial, sans-serif;
-            transition: background-color 0.2s, color 0.2s;
-        }
-        .nav-link:hover  { background: var(--hover-bg); color: var(--text-primary); }
-        .nav-link.active { background: var(--accent-blue); color: #fff; }
-        .nav-divider { width: 1px; height: 16px; background: var(--border-color); margin: 0 4px; }
-
         /* ── Session browser (left panel) ────────────────────────── */
         #sessionBrowser {
             max-height: calc(67vh - 20px);
@@ -361,22 +329,18 @@
 </head>
 <body>
 
-<!-- Navigation -->
-<div id="navBar">
-    <a href="/" class="nav-link">Live</a>
-    <div class="nav-divider"></div>
-    <a href="/analysis.html" class="nav-link active">Analysis</a>
-    <div class="nav-divider"></div>
-    <a href="/heatmap.html" class="nav-link">Heatmap</a>
-    <div class="nav-divider"></div>
-    <button id="themeBtn" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
-</div>
-
 <!-- Left: session browser -->
 <div id="sessionBrowser" class="control-panel">
     <div class="panel-header">
         <h3>Sessions</h3>
-        <button id="toggleBrowserBtn" class="panel-toggle" onclick="toggleBrowser()" title="Collapse">-</button>
+        <div style="display: flex; gap: 4px; align-items: center;">
+            <a href="/" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Live">&#128205;</a>
+            <a href="/heatmap.html" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Heatmap">&#128293;</a>
+            <a href="/rerun.html" class="panel-toggle" style="text-decoration:none;font-size:11px;padding:0 4px" title="Rerun Route">&#9654;</a>
+            <button id="themeBtn" class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">&#9790;</button>
+            <button id="toggleChartsBtn" class="panel-toggle" onclick="toggleCharts()" title="Toggle Charts">C</button>
+            <button id="toggleBrowserBtn" class="panel-toggle" onclick="toggleBrowser()" title="Collapse">-</button>
+        </div>
     </div>
     <div class="panel-content">
         <div class="search-row">

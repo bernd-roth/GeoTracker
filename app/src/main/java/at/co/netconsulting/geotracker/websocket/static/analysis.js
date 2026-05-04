@@ -829,6 +829,41 @@ function toggleBrowser() {
     btn.textContent = browserVisible ? '-' : '+';
 }
 
+let chartsVisible = true;
+function toggleCharts() {
+    const chartsContainer = document.querySelector('.charts-container');
+    const mapElement      = document.getElementById('map');
+    const toggleBtn       = document.getElementById('toggleChartsBtn');
+    if (!chartsContainer || !mapElement) return;
+
+    if (chartsVisible) {
+        chartsContainer.style.display = 'none';
+        mapElement.style.height = '100vh';
+        if (toggleBtn) toggleBtn.title = 'Show Charts';
+        chartsVisible = false;
+    } else {
+        chartsContainer.style.display = 'flex';
+        let savedH = null;
+        try {
+            const raw = localStorage.getItem('panelSize_analysis_chartsHeight');
+            if (raw) savedH = JSON.parse(raw).h;
+        } catch (_) {}
+        if (savedH) {
+            chartsContainer.style.height = savedH + 'px';
+            mapElement.style.height = 'calc(100vh - ' + savedH + 'px)';
+        } else {
+            chartsContainer.style.height = '33vh';
+            mapElement.style.height = '67vh';
+        }
+        if (toggleBtn) toggleBtn.title = 'Hide Charts';
+        chartsVisible = true;
+    }
+
+    if (typeof map !== 'undefined' && map && typeof map.resize === 'function') {
+        setTimeout(function() { map.resize(); }, 100);
+    }
+}
+
 // ─────────────────────────────────────────────────────────────
 // RANGE SELECTION
 // ─────────────────────────────────────────────────────────────
