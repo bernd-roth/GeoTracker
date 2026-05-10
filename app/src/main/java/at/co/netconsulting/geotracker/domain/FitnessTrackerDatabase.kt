@@ -28,7 +28,7 @@ import android.util.Log
         DisciplineTransition::class,
         WaypointPhoto::class
     ],
-    version = 27, // INCREMENTED FROM 26 TO 27 to add bmi column to User table
+    version = 28, // INCREMENTED FROM 27 TO 28 to add plannedEventEndDate column to planned_events table
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -796,6 +796,19 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_27_28 = object : Migration(27, 28) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 27->28 - adding plannedEventEndDate column to planned_events table")
+                try {
+                    database.execSQL("ALTER TABLE planned_events ADD COLUMN plannedEventEndDate TEXT NOT NULL DEFAULT ''")
+                    Log.d(TAG, "Migration 27->28 completed - plannedEventEndDate column added to planned_events table")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in migration 27->28", e)
+                    throw e
+                }
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -830,7 +843,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_23_24,
                             MIGRATION_24_25,
                             MIGRATION_25_26,
-                            MIGRATION_26_27
+                            MIGRATION_26_27,
+                            MIGRATION_27_28
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

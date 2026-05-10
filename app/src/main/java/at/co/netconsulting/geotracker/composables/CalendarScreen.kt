@@ -874,6 +874,7 @@ private fun CompetitionFormDialog(
     // Form state
     var name by remember { mutableStateOf(competition?.plannedEventName ?: "") }
     var date by remember { mutableStateOf(competition?.plannedEventDate ?: initialDate) }
+    var endDate by remember { mutableStateOf(competition?.plannedEventEndDate ?: "") }
     var country by remember { mutableStateOf(competition?.plannedEventCountry ?: "") }
     var city by remember { mutableStateOf(competition?.plannedEventCity ?: "") }
     var type by remember { mutableStateOf(competition?.plannedEventType ?: "") }
@@ -946,6 +947,7 @@ private fun CompetitionFormDialog(
                     competition!!.copy(
                         plannedEventName = name,
                         plannedEventDate = date,
+                        plannedEventEndDate = endDate,
                         plannedEventCountry = country,
                         plannedEventCity = city,
                         plannedEventType = type,
@@ -965,6 +967,7 @@ private fun CompetitionFormDialog(
                         userId = userId,
                         plannedEventName = name,
                         plannedEventDate = date,
+                        plannedEventEndDate = endDate,
                         plannedEventCountry = country,
                         plannedEventCity = city,
                         plannedEventType = type,
@@ -1067,14 +1070,31 @@ private fun CompetitionFormDialog(
                     singleLine = true
                 )
 
-                // Date
+                // Start Date
                 OutlinedTextField(
                     value = date,
                     onValueChange = { date = it },
-                    label = { Text("Date (YYYY-MM-DD) *") },
+                    label = { Text("Start Date (YYYY-MM-DD) *") },
                     modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                     singleLine = true,
                     placeholder = { Text("2024-12-25") }
+                )
+
+                // End Date (optional, for multi-day events)
+                OutlinedTextField(
+                    value = endDate,
+                    onValueChange = { endDate = it },
+                    label = { Text("End Date (YYYY-MM-DD)") },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    singleLine = true,
+                    placeholder = { Text("Leave empty for single-day event") },
+                    trailingIcon = {
+                        if (endDate.isNotEmpty()) {
+                            IconButton(onClick = { endDate = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Clear end date")
+                            }
+                        }
+                    }
                 )
 
                 // Country / City

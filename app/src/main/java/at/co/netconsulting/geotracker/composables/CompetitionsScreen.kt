@@ -112,6 +112,7 @@ fun CompetitionsScreen() {
     // Form state variables
     var competitionName by remember { mutableStateOf("") }
     var competitionDate by remember { mutableStateOf("") }
+    var competitionEndDate by remember { mutableStateOf("") }
     var competitionCountry by remember { mutableStateOf("") }
     var competitionCity by remember { mutableStateOf("") }
     var competitionType by remember { mutableStateOf("") }
@@ -234,6 +235,7 @@ fun CompetitionsScreen() {
     fun clearForm() {
         competitionName = ""
         competitionDate = ""
+        competitionEndDate = ""
         competitionCountry = ""
         competitionCity = ""
         competitionType = ""
@@ -268,6 +270,7 @@ fun CompetitionsScreen() {
                     editingCompetition!!.copy(
                         plannedEventName = competitionName,
                         plannedEventDate = competitionDate,
+                        plannedEventEndDate = competitionEndDate,
                         plannedEventCountry = competitionCountry,
                         plannedEventCity = competitionCity,
                         plannedEventType = competitionType,
@@ -289,6 +292,7 @@ fun CompetitionsScreen() {
                         userId = currentUserId,
                         plannedEventName = competitionName,
                         plannedEventDate = competitionDate,
+                        plannedEventEndDate = competitionEndDate,
                         plannedEventCountry = competitionCountry,
                         plannedEventCity = competitionCity,
                         plannedEventType = competitionType,
@@ -570,12 +574,30 @@ fun CompetitionsScreen() {
                             OutlinedTextField(
                                 value = competitionDate,
                                 onValueChange = { competitionDate = it },
-                                label = { Text("Date (YYYY-MM-DD) *") },
+                                label = { Text("Start Date (YYYY-MM-DD) *") },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 8.dp),
                                 singleLine = true,
                                 placeholder = { Text("2024-12-25") }
+                            )
+
+                            OutlinedTextField(
+                                value = competitionEndDate,
+                                onValueChange = { competitionEndDate = it },
+                                label = { Text("End Date (YYYY-MM-DD)") },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                singleLine = true,
+                                placeholder = { Text("Leave empty for single-day event") },
+                                trailingIcon = {
+                                    if (competitionEndDate.isNotEmpty()) {
+                                        IconButton(onClick = { competitionEndDate = "" }) {
+                                            Icon(Icons.Default.Close, contentDescription = "Clear end date")
+                                        }
+                                    }
+                                }
                             )
 
                             Row(modifier = Modifier.fillMaxWidth()) {
@@ -1152,6 +1174,7 @@ fun CompetitionsScreen() {
                                                     editingCompetition = competition
                                                     competitionName = competition.plannedEventName
                                                     competitionDate = competition.plannedEventDate
+                                                    competitionEndDate = competition.plannedEventEndDate
                                                     competitionCountry = competition.plannedEventCountry
                                                     competitionCity = competition.plannedEventCity
                                                     competitionType = competition.plannedEventType
@@ -1429,8 +1452,13 @@ fun CompetitionItem(
                         overflow = TextOverflow.Ellipsis
                     )
 
+                    val dateRange = if (competition.plannedEventEndDate.isNotBlank()) {
+                        "${competition.plannedEventDate} → ${competition.plannedEventEndDate}"
+                    } else {
+                        competition.plannedEventDate
+                    }
                     Text(
-                        text = "${competition.plannedEventDate} • ${competition.plannedEventCity}, ${competition.plannedEventCountry}",
+                        text = "$dateRange • ${competition.plannedEventCity}, ${competition.plannedEventCountry}",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

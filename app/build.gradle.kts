@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.19 (09-05-2026: Wings for Life Run catcher car visualized on map)"
+        versionName = "9.20 (10-05-2026: Multi-day calendar events — separate Start Date and End Date)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

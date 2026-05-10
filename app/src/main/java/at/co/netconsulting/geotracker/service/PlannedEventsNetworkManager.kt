@@ -119,6 +119,7 @@ class PlannedEventsNetworkManager(private val context: Context) {
                 val eventJson = JSONObject().apply {
                     put("plannedEventName", event.plannedEventName)
                     put("plannedEventDate", event.plannedEventDate)
+                    put("plannedEventEndDate", event.plannedEventEndDate)
                     put("plannedEventType", event.plannedEventType)
                     put("plannedEventCountry", event.plannedEventCountry)
                     put("plannedEventCity", event.plannedEventCity)
@@ -253,6 +254,7 @@ class PlannedEventsNetworkManager(private val context: Context) {
 
                             val eventName = eventJson.optString("planned_event_name", "")
                             val eventDate = eventJson.optString("planned_event_date", "")
+                            val eventEndDate = eventJson.optString("planned_event_end_date", "")
                             val eventCountry = eventJson.optString("planned_event_country", "")
                             val eventCity = eventJson.optString("planned_event_city", "")
 
@@ -278,6 +280,7 @@ class PlannedEventsNetworkManager(private val context: Context) {
                                 userId = currentUserId,
                                 plannedEventName = eventName,
                                 plannedEventDate = eventDate,
+                                plannedEventEndDate = eventEndDate,
                                 plannedEventType = eventJson.optString("planned_event_type", ""),
                                 plannedEventCountry = eventCountry,
                                 plannedEventCity = eventCity,

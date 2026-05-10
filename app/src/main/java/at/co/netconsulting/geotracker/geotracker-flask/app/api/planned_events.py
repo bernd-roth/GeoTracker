@@ -160,6 +160,13 @@ def create_planned_event():
         except (ValueError, TypeError) as e:
             current_app.logger.warning(f"Failed to parse planned_event_date: {e}")
 
+    planned_event_end_date = None
+    if data.get('planned_event_end_date'):
+        try:
+            planned_event_end_date = date_parser.parse(data['planned_event_end_date']).date()
+        except (ValueError, TypeError) as e:
+            current_app.logger.warning(f"Failed to parse planned_event_end_date: {e}")
+
     reminder_date_time = None
     if data.get('reminder_date_time'):
         try:
@@ -179,6 +186,7 @@ def create_planned_event():
         user_id=user_id,
         planned_event_name=planned_event_name,
         planned_event_date=planned_event_date,
+        planned_event_end_date=planned_event_end_date,
         planned_event_type=data.get('planned_event_type'),
         planned_event_country=data.get('planned_event_country'),
         planned_event_city=data.get('planned_event_city'),
@@ -259,6 +267,13 @@ def upload_planned_events():
                 except Exception:
                     planned_event_date = None
 
+            planned_event_end_date = None
+            if event_data.get('plannedEventEndDate'):
+                try:
+                    planned_event_end_date = date_parser.parse(event_data['plannedEventEndDate']).date()
+                except Exception:
+                    planned_event_end_date = None
+
             # Check for duplicates
             existing_event = PlannedEvent.query.filter(
                 PlannedEvent.planned_event_name == event_data.get('plannedEventName', ''),
@@ -292,6 +307,7 @@ def upload_planned_events():
                 user_id=user_id,
                 planned_event_name=event_data.get('plannedEventName', ''),
                 planned_event_date=planned_event_date,
+                planned_event_end_date=planned_event_end_date,
                 planned_event_type=event_data.get('plannedEventType', ''),
                 planned_event_country=event_data.get('plannedEventCountry', ''),
                 planned_event_city=event_data.get('plannedEventCity', ''),
@@ -354,6 +370,11 @@ def update_planned_event(event_id):
     if 'planned_event_date' in data:
         try:
             event.planned_event_date = date_parser.parse(data['planned_event_date']).date() if data['planned_event_date'] else None
+        except Exception:
+            pass
+    if 'planned_event_end_date' in data:
+        try:
+            event.planned_event_end_date = date_parser.parse(data['planned_event_end_date']).date() if data['planned_event_end_date'] else None
         except Exception:
             pass
     if 'planned_event_type' in data:
