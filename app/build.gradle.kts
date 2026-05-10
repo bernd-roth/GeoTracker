@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.17 (01-05-2026: osm mini map showing covered path in Events tab)"
+        versionName = "9.19 (09-05-2026: Wings for Life Run catcher car visualized on map)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

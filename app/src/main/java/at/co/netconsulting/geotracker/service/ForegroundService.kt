@@ -17,7 +17,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.util.Log
+import java.util.Locale
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import at.co.netconsulting.geotracker.R
@@ -30,6 +32,7 @@ import at.co.netconsulting.geotracker.data.DisciplineTransitionData
 import at.co.netconsulting.geotracker.data.LtPhaseChanged
 import at.co.netconsulting.geotracker.data.LtTestResult
 import at.co.netconsulting.geotracker.data.WebSocketMessage
+import at.co.netconsulting.geotracker.data.WingsForLifeUpdate
 import at.co.netconsulting.geotracker.domain.CurrentRecording
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.DisciplineTransition
@@ -192,6 +195,15 @@ class ForegroundService : Service() {
     private var isBackyardUltraMode = false
     private var backyardLapNumber: Int = 0
     private var backyardLapStartTime: Long = 0L
+
+    // Wings for Life Run mode (virtual catcher car)
+    private var isWingsForLifeMode = false
+    @Volatile private var wflWasCaught = false
+    @Volatile private var wflCaughtAtDistanceMeters: Double = 0.0
+    @Volatile private var wflCaughtAtElapsedMs: Long = 0L
+    @Volatile private var wflLastAnnouncedHeadwayKm: Int = -1
+    private var wflTts: TextToSpeech? = null
+    private var isWflTtsInitialized = false
 
     // Lactate Threshold mode
     private var isLactateThresholdMode = false
@@ -829,6 +841,12 @@ class ForegroundService : Service() {
                         }
                     }
 
+                    // Tick the Wings for Life catcher car before painting the
+                    // notification so its line reflects the latest comparison.
+                    if (!isPaused) {
+                        tickWingsForLifeCatcher()
+                    }
+
                     showNotification()
 
                     // Save data to database when we have valid coordinates
@@ -1235,6 +1253,145 @@ class ForegroundService : Service() {
         showNotification()
     }
 
+    /**
+     * Effective recording duration in milliseconds — wall-clock time since
+     * startDateTime minus all paused intervals (including any current pause).
+     * This is what the Wings for Life catcher car sees and what we display
+     * as "Total Recording" in the notification.
+     */
+    private fun getEffectiveRecordingMs(): Long {
+        val totalMs = Duration.between(startDateTime, LocalDateTime.now()).toMillis()
+        val pausedMs = totalPausedDurationMs + if (isPaused && pauseStartTime > 0) {
+            System.currentTimeMillis() - pauseStartTime
+        } else 0L
+        return (totalMs - pausedMs).coerceAtLeast(0L)
+    }
+
+    /**
+     * Wings for Life Run catcher car schedule (since 2021). Time is the
+     * elapsed run time excluding pauses. Returns the cumulative distance
+     * the catcher car has covered, in meters.
+     *
+     *   00:00 - 00:30  →  0 km/h   (runner head start)
+     *   00:30 - 01:00  → 14 km/h
+     *   01:00 - 01:30  → 15 km/h
+     *   01:30 - 02:00  → 16 km/h
+     *   02:00 - 02:30  → 17 km/h
+     *   02:30 - 03:00  → 18 km/h
+     *   03:00 - 03:30  → 22 km/h
+     *   03:30 - 04:00  → 26 km/h
+     *   04:00 - 04:30  → 30 km/h
+     *   04:30+         → 34 km/h
+     */
+    private fun wingsForLifeCatcherDistanceMeters(elapsedMs: Long): Double {
+        if (elapsedMs <= 0L) return 0.0
+        // (boundary in minutes, speed in km/h active up to that boundary)
+        val schedule = intArrayOf(30, 60, 90, 120, 150, 180, 210, 240, 270)
+        val speeds = doubleArrayOf(0.0, 14.0, 15.0, 16.0, 17.0, 18.0, 22.0, 26.0, 30.0)
+        val finalSpeedKmh = 34.0
+        var meters = 0.0
+        var prevBoundaryMs = 0L
+        for (i in schedule.indices) {
+            val boundaryMs = schedule[i] * 60_000L
+            val mPerMs = speeds[i] * 1000.0 / 3_600_000.0
+            if (elapsedMs <= boundaryMs) {
+                return meters + mPerMs * (elapsedMs - prevBoundaryMs)
+            }
+            meters += mPerMs * (boundaryMs - prevBoundaryMs)
+            prevBoundaryMs = boundaryMs
+        }
+        val mPerMs = finalSpeedKmh * 1000.0 / 3_600_000.0
+        return meters + mPerMs * (elapsedMs - prevBoundaryMs)
+    }
+
+    /**
+     * Tick the Wings for Life catcher car: compare its position with the
+     * runner's covered distance and announce the catch (once). Recording
+     * continues regardless — only the catch point is marked.
+     */
+    private fun tickWingsForLifeCatcher() {
+        if (!isWingsForLifeMode) return
+        val elapsedMs = getEffectiveRecordingMs()
+        val catcherMeters = wingsForLifeCatcherDistanceMeters(elapsedMs)
+
+        // Always broadcast — MapScreen needs the catcher position even after the catch.
+        EventBus.getDefault().post(
+            WingsForLifeUpdate(
+                catcherDistanceMeters = catcherMeters,
+                runnerDistanceMeters = distance,
+                wasCaught = wflWasCaught,
+                caughtAtDistanceMeters = wflCaughtAtDistanceMeters,
+                caughtAtElapsedMs = wflCaughtAtElapsedMs,
+                elapsedMs = elapsedMs
+            )
+        )
+
+        if (wflWasCaught) return
+        if (catcherMeters >= distance && distance > 0.0) {
+            wflWasCaught = true
+            wflCaughtAtDistanceMeters = distance
+            wflCaughtAtElapsedMs = elapsedMs
+            persistWingsForLifeState()
+            val km = String.format(Locale.US, "%.2f", distance / 1000.0)
+            val mins = elapsedMs / 60_000
+            announceWingsForLife(
+                "Catcher car has caught you. Distance $km kilometers, time $mins minutes."
+            )
+            Log.d(TAG, "WFL caught: distance=${distance}m, elapsedMs=$elapsedMs")
+            return
+        }
+        // Pre-catch headway announcement at 1, 0.5 and 0.1 km thresholds.
+        val headwayKm = (distance - catcherMeters) / 1000.0
+        val bucket = when {
+            headwayKm > 1.0 -> 1000   // sentinel — no announcement
+            headwayKm > 0.5 -> 1
+            headwayKm > 0.1 -> 2
+            else            -> 3
+        }
+        if (bucket != 1000 && bucket != wflLastAnnouncedHeadwayKm) {
+            wflLastAnnouncedHeadwayKm = bucket
+            val msg = when (bucket) {
+                1 -> "Catcher car is one kilometer behind."
+                2 -> "Catcher car is five hundred meters behind."
+                else -> "Catcher car is one hundred meters behind."
+            }
+            announceWingsForLife(msg)
+        }
+    }
+
+    private fun initWingsForLifeTts() {
+        if (wflTts != null) return
+        wflTts = TextToSpeech(applicationContext) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                wflTts?.setLanguage(Locale.getDefault())
+                isWflTtsInitialized = true
+                Log.d(TAG, "WFL TTS initialized")
+            } else {
+                Log.e(TAG, "WFL TTS init failed: $status")
+            }
+        }
+    }
+
+    private fun announceWingsForLife(message: String) {
+        if (!isWflTtsInitialized) {
+            Log.w(TAG, "WFL TTS not ready, dropping message: $message")
+            return
+        }
+        wflTts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "wfl_${System.currentTimeMillis()}")
+    }
+
+    private fun persistWingsForLifeState() {
+        try {
+            getSharedPreferences("RecordingState", Context.MODE_PRIVATE).edit()
+                .putBoolean("wfl_was_caught", wflWasCaught)
+                .putFloat("wfl_caught_at_distance_m", wflCaughtAtDistanceMeters.toFloat())
+                .putLong("wfl_caught_at_elapsed_ms", wflCaughtAtElapsedMs)
+                .apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error persisting WFL state", e)
+        }
+    }
+
     private fun showNotification() {
         val heartRateText = if (currentHeartRate > 0) {
             "\nHeart Rate: $currentHeartRate bpm"
@@ -1251,24 +1408,29 @@ class ForegroundService : Service() {
             ""
         }
 
-        // Calculate total recording time since startDateTime, accounting for paused time
-        var totalRecordingDuration = Duration.between(startDateTime, LocalDateTime.now())
-
-        // Subtract total paused duration from total recording time
-        val totalPausedDuration = Duration.ofMillis(totalPausedDurationMs)
-
-        // If currently paused, also subtract the current pause duration
-        if (isPaused && pauseStartTime > 0) {
-            val currentPauseDuration = Duration.ofMillis(System.currentTimeMillis() - pauseStartTime)
-            totalRecordingDuration = totalRecordingDuration.minus(totalPausedDuration).minus(currentPauseDuration)
-        } else {
-            totalRecordingDuration = totalRecordingDuration.minus(totalPausedDuration)
-        }
+        // Calculate total recording time since startDateTime, excluding paused intervals
+        val effectiveMs = getEffectiveRecordingMs()
+        val totalRecordingDuration = Duration.ofMillis(effectiveMs)
 
         val totalHours = totalRecordingDuration.toHours()
         val totalMinutes = (totalRecordingDuration.toMinutes() % 60)
         val totalSeconds = (totalRecordingDuration.seconds % 60)
         val totalRecordingFormattedTime = String.format("%02d:%02d:%02d", totalHours, totalMinutes, totalSeconds)
+
+        // Wings for Life Run: catcher car status
+        val catcherText = if (isWingsForLifeMode) {
+            if (wflWasCaught) {
+                val caughtKm = String.format(Locale.US, "%.2f", wflCaughtAtDistanceMeters / 1000.0)
+                val caughtMin = wflCaughtAtElapsedMs / 60_000
+                val caughtSec = (wflCaughtAtElapsedMs / 1000) % 60
+                "\nCatcher: CAUGHT at $caughtKm km / ${String.format("%02d:%02d", caughtMin, caughtSec)}"
+            } else {
+                val catcherKm = wingsForLifeCatcherDistanceMeters(effectiveMs) / 1000.0
+                val headwayKm = (distance / 1000.0) - catcherKm
+                "\nCatcher: ${String.format(Locale.US, "%.2f", catcherKm)} km " +
+                        "(${String.format(Locale.US, "%+.2f", headwayKm)} km headway)"
+            }
+        } else ""
 
         // For Backyard Ultra: display distance based on completed laps × 6.7606 km
         val displayDistanceKm = if (isBackyardUltraMode) {
@@ -1294,6 +1456,7 @@ class ForegroundService : Service() {
                     "\nSpeed: " + String.format("%.2f", speed) + " km/h" +
                     "\nGPS Altitude: " + String.format("%.2f", altitude) + " m" +
                     lapDisplay +
+                    catcherText +
                     heartRateText +
                     barometerText
         )
@@ -1481,15 +1644,7 @@ class ForegroundService : Service() {
             Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed, satellites=$satellites")
 
             // Update home screen widget with current metrics
-            // Calculate total recording duration for widget
-            var totalRecordingDuration = Duration.between(startDateTime, LocalDateTime.now())
-            val totalPausedDuration = Duration.ofMillis(totalPausedDurationMs)
-            totalRecordingDuration = if (isPaused && pauseStartTime > 0) {
-                val currentPauseDuration = Duration.ofMillis(System.currentTimeMillis() - pauseStartTime)
-                totalRecordingDuration.minus(totalPausedDuration).minus(currentPauseDuration)
-            } else {
-                totalRecordingDuration.minus(totalPausedDuration)
-            }
+            val totalRecordingDuration = Duration.ofMillis(getEffectiveRecordingMs())
             val totalRecordingFormattedTime = String.format(
                 "%02d:%02d:%02d",
                 totalRecordingDuration.toHours(),
@@ -1942,6 +2097,19 @@ class ForegroundService : Service() {
                 }
             }
 
+            // Initialize Wings for Life Run mode (virtual catcher car)
+            isWingsForLifeMode = artofsport.equals("Wings for Life Run", ignoreCase = true)
+            if (isWingsForLifeMode) {
+                val recordingPrefs = getSharedPreferences("RecordingState", MODE_PRIVATE)
+                wflWasCaught = recordingPrefs.getBoolean("wfl_was_caught", false)
+                wflCaughtAtDistanceMeters = recordingPrefs.getFloat("wfl_caught_at_distance_m", 0f).toDouble()
+                wflCaughtAtElapsedMs = recordingPrefs.getLong("wfl_caught_at_elapsed_ms", 0L)
+                wflLastAnnouncedHeadwayKm = -1
+                initWingsForLifeTts()
+                Log.d(TAG, "Wings for Life Run mode initialized: wasCaught=$wflWasCaught, " +
+                        "caughtAt=${wflCaughtAtDistanceMeters}m / ${wflCaughtAtElapsedMs}ms")
+            }
+
             // Initialize Backyard Ultra mode
             isBackyardUltraMode = artofsport.equals("Backyard Ultra", ignoreCase = true)
             if (isBackyardUltraMode) {
@@ -2129,6 +2297,13 @@ class ForegroundService : Service() {
                     .putLong("total_paused_duration_ms", 0)
                     .apply()
 
+                // Clear Wings for Life Run catch state so the next session starts fresh
+                getSharedPreferences("RecordingState", Context.MODE_PRIVATE).edit()
+                    .remove("wfl_was_caught")
+                    .remove("wfl_caught_at_distance_m")
+                    .remove("wfl_caught_at_elapsed_ms")
+                    .apply()
+
                 Log.d(TAG, "Cleared recovery state and session data in SharedPreferences")
 
                 // When stopping intentionally, finalize the recording by transferring data
@@ -2173,6 +2348,15 @@ class ForegroundService : Service() {
             customLocationListener = null
         } catch (e: Exception) {
             Log.e(TAG, "Error cleaning up location listener", e)
+        }
+
+        try {
+            wflTts?.stop()
+            wflTts?.shutdown()
+            wflTts = null
+            isWflTtsInitialized = false
+        } catch (e: Exception) {
+            Log.e(TAG, "Error shutting down WFL TTS", e)
         }
 
         releaseWakeLock()

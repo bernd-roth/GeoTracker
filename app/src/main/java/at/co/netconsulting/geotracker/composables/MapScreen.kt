@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -75,6 +76,8 @@ import at.co.netconsulting.geotracker.data.Metrics
 import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.data.RouteWeatherData
+import at.co.netconsulting.geotracker.data.WingsForLifeUpdate
+import at.co.netconsulting.geotracker.location.WingsForLifeCatcherOverlay
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.Waypoint
@@ -90,9 +93,11 @@ import at.co.netconsulting.geotracker.service.FollowingService
 import at.co.netconsulting.geotracker.service.ForegroundService
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -372,6 +377,14 @@ fun MapScreen(
 
     // Current location info overlay (for showing speed/distance/time popup)
     val currentLocationInfoOverlayRef = remember { mutableStateOf<CurrentLocationInfoOverlay?>(null) }
+
+    // Wings for Life Run catcher car overlay + path-distance lookup table.
+    // distancePoints is (cumulativeDistanceMeters, GeoPoint) — sorted ascending —
+    // populated incrementally from Metrics events and bootstrapped from the DB
+    // when the screen re-attaches mid-recording.
+    val catcherOverlayRef = remember { mutableStateOf<WingsForLifeCatcherOverlay?>(null) }
+    val catcherDistancePoints = remember { mutableStateListOf<Pair<Double, GeoPoint>>() }
+    var lastCatcherUpdate by remember { mutableStateOf<WingsForLifeUpdate?>(null) }
 
     // Flag to track when map is fully initialized
     var isMapInitialized by remember { mutableStateOf(false) }
@@ -1205,6 +1218,20 @@ fun MapScreen(
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
                 }
 
+                // Wings for Life Run: append to the cumulative-distance lookup
+                // table the catcher overlay uses to interpolate its GPS position.
+                // Only grow when distance moves forward, to avoid stalled GPS noise.
+                if (currentSportType.equals("Wings for Life Run", ignoreCase = true) &&
+                    metrics.latitude != 0.0 && metrics.longitude != 0.0
+                ) {
+                    val lastDist = catcherDistancePoints.lastOrNull()?.first ?: -1.0
+                    if (metrics.coveredDistance > lastDist) {
+                        catcherDistancePoints.add(
+                            metrics.coveredDistance to GeoPoint(metrics.latitude, metrics.longitude)
+                        )
+                    }
+                }
+
                 // Update ghost racer overlay with current user metrics if enabled
                 if (isGhostRacerEnabled && isRecording) {
                     ghostRacerOverlayRef.value?.updateUserMetrics(
@@ -1638,6 +1665,34 @@ fun MapScreen(
         }
     }
 
+    // Wings for Life Run: attach the catcher car overlay while the WFL recording
+    // is active. Detach (and clear local state) when the sport changes or the
+    // recording stops so the next session starts fresh.
+    LaunchedEffect(currentSportType, isRecording, isMapInitialized) {
+        val mapView = mapViewRef.value
+        val isWfl = currentSportType.equals("Wings for Life Run", ignoreCase = true)
+        if (isWfl && isRecording && mapView != null) {
+            if (catcherOverlayRef.value == null) {
+                val overlay = WingsForLifeCatcherOverlay()
+                catcherOverlayRef.value = overlay
+                mapView.overlays.add(overlay)
+                mapView.invalidate()
+                Timber.d("Catcher car overlay attached")
+            }
+        } else {
+            catcherOverlayRef.value?.let { overlay ->
+                mapView?.overlays?.remove(overlay)
+                catcherOverlayRef.value = null
+                mapView?.invalidate()
+                Timber.d("Catcher car overlay removed")
+            }
+            if (!isWfl || !isRecording) {
+                catcherDistancePoints.clear()
+                lastCatcherUpdate = null
+            }
+        }
+    }
+
     // Monitor recording state changes - with track cleanup when recording stops
     LaunchedEffect(Unit) {
         while (true) {
@@ -1723,6 +1778,64 @@ fun MapScreen(
             if (EventBus.getDefault().isRegistered(locationObserver)) {
                 EventBus.getDefault().unregister(locationObserver)
                 Timber.d("Unregistered enhanced location listener from EventBus")
+            }
+        }
+    }
+
+    // Wings for Life Run catcher car EventBus observer.
+    // Receives one update per second from ForegroundService while the WFL
+    // recording is active, interpolates the catcher's GPS coordinate from
+    // catcherDistancePoints, and refreshes the overlay marker.
+    val wflObserver = remember {
+        object : Any() {
+            @Subscribe(threadMode = ThreadMode.MAIN)
+            fun onWflUpdate(event: WingsForLifeUpdate) {
+                lastCatcherUpdate = event
+                val overlay = catcherOverlayRef.value ?: return
+
+                val targetMeters = if (event.wasCaught) event.caughtAtDistanceMeters
+                                   else event.catcherDistanceMeters
+                val pos = interpolateOnPath(catcherDistancePoints, targetMeters)
+                overlay.setPosition(pos, event.wasCaught)
+                mapViewRef.value?.invalidate()
+            }
+        }
+    }
+
+    DisposableEffect(wflObserver) {
+        if (!EventBus.getDefault().isRegistered(wflObserver)) {
+            EventBus.getDefault().register(wflObserver)
+        }
+        onDispose {
+            if (EventBus.getDefault().isRegistered(wflObserver)) {
+                EventBus.getDefault().unregister(wflObserver)
+            }
+        }
+    }
+
+    // When entering MapScreen mid-recording (e.g. after a navigation away),
+    // bootstrap the cumulative-distance lookup from the database so the
+    // catcher car snaps to the correct position immediately rather than
+    // waiting for fresh Metrics events to rebuild the path.
+    LaunchedEffect(currentSportType, isRecording, currentEventId.value) {
+        if (currentSportType.equals("Wings for Life Run", ignoreCase = true) &&
+            isRecording && currentEventId.value > 0 && catcherDistancePoints.isEmpty()
+        ) {
+            try {
+                val locs = withContext(Dispatchers.IO) {
+                    database.locationDao().getLocationsForEvent(currentEventId.value)
+                }
+                var cum = 0.0
+                var prev: GeoPoint? = null
+                locs.forEach { loc ->
+                    val gp = GeoPoint(loc.latitude, loc.longitude)
+                    if (prev != null) cum += prev!!.distanceToAsDouble(gp)
+                    catcherDistancePoints.add(cum to gp)
+                    prev = gp
+                }
+                Timber.d("Bootstrapped catcher path with ${catcherDistancePoints.size} points (total=${cum}m)")
+            } catch (e: Exception) {
+                Timber.e(e, "Error bootstrapping catcher path")
             }
         }
     }
@@ -3386,6 +3499,37 @@ fun MapScreen(
             }
         )
     }
+}
+
+/**
+ * Find the GeoPoint along [points] (sorted ascending by cumulative distance)
+ * that corresponds to [targetMeters], linearly interpolating between the two
+ * bracketing samples. Returns null when the path is empty; clamps to the
+ * endpoints when [targetMeters] is outside the recorded range.
+ */
+private fun interpolateOnPath(
+    points: List<Pair<Double, GeoPoint>>,
+    targetMeters: Double
+): GeoPoint? {
+    if (points.isEmpty()) return null
+    if (targetMeters <= points.first().first) return points.first().second
+    if (targetMeters >= points.last().first) return points.last().second
+    // Linear scan is fine: WFL recordings are short (a few hours, GPS at 1Hz)
+    // so the list stays in the low thousands. Bisect would be optimal but the
+    // overhead of the lookup is negligible compared to map redraw.
+    for (i in 1 until points.size) {
+        val (d1, p1) = points[i]
+        if (d1 >= targetMeters) {
+            val (d0, p0) = points[i - 1]
+            val span = d1 - d0
+            if (span <= 0.0) return p1
+            val t = ((targetMeters - d0) / span).coerceIn(0.0, 1.0)
+            val lat = p0.latitude + t * (p1.latitude - p0.latitude)
+            val lon = p0.longitude + t * (p1.longitude - p0.longitude)
+            return GeoPoint(lat, lon)
+        }
+    }
+    return points.last().second
 }
 
 // Helper function to check if a service is running
