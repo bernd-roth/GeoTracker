@@ -571,34 +571,107 @@ fun CompetitionsScreen() {
                                 singleLine = true
                             )
 
-                            OutlinedTextField(
-                                value = competitionDate,
-                                onValueChange = { competitionDate = it },
-                                label = { Text("Start Date (YYYY-MM-DD) *") },
+                            // Start Date — calendar picker
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
-                                singleLine = true,
-                                placeholder = { Text("2024-12-25") }
-                            )
-
-                            OutlinedTextField(
-                                value = competitionEndDate,
-                                onValueChange = { competitionEndDate = it },
-                                label = { Text("End Date (YYYY-MM-DD)") },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
-                                singleLine = true,
-                                placeholder = { Text("Leave empty for single-day event") },
-                                trailingIcon = {
-                                    if (competitionEndDate.isNotEmpty()) {
-                                        IconButton(onClick = { competitionEndDate = "" }) {
-                                            Icon(Icons.Default.Close, contentDescription = "Clear end date")
+                                    .padding(bottom = 8.dp)
+                                    .clickable {
+                                        val cal = Calendar.getInstance()
+                                        if (competitionDate.isNotBlank()) {
+                                            runCatching {
+                                                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(competitionDate)
+                                            }.getOrNull()?.let { cal.time = it }
                                         }
+                                        DatePickerDialog(
+                                            context,
+                                            { _, y, m, d ->
+                                                competitionDate = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                            },
+                                            cal.get(Calendar.YEAR),
+                                            cal.get(Calendar.MONTH),
+                                            cal.get(Calendar.DAY_OF_MONTH)
+                                        ).show()
+                                    }
+                            ) {
+                                OutlinedTextField(
+                                    value = competitionDate,
+                                    onValueChange = {},
+                                    label = { Text("Start Date *") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    readOnly = true,
+                                    enabled = false,
+                                    singleLine = true,
+                                    placeholder = { Text("Tap to pick a date") },
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                        disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    ),
+                                    trailingIcon = { Icon(Icons.Default.DateRange, contentDescription = "Select start date") }
+                                )
+                            }
+
+                            // End Date — calendar picker (optional, for multi-day events)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            val cal = Calendar.getInstance()
+                                            val seed = competitionEndDate.ifBlank { competitionDate }
+                                            if (seed.isNotBlank()) {
+                                                runCatching {
+                                                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(seed)
+                                                }.getOrNull()?.let { cal.time = it }
+                                            }
+                                            val dlg = DatePickerDialog(
+                                                context,
+                                                { _, y, m, d ->
+                                                    competitionEndDate = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                                },
+                                                cal.get(Calendar.YEAR),
+                                                cal.get(Calendar.MONTH),
+                                                cal.get(Calendar.DAY_OF_MONTH)
+                                            )
+                                            if (competitionDate.isNotBlank()) {
+                                                runCatching {
+                                                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(competitionDate)
+                                                }.getOrNull()?.let { dlg.datePicker.minDate = it.time }
+                                            }
+                                            dlg.show()
+                                        }
+                                ) {
+                                    OutlinedTextField(
+                                        value = competitionEndDate,
+                                        onValueChange = {},
+                                        label = { Text("End Date (optional, for multi-day)") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        readOnly = true,
+                                        enabled = false,
+                                        singleLine = true,
+                                        placeholder = { Text("Tap to pick a date") },
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        trailingIcon = { Icon(Icons.Default.DateRange, contentDescription = "Select end date") }
+                                    )
+                                }
+                                if (competitionEndDate.isNotEmpty()) {
+                                    IconButton(onClick = { competitionEndDate = "" }) {
+                                        Icon(Icons.Default.Close, contentDescription = "Clear end date")
                                     }
                                 }
-                            )
+                            }
 
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 OutlinedTextField(
