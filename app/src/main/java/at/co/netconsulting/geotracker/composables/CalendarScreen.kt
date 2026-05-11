@@ -200,7 +200,11 @@ fun CalendarScreen(
     fun refreshCompetitions() {
         coroutineScope.launch {
             val competitions = withContext(Dispatchers.IO) {
-                database.plannedEventDao().getPlannedEventsForYear(currentUserId, selectedYear.toString())
+                database.plannedEventDao().getPlannedEventsForYear(
+                    currentUserId,
+                    "$selectedYear-01-01",
+                    "$selectedYear-12-31"
+                )
             }
             competitionsByDate = expandCompetitionsByDate(competitions)
         }
@@ -224,7 +228,11 @@ fun CalendarScreen(
                 database.eventDao().getEventsForYear(selectedYear.toString())
             }
             val competitions = withContext(Dispatchers.IO) {
-                database.plannedEventDao().getPlannedEventsForYear(currentUserId, selectedYear.toString())
+                database.plannedEventDao().getPlannedEventsForYear(
+                    currentUserId,
+                    "$selectedYear-01-01",
+                    "$selectedYear-12-31"
+                )
             }
             eventsByDate = events.groupBy { it.eventDate }
             competitionsByDate = expandCompetitionsByDate(competitions)
