@@ -133,6 +133,26 @@ import java.util.Locale
 // Gold/amber color for competitions
 private val CompetitionColor = Color(0xFFFF8F00)
 
+// Expands competitions so multi-day events appear on every covered date, not only the start date.
+// Why: a PlannedEvent with plannedEventEndDate set spans multiple days; the calendar must color and
+// list it on each one. Falls back to start-date-only for blank/invalid/before-start end dates.
+private fun expandCompetitionsByDate(competitions: List<PlannedEvent>): Map<String, List<PlannedEvent>> {
+    val result = mutableMapOf<String, MutableList<PlannedEvent>>()
+    for (comp in competitions) {
+        if (comp.plannedEventDate.isBlank()) continue
+        val start = runCatching { LocalDate.parse(comp.plannedEventDate) }.getOrNull() ?: continue
+        val end = if (comp.plannedEventEndDate.isBlank()) start
+                  else runCatching { LocalDate.parse(comp.plannedEventEndDate) }.getOrNull()
+                      ?.takeIf { !it.isBefore(start) } ?: start
+        var d = start
+        while (!d.isAfter(end)) {
+            result.getOrPut(d.toString()) { mutableListOf() }.add(comp)
+            d = d.plusDays(1)
+        }
+    }
+    return result
+}
+
 // Diamond shape to distinguish competition dots from activity dots
 private val CompetitionShape = object : Shape {
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
@@ -180,9 +200,13 @@ fun CalendarScreen(
     fun refreshCompetitions() {
         coroutineScope.launch {
             val competitions = withContext(Dispatchers.IO) {
-                database.plannedEventDao().getPlannedEventsForYear(currentUserId, selectedYear.toString())
+                database.plannedEventDao().getPlannedEventsForYear(
+                    currentUserId,
+                    "$selectedYear-01-01",
+                    "$selectedYear-12-31"
+                )
             }
-            competitionsByDate = competitions.groupBy { it.plannedEventDate }
+            competitionsByDate = expandCompetitionsByDate(competitions)
         }
     }
 
@@ -204,10 +228,14 @@ fun CalendarScreen(
                 database.eventDao().getEventsForYear(selectedYear.toString())
             }
             val competitions = withContext(Dispatchers.IO) {
-                database.plannedEventDao().getPlannedEventsForYear(currentUserId, selectedYear.toString())
+                database.plannedEventDao().getPlannedEventsForYear(
+                    currentUserId,
+                    "$selectedYear-01-01",
+                    "$selectedYear-12-31"
+                )
             }
             eventsByDate = events.groupBy { it.eventDate }
-            competitionsByDate = competitions.groupBy { it.plannedEventDate }
+            competitionsByDate = expandCompetitionsByDate(competitions)
             isLoading = false
         }
     }
@@ -361,7 +389,7 @@ private fun YearSummary(
     val allEvents = eventsByDate.values.flatten()
     val totalActivities = allEvents.size
     val activeDays = eventsByDate.keys.size
-    val totalCompetitions = competitionsByDate.values.sumOf { it.size }
+    val totalCompetitions = competitionsByDate.values.flatten().distinctBy { it.plannedEventId }.size
     val sportCounts = allEvents.groupBy { getSportCategory(it.artOfSport) }
         .mapValues { it.value.size }
         .entries
@@ -481,7 +509,7 @@ private fun MonthCard(
     val monthEvents = eventsByDate.filter { it.key.startsWith(monthPrefix) }
     val monthCompetitions = competitionsByDate.filter { it.key.startsWith(monthPrefix) }
     val monthActivityCount = monthEvents.values.sumOf { it.size }
-    val monthCompetitionCount = monthCompetitions.values.sumOf { it.size }
+    val monthCompetitionCount = monthCompetitions.values.flatten().distinctBy { it.plannedEventId }.size
 
     val today = LocalDate.now()
 
@@ -1070,32 +1098,105 @@ private fun CompetitionFormDialog(
                     singleLine = true
                 )
 
-                // Start Date
-                OutlinedTextField(
-                    value = date,
-                    onValueChange = { date = it },
-                    label = { Text("Start Date (YYYY-MM-DD) *") },
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    singleLine = true,
-                    placeholder = { Text("2024-12-25") }
-                )
-
-                // End Date (optional, for multi-day events)
-                OutlinedTextField(
-                    value = endDate,
-                    onValueChange = { endDate = it },
-                    label = { Text("End Date (YYYY-MM-DD)") },
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                    singleLine = true,
-                    placeholder = { Text("Leave empty for single-day event") },
-                    trailingIcon = {
-                        if (endDate.isNotEmpty()) {
-                            IconButton(onClick = { endDate = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear end date")
+                // Start Date — calendar picker
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp)
+                        .clickable {
+                            val cal = Calendar.getInstance()
+                            if (date.isNotBlank()) {
+                                runCatching {
+                                    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(date)
+                                }.getOrNull()?.let { cal.time = it }
                             }
+                            DatePickerDialog(
+                                context,
+                                { _, y, m, d ->
+                                    date = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                },
+                                cal.get(Calendar.YEAR),
+                                cal.get(Calendar.MONTH),
+                                cal.get(Calendar.DAY_OF_MONTH)
+                            ).show()
+                        }
+                ) {
+                    OutlinedTextField(
+                        value = date,
+                        onValueChange = {},
+                        label = { Text("Start Date *") },
+                        modifier = Modifier.fillMaxWidth(),
+                        readOnly = true,
+                        enabled = false,
+                        singleLine = true,
+                        placeholder = { Text("Tap to pick a date") },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                            disabledBorderColor = MaterialTheme.colorScheme.outline,
+                            disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        ),
+                        trailingIcon = { Icon(Icons.Default.DateRange, contentDescription = "Select start date") }
+                    )
+                }
+
+                // End Date — calendar picker (optional, for multi-day events)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                val cal = Calendar.getInstance()
+                                val seed = endDate.ifBlank { date }
+                                if (seed.isNotBlank()) {
+                                    runCatching {
+                                        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(seed)
+                                    }.getOrNull()?.let { cal.time = it }
+                                }
+                                val dlg = DatePickerDialog(
+                                    context,
+                                    { _, y, m, d ->
+                                        endDate = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                    },
+                                    cal.get(Calendar.YEAR),
+                                    cal.get(Calendar.MONTH),
+                                    cal.get(Calendar.DAY_OF_MONTH)
+                                )
+                                if (date.isNotBlank()) {
+                                    runCatching {
+                                        SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(date)
+                                    }.getOrNull()?.let { dlg.datePicker.minDate = it.time }
+                                }
+                                dlg.show()
+                            }
+                    ) {
+                        OutlinedTextField(
+                            value = endDate,
+                            onValueChange = {},
+                            label = { Text("End Date (optional, for multi-day)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            readOnly = true,
+                            enabled = false,
+                            singleLine = true,
+                            placeholder = { Text("Tap to pick a date") },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledTextColor = MaterialTheme.colorScheme.onSurface,
+                                disabledBorderColor = MaterialTheme.colorScheme.outline,
+                                disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                disabledTrailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            trailingIcon = { Icon(Icons.Default.DateRange, contentDescription = "Select end date") }
+                        )
+                    }
+                    if (endDate.isNotEmpty()) {
+                        IconButton(onClick = { endDate = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear end date")
                         }
                     }
-                )
+                }
 
                 // Country / City
                 Row(modifier = Modifier.fillMaxWidth()) {

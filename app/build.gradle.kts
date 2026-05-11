@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.20 (10-05-2026: Multi-day calendar events — separate Start Date and End Date)"
+        versionName = "9.22 (11-05-2026: Calendar event Start/End Date now use a date picker)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
