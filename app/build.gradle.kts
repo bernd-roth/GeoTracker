@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.22 (11-05-2026: Calendar event Start/End Date now use a date picker)"
+        versionName = "9.23 (14-05-2026: Altitude graph added to 'Rerun' event)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

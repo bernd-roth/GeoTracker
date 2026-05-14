@@ -2386,10 +2386,11 @@ fun MapScreen(
             }
         }
 
-        // Control buttons column at the bottom
+        // Control buttons column - move to center-end during rerun to leave room for altitude chart
+        val isRerunActive = routeRerunData != null
         Column(
             modifier = Modifier
-                .align(Alignment.BottomEnd)
+                .align(if (isRerunActive) Alignment.CenterEnd else Alignment.BottomEnd)
                 .padding(16.dp),
             horizontalAlignment = Alignment.End
         ) {
@@ -3136,6 +3137,28 @@ fun MapScreen(
                         .padding(start = 12.dp, bottom = 12.dp)
                 )
             }
+        }
+
+        // Altitude chart at the bottom during route rerun
+        if (routeRerunData != null && routeRerunData.points.isNotEmpty()) {
+            val altitudes = remember(routeRerunData) {
+                routeRerunData.points.map { it.altitude }
+            }
+            val cumulativeDistances = remember(routeRerunData) {
+                val list = ArrayList<Double>(routeRerunData.points.size)
+                var acc = 0.0
+                routeRerunData.points.forEachIndexed { i, p ->
+                    if (i > 0) acc += routeRerunData.points[i - 1].distanceToAsDouble(p)
+                    list.add(acc)
+                }
+                list
+            }
+            AltitudeRerunChart(
+                altitudes = altitudes,
+                distancesMeters = cumulativeDistances,
+                progress = if (isRunningRerun) rerunProgress else 1f,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
         }
     }
 

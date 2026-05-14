@@ -441,7 +441,7 @@ class MainActivity : ComponentActivity() {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
             sheetContent = {
-                if (selectedTabIndex == 0) {
+                if (selectedTabIndex == 0 && routeRerunData.value == null) {
                     if(latitudeState.value != -999.0 && longitudeState.value != -999.0) {
                         BottomSheetContent(
                             latitude = latitudeState.value,
@@ -473,7 +473,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             },
-            sheetPeekHeight = if (selectedTabIndex == 0) 20.dp else 0.dp,
+            sheetPeekHeight = if (selectedTabIndex == 0 && routeRerunData.value == null) 20.dp else 0.dp,
             sheetContentColor = Color.Transparent,
             sheetContainerColor = Color.Transparent
         ) {

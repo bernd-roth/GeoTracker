@@ -1452,7 +1452,7 @@ fun EventCard(
             coroutineScope.launch {
                 try {
                     val locations = database.locationDao().getLocationsForEvent(event.event.eventId)
-                    val geoPoints = locations.map { GeoPoint(it.latitude, it.longitude) }
+                    val geoPoints = locations.map { GeoPoint(it.latitude, it.longitude, it.altitude) }
                     callback(geoPoints)
                 } catch (e: Exception) {
                     Log.e("EventCard", "Error loading location points: ${e.message}")
