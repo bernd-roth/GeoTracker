@@ -151,6 +151,11 @@ class MainActivity : ComponentActivity() {
 
         // Register for EventBus events
         EventBus.getDefault().register(this)
+        Log.d(
+            "MainActivity",
+            "DIAG Activity onCreate registered EventBus activityHash=${System.identityHashCode(this)} " +
+                    "savedState=${savedInstanceState != null}"
+        )
 
         // Set content to our Compose UI - ALWAYS use light theme for the app UI
         setContent {
@@ -442,6 +447,12 @@ class MainActivity : ComponentActivity() {
             scaffoldState = scaffoldState,
             sheetContent = {
                 if (selectedTabIndex == 0 && routeRerunData.value == null) {
+                    val renderedDistance = coveredDistanceState.value
+                    Log.d(
+                        "MainActivity",
+                        "DIAG BottomSheet recompose renderedDistance=$renderedDistance " +
+                                "lat=${latitudeState.value} lon=${longitudeState.value}"
+                    )
                     if(latitudeState.value != -999.0 && longitudeState.value != -999.0) {
                         BottomSheetContent(
                             latitude = latitudeState.value,
@@ -453,7 +464,7 @@ class MainActivity : ComponentActivity() {
                             horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
                             numberOfSatellites = satelliteInfo.totalSatellites,
                             usedNumberOfSatellites = satelliteInfo.visibleSatellites,
-                            coveredDistance = coveredDistanceState.value,
+                            coveredDistance = renderedDistance,
                             bearing = bearingState.value
                         )
                     } else {
@@ -467,7 +478,7 @@ class MainActivity : ComponentActivity() {
                             horizontalAccuracyInMeters = horizontalAccuracyInMetersState.value,
                             numberOfSatellites = satelliteInfo.totalSatellites,
                             usedNumberOfSatellites = satelliteInfo.visibleSatellites,
-                            coveredDistance = coveredDistanceState.value,
+                            coveredDistance = renderedDistance,
                             bearing = bearingState.value
                         )
                     }
@@ -812,38 +823,74 @@ class MainActivity : ComponentActivity() {
     fun onMetricsEvent(metrics: Metrics) {
         Log.d(
             "MainActivity",
-            "Location update received: " +
-                    "Lat=${metrics.latitude}, " +
-                    "Lon=${metrics.longitude}, " +
-                    "Speed=${metrics.speed}, " +
-                    "Distance=${metrics.coveredDistance}"
+            "DIAG onMetricsEvent ENTER activityHash=${System.identityHashCode(this)} " +
+                    "dist=${metrics.coveredDistance} lat=${metrics.latitude} lon=${metrics.longitude} " +
+                    "thread=${Thread.currentThread().name}"
         )
+        try {
+            Log.d(
+                "MainActivity",
+                "Location update received: " +
+                        "Lat=${metrics.latitude}, " +
+                        "Lon=${metrics.longitude}, " +
+                        "Speed=${metrics.speed}, " +
+                        "Distance=${metrics.coveredDistance}"
+            )
 
-        // Update state with new location data
-        locationEventState.value = metrics
-        latitudeState.value = metrics.latitude
-        longitudeState.value = metrics.longitude
+            // Update state with new location data
+            locationEventState.value = metrics
+            latitudeState.value = metrics.latitude
+            longitudeState.value = metrics.longitude
 
-        // Only update speed if recording (service is running)
-        if (isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")) {
-            speedState.value = metrics.speed
-            speedAccuracyInMetersState.value = metrics.speedAccuracyMetersPerSecond
-        } else {
-            // Reset speed when not recording
-            speedState.value = 0.0f
-            speedAccuracyInMetersState.value = 0.0f
+            // Only update speed if recording (service is running)
+            val fgRunning = isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+            Log.d("MainActivity", "DIAG onMetricsEvent isServiceRunning(FG)=$fgRunning")
+            if (fgRunning) {
+                speedState.value = metrics.speed
+                speedAccuracyInMetersState.value = metrics.speedAccuracyMetersPerSecond
+            } else {
+                // Reset speed when not recording
+                speedState.value = 0.0f
+                speedAccuracyInMetersState.value = 0.0f
+            }
+
+            // Always update these values
+            altitudeState.value = metrics.altitude
+            horizontalAccuracyInMetersState.value = metrics.horizontalAccuracy
+            verticalAccuracyInMetersState.value = metrics.verticalAccuracyMeters
+            coveredDistanceState.value = metrics.coveredDistance
+            bearingState.value = metrics.bearing
+            Log.d(
+                "MainActivity",
+                "DIAG onMetricsEvent EXIT wrote coveredDistanceState=${coveredDistanceState.value}"
+            )
+        } catch (t: Throwable) {
+            // EventBus default config logs but does not propagate subscriber exceptions.
+            // Log here so we see it ourselves rather than relying on EventBus's logger.
+            Log.e("MainActivity", "DIAG onMetricsEvent THREW", t)
+            throw t
         }
-
-        // Always update these values
-        altitudeState.value = metrics.altitude
-        horizontalAccuracyInMetersState.value = metrics.horizontalAccuracy
-        verticalAccuracyInMetersState.value = metrics.verticalAccuracyMeters
-        coveredDistanceState.value = metrics.coveredDistance
-        bearingState.value = metrics.bearing
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onLocationDataEvent(locationData: LocationData) {
+        val fgRunning = isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+        Log.d(
+            "MainActivity",
+            "DIAG onLocationDataEvent fgRunning=$fgRunning " +
+                    "lat=${locationData.latitude} lon=${locationData.longitude} " +
+                    "speed=${locationData.speed} dist=${locationData.coveredDistance}"
+        )
+        // Ignore BackgroundLocationService updates while ForegroundService is
+        // recording.  A delayed-stop BG service (zombie keep-alive coroutine,
+        // still-registered LocationListener) was clobbering coveredDistanceState
+        // with its own stale counter (frozen at 0 from the stationary pre-record
+        // phase), leaving distance pinned at 0 in the UI even though the recording
+        // session was capturing data correctly.
+        if (fgRunning) {
+            return
+        }
+
         Log.d(
             "MainActivity",
             "LocationData update received: " +
@@ -888,6 +935,11 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        Log.d(
+            "MainActivity",
+            "DIAG Activity onDestroy unregistering EventBus activityHash=${System.identityHashCode(this)} " +
+                    "isFinishing=$isFinishing isChangingConfigurations=$isChangingConfigurations"
+        )
         super.onDestroy()
         EventBus.getDefault().unregister(this)
 

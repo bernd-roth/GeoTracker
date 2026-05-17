@@ -184,6 +184,7 @@ class CustomLocationListener: LocationListener {
         startDateTime = LocalDateTime.now()
         persistenceHelper = LocationPersistenceHelper(context)  // Initialize after context
 
+        Log.d(TAG_WEBSOCKET, "DIAG CLL CONSTRUCTOR instance=${System.identityHashCode(this)} startDateTime=$startDateTime")
         Log.d(TAG_WEBSOCKET, "CustomLocationListener created with startDateTime: $startDateTime")
 
         // Initialize Text-to-Speech
@@ -213,6 +214,7 @@ class CustomLocationListener: LocationListener {
     }
 
     fun cleanup() {
+        Log.d(TAG_WEBSOCKET, "DIAG CLL cleanup ENTER instance=${System.identityHashCode(this)} coveredDistance=$coveredDistance isPaused=$isPaused isCurrentlyTracking=$isCurrentlyTracking")
         stopLocationUpdates()
 
         try {
@@ -253,10 +255,12 @@ class CustomLocationListener: LocationListener {
     }
 
     fun startListener() {
+        Log.d(TAG_WEBSOCKET, "DIAG CLL startListener ENTER instance=${System.identityHashCode(this)}")
         createLocationManager()
         loadSharedPreferences() // Load preferences including update settings
         loadSessionId()  // Load sessionId from SharedPreferences
 
+        Log.d(TAG_WEBSOCKET, "DIAG CLL startListener after loadSessionId sessionId='$sessionId' coveredDistance=$coveredDistance oldLat=$oldLatitude oldLon=$oldLongitude isPaused=$isPaused isCurrentlyTracking=$isCurrentlyTracking")
         createLocationUpdates()
 
         registerNetworkCallback()
@@ -320,12 +324,12 @@ class CustomLocationListener: LocationListener {
 
     fun pauseTracking() {
         isPaused = true
-        Log.d("CustomLocationListener", "Tracking paused")
+        Log.d("CustomLocationListener", "DIAG CLL pauseTracking instance=${System.identityHashCode(this)} -> isPaused=true")
     }
 
     fun resumeTracking() {
         isPaused = false
-        Log.d("CustomLocationListener", "Tracking resumed")
+        Log.d("CustomLocationListener", "DIAG CLL resumeTracking instance=${System.identityHashCode(this)} -> isPaused=false")
     }
 
     fun loadSharedPreferences() {
@@ -487,9 +491,17 @@ class CustomLocationListener: LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        val instId = System.identityHashCode(this)
+        Log.d("CustomLocationListener",
+            "DIAG CLL onLocationChanged ENTER instance=$instId " +
+                    "lat=${location.latitude} lon=${location.longitude} " +
+                    "rawSpeed=${location.speed} hasSpeed=${location.hasSpeed()} " +
+                    "isPaused=$isPaused isCurrentlyTracking=$isCurrentlyTracking " +
+                    "oldLat=$oldLatitude oldLon=$oldLongitude coveredDistanceBefore=$coveredDistance")
+
         // Skip all metrics calculations if tracking is paused
         if (isPaused) {
-            Log.d("CustomLocationListener", "Location update received but tracking is paused - skipping")
+            Log.d("CustomLocationListener", "DIAG CLL onLocationChanged RETURN(isPaused) instance=$instId")
             return
         }
 
@@ -497,7 +509,7 @@ class CustomLocationListener: LocationListener {
         if (location.latitude == -999.0 || location.longitude == -999.0 ||
             (location.latitude == 0.0 && location.longitude == 0.0)) {
             Log.w("CustomLocationListener",
-                "Invalid GPS coordinates received and rejected: lat=${location.latitude}, lon=${location.longitude}")
+                "DIAG CLL onLocationChanged RETURN(invalidCoords) instance=$instId lat=${location.latitude} lon=${location.longitude}")
             return  // Skip this location update entirely
         }
 
@@ -521,9 +533,15 @@ class CustomLocationListener: LocationListener {
                 "Latitude: ${location.latitude} / Longitude: ${location.longitude}"
             )
 
-            // Get current speed in km/h
-            var currentSpeedKmh = it.speed * 3.6
+            // Get current speed in km/h; take into account hasSpeed() is true and not returning garbage
+            var currentSpeedKmh = if(it.hasSpeed()) it.speed * 3.6 else 0.0
             val isBelowThreshold = currentSpeedKmh < MIN_SPEED_THRESHOLD
+
+            Log.d("CustomLocationListener",
+                "DIAG CLL gate-decision instance=$instId speedKmh=$currentSpeedKmh threshold=$MIN_SPEED_THRESHOLD " +
+                        "isBelowThreshold=$isBelowThreshold isCurrentlyTracking=$isCurrentlyTracking " +
+                        "oldLatValid=${oldLatitude != -999.0 && oldLongitude != -999.0} " +
+                        "coordsChanged=${oldLatitude != location.latitude || oldLongitude != location.longitude}")
 
             // Distance calculation with time-based approach
             var distanceIncrement = 0.0
@@ -633,6 +651,11 @@ class CustomLocationListener: LocationListener {
             // When creating metrics for active tracking:
             currentSpeedKmh = location.speed * 3.6
             val metrics = createMetricsObject(location, currentSpeedKmh.toFloat(), currentSlope)
+
+            Log.d("CustomLocationListener",
+                "DIAG CLL onLocationChanged EXIT instance=$instId distanceIncrement=$distanceIncrement " +
+                        "coveredDistanceAfter=$coveredDistance metricsCoveredDistance=${metrics.coveredDistance} " +
+                        "willPostToWS=$enableWebSocketTransfer willPostToEventBus=true")
 
             // Send data to websocket server and EventBus
             sendDataToWebsocketServer(metrics)
@@ -1034,6 +1057,7 @@ class CustomLocationListener: LocationListener {
         savedLap: Int = 0,
         savedLapCounter: Double = 0.0
     ) {
+        Log.d(TAG_WEBSOCKET, "DIAG CLL resumeFromSavedState instance=${System.identityHashCode(this)} savedDistance=$savedDistance lastPosition=$lastPosition savedLap=$savedLap savedLapCounter=$savedLapCounter previousCoveredDistance=$coveredDistance")
         Log.d(TAG_WEBSOCKET, "Starting resumeFromSavedState with distance=$savedDistance, lap=$savedLap, lapCounter=$savedLapCounter")
 
         // Restore covered distance

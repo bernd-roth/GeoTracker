@@ -1893,7 +1893,7 @@ fun MapScreen(
         } else if (!followingState.isFollowing && !isRecording) {
             // Only start background service if not recording AND not following other users
             try {
-                Timber.d("DisposableEffect: Starting background service (not recording, not following)")
+                Timber.d("DIAG startService(BackgroundLocationService) from DisposableEffect (not recording, not following) isRecording=$isRecording followingState.isFollowing=${followingState.isFollowing}")
                 val intent = Intent(context, BackgroundLocationService::class.java)
                 context.startService(intent)
                 pathTracker.setRecording(false)
@@ -1920,7 +1920,7 @@ fun MapScreen(
 
             if (!isRecording && !followingState.isFollowing) {
                 try {
-                    Timber.d("onDispose: Stopping background service (not recording, not following)")
+                    Timber.d("DIAG stopService(BackgroundLocationService) from DisposableEffect onDispose isRecording=$isRecording")
                     context.stopService(Intent(context, BackgroundLocationService::class.java))
                 } catch (e: Exception) {
                     Timber.e(e, "Error stopping background service")
@@ -2887,6 +2887,7 @@ fun MapScreen(
                                 isRecording = false
                                 isPaused = false
 
+                                Timber.d("DIAG startService(BackgroundLocationService) from stop-recording handler #1 (line ~2890)")
                                 val intent = Intent(context, BackgroundLocationService::class.java)
                                 context.startService(intent)
 
@@ -2975,6 +2976,7 @@ fun MapScreen(
                                 isRecording = false
                                 isPaused = false
 
+                                Timber.d("DIAG startService(BackgroundLocationService) from backyard-stop handler (line ~2978)")
                                 val intent = Intent(context, BackgroundLocationService::class.java)
                                 context.startService(intent)
 
@@ -3362,6 +3364,7 @@ fun MapScreen(
 
                 Timber.d("Recording started, set isRecording=true, isPaused=false")
 
+                Timber.d("DIAG stopService(BackgroundLocationService) from start-recording handler (line ~3365)")
                 val stopIntent = Intent(context, BackgroundLocationService::class.java)
                 context.stopService(stopIntent)
                 Timber.d("Stopped BackgroundLocationService")

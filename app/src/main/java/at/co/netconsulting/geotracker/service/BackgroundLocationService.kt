@@ -12,6 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import at.co.netconsulting.geotracker.data.LocationData
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,6 +54,7 @@ class BackgroundLocationService : Service(), LocationListener {
 
     override fun onCreate() {
         super.onCreate()
+        Log.d(TAG, "DIAG onCreate ENTER instance=${System.identityHashCode(this)}")
         startDateTime = LocalDateTime.now()
         createLocationManager()
         startLocationUpdates()
@@ -61,12 +63,18 @@ class BackgroundLocationService : Service(), LocationListener {
 
         // Start a keep-alive coroutine to ensure regular updates to UI
         startKeepAliveCoroutine()
+        Log.d(TAG, "DIAG onCreate EXIT instance=${System.identityHashCode(this)}")
     }
 
     private fun startKeepAliveCoroutine() {
+        val instanceId = System.identityHashCode(this)
         serviceScope.launch {
+            Log.d(TAG, "DIAG keep-alive STARTED instance=$instanceId job=${System.identityHashCode(coroutineContext[kotlinx.coroutines.Job])}")
+            var iter = 0L
             while (isActive) {
                 try {
+                    iter++
+                    Log.d(TAG, "DIAG keep-alive tick #$iter instance=$instanceId isActive=$isActive oldLat=$oldLatitude oldLon=$oldLongitude coveredDistance=$coveredDistance")
                     // Send a keep-alive event to ensure UI stays updated
                     // This is helpful when the device is stationary
                     if (oldLatitude != -999.0 && oldLongitude != -999.0) {
@@ -75,10 +83,14 @@ class BackgroundLocationService : Service(), LocationListener {
                         Log.d(TAG, "Sent keep-alive location update")
                     }
                     delay(KEEP_ALIVE_INTERVAL)
+                } catch (e: CancellationException) {
+                    Log.d(TAG, "DIAG keep-alive caught CancellationException instance=$instanceId isActive=$isActive — rethrowing")
+                    throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error in keep-alive coroutine", e)
+                    Log.e(TAG, "DIAG keep-alive caught non-cancellation Exception instance=$instanceId isActive=$isActive", e)
                 }
             }
+            Log.d(TAG, "DIAG keep-alive EXITED loop normally instance=$instanceId after $iter iterations")
         }
     }
 
@@ -179,6 +191,7 @@ class BackgroundLocationService : Service(), LocationListener {
 
     override fun onLocationChanged(location: Location) {
         try {
+            Log.d(TAG, "DIAG onLocationChanged instance=${System.identityHashCode(this)} lat=${location.latitude} lon=${location.longitude} speed=${location.speed}")
             Log.d(
                 TAG, "Location Updated: Latitude: ${location.latitude}, " +
                         "Longitude: ${location.longitude}, Accuracy: ${location.accuracy}"
@@ -367,6 +380,8 @@ class BackgroundLocationService : Service(), LocationListener {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        val instanceId = System.identityHashCode(this)
+        Log.d(TAG, "DIAG onDestroy ENTER instance=$instanceId jobActive=${serviceJob.isActive} jobCancelled=${serviceJob.isCancelled}")
         super.onDestroy()
 
         Log.d(TAG, "BackgroundLocationService destroying")
@@ -399,6 +414,7 @@ class BackgroundLocationService : Service(), LocationListener {
         }
 
         isServiceStarted = false
+        Log.d(TAG, "DIAG onDestroy EXIT instance=$instanceId jobActive=${serviceJob.isActive} jobCancelled=${serviceJob.isCancelled}")
     }
 
     companion object {

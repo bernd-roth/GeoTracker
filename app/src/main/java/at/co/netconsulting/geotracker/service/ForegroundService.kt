@@ -737,6 +737,7 @@ class ForegroundService : Service() {
                 }
 
                 // Create the location listener with restored session context
+                Log.d(TAG, "DIAG FG createBackgroundCoroutine CREATING CLL isRestoring=$isRestoring distance=$distance lastKnownPosition=$lastKnownPosition lap=$lap lapCounter=$lapCounter")
                 customLocationListener = CustomLocationListener(applicationContext).also {
                     // Use the restored start time if this is a restored session
                     if (isRestoring) {
@@ -825,9 +826,23 @@ class ForegroundService : Service() {
                 // Start periodic state saving
                 startPeriodicStateSaving()
 
+                var loopIter = 0L
+                Log.d(TAG, "DIAG FG mainLoop STARTED")
                 while (isActive) {
+                    loopIter++
                     val currentTime = currentTimeMillis()
-                    if (currentTime - lastUpdateTimestamp > EVENT_TIMEOUT_MS) {
+                    val sinceLastUpdate = currentTime - lastUpdateTimestamp
+                    val timedOut = sinceLastUpdate > EVENT_TIMEOUT_MS
+                    val coordsValid = checkLatitudeLongitude()
+                    Log.d(TAG,
+                        "DIAG FG mainLoop tick #$loopIter " +
+                                "isPaused=$isPaused speed=$speed distance=$distance " +
+                                "lat=$latitude lon=$longitude coordsValid=$coordsValid " +
+                                "sinceLastMetrics=${sinceLastUpdate}ms timedOut=$timedOut " +
+                                "cllInstance=${customLocationListener?.let { System.identityHashCode(it) }}")
+
+                    if (timedOut) {
+                        Log.w(TAG, "DIAG FG mainLoop EVENT_TIMEOUT firing resetValues (no Metrics for ${sinceLastUpdate}ms > $EVENT_TIMEOUT_MS) preTimeoutSpeed=$speed preTimeoutDistance=$distance")
                         resetValues()
                     }
 
@@ -851,12 +866,18 @@ class ForegroundService : Service() {
 
                     // Save data to database when we have valid coordinates
                     if (!isPaused) {
-                        if (checkLatitudeLongitude()) {
+                        if (coordsValid) {
+                            Log.d(TAG, "DIAG FG mainLoop calling insertDatabase distance=$distance lat=$latitude lon=$longitude")
                             insertDatabase(database)
+                        } else {
+                            Log.d(TAG, "DIAG FG mainLoop SKIP insertDatabase (invalid coords) lat=$latitude lon=$longitude")
                         }
+                    } else {
+                        Log.d(TAG, "DIAG FG mainLoop SKIP insertDatabase (isPaused=true)")
                     }
                     delay(1000)
                 }
+                Log.d(TAG, "DIAG FG mainLoop EXITED after $loopIter iterations")
             } catch (e: Exception) {
                 eventIdDeferred.completeExceptionally(e)
                 Log.e(TAG, "Error in background coroutine", e)
@@ -877,15 +898,20 @@ class ForegroundService : Service() {
     private fun startPeriodicStateSaving() {
         currentStateJob?.cancel()
         currentStateJob = serviceScope.launch {
+            var iter = 0L
+            Log.d(TAG, "DIAG FG periodicStateSave STARTED")
             while (isActive) {
                 try {
+                    iter++
+                    Log.d(TAG, "DIAG FG periodicStateSave tick #$iter distance=$distance sessionId='$sessionId' eventId=$eventId lat=$latitude lon=$longitude")
                     // Save current state every 5 seconds
                     saveCurrentState()
                     delay(STATE_SAVE_INTERVAL)
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error in state saving job", e)
+                    Log.e(TAG, "DIAG FG periodicStateSave caught Exception isActive=$isActive", e)
                 }
             }
+            Log.d(TAG, "DIAG FG periodicStateSave EXITED after $iter iterations")
         }
     }
 
@@ -1249,6 +1275,7 @@ class ForegroundService : Service() {
     }
 
     private fun resetValues() {
+        Log.d(TAG, "DIAG FG resetValues ENTER preSpeed=$speed (only speed is reset; distance=$distance is preserved)")
         speed = 0.0F
         showNotification()
     }
@@ -1603,6 +1630,7 @@ class ForegroundService : Service() {
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onLocationUpdate(metrics: Metrics) {
         try {
+            Log.d(TAG, "DIAG FG onLocationUpdate ENTER preDistance=$distance incomingMetrics.coveredDistance=${metrics.coveredDistance} incomingLat=${metrics.latitude} incomingLon=${metrics.longitude} cllInstance=${customLocationListener?.let { System.identityHashCode(it) }} thread=${Thread.currentThread().name}")
             // Update timestamp to prevent timeout
             lastUpdateTimestamp = currentTimeMillis()
 
@@ -1614,6 +1642,7 @@ class ForegroundService : Service() {
             altitude = metrics.altitude
             bearing = metrics.bearing
             satellites = (metrics.satellites ?: 0).toString()
+            Log.d(TAG, "DIAG FG onLocationUpdate wrote distance=$distance lat=$latitude lon=$longitude speed=$speed")
 
             // Keep lastKnownPosition current so connection-monitor listener
             // recreation uses a fresh position instead of a stale startup value.
@@ -2572,11 +2601,18 @@ class ForegroundService : Service() {
     }
 
     private suspend fun waitForBackgroundLocationServiceStopped(timeoutMs: Long) {
-        val deadline = currentTimeMillis() + timeoutMs
+        val startMs = currentTimeMillis()
+        val deadline = startMs + timeoutMs
+        var polls = 0
+        Log.d(TAG, "DIAG waitForBackgroundLocationServiceStopped ENTER timeout=${timeoutMs}ms initialCheck=${isBackgroundLocationServiceRunning()}")
         while (isBackgroundLocationServiceRunning() && currentTimeMillis() < deadline) {
+            polls++
             delay(50)
         }
-        if (isBackgroundLocationServiceRunning()) {
+        val stillRunning = isBackgroundLocationServiceRunning()
+        val elapsed = currentTimeMillis() - startMs
+        Log.d(TAG, "DIAG waitForBackgroundLocationServiceStopped EXIT elapsed=${elapsed}ms polls=$polls stillRunning=$stillRunning")
+        if (stillRunning) {
             Log.w(TAG, "BackgroundLocationService still running after ${timeoutMs}ms — proceeding anyway")
         }
     }
@@ -2584,17 +2620,22 @@ class ForegroundService : Service() {
     private fun startConnectionMonitoring() {
         connectionMonitorJob?.cancel()
         connectionMonitorJob = serviceScope.launch {
+            var iter = 0L
+            Log.d(TAG, "DIAG FG connectionMonitor STARTED")
             while (isActive) {
                 try {
+                    iter++
                     delay(CONNECTION_CHECK_INTERVAL)
 
                     // Check if location listener exists and has a valid session ID
                     val isSessionValid = customLocationListener?.hasValidSession() ?: false
                     val isLocationTracking = customLocationListener != null
 
+                    Log.d(TAG, "DIAG FG connectionMonitor tick #$iter isSessionValid=$isSessionValid isLocationTracking=$isLocationTracking cllInstance=${customLocationListener?.let { System.identityHashCode(it) }} distance=$distance lastKnownPosition=$lastKnownPosition")
                     Log.d(TAG, "Connection status check: session valid=$isSessionValid, location tracking=$isLocationTracking")
 
                     if (!isLocationTracking || !isSessionValid) {
+                        Log.w(TAG, "DIAG ConnectionMonitor RECREATING CLL — isLocationTracking=$isLocationTracking isSessionValid=$isSessionValid distance=$distance lastKnownPosition=$lastKnownPosition lap=$lap lapCounter=$lapCounter")
                         Log.w(TAG, "Reconnecting location tracking and WebSocket...")
 
                         // Recreate the location listener if needed
@@ -2607,6 +2648,8 @@ class ForegroundService : Service() {
                             // Restore tracked values if we have them
                             if (distance > 0) {
                                 it.resumeFromSavedState(distance, lastKnownPosition, lap, lapCounter)
+                            } else {
+                                Log.w(TAG, "DIAG ConnectionMonitor SKIPPED resumeFromSavedState because distance=$distance — fresh CLL starts at coveredDistance=0")
                             }
                         }
                     }
