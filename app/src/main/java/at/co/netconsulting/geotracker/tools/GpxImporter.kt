@@ -32,9 +32,9 @@ class GpxImporter(private val context: Context) {
     private val TAG = "GpxImporter"
     private val database = FitnessTrackerDatabase.getInstance(context)
 
-    suspend fun importGpx(uri: Uri): Int {
+    suspend fun importGpx(uri: Uri, eventSource: String = "imported"): Int {
         return try {
-            Log.d(TAG, "Starting GPX import from URI: $uri")
+            Log.d(TAG, "Starting GPX import from URI: $uri (source=$eventSource)")
 
             val inputStream = context.contentResolver.openInputStream(uri)
             if (inputStream == null) {
@@ -54,7 +54,7 @@ class GpxImporter(private val context: Context) {
             Log.d(TAG, "GPX content validation passed")
 
             // Parse using fresh input stream
-            val result = parseGpxAndCreateEvent(content.inputStream())
+            val result = parseGpxAndCreateEvent(content.inputStream(), eventSource)
             Log.d(TAG, "Import completed with result: $result")
 
             result
@@ -74,7 +74,7 @@ class GpxImporter(private val context: Context) {
                 (content.contains("<trk") || content.contains("<wpt"))
     }
 
-    private suspend fun parseGpxAndCreateEvent(inputStream: InputStream): Int {
+    private suspend fun parseGpxAndCreateEvent(inputStream: InputStream, eventSource: String): Int {
         try {
             val parser = XmlPullParserFactory.newInstance().newPullParser()
             parser.setInput(inputStream, null)
@@ -252,7 +252,7 @@ class GpxImporter(private val context: Context) {
             val filteredPoints = removeDuplicatePoints(trackPoints)
             Log.d(TAG, "After removing duplicates: ${filteredPoints.size} track points")
 
-            eventId = createEventFromTrackPoints(filteredPoints, waypoints, eventName, sportType)
+            eventId = createEventFromTrackPoints(filteredPoints, waypoints, eventName, sportType, eventSource)
             Log.d(TAG, "Created event with ID: $eventId")
 
             return eventId
@@ -342,7 +342,8 @@ class GpxImporter(private val context: Context) {
         trackPoints: List<GpxTrackPoint>,
         waypoints: List<GpxWaypoint>,
         eventName: String,
-        activityType: String
+        activityType: String,
+        eventSource: String
     ): Int {
         return try {
             Log.d(TAG, "Creating event from ${trackPoints.size} track points")
@@ -427,7 +428,7 @@ class GpxImporter(private val context: Context) {
                 eventDate = eventDate,
                 artOfSport = normalizedSportType,
                 comment = "Imported from GPX file",
-                eventSource = "imported"
+                eventSource = eventSource
             )
 
             val eventId = database.eventDao().insertEvent(event).toInt()

@@ -198,6 +198,10 @@ fun EventsScreen(
     // State for importing GPX
     var isImporting by remember { mutableStateOf(false) }
     var showImportingDialog by remember { mutableStateOf(false) }
+    // Picked by the "Import as" dialog before the file picker opens.
+    // "recorded" => My Events tab, "imported" => Ghost Racers tab.
+    var pendingImportSource by remember { mutableStateOf<String?>(null) }
+    var showImportTargetDialog by remember { mutableStateOf(false) }
 
     // State for upload dialog
     var showUploadDialog by remember { mutableStateOf(false) }
@@ -243,18 +247,21 @@ fun EventsScreen(
                 coroutineScope.launch {
                     try {
                         val gpxImporter = GpxImporter(context)
-                        Log.d("GPX_Import", "Starting import for URI: $uri")
+                        val importSource = pendingImportSource ?: "imported"
+                        Log.d("GPX_Import", "Starting import for URI: $uri (source=$importSource)")
 
-                        val newEventId = gpxImporter.importGpx(uri)
+                        val newEventId = gpxImporter.importGpx(uri, importSource)
                         Log.d("GPX_Import", "Import completed with result: $newEventId")
 
                         when {
                             newEventId > 0 -> {
-                                // Success
+                                // Switch to the tab that now contains the new event
+                                eventsViewModel.setSelectedTab(if (importSource == "imported") 1 else 0)
                                 eventsViewModel.loadEvents()
+                                val destination = if (importSource == "imported") "Ghost Racers" else "My Events"
                                 Toast.makeText(
                                     context,
-                                    "GPX file imported successfully! Event ID: $newEventId",
+                                    "GPX imported to $destination (Event ID: $newEventId)",
                                     Toast.LENGTH_LONG
                                 ).show()
                             }
@@ -312,17 +319,20 @@ fun EventsScreen(
                     } finally {
                         isImporting = false
                         showImportingDialog = false
+                        pendingImportSource = null
                     }
                 }
             } else {
                 Toast.makeText(context, "No file selected", Toast.LENGTH_SHORT).show()
+                pendingImportSource = null
             }
         } else {
             Log.d("GPX_Import", "File selection cancelled or failed")
+            pendingImportSource = null
         }
     }
 
-    // Function to launch file picker
+    // Function to launch file picker (called after the user picks an import target)
     val launchGpxFilePicker = {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)
@@ -389,6 +399,39 @@ fun EventsScreen(
                 }
             },
             confirmButton = { /* No buttons while importing */ }
+        )
+    }
+
+    // Import target selection dialog: choose which tab the GPX should land in
+    if (showImportTargetDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportTargetDialog = false },
+            title = { Text("Import GPX as") },
+            text = {
+                Text(
+                    "Choose where this GPX file should appear:\n\n" +
+                            "• My Events — your own activities\n" +
+                            "• Ghost Racers — tracks you want to race against on the map"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showImportTargetDialog = false
+                    pendingImportSource = "recorded"
+                    launchGpxFilePicker()
+                }) {
+                    Text("My Event")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showImportTargetDialog = false
+                    pendingImportSource = "imported"
+                    launchGpxFilePicker()
+                }) {
+                    Text("Ghost Racer")
+                }
+            }
         )
     }
 
@@ -707,7 +750,7 @@ fun EventsScreen(
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(
-                onClick = launchGpxFilePicker,
+                onClick = { showImportTargetDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
                 Icon(
