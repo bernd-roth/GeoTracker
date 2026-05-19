@@ -150,6 +150,7 @@ class ForegroundService : Service() {
     private var sessionId: String = ""
 
     @Volatile private var isServiceStarted = false
+    @Volatile private var isAcceptingLocationUpdates = false
 
     //restoring destroyed session
     private var isRestoredSession = false
@@ -356,7 +357,7 @@ class ForegroundService : Service() {
                 .url(url)
                 .build()
 
-            withContext(Dispatchers.IO) {
+            return withContext(Dispatchers.IO) {
                 coroutineContext.ensureActive()
 
                 client.newCall(request).execute().use { response ->
@@ -484,9 +485,9 @@ class ForegroundService : Service() {
                         throw e
                     }
                 }
-            }
 
-            return false
+                false
+            }
         } catch (e: CancellationException) {
             Log.d(TAG, "Weather fetch cancelled")
             throw e
@@ -725,6 +726,7 @@ class ForegroundService : Service() {
         serviceScope.launch {
             try {
                 isServiceStarted = true
+                isAcceptingLocationUpdates = false
                 hasFinalized = false // Reset static flag for new recording
 
                 // Use a broader flag that covers both explicit restoration (isRestoredSession)
@@ -760,6 +762,12 @@ class ForegroundService : Service() {
                     delay(100) // Ensure sessionId is saved to SharedPreferences
                     waitForBackgroundLocationServiceStopped(timeoutMs = 2000L)
 
+                    if (isStoppingIntentionally) {
+                        Log.d(TAG, "DIAG FG createBackgroundCoroutine skipped CLL start because service is stopping")
+                        return@also
+                    }
+
+                    isAcceptingLocationUpdates = true
                     it.startListener()
 
                     // If we have restored position and distance, initialize the location listener with them
@@ -1630,6 +1638,18 @@ class ForegroundService : Service() {
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onLocationUpdate(metrics: Metrics) {
         try {
+            if (isStoppingIntentionally || !isAcceptingLocationUpdates) {
+                Log.d(
+                    TAG,
+                    "DIAG FG onLocationUpdate ignored while stopping/closed " +
+                            "isStoppingIntentionally=$isStoppingIntentionally " +
+                            "isAcceptingLocationUpdates=$isAcceptingLocationUpdates " +
+                            "incomingDistance=${metrics.coveredDistance} " +
+                            "incomingLat=${metrics.latitude} incomingLon=${metrics.longitude}"
+                )
+                return
+            }
+
             Log.d(TAG, "DIAG FG onLocationUpdate ENTER preDistance=$distance incomingMetrics.coveredDistance=${metrics.coveredDistance} incomingLat=${metrics.latitude} incomingLon=${metrics.longitude} cllInstance=${customLocationListener?.let { System.identityHashCode(it) }} thread=${Thread.currentThread().name}")
             // Update timestamp to prevent timeout
             lastUpdateTimestamp = currentTimeMillis()
@@ -1738,6 +1758,8 @@ class ForegroundService : Service() {
                 "stop_recording" -> {
                     Log.d(TAG, "Stop recording action received")
                     isStoppingIntentionally = true
+                    isAcceptingLocationUpdates = false
+                    customLocationListener?.stopLocationCallbacks("stop_recording")
 
                     // Finalize Lactate Threshold test if active
                     if (isLactateThresholdMode) {
@@ -2256,6 +2278,7 @@ class ForegroundService : Service() {
         // This prevents the periodic state saver from writing was_running=true
         // after we clear it below (race condition that caused stale recovery on next start).
         isServiceStarted = false
+        isAcceptingLocationUpdates = false
 
         // Cancel all background jobs IMMEDIATELY to prevent them from overwriting
         // SharedPreferences state (was_running, is_paused) after we clean up below.
@@ -2630,8 +2653,13 @@ class ForegroundService : Service() {
                     // Check if location listener exists and has a valid session ID
                     val isSessionValid = customLocationListener?.hasValidSession() ?: false
                     val isLocationTracking = customLocationListener != null
+                    val lastLocationAgeMs = customLocationListener?.getMillisSinceLastLocationUpdate()
+                    val isLocationStale = isLocationTracking &&
+                            !isPaused &&
+                            lastLocationAgeMs != null &&
+                            lastLocationAgeMs > LOCATION_STALL_TIMEOUT_MS
 
-                    Log.d(TAG, "DIAG FG connectionMonitor tick #$iter isSessionValid=$isSessionValid isLocationTracking=$isLocationTracking cllInstance=${customLocationListener?.let { System.identityHashCode(it) }} distance=$distance lastKnownPosition=$lastKnownPosition")
+                    Log.d(TAG, "DIAG FG connectionMonitor tick #$iter isSessionValid=$isSessionValid isLocationTracking=$isLocationTracking cllInstance=${customLocationListener?.let { System.identityHashCode(it) }} distance=$distance lastKnownPosition=$lastKnownPosition lastLocationAgeMs=$lastLocationAgeMs isLocationStale=$isLocationStale")
                     Log.d(TAG, "Connection status check: session valid=$isSessionValid, location tracking=$isLocationTracking")
 
                     if (!isLocationTracking || !isSessionValid) {
@@ -2652,6 +2680,17 @@ class ForegroundService : Service() {
                                 Log.w(TAG, "DIAG ConnectionMonitor SKIPPED resumeFromSavedState because distance=$distance — fresh CLL starts at coveredDistance=0")
                             }
                         }
+                    } else if (isLocationStale) {
+                        val staleMs = lastLocationAgeMs ?: -1L
+                        Log.w(
+                            TAG,
+                            "DIAG ConnectionMonitor RESTARTING location updates only - " +
+                                    "no CLL callback for ${staleMs}ms, distance=$distance, " +
+                                    "lastKnownPosition=$lastKnownPosition"
+                        )
+                        customLocationListener?.restartLocationUpdates(
+                            "ForegroundService monitor detected stale GPS callbacks after ${staleMs}ms"
+                        )
                     }
 
                     // Also check heart rate sensor connection if needed
@@ -2817,7 +2856,8 @@ class ForegroundService : Service() {
         private const val WEATHER_FAST_POLL_INTERVAL = 10000L // 10 seconds for initial polling
 
         // reconnection logic
-        private const val CONNECTION_CHECK_INTERVAL = 60_000L // 1 minute
+        private const val CONNECTION_CHECK_INTERVAL = 15_000L
+        private const val LOCATION_STALL_TIMEOUT_MS = 30_000L
 
         // restoring logic
         private const val STATE_CONSISTENCY_CHECK_INTERVAL = 30_000L // 30 seconds

@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -221,6 +222,9 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
                 } else {
                     updateStandardPath(mapView, viewport, zoomLevel)
                 }
+            } catch (e: CancellationException) {
+                Log.d(TAG, "Path update cancelled")
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating path for viewport", e)
             } finally {

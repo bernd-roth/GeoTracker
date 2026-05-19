@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.23 (14-05-2026: Altitude graph added to 'Rerun' event)"
+        versionName = "9.24 (19-05-2026: Notification stuck at 0 fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

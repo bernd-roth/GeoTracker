@@ -1213,6 +1213,14 @@ fun MapScreen(
             fun onLocationUpdate(metrics: Metrics) {
                 Timber.d("Location update: lat=${metrics.latitude}, lon=${metrics.longitude}, follow=$isFollowingLocation")
 
+                if (!isRecording) {
+                    Timber.d(
+                        "Ignoring Metrics update because recording is not active: " +
+                                "lat=${metrics.latitude}, lon=${metrics.longitude}, distance=${metrics.coveredDistance}"
+                    )
+                    return
+                }
+
                 // Update last known location
                 if (metrics.latitude != 0.0 && metrics.longitude != 0.0) {
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)

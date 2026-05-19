@@ -79,6 +79,7 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TimePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -102,6 +103,7 @@ import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
 import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
@@ -113,6 +115,8 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import java.io.InputStream
+
+private const val GPS_STABLE_BEFORE_RECORDING_MS = 3_000L
 
 private suspend fun parseGpxFileStreamingWithSpeed(
     inputStream: InputStream,
@@ -392,6 +396,17 @@ fun RecordingDialog(
                 .getBoolean("enable_websocket_transfer", true)
         )
     }
+    var isGpsStableForStart by remember { mutableStateOf(false) }
+
+    LaunchedEffect(gpsStatus.isReadyToRecord) {
+        isGpsStableForStart = false
+        if (gpsStatus.isReadyToRecord) {
+            delay(GPS_STABLE_BEFORE_RECORDING_MS)
+            isGpsStableForStart = true
+        }
+    }
+
+    val canStartRecording = gpsStatus.isReadyToRecord && isGpsStableForStart
 
     // GPX file picker launcher
     val gpxFilePicker = rememberLauncherForActivityResult(
@@ -683,6 +698,13 @@ fun RecordingDialog(
                             if (!gpsStatus.isReadyToRecord) {
                                 Text(
                                     text = "Recording will start when GPS fix is acquired",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            } else if (!isGpsStableForStart) {
+                                Text(
+                                    text = "Hold GPS fix briefly before starting",
                                     fontSize = 12.sp,
                                     color = Color.Gray,
                                     modifier = Modifier.padding(top = 2.dp)
@@ -1246,7 +1268,7 @@ fun RecordingDialog(
         },
         confirmButton = {
             Button(
-                enabled = gpsStatus.isReadyToRecord && !gpxImportProgress.isImporting
+                enabled = canStartRecording && !gpxImportProgress.isImporting
                     && !(artOfSport.equals("Lactate Threshold (30min TT)", ignoreCase = true) && selectedHeartRateSensor == null),
                 onClick = {
                     // Use current date as event name if eventName is empty or just whitespace
@@ -1286,12 +1308,13 @@ fun RecordingDialog(
                     text = when {
                         gpxImportProgress.isImporting -> "Importing GPX..."
                         !gpsStatus.isReadyToRecord -> "Waiting for GPS..."
+                        !isGpsStableForStart -> "Stabilizing GPS..."
                         artOfSport.equals("Lactate Threshold (30min TT)", ignoreCase = true) && selectedHeartRateSensor == null -> "HR Sensor Required"
                         else -> "Start Recording"
                     },
                     color = when {
                         gpxImportProgress.isImporting -> Color.Gray
-                        gpsStatus.isReadyToRecord -> Color.White
+                        canStartRecording -> Color.White
                         else -> Color.Gray
                     }
                 )

@@ -837,22 +837,25 @@ class MainActivity : ComponentActivity() {
                         "Distance=${metrics.coveredDistance}"
             )
 
+            val fgRunning = isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
+            Log.d("MainActivity", "DIAG onMetricsEvent isServiceRunning(FG)=$fgRunning")
+            if (!fgRunning) {
+                speedState.value = 0.0f
+                speedAccuracyInMetersState.value = 0.0f
+                Log.d(
+                    "MainActivity",
+                    "DIAG onMetricsEvent EXIT ignored stale foreground Metrics because ForegroundService is not running"
+                )
+                return
+            }
+
             // Update state with new location data
             locationEventState.value = metrics
             latitudeState.value = metrics.latitude
             longitudeState.value = metrics.longitude
 
-            // Only update speed if recording (service is running)
-            val fgRunning = isServiceRunning("at.co.netconsulting.geotracker.service.ForegroundService")
-            Log.d("MainActivity", "DIAG onMetricsEvent isServiceRunning(FG)=$fgRunning")
-            if (fgRunning) {
-                speedState.value = metrics.speed
-                speedAccuracyInMetersState.value = metrics.speedAccuracyMetersPerSecond
-            } else {
-                // Reset speed when not recording
-                speedState.value = 0.0f
-                speedAccuracyInMetersState.value = 0.0f
-            }
+            speedState.value = metrics.speed
+            speedAccuracyInMetersState.value = metrics.speedAccuracyMetersPerSecond
 
             // Always update these values
             altitudeState.value = metrics.altitude

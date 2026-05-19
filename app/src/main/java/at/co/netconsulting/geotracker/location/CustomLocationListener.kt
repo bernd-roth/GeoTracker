@@ -92,6 +92,8 @@ class CustomLocationListener: LocationListener {
 
     // reconnection logic, if Internet connection gets lost
     private var lastMessageTime: Long = System.currentTimeMillis()
+    @Volatile private var lastLocationUpdateTimestamp: Long = System.currentTimeMillis()
+    @Volatile private var acceptLocationUpdates: Boolean = true
     private var healthCheckJob: Job? = null
     private var isWebSocketConnected = false
     private var connectivityManager: ConnectivityManager? = null
@@ -256,6 +258,7 @@ class CustomLocationListener: LocationListener {
 
     fun startListener() {
         Log.d(TAG_WEBSOCKET, "DIAG CLL startListener ENTER instance=${System.identityHashCode(this)}")
+        acceptLocationUpdates = true
         createLocationManager()
         loadSharedPreferences() // Load preferences including update settings
         loadSessionId()  // Load sessionId from SharedPreferences
@@ -309,16 +312,48 @@ class CustomLocationListener: LocationListener {
     }
 
     fun stopLocationUpdates() {
-        try {
-            locationManager?.removeUpdates(this)
-            Log.d("CustomLocationListener", "Location updates stopped")
+        stopLocationCallbacks("Location updates stopped")
 
+        try {
             webSocket?.let { socket ->
                 socket.close(1000, "Location updates stopped")
                 webSocket = null
             }
         } catch (e: Exception) {
             Log.e("CustomLocationListener", "Error stopping location updates", e)
+        }
+    }
+
+    fun stopLocationCallbacks(reason: String) {
+        acceptLocationUpdates = false
+        try {
+            locationManager?.removeUpdates(this)
+            Log.d("CustomLocationListener", "Location callbacks stopped: $reason")
+        } catch (e: Exception) {
+            Log.e("CustomLocationListener", "Error stopping location callbacks", e)
+        }
+    }
+
+    fun getMillisSinceLastLocationUpdate(now: Long = System.currentTimeMillis()): Long {
+        return now - lastLocationUpdateTimestamp
+    }
+
+    fun restartLocationUpdates(reason: String) {
+        val lastLocationAgeMs = getMillisSinceLastLocationUpdate()
+        lastLocationUpdateTimestamp = System.currentTimeMillis()
+        Log.w(
+            TAG_WEBSOCKET,
+            "DIAG CLL restartLocationUpdates instance=${System.identityHashCode(this)} reason=$reason " +
+                    "lastLocationAgeMs=$lastLocationAgeMs coveredDistance=$coveredDistance"
+        )
+        Handler(Looper.getMainLooper()).post {
+            try {
+                locationManager?.removeUpdates(this)
+                Log.d(TAG_WEBSOCKET, "Removed stale location updates before restart")
+            } catch (e: Exception) {
+                Log.e(TAG_WEBSOCKET, "Error removing stale location updates before restart", e)
+            }
+            createLocationUpdates()
         }
     }
 
@@ -399,17 +434,23 @@ class CustomLocationListener: LocationListener {
             return
         }
         Handler(Looper.getMainLooper()).post {
-            // Use the values loaded from SharedPreferences
-            locationManager?.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                minTimeBetweenUpdates,
-                minDistanceBetweenUpdates,
-                this
-            )
-            Log.d(
-                TAG_WEBSOCKET,
-                "Started location updates with minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m"
-            )
+            try {
+                // Use the values loaded from SharedPreferences
+                locationManager?.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    minTimeBetweenUpdates,
+                    minDistanceBetweenUpdates,
+                    this
+                )
+                Log.d(
+                    TAG_WEBSOCKET,
+                    "Started location updates with minTime=$minTimeBetweenUpdates ms, minDistance=$minDistanceBetweenUpdates m"
+                )
+            } catch (e: SecurityException) {
+                Log.e(TAG_WEBSOCKET, "Missing permission while starting location updates", e)
+            } catch (e: Exception) {
+                Log.e(TAG_WEBSOCKET, "Error starting location updates", e)
+            }
         }
     }
 
@@ -491,6 +532,15 @@ class CustomLocationListener: LocationListener {
     }
 
     override fun onLocationChanged(location: Location) {
+        if (!acceptLocationUpdates) {
+            Log.d(
+                "CustomLocationListener",
+                "DIAG CLL onLocationChanged RETURN(callbacksStopped) instance=${System.identityHashCode(this)}"
+            )
+            return
+        }
+
+        lastLocationUpdateTimestamp = System.currentTimeMillis()
         val instId = System.identityHashCode(this)
         Log.d("CustomLocationListener",
             "DIAG CLL onLocationChanged ENTER instance=$instId " +
@@ -565,32 +615,12 @@ class CustomLocationListener: LocationListener {
                             "Grace period ended, stopped tracking movement"
                         )
                     } else {
-                        // Still in grace period - continue to calculate distance
+                        // Still in grace period - keep the movement state alive, but do not
+                        // add GPS drift while the reported speed is below the threshold.
                         Log.d(
                             "CustomLocationListener",
-                            "In grace period, continuing to track movement"
+                            "In grace period, holding movement state without adding distance"
                         )
-
-                        if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
-                            (oldLatitude != location.latitude || oldLongitude != location.longitude)
-                        ) {
-                            // Calculate distance increment
-                            distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
-                                oldLatitude, oldLongitude, location.latitude, location.longitude
-                            )
-                            coveredDistance += distanceIncrement
-                            if (!isBackyardUltraMode) {
-                                lap = calculateLap(distanceIncrement)
-                            }
-
-                            Log.d(
-                                "CustomLocationListener",
-                                "Grace period distance added: $distanceIncrement"
-                            )
-
-                            // Check for distance milestone announcement
-                            checkDistanceMilestone()
-                        }
                     }
                 }
             } else {
