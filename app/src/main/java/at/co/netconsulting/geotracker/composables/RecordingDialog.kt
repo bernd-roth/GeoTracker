@@ -368,6 +368,7 @@ fun RecordingDialog(
     var selectedHeartRateSensor by remember { mutableStateOf<HeartRateSensorDevice?>(null) }
     var importedGpxTrack by remember { mutableStateOf<ImportedGpxTrack?>(null) }
     var enableGhostRacer by remember { mutableStateOf(false) }
+    var reverseDirection by remember { mutableStateOf(false) }
     var assumedSpeedKmh by remember { mutableStateOf("9.0") } // Default speed for tracks without timestamps
 
     // GPX import progress state
@@ -1263,6 +1264,28 @@ fun RecordingDialog(
                             onCheckedChange = { enableGhostRacer = it }
                         )
                     }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Reverse Direction", fontWeight = FontWeight.Medium)
+                            Text(
+                                "Run the reference track from end to start (way back)",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Switch(
+                            checked = reverseDirection,
+                            onCheckedChange = { reverseDirection = it }
+                        )
+                    }
                 }
             }
         },
@@ -1284,10 +1307,27 @@ fun RecordingDialog(
                         .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
                         .apply()
 
+                    // Apply Reverse Direction if requested. Reverses point order and remaps
+                    // timestamps as (lastT - t).reversed() so the ghost's speed profile is
+                    // preserved (e.g. the original final-100m sprint becomes the ghost's opening sprint).
+                    val trackForRecording = importedGpxTrack?.let { original ->
+                        if (reverseDirection && original.timestamps.isNotEmpty()) {
+                            val lastT = original.timestamps.last()
+                            original.copy(
+                                filename = "${original.filename} (reversed)",
+                                points = original.points.reversed(),
+                                timestamps = original.timestamps.reversed().map { lastT - it },
+                                eventId = null
+                            )
+                        } else {
+                            original
+                        }
+                    }
+
                     // Save imported GPX track to persistent storage before starting recording
-                    if (importedGpxTrack != null) {
-                        GpxPersistenceUtil.saveImportedGpxTrack(context, importedGpxTrack)
-                        android.util.Log.d("RecordingDialog", "Saved track to persistence: ${importedGpxTrack!!.filename}")
+                    if (trackForRecording != null) {
+                        GpxPersistenceUtil.saveImportedGpxTrack(context, trackForRecording)
+                        android.util.Log.d("RecordingDialog", "Saved track to persistence: ${trackForRecording.filename}")
                     }
 
                     onSave(
@@ -1299,7 +1339,7 @@ fun RecordingDialog(
                         showPath,
                         selectedHeartRateSensor,
                         enableWebSocketTransfer,
-                        importedGpxTrack,
+                        trackForRecording,
                         enableGhostRacer
                     )
                 }

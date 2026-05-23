@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.25 (23-05-2026: Times in 'Notification', and 'Session info' are divergent, partly fixed)"
+        versionName = "9.26 (23-05-2026: Reverse a way overlay for running back)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
