@@ -76,6 +76,7 @@ import java.lang.System.currentTimeMillis
 import java.time.Duration
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
 import java.time.ZoneOffset
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
@@ -156,6 +157,8 @@ class ForegroundService : Service() {
     private var isRestoredSession = false
     private var lastKnownPosition: Pair<Double, Double>? = null
     private var startDateTime: LocalDateTime = LocalDateTime.now()
+    @Volatile private var recordingStartTimestampMs: Long = 0L
+    @Volatile private var latestRecordingTimestampMs: Long = 0L
 
     // State saving variables
     private var currentStateJob: Job? = null
@@ -540,6 +543,8 @@ class ForegroundService : Service() {
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(false)
 
         requestHighPriority()
 
@@ -684,14 +689,14 @@ class ForegroundService : Service() {
 
         fun getTotalDuration(): Duration {
             val completedDuration = segments.sumOf {
-                it.totalDuration.seconds
+                it.totalDuration.toMillis()
             }
 
             val currentDuration = currentSegment?.let {
-                Duration.between(it.startTime, LocalDateTime.now()).seconds
-            } ?: 0
+                Duration.between(it.startTime, LocalDateTime.now()).toMillis()
+            } ?: 0L
 
-            return Duration.ofSeconds(completedDuration + currentDuration)
+            return Duration.ofMillis(completedDuration + currentDuration)
         }
 
         fun getCurrentSegment(): TimeSegment? = currentSegment
@@ -981,6 +986,8 @@ class ForegroundService : Service() {
                 .putInt("lap", lap)
                 .putFloat("lap_counter", lapCounter.toFloat())
                 .putLong("service_start_time", startDateTime.toEpochSecond(java.time.ZoneOffset.UTC))
+                .putLong("recording_start_time_ms", recordingStartTimestampMs)
+                .putLong("latest_recording_time_ms", latestRecordingTimestampMs)
                 .putLong("last_lap_completion_time", lastLapCompletionTime)
                 .putLong("lap_start_time", lapStartTime)
                 // Save heart rate info
@@ -1044,6 +1051,23 @@ class ForegroundService : Service() {
                     }
 
                     Log.d(TAG, "Restored state from database: distance=$distance, lap=$lap, lapCounter=$lapCounter")
+                }
+
+                if (eventId > 0) {
+                    database.metricDao().getEventTimeRange(eventId)?.let { timeRange ->
+                        if (timeRange.minTime > 0L && timeRange.maxTime >= timeRange.minTime) {
+                            recordingStartTimestampMs = timeRange.minTime
+                            latestRecordingTimestampMs = timeRange.maxTime
+                            startDateTime = LocalDateTime.ofInstant(
+                                Instant.ofEpochMilli(timeRange.minTime),
+                                ZoneId.systemDefault()
+                            )
+                            Log.d(
+                                TAG,
+                                "Restored recording clock from metrics: start=${timeRange.minTime}, latest=${timeRange.maxTime}"
+                            )
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error restoring state from database", e)
@@ -1233,10 +1257,7 @@ class ForegroundService : Service() {
             }
         }
         val duration = movementState.getTotalDuration()
-        val movementHours = duration.toHours()
-        val movementMinutes = (duration.toMinutes() % 60)
-        val movementSeconds = (duration.seconds % 60)
-        movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
+        movementFormattedTime = formatDurationHms(duration.toMillis())
     }
 
     private fun showLazyStopWatch() {
@@ -1259,10 +1280,7 @@ class ForegroundService : Service() {
         }
 
         val duration = lazyState.getTotalDuration()
-        val lazyHours = duration.toHours()
-        val lazyMinutes = (duration.toMinutes() % 60)
-        val lazySeconds = (duration.seconds % 60)
-        lazyFormattedTime = String.format("%02d:%02d:%02d", lazyHours, lazyMinutes, lazySeconds)
+        lazyFormattedTime = formatDurationHms(duration.toMillis())
     }
 
     private fun showContinuousStopWatch() {
@@ -1273,13 +1291,29 @@ class ForegroundService : Service() {
         }
 
         val duration = movementState.getTotalDuration()
-        val movementHours = duration.toHours()
-        val movementMinutes = (duration.toMinutes() % 60)
-        val movementSeconds = (duration.seconds % 60)
-        movementFormattedTime = String.format("%02d:%02d:%02d", movementHours, movementMinutes, movementSeconds)
+        movementFormattedTime = formatDurationHms(duration.toMillis())
 
         // Keep lazy time at zero for stationary activities
         lazyFormattedTime = "00:00:00"
+    }
+
+    private fun formatDurationHms(durationMs: Long): String {
+        val totalSeconds = (durationMs.coerceAtLeast(0L)) / 1000
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return String.format("%02d:%02d:%02d", hours, minutes, seconds)
+    }
+
+    private fun refreshRecordingDurationLabels(totalRecordingMs: Long) {
+        val movementMs = movementState.getTotalDuration()
+            .toMillis()
+            .coerceAtLeast(0L)
+            .coerceAtMost(totalRecordingMs.coerceAtLeast(0L))
+        val inactivityMs = (totalRecordingMs - movementMs).coerceAtLeast(0L)
+
+        movementFormattedTime = formatDurationHms(movementMs)
+        lazyFormattedTime = formatDurationHms(inactivityMs)
     }
 
     private fun resetValues() {
@@ -1300,6 +1334,55 @@ class ForegroundService : Service() {
             System.currentTimeMillis() - pauseStartTime
         } else 0L
         return (totalMs - pausedMs).coerceAtLeast(0L)
+    }
+
+    private fun updateRecordingClockFromMetric(timestampMs: Long) {
+        if (timestampMs <= 0L) return
+
+        if (recordingStartTimestampMs == 0L || timestampMs < recordingStartTimestampMs) {
+            recordingStartTimestampMs = timestampMs
+            startDateTime = LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(timestampMs),
+                ZoneId.systemDefault()
+            )
+            customLocationListener?.startDateTime = startDateTime
+
+            Log.d(TAG, "Recording clock anchored to first metric at $startDateTime ($timestampMs)")
+        }
+
+        if (timestampMs > latestRecordingTimestampMs) {
+            latestRecordingTimestampMs = timestampMs
+        }
+    }
+
+    private fun getRecordedDurationMs(): Long {
+        val startMs = recordingStartTimestampMs
+        if (startMs <= 0L) return getEffectiveRecordingMs()
+
+        val endMs = when {
+            isPaused && pauseStartTime > 0 -> currentTimeMillis()
+            latestRecordingTimestampMs > 0L -> latestRecordingTimestampMs
+            else -> currentTimeMillis()
+        }
+
+        val pausedMs = totalPausedDurationMs + if (isPaused && pauseStartTime > 0) {
+            currentTimeMillis() - pauseStartTime
+        } else {
+            0L
+        }
+
+        return (endMs - startMs - pausedMs).coerceAtLeast(0L)
+    }
+
+    private fun configureNotificationChronometer(displayedDurationMs: Long) {
+        if (!::notificationBuilder.isInitialized) return
+
+        val chronometerBaseMs = currentTimeMillis() - displayedDurationMs.coerceAtLeast(0L)
+        notificationBuilder
+            .setWhen(chronometerBaseMs)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(false)
     }
 
     /**
@@ -1443,8 +1526,10 @@ class ForegroundService : Service() {
             ""
         }
 
-        // Calculate total recording time since startDateTime, excluding paused intervals
-        val effectiveMs = getEffectiveRecordingMs()
+        // Match Event Times by using the metric timestamp range that is stored in the DB.
+        val effectiveMs = getRecordedDurationMs()
+        refreshRecordingDurationLabels(effectiveMs)
+        configureNotificationChronometer(effectiveMs)
         val totalRecordingDuration = Duration.ofMillis(effectiveMs)
 
         val totalHours = totalRecordingDuration.toHours()
@@ -1556,6 +1641,9 @@ class ForegroundService : Service() {
                 // Update CustomLocationListener with all slope statistics
                 customLocationListener?.updateSlopeData(currentSlope, avgSlope, maxUphillSlope, maxDownhillSlope)
 
+                val metricTimestampMs = currentTimeMillis()
+                updateRecordingClockFromMetric(metricTimestampMs)
+
                 // Always save metrics data with barometer data included
                 val metric = Metric(
                     eventId = eventId,
@@ -1565,7 +1653,7 @@ class ForegroundService : Service() {
                     distance = distance,
                     cadence = 0,
                     lap = lap,
-                    timeInMilliseconds = currentTimeMillis(),
+                    timeInMilliseconds = metricTimestampMs,
                     unity = "metric",
                     elevation = altitude.toFloat(),
                     elevationGain = elevGain,
@@ -1693,7 +1781,9 @@ class ForegroundService : Service() {
             Log.d(TAG, "Location update received: lat=$latitude, lon=$longitude, speed=$speed, satellites=$satellites")
 
             // Update home screen widget with current metrics
-            val totalRecordingDuration = Duration.ofMillis(getEffectiveRecordingMs())
+            val recordedDurationMs = getRecordedDurationMs()
+            refreshRecordingDurationLabels(recordedDurationMs)
+            val totalRecordingDuration = Duration.ofMillis(recordedDurationMs)
             val totalRecordingFormattedTime = String.format(
                 "%02d:%02d:%02d",
                 totalRecordingDuration.toHours(),
@@ -2014,8 +2104,15 @@ class ForegroundService : Service() {
                 lapCounter = prefs.getFloat("lap_counter", 0f).toDouble()
 
                 // Restore start time if available
+                recordingStartTimestampMs = prefs.getLong("recording_start_time_ms", 0)
+                latestRecordingTimestampMs = prefs.getLong("latest_recording_time_ms", 0)
                 val storedStartTime = prefs.getLong("service_start_time", 0)
-                if (storedStartTime > 0) {
+                if (recordingStartTimestampMs > 0) {
+                    startDateTime = LocalDateTime.ofInstant(
+                        Instant.ofEpochMilli(recordingStartTimestampMs),
+                        ZoneId.systemDefault()
+                    )
+                } else if (storedStartTime > 0) {
                     startDateTime = LocalDateTime.ofInstant(
                         Instant.ofEpochSecond(storedStartTime),
                         ZoneOffset.UTC
@@ -2087,6 +2184,9 @@ class ForegroundService : Service() {
                 // Extract heart rate sensor info from intent
                 heartRateDeviceAddress = intent?.getStringExtra("heartRateDeviceAddress")
                 heartRateDeviceName = intent?.getStringExtra("heartRateDeviceName")
+
+                recordingStartTimestampMs = 0L
+                latestRecordingTimestampMs = 0L
 
                 // Generate session ID if not already created
                 if (sessionId.isEmpty()) {
@@ -2511,6 +2611,8 @@ class ForegroundService : Service() {
                 .putInt("lap", lap)
                 .putFloat("lap_counter", lapCounter.toFloat())
                 .putLong("service_start_time", startDateTime.toEpochSecond(java.time.ZoneOffset.UTC))
+                .putLong("recording_start_time_ms", recordingStartTimestampMs)
+                .putLong("latest_recording_time_ms", latestRecordingTimestampMs)
                 .putLong("last_lap_completion_time", lastLapCompletionTime)
                 .putLong("lap_start_time", lapStartTime)
                 // Also save heart rate sensor information for restarts

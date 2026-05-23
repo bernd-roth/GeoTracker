@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.24 (19-05-2026: Notification stuck at 0 fixed)"
+        versionName = "9.25 (23-05-2026: Times in 'Notification', and 'Session info' are divergent, partly fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

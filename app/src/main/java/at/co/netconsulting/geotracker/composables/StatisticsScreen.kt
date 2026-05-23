@@ -28,7 +28,7 @@ import at.co.netconsulting.geotracker.tools.Tools
 import com.github.mikephil.charting.data.Entry
 import org.greenrobot.eventbus.EventBus
 import java.time.Duration
-import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun StatisticsScreen() {
@@ -104,7 +104,7 @@ fun StatisticsScreen() {
                             fontSize = 14.sp
                         )
                         Text(
-                            text = metrics?.startDateTime?.toLocalTime()?.toString() ?: "--:--:--",
+                            text = formatStartTime(metrics),
                             fontSize = 20.sp
                         )
                     }
@@ -1584,17 +1584,22 @@ fun LapInfoRow(label: String, value: String, textColor: Color = Color.Unspecifie
 }
 
 // Helper functions
+private val sessionTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+
+private fun formatStartTime(metrics: Metrics?): String {
+    return metrics?.startDateTime?.format(sessionTimeFormatter) ?: "--:--:--"
+}
+
 private fun formatDuration(metrics: Metrics?): String {
     if (metrics == null) return "00:00:00"
 
-    // Calculate duration between startDateTime and now
-    val duration = Duration.between(
-        metrics.startDateTime,
-        LocalDateTime.now()
-    )
-    val hours = duration.toHours()
-    val minutes = duration.toMinutes() % 60
-    val seconds = duration.seconds % 60
+    // Match Event Times by measuring the recorded sample range, not wall-clock time
+    // since the screen was opened.
+    val duration = Duration.between(metrics.startDateTime, metrics.currentDateTime)
+    val totalSeconds = duration.seconds.coerceAtLeast(0)
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
     return String.format("%02d:%02d:%02d", hours, minutes, seconds)
 }
 
