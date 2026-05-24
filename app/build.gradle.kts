@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.26 (23-05-2026: Reverse a way overlay for running back)"
+        versionName = "9.27 (24-05-2026: 'Rerun' altitude graph while label removed and placed at top center; dot in map added)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

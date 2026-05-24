@@ -1,6 +1,5 @@
 package at.co.netconsulting.geotracker.composables
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -197,24 +196,18 @@ fun AltitudeRerunChart(
                 )
             }
 
-            // Current altitude label (follows the dot)
+            // Current altitude label
             val clamped = progress.coerceIn(0f, 1f)
             val idx = (clamped * (altitudes.size - 1).coerceAtLeast(0)).toInt()
                 .coerceIn(0, altitudes.size - 1)
             val currentAlt = altitudes.getOrNull(idx) ?: 0.0
             Text(
                 text = "${currentAlt.toInt()} m",
-                color = Color(0xFFE53935),
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 14.dp)
-                    .background(
-                        color = Color.White.copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(4.dp)
-                    )
-                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                    .align(Alignment.TopCenter)
             )
         }
     }

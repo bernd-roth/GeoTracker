@@ -184,6 +184,70 @@ internal fun updateMapStyle(mapView: MapView, isDarkMode: Boolean, isSatellite: 
     mapView.invalidate()
 }
 
+private fun showRerunPositionMarker(
+    mapView: MapView,
+    existingMarker: Marker?,
+    position: GeoPoint
+): Marker {
+    val marker = existingMarker ?: Marker(mapView).apply {
+        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+        icon = createRerunPositionIcon(mapView)
+        setInfoWindow(null)
+    }
+
+    marker.position = position
+    mapView.overlays.remove(marker)
+    mapView.overlays.add(marker)
+    return marker
+}
+
+private fun createRerunPositionIcon(mapView: MapView): android.graphics.drawable.Drawable {
+    val density = mapView.resources.displayMetrics.density
+    val size = (24f * density).toInt().coerceAtLeast(24)
+    val center = size / 2f
+    val borderWidth = (3f * density).coerceAtLeast(3f)
+
+    val bitmap = android.graphics.Bitmap.createBitmap(
+        size,
+        size,
+        android.graphics.Bitmap.Config.ARGB_8888
+    )
+    val canvas = android.graphics.Canvas(bitmap)
+
+    val borderPaint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        color = android.graphics.Color.WHITE
+        style = android.graphics.Paint.Style.FILL
+    }
+    canvas.drawCircle(center, center, center, borderPaint)
+
+    val dotPaint = android.graphics.Paint().apply {
+        isAntiAlias = true
+        color = android.graphics.Color.rgb(229, 57, 53)
+        style = android.graphics.Paint.Style.FILL
+    }
+    canvas.drawCircle(center, center, center - borderWidth, dotPaint)
+
+    return android.graphics.drawable.BitmapDrawable(mapView.resources, bitmap)
+}
+
+private fun rerunPointAtProgress(points: List<GeoPoint>, progress: Float): GeoPoint {
+    if (points.isEmpty()) return GeoPoint(0.0, 0.0)
+    if (points.size == 1) return points.first()
+
+    val clampedProgress = progress.coerceIn(0f, 1f)
+    val scaledIndex = clampedProgress * (points.size - 1).toFloat()
+    val startIndex = scaledIndex.toInt().coerceIn(0, points.size - 2)
+    val segmentProgress = (scaledIndex - startIndex.toFloat()).coerceIn(0f, 1f).toDouble()
+    val start = points[startIndex]
+    val end = points[startIndex + 1]
+
+    return GeoPoint(
+        start.latitude + (end.latitude - start.latitude) * segmentProgress,
+        start.longitude + (end.longitude - start.longitude) * segmentProgress
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
@@ -361,6 +425,7 @@ fun MapScreen(
     var isRunningRerun by remember { mutableStateOf(false) }
     var rerunProgress by remember { mutableStateOf(0f) }
     var rerunOverlayRef = remember { mutableStateOf<Polyline?>(null) }
+    val rerunPositionMarkerRef = remember { mutableStateOf<Marker?>(null) }
 
     // Track overlay references and state
     val gpxTrackOverlayRef = remember { mutableStateOf<Polyline?>(null) }
@@ -709,6 +774,13 @@ fun MapScreen(
             }
             rerunOverlayRef.value = null
 
+            // Clear rerun position marker
+            rerunPositionMarkerRef.value?.let { marker ->
+                mapView.overlays.remove(marker)
+                Timber.d("Removed rerun position marker")
+            }
+            rerunPositionMarkerRef.value = null
+
             // Clear live recording path
             pathTracker.clearPath(mapView)
 
@@ -889,6 +961,12 @@ fun MapScreen(
                     Timber.d("Cleared rerun track when displaying regular route")
                 }
                 rerunOverlayRef.value = null
+
+                rerunPositionMarkerRef.value?.let { marker ->
+                    mapView.overlays.remove(marker)
+                    Timber.d("Cleared rerun position marker when displaying regular route")
+                }
+                rerunPositionMarkerRef.value = null
                 
                 // Remove existing route overlay if present
                 routeOverlayRef.value?.let { existingOverlay ->
@@ -1012,6 +1090,10 @@ fun MapScreen(
                 rerunOverlayRef.value?.let { existingOverlay ->
                     mapView.overlays.remove(existingOverlay)
                 }
+                rerunPositionMarkerRef.value?.let { existingMarker ->
+                    mapView.overlays.remove(existingMarker)
+                }
+                rerunPositionMarkerRef.value = null
 
                 // Calculate animation time: 1 second per kilometer, minimum 2 seconds
                 // Use pre-calculated distance if available, otherwise calculate it (for backwards compatibility)
@@ -1039,11 +1121,17 @@ fun MapScreen(
                 while (isRunningRerun && isActive && System.currentTimeMillis() - startTime < totalAnimationMs) {
                     val elapsed = System.currentTimeMillis() - startTime
                     val progress = elapsed.toFloat() / totalAnimationMs
-                    rerunProgress = progress.coerceIn(0f, 1f)
+                    val clampedProgress = progress.coerceIn(0f, 1f)
+                    rerunProgress = clampedProgress
                     
-                    val currentIndex = (progress * (routeRerunData.points.size - 1)).toInt()
+                    val scaledIndex = clampedProgress * (routeRerunData.points.size - 1).toFloat()
+                    val currentIndex = scaledIndex.toInt()
                         .coerceIn(0, routeRerunData.points.size - 1)
-                    val visiblePoints = routeRerunData.points.subList(0, currentIndex + 1)
+                    val currentPosition = rerunPointAtProgress(routeRerunData.points, clampedProgress)
+                    val visiblePoints = routeRerunData.points.subList(0, currentIndex + 1).toMutableList()
+                    if (scaledIndex > currentIndex.toFloat() && currentIndex < routeRerunData.points.lastIndex) {
+                        visiblePoints.add(currentPosition)
+                    }
                     
                     if (visiblePoints.isNotEmpty()) {
                         rerunOverlayRef.value?.let { overlay ->
@@ -1058,7 +1146,12 @@ fun MapScreen(
                         
                         mapView.overlays.add(rerunOverlay)
                         rerunOverlayRef.value = rerunOverlay
-                        mapView.controller.setCenter(visiblePoints.last())
+                        rerunPositionMarkerRef.value = showRerunPositionMarker(
+                            mapView,
+                            rerunPositionMarkerRef.value,
+                            currentPosition
+                        )
+                        mapView.controller.setCenter(currentPosition)
                         mapView.invalidate()
                     }
                     delay(50)
@@ -1078,6 +1171,11 @@ fun MapScreen(
                     
                     mapView.overlays.add(finalOverlay)
                     rerunOverlayRef.value = finalOverlay
+                    rerunPositionMarkerRef.value = showRerunPositionMarker(
+                        mapView,
+                        rerunPositionMarkerRef.value,
+                        routeRerunData.points.last()
+                    )
                     mapView.invalidate()
                     
                     isRunningRerun = false
@@ -1107,8 +1205,13 @@ fun MapScreen(
                     mapView.overlays.remove(overlay)
                     mapView.invalidate()
                 }
+                rerunPositionMarkerRef.value?.let { marker ->
+                    mapView.overlays.remove(marker)
+                    mapView.invalidate()
+                }
             }
             rerunOverlayRef.value = null
+            rerunPositionMarkerRef.value = null
             isRunningRerun = false
             rerunProgress = 0f
             
@@ -1617,8 +1720,14 @@ fun MapScreen(
                     mapView.invalidate()
                     Timber.d("Cleared rerun track when starting new recording")
                 }
+                rerunPositionMarkerRef.value?.let { marker ->
+                    mapView.overlays.remove(marker)
+                    mapView.invalidate()
+                    Timber.d("Cleared rerun position marker when starting new recording")
+                }
             }
             rerunOverlayRef.value = null
+            rerunPositionMarkerRef.value = null
             
             isFollowingLocation = true
             saveAutoFollowState(true)
@@ -2366,8 +2475,13 @@ fun MapScreen(
                                     mapView.overlays.remove(overlay)
                                     mapView.invalidate()
                                 }
+                                rerunPositionMarkerRef.value?.let { marker ->
+                                    mapView.overlays.remove(marker)
+                                    mapView.invalidate()
+                                }
                             }
                             rerunOverlayRef.value = null
+                            rerunPositionMarkerRef.value = null
                             
                             // Clear waypoints when closing rerun dialog
                             waypointOverlayRef.value?.updateWaypoints(emptyList())
