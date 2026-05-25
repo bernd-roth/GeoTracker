@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.27 (24-05-2026: 'Rerun' altitude graph while label removed and placed at top center; dot in map added)"
+        versionName = "9.28 (25-05-2026: Removing of planned events)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

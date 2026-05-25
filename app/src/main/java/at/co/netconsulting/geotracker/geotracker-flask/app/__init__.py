@@ -23,6 +23,10 @@ def create_app(config_name=None):
     # Initialize extensions
     db.init_app(app)
 
+    # Apply idempotent schema updates for existing deployments.
+    from .schema import ensure_database_schema
+    ensure_database_schema(app)
+
     # Register blueprints
     register_blueprints(app)
 

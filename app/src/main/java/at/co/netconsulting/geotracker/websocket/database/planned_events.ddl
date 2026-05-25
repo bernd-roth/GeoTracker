@@ -9,6 +9,7 @@ CREATE TABLE public.planned_events (
 	user_id int4 NOT NULL,
 	planned_event_name varchar(255) NOT NULL,
 	planned_event_date date NOT NULL,
+	planned_event_end_date date NULL,
 	planned_event_type varchar(100) NULL,
 	planned_event_country varchar(100) NOT NULL,
 	planned_event_city varchar(100) NOT NULL,

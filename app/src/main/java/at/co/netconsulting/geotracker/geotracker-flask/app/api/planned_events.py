@@ -130,6 +130,77 @@ def get_planned_event(event_id):
     return success_response(data=event.to_dict())
 
 
+@planned_events_bp.route('/planned-events/delete', methods=['DELETE'])
+def delete_planned_event_by_details():
+    """Delete a planned event owned by the requesting user using its event details.
+
+    This supports Android clients that do not store the remote planned_event_id.
+    """
+    firstname = request.args.get('firstname')
+    lastname = request.args.get('lastname') or ''
+    birthdate = request.args.get('birthdate') or ''
+    planned_event_name = request.args.get('planned_event_name')
+    planned_event_date = request.args.get('planned_event_date')
+    planned_event_country = request.args.get('planned_event_country')
+    planned_event_city = request.args.get('planned_event_city')
+
+    required_fields = {
+        'firstname': firstname,
+        'planned_event_name': planned_event_name,
+        'planned_event_date': planned_event_date,
+        'planned_event_country': planned_event_country,
+        'planned_event_city': planned_event_city,
+    }
+    missing_fields = [field for field, value in required_fields.items() if not value]
+    if missing_fields:
+        return error_response(f"Missing required field(s): {', '.join(missing_fields)}", 400)
+
+    try:
+        parsed_event_date = date_parser.parse(planned_event_date).date()
+    except (ValueError, TypeError) as e:
+        current_app.logger.warning(f"Failed to parse planned_event_date for delete: {e}")
+        return error_response("planned_event_date is invalid", 400)
+
+    user = User.query.filter(
+        User.firstname == firstname,
+        db.func.coalesce(User.lastname, '') == lastname,
+        db.func.coalesce(User.birthdate, '') == birthdate
+    ).first()
+
+    if not user:
+        return success_response(
+            data={'deleted_count': 0},
+            message="No matching planned event found"
+        )
+
+    event = PlannedEvent.query.filter(
+        PlannedEvent.created_by_user_id == user.user_id,
+        PlannedEvent.planned_event_name == planned_event_name,
+        PlannedEvent.planned_event_date == parsed_event_date,
+        PlannedEvent.planned_event_country == planned_event_country,
+        PlannedEvent.planned_event_city == planned_event_city
+    ).first()
+
+    if not event:
+        return success_response(
+            data={'deleted_count': 0},
+            message="No matching planned event found"
+        )
+
+    try:
+        db.session.delete(event)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error deleting planned event by details: {e}")
+        raise ValidationError(f"Failed to delete planned event: {str(e)}")
+
+    return success_response(
+        data={'deleted_count': 1},
+        message="Planned event deleted successfully"
+    )
+
+
 @planned_events_bp.route('/planned-events', methods=['POST'])
 def create_planned_event():
     """Create a new planned event."""

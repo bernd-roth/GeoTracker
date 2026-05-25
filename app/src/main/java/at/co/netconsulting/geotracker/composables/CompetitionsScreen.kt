@@ -1302,6 +1302,13 @@ fun CompetitionsScreen() {
                                                     try {
                                                         Log.d("CompetitionsScreen", "Deleting competition: ${competition.plannedEventName}")
 
+                                                        val remoteResult = networkManager.deletePlannedEventFromServer(competition)
+                                                        if (!remoteResult.success) {
+                                                            Log.e("CompetitionsScreen", "Remote delete failed: ${remoteResult.message}")
+                                                            errorMessage = "Could not delete competition from server: ${remoteResult.message}"
+                                                            return@launch
+                                                        }
+
                                                         // Cancel reminder before deleting
                                                         reminderManager.cancelReminder(competition.plannedEventId)
 

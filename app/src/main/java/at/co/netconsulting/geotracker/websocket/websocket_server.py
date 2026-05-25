@@ -475,6 +475,7 @@ class TrackingServer:
                     user_id INTEGER NOT NULL,
                     planned_event_name VARCHAR(255) NOT NULL,
                     planned_event_date DATE NOT NULL,
+                    planned_event_end_date DATE,
                     planned_event_type VARCHAR(100),
                     planned_event_country VARCHAR(100) NOT NULL,
                     planned_event_city VARCHAR(100) NOT NULL,
@@ -508,6 +509,11 @@ class TrackingServer:
                     CONSTRAINT chk_longitude_range 
                         CHECK (planned_longitude >= -180 AND planned_longitude <= 180)
                 )
+            """)
+
+            await conn.execute("""
+                ALTER TABLE planned_events
+                ADD COLUMN IF NOT EXISTS planned_event_end_date DATE
             """)
 
             # Create indexes for performance

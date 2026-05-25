@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -212,6 +213,17 @@ fun CalendarScreen(
 
     fun deleteCompetition(competition: PlannedEvent) {
         coroutineScope.launch {
+            val remoteResult = networkManager.deletePlannedEventFromServer(competition)
+            if (!remoteResult.success) {
+                Log.e("CalendarScreen", "Remote delete failed: ${remoteResult.message}")
+                Toast.makeText(
+                    context,
+                    "Could not delete event from server: ${remoteResult.message}",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@launch
+            }
+
             withContext(Dispatchers.IO) {
                 reminderManager.cancelReminder(competition.plannedEventId)
                 database.plannedEventDao().deletePlannedEvent(competition)

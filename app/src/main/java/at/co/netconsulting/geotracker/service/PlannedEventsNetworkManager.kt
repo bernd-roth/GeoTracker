@@ -10,6 +10,7 @@ import at.co.netconsulting.geotracker.reminder.ReminderManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -45,6 +46,7 @@ class PlannedEventsNetworkManager(private val context: Context) {
         val duplicateCount: Int = 0,
         val errorCount: Int = 0,
         val downloadedCount: Int = 0,
+        val deletedCount: Int = 0,
         val errors: List<String> = emptyList()
     )
 
@@ -191,6 +193,68 @@ class PlannedEventsNetworkManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error uploading planned events", e)
             return@withContext NetworkResult(false, "Upload failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Delete a planned event from the server. The API matches by owner and event details because
+     * older local records do not store the remote planned_event_id.
+     */
+    suspend fun deletePlannedEventFromServer(plannedEvent: PlannedEvent): NetworkResult = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "Starting delete of planned event via REST API: ${plannedEvent.plannedEventName}")
+
+            val baseUrl = getApiBaseUrl()
+                ?: return@withContext NetworkResult(true, "Remote sync not configured")
+
+            if (!isNetworkAvailable()) {
+                Log.e(TAG, "No network connectivity available")
+                return@withContext NetworkResult(false, "No network connectivity")
+            }
+
+            val (firstname, lastname, birthdate) = getUserInfo()
+            if (firstname.isBlank()) {
+                Log.e(TAG, "User information not configured for delete")
+                return@withContext NetworkResult(true, "User information not configured")
+            }
+
+            val urlBuilder = "$baseUrl/planned-events/delete".toHttpUrl().newBuilder()
+                .addQueryParameter("firstname", firstname)
+                .addQueryParameter("planned_event_name", plannedEvent.plannedEventName)
+                .addQueryParameter("planned_event_date", plannedEvent.plannedEventDate)
+                .addQueryParameter("planned_event_country", plannedEvent.plannedEventCountry)
+                .addQueryParameter("planned_event_city", plannedEvent.plannedEventCity)
+
+            if (lastname.isNotBlank()) urlBuilder.addQueryParameter("lastname", lastname)
+            if (birthdate.isNotBlank()) urlBuilder.addQueryParameter("birthdate", birthdate)
+
+            val request = Request.Builder()
+                .url(urlBuilder.build())
+                .delete()
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+
+            if (response.isSuccessful) {
+                val json = JSONObject(response.body?.string() ?: "{}")
+                val data = json.optJSONObject("data")
+                val deletedCount = data?.optInt("deleted_count", 0) ?: 0
+                Log.d(TAG, "Remote delete completed for ${plannedEvent.plannedEventName}: deletedCount=$deletedCount")
+                NetworkResult(
+                    success = true,
+                    message = "Remote delete completed",
+                    deletedCount = deletedCount
+                )
+            } else {
+                val errorBody = response.body?.string() ?: "Unknown error"
+                Log.e(TAG, "Delete failed: ${response.code} - $errorBody")
+                val errorJson = try { JSONObject(errorBody) } catch (e: Exception) { JSONObject() }
+                val errorMessage = errorJson.optString("error", "Delete failed: ${response.code}")
+                NetworkResult(false, errorMessage)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error deleting planned event", e)
+            NetworkResult(false, "Delete failed: ${e.message}")
         }
     }
 
