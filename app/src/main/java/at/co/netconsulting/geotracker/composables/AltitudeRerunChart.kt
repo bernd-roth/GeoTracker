@@ -28,6 +28,7 @@ fun AltitudeRerunChart(
     altitudes: List<Double>,
     distancesMeters: List<Double>,
     progress: Float,
+    referenceProgress: Float? = null,
     modifier: Modifier = Modifier
 ) {
     val validAltitudes = remember(altitudes) {
@@ -169,30 +170,60 @@ fun AltitudeRerunChart(
                     }
                 }
 
-                // Position dot at current rerun progress
-                val clamped = progress.coerceIn(0f, 1f)
-                val idx = (clamped * (n - 1)).toInt().coerceIn(0, n - 1)
-                val dotX = idx * stepX
-                val dotY = yFor(altitudes[idx])
+                fun positionFor(progressValue: Float): Offset {
+                    val clamped = progressValue.coerceIn(0f, 1f)
+                    val scaledIndex = clamped * (n - 1)
+                    val lowerIndex = scaledIndex.toInt().coerceIn(0, n - 1)
+                    val upperIndex = (lowerIndex + 1).coerceAtMost(n - 1)
+                    val segmentProgress = (scaledIndex - lowerIndex).coerceIn(0f, 1f)
+                    val interpolatedAltitude = altitudes[lowerIndex] +
+                            (altitudes[upperIndex] - altitudes[lowerIndex]) * segmentProgress
+                    return Offset(scaledIndex * stepX, yFor(interpolatedAltitude))
+                }
 
-                // Vertical guide line for the dot
-                drawLine(
-                    color = Color.White.copy(alpha = 0.6f),
-                    start = Offset(dotX, 0f),
-                    end = Offset(dotX, h),
-                    strokeWidth = 1.5f
-                )
-                // Outer ring
-                drawCircle(
-                    color = Color.White,
-                    radius = 7f,
-                    center = Offset(dotX, dotY)
-                )
-                // Inner dot
-                drawCircle(
+                fun drawPositionDot(
+                    progressValue: Float,
+                    color: Color,
+                    guideColor: Color,
+                    innerRadius: Float,
+                    outerRadius: Float
+                ) {
+                    val dot = positionFor(progressValue)
+                    drawLine(
+                        color = guideColor,
+                        start = Offset(dot.x, 0f),
+                        end = Offset(dot.x, h),
+                        strokeWidth = 1.5f
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = outerRadius,
+                        center = dot
+                    )
+                    drawCircle(
+                        color = color,
+                        radius = innerRadius,
+                        center = dot
+                    )
+                }
+
+                referenceProgress?.let {
+                    drawPositionDot(
+                        progressValue = it,
+                        color = Color(0xFF1E88E5),
+                        guideColor = Color(0xFF1E88E5).copy(alpha = 0.45f),
+                        innerRadius = 4.5f,
+                        outerRadius = 6.5f
+                    )
+                }
+
+                // Red dot: current live position on the profile.
+                drawPositionDot(
+                    progressValue = progress,
                     color = Color(0xFFE53935),
-                    radius = 5f,
-                    center = Offset(dotX, dotY)
+                    guideColor = Color.White.copy(alpha = 0.6f),
+                    innerRadius = 5f,
+                    outerRadius = 7f
                 )
             }
 

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.29 (29-05-2026: Added altitude graph when importing recorded track)"
+        versionName = "9.30 (29-05-2026: Jumping in altitude graph fixed; blue dot of recorded event shown in altitude graph)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

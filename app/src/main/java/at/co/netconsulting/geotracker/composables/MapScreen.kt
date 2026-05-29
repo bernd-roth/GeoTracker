@@ -283,7 +283,63 @@ private fun cumulativeDistancesFor(points: List<GeoPoint>): List<Double> {
     return distances
 }
 
-private fun progressForNearestRoutePoint(points: List<GeoPoint>, currentLocation: GeoPoint?): Float {
+private fun progressForDistance(distancesMeters: List<Double>, distanceMeters: Double): Float {
+    if (distancesMeters.size < 2) return 0f
+    val totalDistance = distancesMeters.lastOrNull() ?: return 0f
+    if (!totalDistance.isFinite() || totalDistance <= 0.0) return 0f
+
+    val targetDistance = distanceMeters.coerceIn(0.0, totalDistance)
+    if (targetDistance <= 0.0) return 0f
+    if (targetDistance >= totalDistance) return 1f
+
+    for (index in 1 until distancesMeters.size) {
+        val currentDistance = distancesMeters[index]
+        if (currentDistance >= targetDistance) {
+            val previousDistance = distancesMeters[index - 1]
+            val segmentDistance = currentDistance - previousDistance
+            val segmentProgress = if (segmentDistance > 0.0) {
+                ((targetDistance - previousDistance) / segmentDistance).toFloat()
+            } else {
+                0f
+            }
+            return ((index - 1 + segmentProgress) / (distancesMeters.size - 1))
+                .coerceIn(0f, 1f)
+        }
+    }
+
+    return 1f
+}
+
+private fun progressForElapsedTime(timestamps: List<Long>, elapsedMillis: Long): Float? {
+    if (timestamps.size < 2) return null
+
+    val targetElapsed = elapsedMillis.coerceIn(timestamps.first(), timestamps.last())
+    if (targetElapsed <= timestamps.first()) return 0f
+    if (targetElapsed >= timestamps.last()) return 1f
+
+    for (index in 1 until timestamps.size) {
+        val currentTime = timestamps[index]
+        if (currentTime >= targetElapsed) {
+            val previousTime = timestamps[index - 1]
+            val segmentTime = currentTime - previousTime
+            val segmentProgress = if (segmentTime > 0L) {
+                ((targetElapsed - previousTime).toDouble() / segmentTime.toDouble()).toFloat()
+            } else {
+                0f
+            }
+            return ((index - 1 + segmentProgress) / (timestamps.size - 1))
+                .coerceIn(0f, 1f)
+        }
+    }
+
+    return 1f
+}
+
+private fun progressForNearestRoutePoint(
+    points: List<GeoPoint>,
+    currentLocation: GeoPoint?,
+    minimumProgress: Float = 0f
+): Float {
     if (points.size < 2 || currentLocation == null) return 0f
 
     val totalDistance = points.zipWithNext().sumOf { (start, end) ->
@@ -291,14 +347,17 @@ private fun progressForNearestRoutePoint(points: List<GeoPoint>, currentLocation
     }
     if (!totalDistance.isFinite() || totalDistance <= 0.0) return 0f
 
-    var cumulativeDistance = 0.0
     var bestDistanceSquared = Double.POSITIVE_INFINITY
-    var bestDistanceAlongRoute = 0.0
+    var bestPointProgress = minimumProgress.coerceIn(0f, 1f)
+    val minimumSegmentIndex = (minimumProgress.coerceIn(0f, 1f) * (points.size - 1))
+        .toInt()
+        .let { (it - 10).coerceAtLeast(0) }
 
     for (index in 0 until points.lastIndex) {
         val start = points[index]
         val end = points[index + 1]
         val segmentDistance = start.distanceToAsDouble(end)
+        if (index < minimumSegmentIndex) continue
         if (!segmentDistance.isFinite() || segmentDistance <= 0.0) continue
 
         val metersPerDegreeLatitude = 111_320.0
@@ -323,14 +382,13 @@ private fun progressForNearestRoutePoint(points: List<GeoPoint>, currentLocation
 
         if (distanceSquared < bestDistanceSquared) {
             bestDistanceSquared = distanceSquared
-            bestDistanceAlongRoute = cumulativeDistance + segmentDistance * t
+            val pointProgress = ((index + t) / (points.size - 1)).toFloat()
+            bestPointProgress = pointProgress.coerceAtLeast(minimumProgress.coerceIn(0f, 1f))
         }
-
-        cumulativeDistance += segmentDistance
     }
 
     if (!bestDistanceSquared.isFinite()) return 0f
-    return (bestDistanceAlongRoute / totalDistance).toFloat().coerceIn(0f, 1f)
+    return bestPointProgress.coerceIn(0f, 1f)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -591,12 +649,19 @@ fun MapScreen(
 
     // Track the last known timestamp for efficient change detection
     val lastTrackTimestamp = remember { mutableStateOf(0L) }
+    var currentRecordingDistanceMeters by remember { mutableStateOf<Double?>(null) }
+    var stableAltitudeProfileProgress by remember { mutableStateOf(0f) }
+    var chartNowMillis by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val displayedRouteAltitudePoints = remember(displayedRoute) {
         routeDisplayPointsWithAltitude(displayedRoute)
     }
     val isAltitudeProfileFromRerun = routeRerunData != null &&
             hasUsableAltitudeData(routeRerunData.points)
+    val isAltitudeProfileFromImportedTrack = !isAltitudeProfileFromRerun &&
+            currentImportedTrack != null &&
+            hasUsableAltitudeData(currentImportedTrack!!.points) &&
+            !hasUsableAltitudeData(displayedRouteAltitudePoints)
     val altitudeProfilePoints = when {
         isAltitudeProfileFromRerun -> routeRerunData!!.points
         hasUsableAltitudeData(displayedRouteAltitudePoints) -> displayedRouteAltitudePoints
@@ -607,23 +672,77 @@ fun MapScreen(
     val altitudeProfileDistances = remember(altitudeProfilePoints) {
         cumulativeDistancesFor(altitudeProfilePoints)
     }
-    val altitudeProfileProgress = remember(
+    val recordingStartTimeMillis = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
+        .getLong("recording_start_time", 0L)
+    val referenceAltitudeProfileProgress = remember(
+        isAltitudeProfileFromImportedTrack,
+        currentImportedTrack,
+        chartNowMillis,
+        recordingStartTimeMillis
+    ) {
+        val track = currentImportedTrack
+        if (isAltitudeProfileFromImportedTrack &&
+            track != null &&
+            track.timestamps.size >= 2 &&
+            recordingStartTimeMillis > 0L
+        ) {
+            progressForElapsedTime(
+                timestamps = track.timestamps,
+                elapsedMillis = chartNowMillis - recordingStartTimeMillis
+            )
+        } else {
+            null
+        }
+    }
+    val calculatedAltitudeProfileProgress = remember(
         altitudeProfilePoints,
+        altitudeProfileDistances,
         isAltitudeProfileFromRerun,
         isRunningRerun,
+        isRecording,
         rerunProgress,
-        lastKnownLocation.value
+        lastKnownLocation.value,
+        currentRecordingDistanceMeters,
+        stableAltitudeProfileProgress
     ) {
         if (isAltitudeProfileFromRerun) {
             if (isRunningRerun) rerunProgress else 1f
+        } else if (isRecording && currentRecordingDistanceMeters != null) {
+            progressForDistance(altitudeProfileDistances, currentRecordingDistanceMeters ?: 0.0)
         } else {
-            progressForNearestRoutePoint(altitudeProfilePoints, lastKnownLocation.value)
+            progressForNearestRoutePoint(
+                points = altitudeProfilePoints,
+                currentLocation = lastKnownLocation.value,
+                minimumProgress = if (isRecording) stableAltitudeProfileProgress else 0f
+            )
         }
+    }
+    val altitudeProfileProgress = if (!isAltitudeProfileFromRerun && isRecording) {
+        calculatedAltitudeProfileProgress.coerceAtLeast(stableAltitudeProfileProgress)
+    } else {
+        calculatedAltitudeProfileProgress
     }
 
     LaunchedEffect(altitudeProfilePoints) {
+        stableAltitudeProfileProgress = 0f
         if (hasAltitudeProfile) {
             showAltitudeGraph = true
+        }
+    }
+
+    LaunchedEffect(isRecording, isAltitudeProfileFromImportedTrack, currentImportedTrack?.timestamps) {
+        while (isRecording &&
+            isAltitudeProfileFromImportedTrack &&
+            currentImportedTrack?.timestamps?.isNotEmpty() == true
+        ) {
+            chartNowMillis = System.currentTimeMillis()
+            delay(1000)
+        }
+    }
+
+    LaunchedEffect(altitudeProfileProgress, isRecording, isAltitudeProfileFromRerun) {
+        if (isRecording && !isAltitudeProfileFromRerun) {
+            stableAltitudeProfileProgress = altitudeProfileProgress
         }
     }
 
@@ -1458,6 +1577,7 @@ fun MapScreen(
                 if (metrics.latitude != 0.0 && metrics.longitude != 0.0) {
                     lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude, metrics.altitude)
                 }
+                currentRecordingDistanceMeters = metrics.coveredDistance
 
                 if (!isRecording) {
                     Timber.d(
@@ -1567,6 +1687,7 @@ fun MapScreen(
                         locationData.altitude
                     )
                 }
+                currentRecordingDistanceMeters = locationData.coveredDistance
             }
         }
     }
@@ -3133,6 +3254,8 @@ fun MapScreen(
                                     .remove("lt_test_start_time")
                                     .apply()
 
+                                currentRecordingDistanceMeters = null
+                                stableAltitudeProfileProgress = 0f
                                 currentSportType = ""
                                 currentDiscipline = "Run"
                                 disciplineTransitionCount = 0
@@ -3178,6 +3301,7 @@ fun MapScreen(
                                 // Clear persisted recording start time
                                 context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                                     .edit()
+                                    .remove("recording_start_time")
                                     .remove("recording_start_datetime")
                                     .apply()
 
@@ -3243,6 +3367,8 @@ fun MapScreen(
                                     .remove("backyard_completed_laps")
                                     .apply()
 
+                                currentRecordingDistanceMeters = null
+                                stableAltitudeProfileProgress = 0f
                                 currentSportType = ""
                                 currentDiscipline = "Run"
                                 disciplineTransitionCount = 0
@@ -3267,6 +3393,7 @@ fun MapScreen(
 
                                 context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                                     .edit()
+                                    .remove("recording_start_time")
                                     .remove("recording_start_datetime")
                                     .apply()
 
@@ -3450,6 +3577,7 @@ fun MapScreen(
                 altitudes = altitudes,
                 distancesMeters = altitudeProfileDistances,
                 progress = altitudeProfileProgress,
+                referenceProgress = referenceAltitudeProfileProgress,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
@@ -3593,6 +3721,7 @@ fun MapScreen(
             onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx, enableGhostRacer ->
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
+                val recordingStartMillis = System.currentTimeMillis()
 
                 // Handle imported track
                 importedGpx?.let { gpxTrack ->
@@ -3612,12 +3741,15 @@ fun MapScreen(
                     .putBoolean("is_recording", true)
                     .putBoolean("is_paused", false)
                     .remove("pause_start_time")
+                    .putLong("recording_start_time", recordingStartMillis)
                     .putString("current_sport_type", artOfSport)
                     .apply()
 
                 currentSportType = artOfSport
                 isRecording = true
                 isPaused = false
+                currentRecordingDistanceMeters = 0.0
+                stableAltitudeProfileProgress = 0f
 
                 // Initialize discipline for multisport races
                 if (artOfSport.equals("Duathlon", ignoreCase = true)) {
@@ -3759,14 +3891,13 @@ fun MapScreen(
                             mapView.overlays.add(ghostOverlay)
                             ghostRacerOverlayRef.value = ghostOverlay
 
-                            // Start ghost racer with current system time and save it for restoration
-                            val startTime = System.currentTimeMillis()
-                            ghostOverlay.startGhostRacer(startTime)
+                            // Start ghost racer with the recording start time used by the altitude chart.
+                            ghostOverlay.startGhostRacer(recordingStartMillis)
 
                             // Persist the recording start time for ghost racer restoration
                             context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
                                 .edit()
-                                .putLong("recording_start_time", startTime)
+                                .putLong("recording_start_time", recordingStartMillis)
                                 .apply()
 
                             Timber.d("Ghost racer overlay initialized with ${trackForRecording.points.size} points")
