@@ -144,8 +144,10 @@ private suspend fun parseGpxFileStreamingWithSpeed(
         parser.setInput(bufferedStream, null)
 
         var eventType = parser.eventType
-        var currentLat: String? = null
-        var currentLon: String? = null
+        var currentTrackPointLat: Double? = null
+        var currentTrackPointLon: Double? = null
+        var currentTrackPointEle = 0.0
+        var inTrackPoint = false
         var inWaypoint = false
         var currentWaypointLat = 0.0
         var currentWaypointLon = 0.0
@@ -193,46 +195,50 @@ private suspend fun parseGpxFileStreamingWithSpeed(
                             if (parser.eventType == XmlPullParser.TEXT) {
                                 if (inWaypoint) {
                                     currentWaypointEle = parser.text?.toDoubleOrNull()
+                                } else if (inTrackPoint) {
+                                    currentTrackPointEle = parser.text?.toDoubleOrNull() ?: 0.0
                                 }
-                                // Ignore track point elevation in streaming parser (not needed)
                             }
                         }
                         "trkpt" -> {
-                            currentLat = parser.getAttributeValue(null, "lat")
-                            currentLon = parser.getAttributeValue(null, "lon")
-
-                            if (currentLat != null && currentLon != null) {
-                                try {
-                                    val lat = currentLat.toDouble()
-                                    val lon = currentLon.toDouble()
-
-                                    // Validate coordinates
-                                    if (lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0) {
-                                        points.add(GeoPoint(lat, lon))
-                                        pointsProcessed++
-
-                                        // Update progress periodically
-                                        if (pointsProcessed % updateInterval == 0) {
-                                            onProgress(GpxImportProgress(
-                                                isImporting = true,
-                                                pointsProcessed = pointsProcessed,
-                                                status = "Processed $pointsProcessed points..."
-                                            ))
-
-                                            // Allow other coroutines to run
-                                            yield()
-                                        }
-                                    }
-                                } catch (e: NumberFormatException) {
-                                    // Skip invalid coordinates
-                                    android.util.Log.w("GPX", "Invalid coordinates: lat=$currentLat, lon=$currentLon")
-                                }
-                            }
+                            inTrackPoint = true
+                            currentTrackPointEle = 0.0
+                            currentTrackPointLat = parser.getAttributeValue(null, "lat")?.toDoubleOrNull()
+                            currentTrackPointLon = parser.getAttributeValue(null, "lon")?.toDoubleOrNull()
                         }
                     }
                 }
                 XmlPullParser.END_TAG -> {
                     when (parser.name) {
+                        "trkpt" -> {
+                            val lat = currentTrackPointLat
+                            val lon = currentTrackPointLon
+                            if (lat != null && lon != null &&
+                                lat >= -90.0 && lat <= 90.0 &&
+                                lon >= -180.0 && lon <= 180.0
+                            ) {
+                                points.add(GeoPoint(lat, lon, currentTrackPointEle))
+                                pointsProcessed++
+
+                                // Update progress periodically
+                                if (pointsProcessed % updateInterval == 0) {
+                                    onProgress(GpxImportProgress(
+                                        isImporting = true,
+                                        pointsProcessed = pointsProcessed,
+                                        status = "Processed $pointsProcessed points..."
+                                    ))
+
+                                    // Allow other coroutines to run
+                                    yield()
+                                }
+                            } else {
+                                android.util.Log.w("GPX", "Invalid coordinates: lat=$currentTrackPointLat, lon=$currentTrackPointLon")
+                            }
+                            currentTrackPointLat = null
+                            currentTrackPointLon = null
+                            currentTrackPointEle = 0.0
+                            inTrackPoint = false
+                        }
                         "wpt" -> {
                             if (inWaypoint) {
                                 // Validate and add waypoint (exclude invalid coordinates)

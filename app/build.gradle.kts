@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.28 (25-05-2026: Removing of planned events)"
+        versionName = "9.29 (29-05-2026: Added altitude graph when importing recorded track)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

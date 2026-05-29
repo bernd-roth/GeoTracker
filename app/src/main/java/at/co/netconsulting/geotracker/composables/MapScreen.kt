@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Flag
@@ -70,6 +71,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import at.co.netconsulting.geotracker.data.GpsStatus
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
+import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.LtPhaseChanged
 import at.co.netconsulting.geotracker.data.LtTestResult
 import at.co.netconsulting.geotracker.data.Metrics
@@ -115,6 +117,7 @@ import org.osmdroid.views.overlay.mylocation.MyLocationNewOverlay
 import org.osmdroid.views.overlay.Polyline
 import at.co.netconsulting.geotracker.util.DirectionArrowHelper
 import timber.log.Timber
+import kotlin.math.cos
 
 // Dark mode tile source function - works with OSMDroid 6.1.18+
 internal fun createDarkTileSource(): OnlineTileSourceBase {
@@ -246,6 +249,88 @@ private fun rerunPointAtProgress(points: List<GeoPoint>, progress: Float): GeoPo
         start.latitude + (end.latitude - start.latitude) * segmentProgress,
         start.longitude + (end.longitude - start.longitude) * segmentProgress
     )
+}
+
+private fun hasUsableAltitudeData(points: List<GeoPoint>): Boolean {
+    return points.count { it.altitude.isFinite() && it.altitude != 0.0 } >= 2
+}
+
+private fun routeDisplayPointsWithAltitude(route: RouteDisplayData?): List<GeoPoint> {
+    route ?: return emptyList()
+    if (hasUsableAltitudeData(route.points)) return route.points
+
+    val metrics = route.metrics ?: return route.points
+    val count = minOf(route.points.size, metrics.size)
+    if (count < 2) return route.points
+
+    val usableMetricAltitudes = metrics.take(count)
+        .count { it.elevation.isFinite() && it.elevation != 0f }
+    if (usableMetricAltitudes < 2) return route.points
+
+    return List(count) { index ->
+        val point = route.points[index]
+        GeoPoint(point.latitude, point.longitude, metrics[index].elevation.toDouble())
+    }
+}
+
+private fun cumulativeDistancesFor(points: List<GeoPoint>): List<Double> {
+    val distances = ArrayList<Double>(points.size)
+    var acc = 0.0
+    points.forEachIndexed { index, point ->
+        if (index > 0) acc += points[index - 1].distanceToAsDouble(point)
+        distances.add(acc)
+    }
+    return distances
+}
+
+private fun progressForNearestRoutePoint(points: List<GeoPoint>, currentLocation: GeoPoint?): Float {
+    if (points.size < 2 || currentLocation == null) return 0f
+
+    val totalDistance = points.zipWithNext().sumOf { (start, end) ->
+        start.distanceToAsDouble(end)
+    }
+    if (!totalDistance.isFinite() || totalDistance <= 0.0) return 0f
+
+    var cumulativeDistance = 0.0
+    var bestDistanceSquared = Double.POSITIVE_INFINITY
+    var bestDistanceAlongRoute = 0.0
+
+    for (index in 0 until points.lastIndex) {
+        val start = points[index]
+        val end = points[index + 1]
+        val segmentDistance = start.distanceToAsDouble(end)
+        if (!segmentDistance.isFinite() || segmentDistance <= 0.0) continue
+
+        val metersPerDegreeLatitude = 111_320.0
+        val metersPerDegreeLongitude = (metersPerDegreeLatitude *
+                cos(Math.toRadians((start.latitude + end.latitude) / 2.0)))
+            .coerceAtLeast(0.000001)
+
+        val segmentX = (end.longitude - start.longitude) * metersPerDegreeLongitude
+        val segmentY = (end.latitude - start.latitude) * metersPerDegreeLatitude
+        val locationX = (currentLocation.longitude - start.longitude) * metersPerDegreeLongitude
+        val locationY = (currentLocation.latitude - start.latitude) * metersPerDegreeLatitude
+        val segmentLengthSquared = segmentX * segmentX + segmentY * segmentY
+        if (segmentLengthSquared <= 0.0) continue
+
+        val t = ((locationX * segmentX + locationY * segmentY) / segmentLengthSquared)
+            .coerceIn(0.0, 1.0)
+        val projectedX = segmentX * t
+        val projectedY = segmentY * t
+        val dx = locationX - projectedX
+        val dy = locationY - projectedY
+        val distanceSquared = dx * dx + dy * dy
+
+        if (distanceSquared < bestDistanceSquared) {
+            bestDistanceSquared = distanceSquared
+            bestDistanceAlongRoute = cumulativeDistance + segmentDistance * t
+        }
+
+        cumulativeDistance += segmentDistance
+    }
+
+    if (!bestDistanceSquared.isFinite()) return 0f
+    return (bestDistanceAlongRoute / totalDistance).toFloat().coerceIn(0f, 1f)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -385,6 +470,14 @@ fun MapScreen(
         )
     }
 
+    // Altitude profile visibility for loaded routes/tracks and route reruns.
+    var showAltitudeGraph by remember {
+        mutableStateOf(
+            context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+                .getBoolean("show_altitude_graph", true)
+        )
+    }
+
     // Rerun mode state - disables live GPS updates during route reruns
     var isRerunModeEnabled by remember {
         mutableStateOf(
@@ -499,6 +592,41 @@ fun MapScreen(
     // Track the last known timestamp for efficient change detection
     val lastTrackTimestamp = remember { mutableStateOf(0L) }
 
+    val displayedRouteAltitudePoints = remember(displayedRoute) {
+        routeDisplayPointsWithAltitude(displayedRoute)
+    }
+    val isAltitudeProfileFromRerun = routeRerunData != null &&
+            hasUsableAltitudeData(routeRerunData.points)
+    val altitudeProfilePoints = when {
+        isAltitudeProfileFromRerun -> routeRerunData!!.points
+        hasUsableAltitudeData(displayedRouteAltitudePoints) -> displayedRouteAltitudePoints
+        currentImportedTrack != null && hasUsableAltitudeData(currentImportedTrack!!.points) -> currentImportedTrack!!.points
+        else -> emptyList()
+    }
+    val hasAltitudeProfile = altitudeProfilePoints.isNotEmpty()
+    val altitudeProfileDistances = remember(altitudeProfilePoints) {
+        cumulativeDistancesFor(altitudeProfilePoints)
+    }
+    val altitudeProfileProgress = remember(
+        altitudeProfilePoints,
+        isAltitudeProfileFromRerun,
+        isRunningRerun,
+        rerunProgress,
+        lastKnownLocation.value
+    ) {
+        if (isAltitudeProfileFromRerun) {
+            if (isRunningRerun) rerunProgress else 1f
+        } else {
+            progressForNearestRoutePoint(altitudeProfilePoints, lastKnownLocation.value)
+        }
+    }
+
+    LaunchedEffect(altitudeProfilePoints) {
+        if (hasAltitudeProfile) {
+            showAltitudeGraph = true
+        }
+    }
+
     // Function to save auto-follow state
     fun saveAutoFollowState(enabled: Boolean) {
         context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
@@ -515,6 +643,15 @@ fun MapScreen(
             .putBoolean("show_slope_legend", enabled)
             .apply()
         Timber.d("Saved slope legend state: $enabled")
+    }
+
+    // Function to save altitude graph visibility state
+    fun saveAltitudeGraphState(enabled: Boolean) {
+        context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("show_altitude_graph", enabled)
+            .apply()
+        Timber.d("Saved altitude graph state: $enabled")
     }
 
     // Function to save auto-follow users state
@@ -1316,17 +1453,18 @@ fun MapScreen(
             fun onLocationUpdate(metrics: Metrics) {
                 Timber.d("Location update: lat=${metrics.latitude}, lon=${metrics.longitude}, follow=$isFollowingLocation")
 
+                // Keep the altitude graph marker aligned with the user's latest
+                // position even when map auto-follow is disabled.
+                if (metrics.latitude != 0.0 && metrics.longitude != 0.0) {
+                    lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude, metrics.altitude)
+                }
+
                 if (!isRecording) {
                     Timber.d(
                         "Ignoring Metrics update because recording is not active: " +
                                 "lat=${metrics.latitude}, lon=${metrics.longitude}, distance=${metrics.coveredDistance}"
                     )
                     return
-                }
-
-                // Update last known location
-                if (metrics.latitude != 0.0 && metrics.longitude != 0.0) {
-                    lastKnownLocation.value = GeoPoint(metrics.latitude, metrics.longitude)
                 }
 
                 // Wings for Life Run: append to the cumulative-distance lookup
@@ -1417,6 +1555,17 @@ fun MapScreen(
                             Timber.d("Additional path refresh after location update")
                         }, 100)
                     }
+                }
+            }
+
+            @Subscribe(threadMode = ThreadMode.MAIN)
+            fun onBackgroundLocationUpdate(locationData: LocationData) {
+                if (locationData.latitude != 0.0 && locationData.longitude != 0.0) {
+                    lastKnownLocation.value = GeoPoint(
+                        locationData.latitude,
+                        locationData.longitude,
+                        locationData.altitude
+                    )
                 }
             }
         }
@@ -2086,11 +2235,11 @@ fun MapScreen(
 
                         runOnFirstFix {
                             Handler(Looper.getMainLooper()).post {
-                                if (!hasInitializedMapCenter && displayedRoute == null && currentImportedTrack == null) {
-                                    val location = myLocation
-                                    if (location != null) {
-                                        lastKnownLocation.value = location
+                                val location = myLocation
+                                if (location != null) {
+                                    lastKnownLocation.value = location
 
+                                    if (!hasInitializedMapCenter && displayedRoute == null && currentImportedTrack == null) {
                                         ignoringScrollEvents = true
                                         controller.setCenter(location)
                                         controller.setZoom(15)
@@ -2508,11 +2657,12 @@ fun MapScreen(
             }
         }
 
-        // Control buttons column - move to center-end during rerun to leave room for altitude chart
+        // Control buttons column - move to center-end when the altitude chart is visible
         val isRerunActive = routeRerunData != null
+        val isAltitudeGraphVisible = hasAltitudeProfile && showAltitudeGraph
         Column(
             modifier = Modifier
-                .align(if (isRerunActive) Alignment.CenterEnd else Alignment.BottomEnd)
+                .align(if (isRerunActive || isAltitudeGraphVisible) Alignment.CenterEnd else Alignment.BottomEnd)
                 .padding(16.dp),
             horizontalAlignment = Alignment.End
         ) {
@@ -2667,6 +2817,34 @@ fun MapScreen(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            // Altitude graph toggle button - shown only when the displayed route/track has altitude data
+            if (hasAltitudeProfile) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = if (showAltitudeGraph) Color(0xFF4CAF50) else Color.White,
+                    shadowElevation = 8.dp,
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clickable {
+                                showAltitudeGraph = !showAltitudeGraph
+                                saveAltitudeGraphState(showAltitudeGraph)
+                                Timber.d("Altitude graph toggled: $showAltitudeGraph")
+                            }
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ShowChart,
+                            contentDescription = if (showAltitudeGraph) "Hide Altitude Graph" else "Show Altitude Graph",
+                            tint = if (showAltitudeGraph) Color.White else Color.Gray
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Slope legend toggle button - only show when displaying an event route with slope colors
             if (showRouteDisplayIndicator && displayedRoute?.showSlopeColors == true) {
@@ -3263,24 +3441,15 @@ fun MapScreen(
             }
         }
 
-        // Altitude chart at the bottom during route rerun
-        if (routeRerunData != null && routeRerunData.points.isNotEmpty()) {
-            val altitudes = remember(routeRerunData) {
-                routeRerunData.points.map { it.altitude }
-            }
-            val cumulativeDistances = remember(routeRerunData) {
-                val list = ArrayList<Double>(routeRerunData.points.size)
-                var acc = 0.0
-                routeRerunData.points.forEachIndexed { i, p ->
-                    if (i > 0) acc += routeRerunData.points[i - 1].distanceToAsDouble(p)
-                    list.add(acc)
-                }
-                list
+        // Altitude chart at the bottom for route reruns and loaded altitude-capable routes/tracks.
+        if (hasAltitudeProfile && showAltitudeGraph) {
+            val altitudes = remember(altitudeProfilePoints) {
+                altitudeProfilePoints.map { it.altitude }
             }
             AltitudeRerunChart(
                 altitudes = altitudes,
-                distancesMeters = cumulativeDistances,
-                progress = if (isRunningRerun) rerunProgress else 1f,
+                distancesMeters = altitudeProfileDistances,
+                progress = altitudeProfileProgress,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }

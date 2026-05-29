@@ -212,7 +212,7 @@ fun TrackSelectionItem(
         coroutineScope.launch {
             // MEMORY FIX: Load location points from database (not preloaded in memory)
             val dbLocations = database.locationDao().getLocationsForEvent(eventWithDetails.event.eventId)
-            val locationPoints = dbLocations.map { GeoPoint(it.latitude, it.longitude) }
+            val locationPoints = dbLocations.map { GeoPoint(it.latitude, it.longitude, it.altitude) }
 
             // Load waypoints from database
             val dbWaypoints = database.waypointDao().getWaypointsForEvent(eventWithDetails.event.eventId)
