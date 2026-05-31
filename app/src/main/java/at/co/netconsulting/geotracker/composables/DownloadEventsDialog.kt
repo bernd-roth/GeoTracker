@@ -64,7 +64,7 @@ fun DownloadEventsDialog(
         if (searchQuery.isBlank()) {
             filtered
         } else {
-            val query = searchQuery.lowercase()
+            val query = searchQuery.trim().lowercase()
             filtered.filter { session ->
                 (session.eventName?.lowercase()?.contains(query) == true) ||
                 (session.sportType?.lowercase()?.contains(query) == true) ||
@@ -72,7 +72,8 @@ fun DownloadEventsDialog(
                 (session.startCity?.lowercase()?.contains(query) == true) ||
                 (session.startCountry?.lowercase()?.contains(query) == true) ||
                 (session.firstname?.lowercase()?.contains(query) == true) ||
-                (session.lastname?.lowercase()?.contains(query) == true)
+                (session.lastname?.lowercase()?.contains(query) == true) ||
+                userKey(session).lowercase().contains(query)
             }
         }
     }

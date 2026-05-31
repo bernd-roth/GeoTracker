@@ -65,15 +65,31 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
                 _isLoading.value = true
                 Log.d(TAG, "Starting to fetch sessions from server...")
 
-                // Fetch ALL sessions from server without filtering by user
+                val sharedPreferences = getApplication<Application>()
+                    .getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
+                val firstname = sharedPreferences.getString("firstname", "") ?: ""
+                val lastname = sharedPreferences.getString("lastname", "")
+                val birthdate = sharedPreferences.getString("birthdate", "")
+
+                if (firstname.isBlank()) {
+                    Log.e(TAG, "Cannot list sessions: user firstname not configured")
+                    _availableSessions.value = emptyList()
+                    return@launch
+                }
+
+                // Only show sessions belonging to the configured profile.
                 val result = withContext(Dispatchers.IO) {
-                    Log.d(TAG, "Calling apiClient.listUserSessions()")
-                    apiClient.listUserSessions(filterByUser = false)
+                    Log.d(TAG, "Calling apiClient.listUserSessions() for configured user: $firstname")
+                    apiClient.listUserSessions(
+                        firstname = firstname,
+                        lastname = lastname,
+                        birthdate = birthdate,
+                        filterByUser = true
+                    )
                 }
 
                 result.fold(
                     onSuccess = { sessions ->
-                        // Show all remote sessions
                         _availableSessions.value = sessions
                         Log.d(TAG, "SUCCESS: Loaded ${sessions.size} remote sessions")
 

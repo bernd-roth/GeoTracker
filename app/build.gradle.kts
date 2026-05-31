@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.31 (31-05-2026: Fix session re-upload detection after server deletion)"
+        versionName = "9.33 (31-05-2026: Download filtered events based on user input fields)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

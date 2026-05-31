@@ -1,7 +1,7 @@
 import re
 
 from flask import Blueprint, request, current_app
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from dateutil import parser as date_parser
 from sqlalchemy import func, or_
 from ..extensions import db
@@ -35,6 +35,55 @@ def _session_family_query(session_id):
             )
         )
     )
+
+
+def _sessions_to_dict_with_stats(sessions):
+    """Serialize a page of sessions without per-session statistics queries."""
+    session_ids = [session.session_id for session in sessions]
+    if not session_ids:
+        return []
+
+    gps_stats = {
+        session_id: (point_count, latest_received_at)
+        for session_id, point_count, latest_received_at in (
+            db.session.query(
+                GPSTrackingPoint.session_id,
+                func.count(GPSTrackingPoint.id),
+                func.max(GPSTrackingPoint.received_at)
+            )
+            .filter(GPSTrackingPoint.session_id.in_(session_ids))
+            .group_by(GPSTrackingPoint.session_id)
+            .all()
+        )
+    }
+    lap_counts = {
+        session_id: lap_count
+        for session_id, lap_count in (
+            db.session.query(
+                LapTime.session_id,
+                func.count(LapTime.id)
+            )
+            .filter(LapTime.session_id.in_(session_ids))
+            .group_by(LapTime.session_id)
+            .all()
+        )
+    }
+    active_cutoff = datetime.now(timezone.utc) - timedelta(minutes=5)
+
+    items = []
+    for session in sessions:
+        item = session.to_dict()
+        point_count, latest_received_at = gps_stats.get(session.session_id, (0, None))
+        if latest_received_at and latest_received_at.tzinfo is None:
+            latest_received_at = latest_received_at.replace(tzinfo=timezone.utc)
+        item['gps_point_count'] = point_count
+        item['lap_count'] = lap_counts.get(session.session_id, 0)
+        item['is_recording'] = (
+            latest_received_at is not None and latest_received_at > active_cutoff
+        )
+        items.append(item)
+
+    return items
 
 
 # IMPORTANT: Static routes must be defined before dynamic routes to avoid conflicts
@@ -240,7 +289,7 @@ def list_sessions():
     sessions = query.offset((page - 1) * per_page).limit(per_page).all()
 
     return paginated_response(
-        items=[s.to_dict(include_stats=True) for s in sessions],
+        items=_sessions_to_dict_with_stats(sessions),
         page=page,
         per_page=per_page,
         total=total,

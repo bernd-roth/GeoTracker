@@ -804,6 +804,10 @@ class GeoTrackerApiClient(private val context: Context) {
                 Log.e(TAG, "Server URL not configured!")
                 return@withContext Result.failure(Exception("Server URL not configured"))
             }
+            if (filterByUser && firstname.isNullOrBlank()) {
+                Log.e(TAG, "User firstname not configured!")
+                return@withContext Result.failure(Exception("User firstname not configured"))
+            }
             Log.d(TAG, "Using base URL: $baseUrl")
 
             val allSessions = mutableListOf<RemoteSessionSummary>()
@@ -812,17 +816,24 @@ class GeoTrackerApiClient(private val context: Context) {
             val perPage = 100
 
             while (hasMore) {
-                val urlBuilder = StringBuilder("$baseUrl/sessions?per_page=$perPage&page=$page")
+                val urlBuilder = "$baseUrl/sessions".toHttpUrl().newBuilder()
+                    .addQueryParameter("per_page", perPage.toString())
+                    .addQueryParameter("page", page.toString())
+                    .addQueryParameter("hide_resets", "true")
 
                 // Only filter by user if explicitly requested
                 if (filterByUser && !firstname.isNullOrBlank()) {
-                    urlBuilder.append("&firstname=$firstname")
-                    lastname?.let { if (it.isNotBlank()) urlBuilder.append("&lastname=$it") }
-                    birthdate?.let { if (it.isNotBlank()) urlBuilder.append("&birthdate=$it") }
+                    urlBuilder.addQueryParameter("firstname", firstname)
+                    lastname?.takeIf { it.isNotBlank() }?.let {
+                        urlBuilder.addQueryParameter("lastname", it)
+                    }
+                    birthdate?.takeIf { it.isNotBlank() }?.let {
+                        urlBuilder.addQueryParameter("birthdate", it)
+                    }
                 }
 
                 val request = Request.Builder()
-                    .url(urlBuilder.toString())
+                    .url(urlBuilder.build())
                     .get()
                     .build()
 
