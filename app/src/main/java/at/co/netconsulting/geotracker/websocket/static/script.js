@@ -1432,6 +1432,16 @@ function connectToWebSocket() {
             case 'session_list':
                 handleSessionList(message.sessions);
                 break;
+            case 'session_deleted':
+                handleSessionDeleted(message.sessionId);
+                break;
+            case 'delete_response':
+                if (!message.success) {
+                    const reason = message.reason || 'Unknown error';
+                    addDebugMessage(`Could not delete session: ${reason}`, 'error');
+                    showNotification(`Could not delete session: ${reason}`, 'warning');
+                }
+                break;
         }
     };
 

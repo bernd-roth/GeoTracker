@@ -2228,41 +2228,80 @@ class TrackingServer:
                 logging.info(f"Session {session_id} marked as inactive after {self.activity_timeout} seconds without updates")
 
     async def delete_session(self, session_id: str) -> Dict[str, Any]:
-        """Delete a session and all related data using CASCADE."""
+        """Delete a base session, its hidden fragments, and related data."""
         try:
-            # Check if session exists and is not active
-            if session_id not in self.tracking_history:
-                logging.warning(f"Attempted to delete non-existent session: {session_id}")
-                return {"success": False, "reason": "Session does not exist"}
+            base_session_id = re.sub(r'_reset_\d+$', '', session_id)
+            memory_family_pattern = re.compile(
+                rf'^{re.escape(base_session_id)}(?:(?:_reset|_archived)_\d+)?$'
+            )
+            database_reset_pattern = rf'^{re.escape(base_session_id)}_reset_[0-9]+$'
+            memory_session_ids = {
+                stored_session_id
+                for stored_session_id in self.tracking_history
+                if memory_family_pattern.fullmatch(stored_session_id)
+            }
 
             self.update_active_sessions()
-            if session_id in self.active_sessions:
-                logging.warning(f"Attempted to delete active session: {session_id}")
+            active_family_ids = {
+                active_session_id
+                for active_session_id in self.active_sessions
+                if memory_family_pattern.fullmatch(active_session_id)
+            }
+            if active_family_ids:
+                logging.warning(
+                    f"Attempted to delete active session family: {sorted(active_family_ids)}"
+                )
                 return {"success": False, "reason": "Cannot delete active session"}
 
-            # Delete from memory
-            del self.tracking_history[session_id]
-            if session_id in self.last_activity:
-                del self.last_activity[session_id]
-
             # Delete from database (CASCADE will handle related GPS points)
+            deleted_database_ids = set()
             if self.db_pool:
                 try:
                     async with self.db_pool.acquire() as conn:
-                        await conn.execute("DELETE FROM tracking_sessions WHERE session_id = $1", session_id)
-                    logging.info(f"Deleted session from normalized database: {session_id}")
+                        deleted_rows = await conn.fetch("""
+                            DELETE FROM tracking_sessions
+                            WHERE session_id = $1 OR session_id ~ $2
+                            RETURNING session_id
+                        """, base_session_id, database_reset_pattern)
+                    deleted_database_ids = {row['session_id'] for row in deleted_rows}
+                    logging.info(
+                        f"Deleted session family from normalized database: "
+                        f"{sorted(deleted_database_ids)}"
+                    )
                 except Exception as e:
                     logging.error(f"Error deleting session from database: {str(e)}")
+                    return {"success": False, "reason": str(e)}
 
-            logging.info(f"Deleted session: {session_id}")
+            family_session_ids = memory_session_ids | deleted_database_ids
+            if not family_session_ids:
+                logging.warning(f"Attempted to delete non-existent session: {session_id}")
+                return {"success": False, "reason": "Session does not exist"}
+
+            for family_session_id in family_session_ids:
+                self.tracking_history.pop(family_session_id, None)
+                self.last_activity.pop(family_session_id, None)
+                self.active_sessions.discard(family_session_id)
+                self.session_last_lap.pop(family_session_id, None)
+                self.session_lap_start_time.pop(family_session_id, None)
+                self.session_followers.pop(family_session_id, None)
+                self.session_detector.reset_session_tracking(family_session_id)
+
+            for followed_session_ids in self.client_following.values():
+                followed_session_ids.difference_update(family_session_ids)
+
+            logging.info(f"Deleted session family: {sorted(family_session_ids)}")
 
             # Notify all clients about the deletion
             await self.broadcast_update({
                 'type': 'session_deleted',
-                'sessionId': session_id
+                'sessionId': base_session_id
             })
 
-            return {"success": True}
+            return {
+                "success": True,
+                "sessionId": base_session_id,
+                "deletedSessionIds": sorted(family_session_ids)
+            }
 
         except Exception as e:
             logging.error(f"Error deleting session {session_id}: {str(e)}")

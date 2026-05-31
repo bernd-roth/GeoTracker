@@ -1,3 +1,5 @@
+import re
+
 from flask import Blueprint, request, current_app
 from datetime import datetime
 from dateutil import parser as date_parser
@@ -10,6 +12,31 @@ from .errors import NotFoundError, ValidationError, ConflictError
 sessions_bp = Blueprint('sessions', __name__)
 
 
+def _base_session_id(session_id):
+    """Strip a reset-fragment suffix to get the displayed session ID."""
+    return re.sub(r'_reset_\d+$', '', session_id)
+
+
+def _escape_like(value):
+    """Escape LIKE special characters so a session ID is matched literally."""
+    return value.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+
+
+def _session_family_query(session_id):
+    """Return the base session and any hidden reset fragments."""
+    base_session_id = _base_session_id(session_id)
+    escaped_base_id = _escape_like(base_session_id)
+    return TrackingSession.query.filter(
+        or_(
+            TrackingSession.session_id == base_session_id,
+            TrackingSession.session_id.like(
+                escaped_base_id + '\\_reset\\_%',
+                escape='\\'
+            )
+        )
+    )
+
+
 # IMPORTANT: Static routes must be defined before dynamic routes to avoid conflicts
 @sessions_bp.route('/sessions/find', methods=['GET'])
 def find_session():
@@ -20,6 +47,8 @@ def find_session():
         firstname: User's first name
         lastname: User's last name (optional)
         birthdate: User's birthdate (optional)
+        event_name: Event name (optional)
+        sport_type: Sport type (optional)
 
     Returns the session_id if found, or null if not found.
     """
@@ -27,6 +56,8 @@ def find_session():
     firstname = request.args.get('firstname')
     lastname = request.args.get('lastname')
     birthdate = request.args.get('birthdate')
+    event_name = request.args.get('event_name')
+    sport_type = request.args.get('sport_type')
 
     if not event_date or not firstname:
         return error_response("date and firstname are required", 400)
@@ -50,11 +81,19 @@ def find_session():
         start_of_day = datetime.combine(search_date, datetime.min.time())
         end_of_day = start_of_day + timedelta(days=1)
 
-        session = TrackingSession.query.filter(
+        query = TrackingSession.query.filter(
             TrackingSession.user_id == user.user_id,
             TrackingSession.start_date_time >= start_of_day,
-            TrackingSession.start_date_time < end_of_day
-        ).first()
+            TrackingSession.start_date_time < end_of_day,
+            ~TrackingSession.session_id.like('%\\_reset\\_%', escape='\\')
+        )
+
+        if event_name is not None:
+            query = query.filter(TrackingSession.event_name == event_name)
+        if sport_type is not None:
+            query = query.filter(TrackingSession.sport_type == sport_type)
+
+        session = query.first()
 
         if session:
             return success_response(data={
@@ -351,21 +390,24 @@ def update_session(session_id):
 
 @sessions_bp.route('/sessions/<session_id>', methods=['DELETE'])
 def delete_session(session_id):
-    """Delete a session and all related data."""
-    session = TrackingSession.query.get(session_id)
+    """Delete a session family and all related data."""
+    sessions = _session_family_query(session_id).all()
 
-    if not session:
+    if not sessions:
         raise NotFoundError(f"Session '{session_id}' not found")
 
     try:
-        db.session.delete(session)
+        for session in sessions:
+            db.session.delete(session)
         db.session.commit()
     except Exception as e:
         db.session.rollback()
         current_app.logger.error(f"Error deleting session: {e}")
         raise ValidationError(f"Failed to delete session: {str(e)}")
 
-    return success_response(message=f"Session '{session_id}' deleted successfully")
+    return success_response(
+        message=f"Session '{session_id}' and {len(sessions) - 1} reset fragment(s) deleted successfully"
+    )
 
 
 def create_gps_point(session_id, data):

@@ -6,6 +6,7 @@ import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
@@ -152,18 +153,28 @@ class GeoTrackerApiClient(private val context: Context) {
         eventDate: String,
         firstname: String,
         lastname: String? = null,
-        birthdate: String? = null
+        birthdate: String? = null,
+        eventName: String? = null,
+        sportType: String? = null
     ): Result<FindSessionResult> = withContext(Dispatchers.IO) {
         try {
             val baseUrl = getApiBaseUrl()
                 ?: return@withContext Result.failure(Exception("Server URL not configured"))
 
-            val urlBuilder = StringBuilder("$baseUrl/sessions/find?date=$eventDate&firstname=$firstname")
-            lastname?.let { urlBuilder.append("&lastname=$it") }
-            birthdate?.let { urlBuilder.append("&birthdate=$it") }
+            val urlBuilder = "$baseUrl/sessions/find".toHttpUrl().newBuilder()
+                .addQueryParameter("date", eventDate)
+                .addQueryParameter("firstname", firstname)
+            lastname?.takeIf { it.isNotBlank() }?.let {
+                urlBuilder.addQueryParameter("lastname", it)
+            }
+            birthdate?.takeIf { it.isNotBlank() }?.let {
+                urlBuilder.addQueryParameter("birthdate", it)
+            }
+            eventName?.let { urlBuilder.addQueryParameter("event_name", it) }
+            sportType?.let { urlBuilder.addQueryParameter("sport_type", it) }
 
             val request = Request.Builder()
-                .url(urlBuilder.toString())
+                .url(urlBuilder.build())
                 .get()
                 .build()
 

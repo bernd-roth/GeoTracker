@@ -177,7 +177,9 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
                 eventDate = event.eventDate,
                 firstname = firstname,
                 lastname = lastname,
-                birthdate = birthdate
+                birthdate = birthdate,
+                eventName = event.eventName,
+                sportType = event.artOfSport
             )
         }
 
@@ -269,7 +271,9 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
                         eventDate = event.eventDate,
                         firstname = firstname,
                         lastname = lastname,
-                        birthdate = birthdate
+                        birthdate = birthdate,
+                        eventName = event.eventName,
+                        sportType = event.artOfSport
                     )
                 }
 
