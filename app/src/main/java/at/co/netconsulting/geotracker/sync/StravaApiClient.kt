@@ -463,6 +463,7 @@ class StravaApiClient(private val context: Context) {
             "ski touring" -> "BackcountrySki"
             "snowboard" -> "Snowboard"
             "ice skating" -> "IceSkate"
+            "skating", "inline skating", "roller skating", "rollerblading" -> "InlineSkate"
             "snowshoeing" -> "Snowshoe"
             "soccer" -> "Soccer"
             "tennis" -> "Tennis"

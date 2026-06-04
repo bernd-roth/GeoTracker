@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.34 (04-06-2026: Event filter gets activated as soon as events are listed)"
+        versionName = "9.35 (04-06-2026: New sport type added)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

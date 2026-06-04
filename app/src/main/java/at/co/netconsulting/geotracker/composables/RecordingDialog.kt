@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.SportsBaseball
 import androidx.compose.material.icons.filled.SportsBasketball
 import androidx.compose.material.icons.filled.SportsFootball
 import androidx.compose.material.icons.filled.SportsHandball
+import androidx.compose.material.icons.filled.SportsHockey
 import androidx.compose.material.icons.filled.SportsMotorsports
 import androidx.compose.material.icons.filled.SportsSoccer
 import androidx.compose.material.icons.filled.SportsTennis
@@ -478,7 +479,8 @@ fun RecordingDialog(
         SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Road Running", "Orienteering", "Backyard Ultra", "Wings for Life Run")),
         SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
         SportType("Water Sports", listOf("Swimming - Open Water", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
-        SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Biathlon", "Sledding", "Snowshoeing")),
+        SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Biathlon", "Sledding", "Snowshoeing", "Ice Hockey")),
+        SportType("Skating", listOf("Inline Skating")),
         SportType("Walking", listOf("Nordic Walking", "Urban Walking")),
         SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
         SportType("Motorsport", listOf("Car", "Motorcycle")),
@@ -535,7 +537,12 @@ fun RecordingDialog(
         "Biathlon" -> Icons.Default.GpsFixed  // Target/precision sport
         "Sledding" -> Icons.Default.Speed  // Speed/downhill motion
         "Snowshoeing" -> Icons.Default.Hiking  // Similar to hiking
+        "Ice Hockey" -> Icons.Default.SportsHockey
         "Winter Sport" -> Icons.Default.Landscape  // Winter mountain landscape
+
+        // Skating subcategories
+        "Inline Skating" -> Icons.Default.Speed
+        "Skating" -> Icons.Default.Speed
 
         // Multisport Race subcategories
         "Duathlon" -> Icons.Default.DirectionsRun  // Run-Bike-Run

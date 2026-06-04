@@ -404,7 +404,10 @@ class GpxImporter(private val context: Context) {
                 "snowboard", "snowboarding" -> "Snowboard"
                 "cross country skiing", "cross-country skiing", "xc skiing" -> "Cross Country Skiing"
                 "ski touring", "ski-touring", "backcountry skiing" -> "Ski Touring"
-                "ice skating", "ice-skating", "skating" -> "Ice Skating"
+                "inline skating", "inline-skating", "inline skate", "inline-skate",
+                "roller skating", "roller-skating", "rollerblading", "rollerblade" -> "Inline Skating"
+                "skating", "skate" -> "Skating"
+                "ice skating", "ice-skating" -> "Ice Skating"
                 "ice hockey", "hockey" -> "Ice Hockey"
                 "biathlon" -> "Biathlon"
                 "sledding", "tobogganing", "sled" -> "Sledding"

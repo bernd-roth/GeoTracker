@@ -494,6 +494,7 @@ class AutoBackupService : Service() {
                 "ski", "snowboard", "cross country skiing", "ski touring", "ice skating", "ice hockey", "biathlon", "sledding", "snowshoeing", "winter sport" -> "winter"
 
                 // Ball sports and other sports
+                "skating", "inline skating" -> "skating"
                 "soccer", "american football", "fistball", "squash", "tennis", "basketball", "volleyball", "baseball", "badminton", "table tennis", "ball sports" -> "sport"
 
                 // Motorsports

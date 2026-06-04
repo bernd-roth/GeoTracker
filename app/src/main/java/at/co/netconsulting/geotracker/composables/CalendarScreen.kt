@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Sailing
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.SportsHockey
 import androidx.compose.material.icons.filled.SportsMotorsports
 import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.Timer
@@ -1984,7 +1985,9 @@ private fun getSportCategory(artOfSport: String): String {
         "Car", "Motorcycle", "Motorsport" -> "Motorsport"
 
         "Ski", "Snowboard", "Cross Country Skiing", "Ski Touring",
-        "Biathlon", "Sledding", "Snowshoeing", "Winter Sport" -> "Winter Sport"
+        "Biathlon", "Sledding", "Snowshoeing", "Ice Hockey", "Winter Sport" -> "Winter Sport"
+
+        "Inline Skating", "Ice Skating", "Skating" -> "Skating"
 
         "Duathlon", "Triathlon", "Ultratriathlon", "Multisport Race" -> "Multisport Race"
 
@@ -2004,6 +2007,7 @@ private fun getSportColor(category: String): Color {
         "Hiking" -> Color(0xFF5D4037)         // Brown
         "Motorsport" -> Color(0xFF455A64)     // Blue Grey
         "Winter Sport" -> Color(0xFF0097A7)   // Cyan
+        "Skating" -> Color(0xFF00897B)        // Teal
         "Multisport Race" -> Color(0xFFF57C00) // Orange
         "Fitness Test" -> Color(0xFFC62828)   // Red
         else -> Color(0xFF757575)             // Grey
@@ -2052,7 +2056,12 @@ private fun getSportIconForCalendar(sportName: String): ImageVector {
         "Biathlon" -> Icons.Default.GpsFixed
         "Sledding" -> Icons.Default.Speed
         "Snowshoeing" -> Icons.Default.Hiking
+        "Ice Hockey" -> Icons.Default.SportsHockey
         "Winter Sport" -> Icons.Default.Landscape
+
+        "Inline Skating" -> Icons.Default.Speed
+        "Ice Skating" -> Icons.Default.Speed
+        "Skating" -> Icons.Default.Speed
 
         "Duathlon" -> Icons.Default.DirectionsRun
         "Triathlon" -> Icons.Default.Waves

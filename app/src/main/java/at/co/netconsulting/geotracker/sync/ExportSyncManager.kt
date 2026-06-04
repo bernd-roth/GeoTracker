@@ -138,6 +138,8 @@ class ExportSyncManager(private val context: Context) {
                 "cycling", "bicycle", "bike", "biking", "gravel bike", "racing bicycle", "mountain bike" -> "bike"
                 "hiking", "walking", "trekking", "mountain hiking", "forest hiking" -> "hike"
                 "swimming - open water", "swimming - pool" -> "swim"
+                "skating", "inline skating" -> "skating"
+                "ice hockey" -> "winter"
                 "duathlon", "triathlon", "ultratriathlon", "multisport race" -> "multisport"
                 else -> event.artOfSport.lowercase().replace(" ", "_")
             }
