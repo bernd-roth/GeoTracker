@@ -73,12 +73,13 @@ class EventsViewModel(
 
     // ADAPTIVE PAGE SIZES
     private val normalPageSize = 20      // Fast loading for normal browsing
-    private val searchPageSize = 300     // Larger for search coverage
     private val maxPageSize = 1000       // Maximum for comprehensive search
 
     private var currentPageSize = normalPageSize
     private var hasMoreEvents = true
     private var isSearchMode = false
+    private var searchRequestId = 0
+    private var currentListAlreadySearchFiltered = false
 
     // Date range filter
     private var startDateFilter: String? = null
@@ -125,21 +126,102 @@ class EventsViewModel(
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
         currentPage = 0
+        val requestId = ++searchRequestId
 
         viewModelScope.launch {
             val trimmedQuery = query.trim()
+
+            waitForCurrentLoad(requestId)
+            if (requestId != searchRequestId) return@launch
 
             if (trimmedQuery.isEmpty()) {
                 // Exit search mode - return to normal pagination
                 isSearchMode = false
                 currentPageSize = normalPageSize
-                loadEvents()
+                currentListAlreadySearchFiltered = false
+
+                if (_selectedTab.value == 1) {
+                    preloadGhostRacers()
+                    updateFilteredEvents()
+                } else {
+                    loadEvents()
+                }
             } else {
-                // Enter search mode - use larger page size
+                // Enter search mode - query the whole event set instead of the currently visible page
                 isSearchMode = true
-                currentPageSize = searchPageSize
-                loadEventsWithCustomPageSize(searchPageSize)
+                currentPageSize = maxPageSize
+                loadSearchResults(trimmedQuery, requestId)
             }
+        }
+    }
+
+    private suspend fun waitForCurrentLoad(requestId: Int) {
+        while (_isLoading.value && requestId == searchRequestId) {
+            delay(50)
+        }
+    }
+
+    private suspend fun loadSearchResults(query: String, requestId: Int) {
+        if (_isLoading.value) {
+            waitForCurrentLoad(requestId)
+            if (requestId != searchRequestId) return
+        }
+
+        _isLoading.value = true
+        try {
+            val normalizedQuery = normalizeDatabaseSearchQuery(query)
+            val selectedTab = _selectedTab.value
+            val events = withContext(Dispatchers.IO) {
+                val searchResults = if (selectedTab == 1) {
+                    database.eventDao().searchImportedEvents(normalizedQuery, maxPageSize)
+                } else {
+                    database.eventDao().searchRecordedEvents(normalizedQuery, maxPageSize)
+                }
+                processEvents(searchResults)
+            }
+
+            if (requestId != searchRequestId || _searchQuery.value.trim() != query) return
+
+            hasMoreEvents = false
+            currentPageSize = maxPageSize
+            currentListAlreadySearchFiltered = true
+
+            if (selectedTab == 1) {
+                _ghostRacerEvents.value = events
+            } else {
+                _eventsWithDetails.value = events
+            }
+            updateFilteredEvents()
+
+            Log.d(
+                "EventsViewModel",
+                "Search found ${events.size} events for '$query' (normalized: '$normalizedQuery', tab: $selectedTab)"
+            )
+        } catch (e: Exception) {
+            Log.e("EventsViewModel", "Error searching events: ${e.message}", e)
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
+    private fun normalizeDatabaseSearchQuery(query: String): String {
+        val lowerQuery = query.lowercase().trim()
+        val rawNumericToken = Regex("""\d+(?:[.,]\d+)?""")
+            .find(lowerQuery)
+            ?.value
+        val numericToken = rawNumericToken?.replace(',', '.')
+
+        return if (numericToken != null && (
+                lowerQuery == rawNumericToken ||
+                        lowerQuery.contains("km/h") ||
+                        lowerQuery.contains("kph") ||
+                        lowerQuery.contains("speed") ||
+                        lowerQuery.contains("distance") ||
+                        lowerQuery.contains("km"))
+        ) {
+            numericToken
+        } else {
+            lowerQuery
         }
     }
 
@@ -149,11 +231,16 @@ class EventsViewModel(
         currentPage = 0
         hasMoreEvents = true
         _isLoading.value = true
+        currentListAlreadySearchFiltered = false
 
         viewModelScope.launch {
             try {
                 val events = loadEventsWithDetails(0, customPageSize)
-                _eventsWithDetails.value = events
+                if (_selectedTab.value == 1) {
+                    _ghostRacerEvents.value = events
+                } else {
+                    _eventsWithDetails.value = events
+                }
                 updateFilteredEvents()
 
                 // Update hasMoreEvents based on results
@@ -178,15 +265,33 @@ class EventsViewModel(
 
         viewModelScope.launch {
             if (startDate != null && endDate != null) {
-                // When filtering by date range, load all events to ensure we don't miss any
-                Log.d("EventsViewModel", "Loading all events for date range filter: $startDate to $endDate")
-                loadEventsWithCustomPageSize(maxPageSize)
+                val activeQuery = _searchQuery.value.trim()
+                if (activeQuery.isNotEmpty()) {
+                    Log.d("EventsViewModel", "Refreshing search results for date range filter: $startDate to $endDate")
+                    isSearchMode = true
+                    currentPageSize = maxPageSize
+                    val requestId = ++searchRequestId
+                    loadSearchResults(activeQuery, requestId)
+                } else {
+                    // When filtering by date range, load all events to ensure we don't miss any
+                    Log.d("EventsViewModel", "Loading all events for date range filter: $startDate to $endDate")
+                    loadEventsWithCustomPageSize(maxPageSize)
+                }
             } else {
                 // Clear filter - return to normal pagination
                 Log.d("EventsViewModel", "Clearing date filter, returning to normal pagination")
-                isSearchMode = false
-                currentPageSize = normalPageSize
-                loadEvents()
+                val activeQuery = _searchQuery.value.trim()
+                if (activeQuery.isNotEmpty()) {
+                    isSearchMode = true
+                    currentPageSize = maxPageSize
+                    val requestId = ++searchRequestId
+                    loadSearchResults(activeQuery, requestId)
+                } else {
+                    isSearchMode = false
+                    currentPageSize = normalPageSize
+                    currentListAlreadySearchFiltered = false
+                    loadEvents()
+                }
             }
         }
     }
@@ -200,7 +305,15 @@ class EventsViewModel(
 
         viewModelScope.launch {
             Log.d("EventsViewModel", "Loading events for date range $startDate to $endDate, sport: $sportType")
-            loadEventsWithCustomPageSize(maxPageSize)
+            val activeQuery = _searchQuery.value.trim()
+            if (activeQuery.isNotEmpty()) {
+                isSearchMode = true
+                currentPageSize = maxPageSize
+                val requestId = ++searchRequestId
+                loadSearchResults(activeQuery, requestId)
+            } else {
+                loadEventsWithCustomPageSize(maxPageSize)
+            }
         }
     }
 
@@ -208,15 +321,23 @@ class EventsViewModel(
         _selectedTab.value = tab
         currentPage = 0
         viewModelScope.launch {
-            if (tab == 1) {
+            val activeQuery = _searchQuery.value.trim()
+            if (activeQuery.isNotEmpty()) {
+                isSearchMode = true
+                currentPageSize = maxPageSize
+                val requestId = ++searchRequestId
+                loadSearchResults(activeQuery, requestId)
+            } else if (tab == 1) {
                 // Ghost Racers tab – use pre-loaded cache; reload only if cache is still empty
                 if (_ghostRacerEvents.value.isEmpty()) {
                     preloadGhostRacers()
                 }
+                currentListAlreadySearchFiltered = false
                 updateFilteredEvents()
             } else {
                 isSearchMode = false
                 currentPageSize = normalPageSize
+                currentListAlreadySearchFiltered = false
                 loadEvents()
             }
         }
@@ -225,6 +346,7 @@ class EventsViewModel(
     private suspend fun updateFilteredEvents() {
         val query = _searchQuery.value.lowercase().trim()
         val ghostTab = _selectedTab.value == 1
+        val applySearchQuery = !currentListAlreadySearchFiltered
         // Use the dedicated ghost racer cache for tab 1 so it displays instantly
         val events = if (ghostTab) _ghostRacerEvents.value else _eventsWithDetails.value
 
@@ -235,11 +357,7 @@ class EventsViewModel(
             } else {
                 event.event.eventSource != "imported"
             }
-            val matchesSearch = query.isEmpty() ||
-                    event.event.eventName.lowercase().contains(query) ||
-                    event.event.artOfSport.lowercase().contains(query) ||
-                    event.event.comment.lowercase().contains(query) ||
-                    event.event.eventDate.contains(query) // Also search by date
+            val matchesSearch = !applySearchQuery || query.isEmpty() || event.matchesSearchQuery(query)
 
             val matchesDateRange = if (startDateFilter != null && endDateFilter != null) {
                 isDateInRange(event.event.eventDate, startDateFilter!!, endDateFilter!!)
@@ -256,6 +374,38 @@ class EventsViewModel(
         _filteredEventsWithDetails.value = filtered
 
         Log.d("EventsViewModel", "Filtered ${filtered.size} events from ${events.size} total (tab: ${_selectedTab.value}, query: '$query', sport: '$sportTypeFilter')")
+    }
+
+    private fun EventWithDetails.matchesSearchQuery(query: String): Boolean {
+        val textFields = listOf(
+            event.eventName,
+            event.artOfSport,
+            event.comment,
+            event.eventDate,
+            event.eventId.toString(),
+            event.startCity.orEmpty(),
+            event.startCountry.orEmpty(),
+            event.startAddress.orEmpty(),
+            event.endCity.orEmpty(),
+            event.endCountry.orEmpty(),
+            event.endAddress.orEmpty()
+        ).joinToString(" ").lowercase()
+
+        if (textFields.contains(query)) return true
+
+        val hasSpeedData = averageSpeed > 0.0 || maxSpeed > 0.0
+        val hasDistanceData = totalDistance > 0.0
+        if (query in setOf("speed", "avg speed", "average speed", "max speed") && hasSpeedData) return true
+        if (query in setOf("distance", "km") && hasDistanceData) return true
+
+        val metricValues = listOf(
+            String.format(Locale.US, "%.1f", averageSpeed),
+            String.format(Locale.US, "%.1f", maxSpeed),
+            String.format(Locale.US, "%.2f", totalDistance / 1000.0),
+            String.format(Locale.US, "%.1f", totalDistance / 1000.0)
+        )
+
+        return metricValues.any { it.contains(query) }
     }
 
     private suspend fun preloadGhostRacers() {
@@ -291,6 +441,20 @@ class EventsViewModel(
     fun loadEvents() {
         if (_isLoading.value) return
 
+        if (_selectedTab.value == 1) {
+            currentListAlreadySearchFiltered = false
+            viewModelScope.launch {
+                _isLoading.value = true
+                try {
+                    preloadGhostRacers()
+                    updateFilteredEvents()
+                } finally {
+                    _isLoading.value = false
+                }
+            }
+            return
+        }
+
         // If date filter is active, use larger page size to ensure filtered events are found
         if (_isDateFilterActive.value) {
             Log.d("EventsViewModel", "Date filter active, using max page size for loadEvents")
@@ -303,6 +467,7 @@ class EventsViewModel(
         _isLoading.value = true
         currentPageSize = normalPageSize
         isSearchMode = false
+        currentListAlreadySearchFiltered = false
 
         viewModelScope.launch {
             try {
@@ -334,7 +499,11 @@ class EventsViewModel(
                 if (newEvents.isEmpty()) {
                     hasMoreEvents = false
                 } else {
-                    _eventsWithDetails.value = _eventsWithDetails.value + newEvents
+                    if (_selectedTab.value == 1) {
+                        _ghostRacerEvents.value = _ghostRacerEvents.value + newEvents
+                    } else {
+                        _eventsWithDetails.value = _eventsWithDetails.value + newEvents
+                    }
                     updateFilteredEvents()
                 }
             } catch (e: Exception) {
@@ -358,7 +527,11 @@ class EventsViewModel(
     private suspend fun loadEventsWithDetails(offset: Int, limit: Int, loadLocationPoints: Boolean = false, loadFullDetails: Boolean = false): List<EventWithDetails> {
         return withContext(Dispatchers.IO) {
             try {
-                val events = database.eventDao().getEventsPaged(limit, offset)
+                val events = if (_selectedTab.value == 1) {
+                    database.eventDao().getEventsPagedBySource("imported", limit, offset)
+                } else {
+                    database.eventDao().getRecordedEventsPaged(limit, offset)
+                }
 
                 processEvents(events, loadLocationPoints, loadFullDetails)
             } catch (e: Exception) {

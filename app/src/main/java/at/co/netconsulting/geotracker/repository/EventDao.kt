@@ -72,6 +72,19 @@ interface EventDao {
     """)
     suspend fun getEventsPaged(limit: Int, offset: Int): List<Event>
 
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId, MIN(timeInMilliseconds) as startTime
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        WHERE e.eventSource IS NULL OR e.eventSource = 'recorded'
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    suspend fun getRecordedEventsPaged(limit: Int, offset: Int): List<Event>
+
     // Method for source-filtered pagination (recorded vs imported)
     @Query("""
         SELECT e.* FROM events e
@@ -85,6 +98,76 @@ interface EventDao {
         LIMIT :limit OFFSET :offset
     """)
     suspend fun getEventsPagedBySource(source: String, limit: Int, offset: Int): List<Event>
+
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId,
+                   MIN(timeInMilliseconds) AS startTime,
+                   MAX(speed) AS maxSpeedMps,
+                   AVG(speed) AS avgSpeedMps,
+                   MAX(distance) AS maxDistanceMeters
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        WHERE (e.eventSource IS NULL OR e.eventSource = 'recorded')
+        AND (
+            LOWER(e.eventName) LIKE '%' || :query || '%' OR
+            LOWER(e.artOfSport) LIKE '%' || :query || '%' OR
+            LOWER(e.comment) LIKE '%' || :query || '%' OR
+            e.eventDate LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.startCity, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.startCountry, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.startAddress, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.endCity, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.endCountry, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.endAddress, '')) LIKE '%' || :query || '%' OR
+            CAST(e.eventId AS TEXT) LIKE '%' || :query || '%' OR
+            CAST(ROUND(COALESCE(m.maxSpeedMps, 0) * 3.6, 1) AS TEXT) LIKE '%' || :query || '%' OR
+            CAST(ROUND(COALESCE(m.avgSpeedMps, 0) * 3.6, 1) AS TEXT) LIKE '%' || :query || '%' OR
+            CAST(ROUND(COALESCE(m.maxDistanceMeters, 0) / 1000.0, 2) AS TEXT) LIKE '%' || :query || '%' OR
+            (:query IN ('speed', 'avg speed', 'average speed', 'max speed') AND COALESCE(m.maxSpeedMps, 0) > 0) OR
+            (:query IN ('distance', 'km') AND COALESCE(m.maxDistanceMeters, 0) > 0)
+        )
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+        LIMIT :limit
+    """)
+    suspend fun searchRecordedEvents(query: String, limit: Int): List<Event>
+
+    @Query("""
+        SELECT e.* FROM events e
+        LEFT JOIN (
+            SELECT eventId,
+                   MIN(timeInMilliseconds) AS startTime,
+                   MAX(speed) AS maxSpeedMps,
+                   AVG(speed) AS avgSpeedMps,
+                   MAX(distance) AS maxDistanceMeters
+            FROM metrics
+            GROUP BY eventId
+        ) m ON e.eventId = m.eventId
+        WHERE e.eventSource = 'imported'
+        AND (
+            LOWER(e.eventName) LIKE '%' || :query || '%' OR
+            LOWER(e.artOfSport) LIKE '%' || :query || '%' OR
+            LOWER(e.comment) LIKE '%' || :query || '%' OR
+            e.eventDate LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.startCity, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.startCountry, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.startAddress, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.endCity, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.endCountry, '')) LIKE '%' || :query || '%' OR
+            LOWER(COALESCE(e.endAddress, '')) LIKE '%' || :query || '%' OR
+            CAST(e.eventId AS TEXT) LIKE '%' || :query || '%' OR
+            CAST(ROUND(COALESCE(m.maxSpeedMps, 0) * 3.6, 1) AS TEXT) LIKE '%' || :query || '%' OR
+            CAST(ROUND(COALESCE(m.avgSpeedMps, 0) * 3.6, 1) AS TEXT) LIKE '%' || :query || '%' OR
+            CAST(ROUND(COALESCE(m.maxDistanceMeters, 0) / 1000.0, 2) AS TEXT) LIKE '%' || :query || '%' OR
+            (:query IN ('speed', 'avg speed', 'average speed', 'max speed') AND COALESCE(m.maxSpeedMps, 0) > 0) OR
+            (:query IN ('distance', 'km') AND COALESCE(m.maxDistanceMeters, 0) > 0)
+        )
+        ORDER BY COALESCE(m.startTime, 0) DESC, e.eventDate DESC
+        LIMIT :limit
+    """)
+    suspend fun searchImportedEvents(query: String, limit: Int): List<Event>
 
     // Count total events
     @Query("SELECT COUNT(*) FROM events")
