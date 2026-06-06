@@ -21,6 +21,7 @@ let sessionPanelVisible = true;
 let hrMiniCharts = {};
 let hrMiniChartData = {};
 let sessionStartTimes = {};  // sessionId -> Date object from startDateTime
+const SESSION_ID_START_TIME_TOLERANCE_MS = 5 * 60 * 1000;
 
 // Interactive chart variables
 let hoverMarker = null;
@@ -63,8 +64,20 @@ function formatDuration(ms) {
 
 function parseStartDateTime(raw) {
     if (!raw) return null;
-    // ISO format from Android: "2026-04-02T14:30:00"
-    const d = new Date(raw);
+    let value = String(raw).trim();
+
+    // Accept PostgreSQL-style timestamptz strings such as
+    // "2026-06-06 12:34:35.980 +0200" in addition to ISO values.
+    value = value.replace(
+        /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+([+-]\d{2})(\d{2})$/,
+        '$1T$2$3:$4'
+    );
+    value = value.replace(
+        /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}(?:\.\d+)?)$/,
+        '$1T$2'
+    );
+
+    const d = new Date(value);
     return isNaN(d.getTime()) ? null : d;
 }
 
@@ -1764,6 +1777,8 @@ function handlePoint(data) {
         sessionPersonNames[sessionId] = personName;
     }
 
+    ensureSessionAvailable(sessionId, data);
+
     const processedPoint = {
         lat: parseFloat(data.latitude),
         lng: parseFloat(data.longitude),
@@ -3107,20 +3122,214 @@ function createDisplayId(sessionId, personName) {
     return personName.split('_')[0] || personName;
 }
 
-function parseSessionId(sessionId) {
-    const [name, timestamp] = sessionId.split('_');
-    if (!timestamp) return { name: sessionId, timestamp: null };
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
 
-    const year = timestamp.substr(0, 4);
-    const month = timestamp.substr(4, 2);
-    const day = timestamp.substr(6, 2);
-    const hour = timestamp.substr(9, 2);
-    const minute = timestamp.substr(11, 2);
-    const second = timestamp.substr(13, 2);
+function escapeJsSingleQuotedString(value) {
+    return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function parseSessionId(sessionId) {
+    const parts = sessionId.split('_');
+    const name = parts[0] || sessionId;
+    const datePart = parts[1] || '';
+    const timePart = parts[2] || '';
+    const resetMatch = sessionId.match(/_reset_(\d+)$/);
+    const resetTimestamp = resetMatch ? new Date(Number(resetMatch[1])) : null;
+
+    if (!/^\d{8}$/.test(datePart) || !/^\d{6}/.test(timePart)) {
+        return {
+            name: name || sessionId,
+            timestamp: resetTimestamp && !isNaN(resetTimestamp.getTime()) ? resetTimestamp : null,
+            resetTimestamp: resetTimestamp && !isNaN(resetTimestamp.getTime()) ? resetTimestamp : null
+        };
+    }
+
+    const year = datePart.substr(0, 4);
+    const month = datePart.substr(4, 2);
+    const day = datePart.substr(6, 2);
+    const hour = timePart.substr(0, 2);
+    const minute = timePart.substr(2, 2);
+    const second = timePart.substr(4, 2);
+    const parsedDate = new Date(
+        Number(year),
+        Number(month) - 1,
+        Number(day),
+        Number(hour),
+        Number(minute),
+        Number(second)
+    );
 
     return {
         name: name,
+        timestamp: isNaN(parsedDate.getTime()) ? null : parsedDate,
+        resetTimestamp: resetTimestamp && !isNaN(resetTimestamp.getTime()) ? resetTimestamp : null,
         formattedTime: `${day}/${month}/${year} ${hour}:${minute}:${second}`
+    };
+}
+
+function formatDateTime(value) {
+    return `${value.toLocaleDateString()} ${value.toLocaleTimeString()}`;
+}
+
+function formatSessionStartTime(raw) {
+    const start = parseStartDateTime(raw);
+    if (!start) return null;
+    return formatDateTime(start);
+}
+
+function resolveSessionDisplayTime(session, parsedSession) {
+    const start = parseStartDateTime(session.startDateTime);
+    const fallbackStart = parsedSession.resetTimestamp || parsedSession.timestamp;
+
+    if (start && fallbackStart) {
+        const diffMs = Math.abs(start.getTime() - fallbackStart.getTime());
+        if (diffMs > SESSION_ID_START_TIME_TOLERANCE_MS) {
+            return formatDateTime(fallbackStart);
+        }
+    }
+
+    return (start ? formatDateTime(start) : null) ||
+        (fallbackStart ? formatDateTime(fallbackStart) : null) ||
+        parsedSession.formattedTime ||
+        'Unknown time';
+}
+
+function sessionInfoFromPoint(sessionId, data = {}) {
+    return {
+        sessionId,
+        isActive: data.isActive !== undefined ? data.isActive : true,
+        person: data.person || data.firstname || sessionPersonNames[sessionId] || '',
+        eventName: data.eventName || '',
+        sportType: data.sportType || '',
+        startDateTime: data.startDateTime || null,
+        startCity: data.startCity || '',
+        startCountry: data.startCountry || '',
+        startAddress: data.startAddress || '',
+        endCity: data.endCity || '',
+        endCountry: data.endCountry || '',
+        endAddress: data.endAddress || '',
+        version: data.version || ''
+    };
+}
+
+function mergeSessionInfo(existing, incoming) {
+    return {
+        ...existing,
+        ...Object.fromEntries(
+            Object.entries(incoming).filter(([, value]) => value !== undefined && value !== null && value !== '')
+        ),
+        isActive: incoming.isActive !== undefined ? incoming.isActive : existing.isActive
+    };
+}
+
+function mergeServerSessionsWithLiveTracks(sessions) {
+    const merged = [];
+    const seen = new Set();
+
+    sessions.forEach(session => {
+        if (!session || !session.sessionId) return;
+        merged.push(session);
+        seen.add(session.sessionId);
+    });
+
+    Object.keys(trackPoints).forEach(sessionId => {
+        if (seen.has(sessionId) || !shouldDisplaySession(sessionId)) return;
+        const points = trackPoints[sessionId] || [];
+        const latestPoint = points.length > 0 ? points[points.length - 1] : {};
+        merged.push(sessionInfoFromPoint(sessionId, {
+            person: latestPoint.personName || sessionPersonNames[sessionId] || '',
+            startDateTime: latestPoint.startDateTime || null,
+            startCity: latestPoint.startCity || '',
+            startCountry: latestPoint.startCountry || '',
+            startAddress: latestPoint.startAddress || '',
+            endCity: latestPoint.endCity || '',
+            endCountry: latestPoint.endCountry || '',
+            endAddress: latestPoint.endAddress || '',
+            isActive: true
+        }));
+    });
+
+    return merged;
+}
+
+function normalizeLocation(value) {
+    return (value || '').trim().toLowerCase();
+}
+
+function formatLocation(address, city, country) {
+    if (address) return address;
+
+    return [city, country]
+        .filter(Boolean)
+        .join(', ');
+}
+
+function formatSessionLocation(session) {
+    const startLocation = formatLocation(session.startAddress, session.startCity, session.startCountry);
+    const endLocation = formatLocation(session.endAddress, session.endCity, session.endCountry);
+
+    if (!startLocation) return endLocation;
+    if (!endLocation) return startLocation;
+
+    const sameText = normalizeLocation(startLocation) === normalizeLocation(endLocation);
+    const sameCity = session.startCity && session.endCity &&
+        normalizeLocation(session.startCity) === normalizeLocation(session.endCity) &&
+        normalizeLocation(session.startCountry) === normalizeLocation(session.endCountry);
+
+    if (sameText || (sameCity && !session.endAddress)) return startLocation;
+
+    return `${startLocation} -> ${endLocation}`;
+}
+
+function ensureSessionAvailable(sessionId, sourceData = {}) {
+    if (!sessionId || !shouldDisplaySession(sessionId)) return;
+
+    const incoming = sessionInfoFromPoint(sessionId, sourceData);
+    const existingIndex = availableSessions.findIndex(session => session.sessionId === sessionId);
+
+    if (existingIndex === -1) {
+        availableSessions.push(incoming);
+        updateSessionList();
+        addDebugMessage(`Added live session to Session Manager: ${sessionId}`, 'system');
+        return;
+    }
+
+    const merged = mergeSessionInfo(availableSessions[existingIndex], incoming);
+    if (JSON.stringify(merged) !== JSON.stringify(availableSessions[existingIndex])) {
+        availableSessions[existingIndex] = merged;
+        updateSessionList();
+    }
+}
+
+function getSessionDisplayInfo(session) {
+    const parsedSession = parseSessionId(session.sessionId);
+    const person = session.person || session.userName || parsedSession.name;
+    const name = session.eventName || person;
+    const time = resolveSessionDisplayTime(session, parsedSession);
+    const details = [time];
+
+    if (session.eventName && person && person !== session.eventName) {
+        details.push(person);
+    }
+    if (session.sportType) {
+        details.push(session.sportType);
+    }
+    const location = formatSessionLocation(session);
+    if (location) {
+        details.push(location);
+    }
+
+    return {
+        name,
+        details: details.join(' - ')
     };
 }
 
@@ -3133,10 +3342,10 @@ function handleSessionList(sessions) {
         return;
     }
 
-    availableSessions = sessions;
+    availableSessions = mergeServerSessionsWithLiveTracks(sessions);
     updateSessionList();
 
-    addDebugMessage(`Processed ${sessions.length} sessions`, 'system');
+    addDebugMessage(`Processed ${availableSessions.length} sessions`, 'system');
 }
 
 function toggleSessionVisibility(sessionId) {
@@ -3309,11 +3518,11 @@ function updateSessionList() {
 
     const filteredSessions = availableSessions.filter(session => {
         const sessionId = session.sessionId;
-        return !sessionId.includes('_reset_') && !sessionId.includes('_archived_');
+        return shouldDisplaySession(sessionId);
     });
 
     if (filteredSessions.length === 0) {
-        sessionsList.innerHTML = '<p class="no-sessions">No primary sessions found.</p>';
+        sessionsList.innerHTML = '<p class="no-sessions">No displayable sessions found.</p>';
         return;
     }
 
@@ -3323,28 +3532,29 @@ function updateSessionList() {
         const sessionId = session.sessionId;
         const isActive = session.isActive;
 
-        const parsedSession = parseSessionId(sessionId);
-        const name = parsedSession.name;
-        const time = parsedSession.formattedTime || 'Unknown time';
-        const color = getColorForUser(sessionId);
+        const displayInfo = getSessionDisplayInfo(session);
+        const escapedSessionId = escapeHtml(sessionId);
+        const escapedSessionIdForJs = escapeJsSingleQuotedString(sessionId);
+        const name = escapeHtml(displayInfo.name);
+        const details = escapeHtml(displayInfo.details);
 
         html += `
-            <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${sessionId}">
+            <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${escapedSessionId}">
                 <div class="session-item-info">
                     <div class="session-item-name">
                         ${name}
                         ${isActive ? '<span class="active-badge" title="Active Session">⚡</span>' : ''}
                     </div>
-                    <div class="session-item-time">${time}</div>
+                    <div class="session-item-time">${details}</div>
                 </div>
                 <div class="session-actions">
                     <button class="session-action-btn toggle-visibility"
-                            onclick="toggleSessionVisibility('${sessionId}')"
+                            onclick="toggleSessionVisibility('${escapedSessionIdForJs}')"
                             title="Toggle Visibility">
                         👁
                     </button>
                     <button class="session-action-btn zoom-to-session"
-                            onclick="zoomToSession('${sessionId}')"
+                            onclick="zoomToSession('${escapedSessionIdForJs}')"
                             title="Zoom to Track">
                         🎯
                     </button>
@@ -3382,7 +3592,7 @@ function updateSessionList() {
         toggleMapElementsVisibility(session.sessionId, true);
     });
 
-    addDebugMessage(`Session list updated: ${filteredSessions.length} primary sessions displayed (${availableSessions.length - filteredSessions.length} reset/archived sessions filtered out)`, 'system');
+    addDebugMessage(`Session list updated: ${filteredSessions.length} sessions displayed (${availableSessions.length - filteredSessions.length} archived sessions filtered out)`, 'system');
 }
 
 function confirmDeleteSession(sessionId) {
@@ -3795,7 +4005,7 @@ function updateWeatherStats(point) {
 }
 
 function shouldDisplaySession(sessionId) {
-    return !sessionId.includes('_reset_') && !sessionId.includes('_archived_');
+    return !sessionId.includes('_archived_');
 }
 
 document.addEventListener('DOMContentLoaded', () => {

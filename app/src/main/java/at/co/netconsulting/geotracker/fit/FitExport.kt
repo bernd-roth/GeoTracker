@@ -97,7 +97,7 @@ private fun mapSportType(sportType: String?): Pair<Int, Int> {
         "gravel bike" -> Pair(2, 46) // Cycling, Gravel
         "e-bike" -> Pair(2, 21) // Cycling, E-Bike
         "racing bicycle" -> Pair(2, 10) // Cycling, Road
-        "hiking", "walking" -> Pair(11, 0) // Hiking, Generic
+        "hiking", "mountain hiking", "forest hiking", "walking", "nordic walking", "urban walking" -> Pair(11, 0) // Hiking, Generic
         "swimming - open water" -> Pair(5, 1) // Swimming, Open Water
         "swimming - pool" -> Pair(5, 2) // Swimming, Lap Swimming
         "ski", "cross country skiing" -> Pair(12, 0) // Cross Country Skiing, Generic

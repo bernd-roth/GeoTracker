@@ -265,13 +265,7 @@ class TrackingServer:
         """Broadcast updated session list to all clients."""
         try:
             self.update_active_sessions()
-            session_info = [
-                {
-                    "sessionId": session_id,
-                    "isActive": session_id in self.active_sessions
-                }
-                for session_id in self.tracking_history.keys()
-            ]
+            session_info = self.build_session_info()
 
             await self.broadcast_update({
                 'type': 'session_list',
@@ -282,6 +276,28 @@ class TrackingServer:
 
         except Exception as e:
             logging.error(f"Error broadcasting session list update: {str(e)}")
+
+    def build_session_info(self) -> List[Dict[str, Any]]:
+        """Build session metadata for the live Session Manager UI."""
+        session_info = []
+        for session_id, points in self.tracking_history.items():
+            latest_point = points[-1] if points else {}
+            session_info.append({
+                "sessionId": session_id,
+                "isActive": session_id in self.active_sessions,
+                "person": latest_point.get("firstname", latest_point.get("person", "")),
+                "eventName": latest_point.get("eventName", ""),
+                "sportType": latest_point.get("sportType", ""),
+                "startDateTime": latest_point.get("startDateTime"),
+                "startCity": latest_point.get("startCity", ""),
+                "startCountry": latest_point.get("startCountry", ""),
+                "startAddress": latest_point.get("startAddress", ""),
+                "endCity": latest_point.get("endCity", ""),
+                "endCountry": latest_point.get("endCountry", ""),
+                "endAddress": latest_point.get("endAddress", ""),
+                "version": latest_point.get("version", "")
+            })
+        return session_info
 
     async def periodic_cleanup_task(self) -> None:
         """Background task that runs periodic memory cleanup."""
@@ -636,11 +652,15 @@ class TrackingServer:
         if 'startDateTime' in message_data:
             try:
                 start_date_time = parser.parse(message_data['startDateTime'])
+                if start_date_time.tzinfo is None:
+                    timezone_offset_hours = float(message_data.get('timezoneOffsetHours', 0) or 0)
+                    timezone_offset = datetime.timezone(datetime.timedelta(hours=timezone_offset_hours))
+                    start_date_time = start_date_time.replace(tzinfo=timezone_offset)
             except Exception as e:
                 logging.warning(f"Could not parse startDateTime: {e}")
-                start_date_time = datetime.datetime.now()
+                start_date_time = datetime.datetime.now(datetime.timezone.utc)
         else:
-            start_date_time = datetime.datetime.now()
+            start_date_time = datetime.datetime.now(datetime.timezone.utc)
 
         await conn.execute("""
             INSERT INTO tracking_sessions (
@@ -1218,7 +1238,9 @@ class TrackingServer:
                 SELECT
                     gtp.session_id,
                     u.firstname, u.lastname, u.birthdate, u.height, u.weight, u.bmi,
-                    s.event_name, s.sport_type, s.comment, s.clothing,
+                    s.event_name, s.sport_type, s.comment, s.clothing, s.app_version,
+                    s.start_city, s.start_country, s.start_address,
+                    s.end_city, s.end_country, s.end_address,
                     s.min_distance_meters, s.min_time_seconds, s.voice_announcement_interval,
                     gtp.latitude, gtp.longitude, gtp.altitude,
                     gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
@@ -1261,6 +1283,13 @@ class TrackingServer:
                     "sportType": row['sport_type'] or '',
                     "comment": row['comment'] or '',
                     "clothing": row['clothing'] or '',
+                    "version": row['app_version'] or '',
+                    "startCity": row['start_city'] or '',
+                    "startCountry": row['start_country'] or '',
+                    "startAddress": row['start_address'] or '',
+                    "endCity": row['end_city'] or '',
+                    "endCountry": row['end_country'] or '',
+                    "endAddress": row['end_address'] or '',
                     "latitude": float(row['latitude']),
                     "longitude": float(row['longitude']),
                     "altitude": float(row['altitude']) if row['altitude'] is not None else 0.0,
@@ -1317,17 +1346,7 @@ class TrackingServer:
 
                 self.tracking_history[row['session_id']].append(tracking_point)
 
-            # Remove _reset_ fragments from tracking_history so they don't
-            # appear as separate sessions in the live UI.  Their points are
-            # typically GPS outliers (the coordinate jump / distance reset that
-            # triggered the reset detection) and belong to neither segment.
-            # The base session already has continuous data before and after
-            # each restart.
-            reset_keys = [sid for sid in self.tracking_history if re.search(r'_reset_\d+$', sid)]
-            for reset_sid in reset_keys:
-                del self.tracking_history[reset_sid]
-
-            logging.info(f"Loaded {len(rows)} tracking points from database (last {self.data_retention_hours} hours, {len(reset_keys)} reset fragments hidden)")
+            logging.info(f"Loaded {len(rows)} tracking points from database (last {self.data_retention_hours} hours)")
 
         except Exception as e:
             logging.error(f"Error loading tracking history from normalized database: {str(e)}")
@@ -1571,7 +1590,9 @@ class TrackingServer:
                     SELECT
                         gtp.session_id,
                         u.firstname, u.lastname, u.birthdate, u.height, u.weight, u.bmi,
-                        s.event_name, s.sport_type, s.comment, s.clothing,
+                        s.event_name, s.sport_type, s.comment, s.clothing, s.app_version,
+                        s.start_city, s.start_country, s.start_address,
+                        s.end_city, s.end_country, s.end_address,
                         s.min_distance_meters, s.min_time_seconds, s.voice_announcement_interval,
                         gtp.latitude, gtp.longitude, gtp.altitude,
                         gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
@@ -1598,6 +1619,17 @@ class TrackingServer:
                     "firstname": row['firstname'],
                     "lastname": row['lastname'] or '',
                     "person": row['firstname'],
+                    "eventName": row['event_name'] or '',
+                    "sportType": row['sport_type'] or '',
+                    "comment": row['comment'] or '',
+                    "clothing": row['clothing'] or '',
+                    "version": row['app_version'] or '',
+                    "startCity": row['start_city'] or '',
+                    "startCountry": row['start_country'] or '',
+                    "startAddress": row['start_address'] or '',
+                    "endCity": row['end_city'] or '',
+                    "endCountry": row['end_country'] or '',
+                    "endAddress": row['end_address'] or '',
                     "latitude": float(row['latitude']),
                     "longitude": float(row['longitude']),
                     "altitude": float(row['altitude']) if row['altitude'] is not None else 0.0,
@@ -1933,13 +1965,7 @@ class TrackingServer:
                 await asyncio.sleep(0.001)  # Minimal delay between batches
 
             # Send session IDs for UI along with active status
-            session_info = [
-                {
-                    "sessionId": session_id,
-                    "isActive": session_id in self.active_sessions
-                }
-                for session_id in self.tracking_history.keys()
-            ]
+            session_info = self.build_session_info()
 
             await websocket.send(json.dumps({
                 'type': 'session_list',
@@ -2065,6 +2091,15 @@ class TrackingServer:
             # Update the message data with new session ID
             message_data = message_data.copy()  # Don't modify original
             message_data['sessionId'] = actual_session_id
+            reset_match = re.search(r'_reset_(\d+)$', actual_session_id)
+            if reset_match:
+                reset_timestamp_ms = int(reset_match.group(1))
+                reset_start_time = datetime.datetime.fromtimestamp(
+                    reset_timestamp_ms / 1000,
+                    datetime.timezone.utc
+                )
+                message_data['startDateTime'] = reset_start_time.isoformat()
+                message_data['timezoneOffsetHours'] = 0
 
             logging.info(f"SESSION RESET APPLIED: {original_session_id} -> {actual_session_id}")
 
@@ -2491,13 +2526,7 @@ class TrackingServer:
                     # Handle session status request
                     if message_data.get('type') == 'request_sessions':
                         self.update_active_sessions()
-                        session_info = [
-                            {
-                                "sessionId": session_id,
-                                "isActive": session_id in self.active_sessions
-                            }
-                            for session_id in self.tracking_history.keys()
-                        ]
+                        session_info = self.build_session_info()
 
                         await websocket.send(json.dumps({
                             'type': 'session_list',
@@ -2594,6 +2623,7 @@ class TrackingServer:
                         logging.info(f"New active session detected: {actual_session_id}")
                         # Broadcast active users update when new session becomes active
                         await self.broadcast_active_users_update()
+                        await self.broadcast_session_list_update()
                         last_active_users_broadcast = datetime.datetime.now()
 
                     # Broadcast general tracking update to all clients (only for valid coordinates)

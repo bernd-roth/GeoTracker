@@ -15,6 +15,7 @@ CREATE TABLE public.tracking_sessions (
 	min_distance_meters int4 NULL,
 	min_time_seconds int4 NULL,
 	voice_announcement_interval int4 NULL,
+	app_version varchar(255) NULL,
 	created_at timestamptz DEFAULT now() NULL,
 	updated_at timestamptz DEFAULT now() NULL,
 	start_city varchar(255) NULL,
