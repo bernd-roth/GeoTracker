@@ -716,7 +716,7 @@ function handleChartHover(event, activeElements, chartType) {
             dataLength: dataset.data ? dataset.data.length : 0
         });
 
-        let sessionId = dataset.sessionId || dataset.label;
+        let sessionId = getBaseSessionId(dataset.sessionId || dataset.label);
         let sessionTrackPoints = trackPoints[sessionId];
 
         if (!sessionTrackPoints) {
@@ -778,7 +778,7 @@ function handleChartClick(event, activeElements, chartType) {
 
     if (!dataset) return;
 
-    let sessionId = dataset.sessionId || dataset.label;
+    let sessionId = getBaseSessionId(dataset.sessionId || dataset.label);
     let sessionTrackPoints = trackPoints[sessionId];
 
     if (!sessionTrackPoints) {
@@ -1318,6 +1318,7 @@ function handleLegendClick(e, legendItem, legend) {
             sessionId = extractSessionIdFromDisplayId(clickedLabel);
         }
     }
+    sessionId = getBaseSessionId(sessionId);
 
     addDebugMessage(`Toggle visibility from legend click: ${clickedLabel} (Session ID: ${sessionId})`, 'ui');
 
@@ -1334,6 +1335,7 @@ function handleLegendClick(e, legendItem, legend) {
                     datasetSessionId = extractSessionIdFromDisplayId(dataset.label);
                 }
             }
+            datasetSessionId = getBaseSessionId(datasetSessionId);
 
             if (datasetSessionId === sessionId) {
                 chart.setDatasetVisibility(i, !isVisible);
@@ -1348,12 +1350,13 @@ function handleLegendClick(e, legendItem, legend) {
 
 function extractSessionIdFromDisplayId(displayId) {
     if (displayId.includes('_')) {
-        return displayId.split('_').slice(1).join('_');
+        return getBaseSessionId(displayId.split('_').slice(1).join('_'));
     }
-    return displayId;
+    return getBaseSessionId(displayId);
 }
 
 function toggleMapElementsVisibility(sessionId, visible) {
+    sessionId = getBaseSessionId(sessionId);
     addDebugMessage(`Toggling map visibility for session ${sessionId} to ${visible ? 'visible' : 'hidden'}`, 'map');
 
     // Handle polylines (segment-based layers)
@@ -1540,11 +1543,13 @@ function handleHistoryBatch(points) {
     window._batchStartTime = Date.now();
 
     points.forEach(point => {
-        const sessionId = point.sessionId || "default";
+        const sourceSessionId = point.sessionId || "default";
+        const sessionId = getBaseSessionId(sourceSessionId);
         const personName = point.person || "";
 
         if (personName) {
             sessionPersonNames[sessionId] = personName;
+            sessionPersonNames[sourceSessionId] = personName;
         }
 
         if (!trackPoints[sessionId]) {
@@ -1552,8 +1557,11 @@ function handleHistoryBatch(points) {
         }
 
         const processedPoint = {
+            sourceSessionId,
+            isResetFragment: isResetSessionId(sourceSessionId),
             lat: parseFloat(point.latitude),
             lng: parseFloat(point.longitude),
+            rawDistance: parseFloat(point.distance) / 1000,
             distance: parseFloat(point.distance) / 1000,
             altitude: parseFloat(point.altitude || 0),
             speed: parseFloat(point.currentSpeed || 0),
@@ -1569,6 +1577,15 @@ function handleHistoryBatch(points) {
             timestamp: new Date(point.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
             startDateTime: point.startDateTime || null,
             personName: personName,
+            eventName: point.eventName || '',
+            sportType: point.sportType || '',
+            version: point.version || '',
+            startCity: point.startCity || '',
+            startCountry: point.startCountry || '',
+            startAddress: point.startAddress || '',
+            endCity: point.endCity || '',
+            endCountry: point.endCountry || '',
+            endAddress: point.endAddress || '',
 
             temperature: point.temperature !== undefined && point.temperature !== null ? parseFloat(point.temperature) : null,
             windSpeed: parseFloat(point.windSpeed || 0),
@@ -1660,12 +1677,39 @@ function handleHistoryBatch(points) {
     });
 }
 
+function normalizeSessionDistances(sessionId) {
+    const points = trackPoints[sessionId];
+    if (!points || points.length === 0) return;
+
+    let distanceOffset = 0;
+    let previousRawDistance = null;
+
+    points.forEach(point => {
+        const rawDistance = Number.isFinite(point.rawDistance) ? point.rawDistance : point.distance;
+        if (!Number.isFinite(rawDistance)) {
+            return;
+        }
+
+        if (
+            previousRawDistance !== null &&
+            previousRawDistance > 0.05 &&
+            rawDistance + 0.02 < previousRawDistance
+        ) {
+            distanceOffset += previousRawDistance;
+        }
+
+        point.distance = distanceOffset + rawDistance;
+        previousRawDistance = rawDistance;
+    });
+}
+
 function finalizeBatchProcessing(sessionLapTimes) {
     if (!isProcessingBatch) return;
 
     // Store lap times from history_complete message
     if (sessionLapTimes) {
-        Object.keys(sessionLapTimes).forEach(sessionId => {
+        Object.keys(sessionLapTimes).forEach(sourceSessionId => {
+            const sessionId = getBaseSessionId(sourceSessionId);
             if (!speedHistory[sessionId]) {
                 speedHistory[sessionId] = {
                     speeds: [], maxSpeed: 0, avgSpeed: 0, movingAvg: 0,
@@ -1676,12 +1720,13 @@ function finalizeBatchProcessing(sessionLapTimes) {
                     pressures: [], minPressure: null, maxPressure: null, avgPressure: null
                 };
             }
-            speedHistory[sessionId].lapTimes = sessionLapTimes[sessionId];
+            speedHistory[sessionId].lapTimes = sessionLapTimes[sourceSessionId];
         });
     }
 
     Object.keys(trackPoints).forEach(sessionId => {
         trackPoints[sessionId].sort((a, b) => a.timestamp - b.timestamp);
+        normalizeSessionDistances(sessionId);
         // Set session start time and duration from data
         if (trackPoints[sessionId].length > 0) {
             const firstPoint = trackPoints[sessionId][0];
@@ -1770,18 +1815,28 @@ function handlePoint(data) {
         }
     }
 
-    const sessionId = data.sessionId || "default";
+    const sourceSessionId = data.sessionId || "default";
+    const sessionId = getBaseSessionId(sourceSessionId);
     const personName = data.person || "";
 
     if (personName) {
         sessionPersonNames[sessionId] = personName;
+        sessionPersonNames[sourceSessionId] = personName;
     }
 
-    ensureSessionAvailable(sessionId, data);
+    ensureSessionAvailable(sessionId, {
+        ...data,
+        sessionId,
+        sourceSessionId,
+        hasResetFragments: isResetSessionId(sourceSessionId)
+    });
 
     const processedPoint = {
+        sourceSessionId,
+        isResetFragment: isResetSessionId(sourceSessionId),
         lat: parseFloat(data.latitude),
         lng: parseFloat(data.longitude),
+        rawDistance: parseFloat(data.distance) / 1000,
         distance: parseFloat(data.distance) / 1000,
         altitude: parseFloat(data.altitude || 0),
         speed: parseFloat(data.currentSpeed || 0),
@@ -1795,7 +1850,17 @@ function handlePoint(data) {
         maxUphillSlope: parseFloat(data.maxUphillSlope || 0),
         maxDownhillSlope: parseFloat(data.maxDownhillSlope || 0),
         timestamp: new Date(data.timestamp.replace(/(\d{2})-(\d{2})-(\d{4})/, '$3-$2-$1')),
+        startDateTime: data.startDateTime || null,
         personName: personName,
+        eventName: data.eventName || '',
+        sportType: data.sportType || '',
+        version: data.version || '',
+        startCity: data.startCity || '',
+        startCountry: data.startCountry || '',
+        startAddress: data.startAddress || '',
+        endCity: data.endCity || '',
+        endCountry: data.endCountry || '',
+        endAddress: data.endAddress || '',
 
         temperature: parseFloat(data.temperature || 0),
         windSpeed: parseFloat(data.windSpeed || 0),
@@ -1818,6 +1883,8 @@ function handlePoint(data) {
     }
 
     trackPoints[sessionId].push(processedPoint);
+    trackPoints[sessionId].sort((a, b) => a.timestamp - b.timestamp);
+    normalizeSessionDistances(sessionId);
 
     clearGPSWarnings(sessionId);
 
@@ -1878,6 +1945,7 @@ function clearGPSWarnings(sessionId) {
 }
 
 function updateMapTrack(sessionId) {
+    sessionId = getBaseSessionId(sessionId);
     const points = trackPoints[sessionId];
     if (!points || points.length === 0) return;
 
@@ -2154,6 +2222,7 @@ function updateMapTrack(sessionId) {
 }
 
 function updateCharts(sessionId) {
+    sessionId = getBaseSessionId(sessionId);
     if (!shouldDisplaySession(sessionId)) {
         addDebugMessage(`Skipping chart update for filtered session: ${sessionId}`, 'system');
         return;
@@ -2236,7 +2305,7 @@ function updateCharts(sessionId) {
     // Remove from altitude chart
     for (let i = altitudeChart.data.datasets.length - 1; i >= 0; i--) {
         const dataset = altitudeChart.data.datasets[i];
-        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
         if (datasetSessionId === sessionId) {
             altitudeChart.data.datasets.splice(i, 1);
         }
@@ -2245,7 +2314,7 @@ function updateCharts(sessionId) {
     // Remove from speed chart
     for (let i = speedChart.data.datasets.length - 1; i >= 0; i--) {
         const dataset = speedChart.data.datasets[i];
-        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
         if (datasetSessionId === sessionId) {
             speedChart.data.datasets.splice(i, 1);
         }
@@ -2255,7 +2324,7 @@ function updateCharts(sessionId) {
     if (hrChart) {
         for (let i = hrChart.data.datasets.length - 1; i >= 0; i--) {
             const dataset = hrChart.data.datasets[i];
-            const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+            const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
             if (datasetSessionId === sessionId) {
                 hrChart.data.datasets.splice(i, 1);
             }
@@ -2464,6 +2533,7 @@ function getSlopeColor(slope) {
 }
 
 function updateSpeedDisplay(sessionId, speed, data) {
+    sessionId = getBaseSessionId(sessionId);
     // Extract temperature and pressure from nested objects for easier access
     const temperature = data.weather?.temperature ?? data.temperature;
     const pressure = data.barometer?.pressure ?? data.pressure;
@@ -3122,6 +3192,37 @@ function createDisplayId(sessionId, personName) {
     return personName.split('_')[0] || personName;
 }
 
+function isResetSessionId(sessionId) {
+    return /_reset_\d+$/.test(String(sessionId || ''));
+}
+
+function getBaseSessionId(sessionId) {
+    return String(sessionId || '').replace(/_reset_\d+$/, '');
+}
+
+function getSessionFamilyIds(sessionId) {
+    const baseSessionId = getBaseSessionId(sessionId);
+    const familyIds = new Set([baseSessionId]);
+
+    Object.keys(trackPoints).forEach(candidateId => {
+        if (getBaseSessionId(candidateId) === baseSessionId) {
+            familyIds.add(candidateId);
+        }
+    });
+    availableSessions.forEach(session => {
+        if (session && getBaseSessionId(session.sessionId) === baseSessionId) {
+            familyIds.add(session.sessionId);
+        }
+        (session?.sourceSessionIds || []).forEach(sourceId => {
+            if (getBaseSessionId(sourceId) === baseSessionId) {
+                familyIds.add(sourceId);
+            }
+        });
+    });
+
+    return [...familyIds];
+}
+
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, char => ({
         '&': '&amp;',
@@ -3137,6 +3238,7 @@ function escapeJsSingleQuotedString(value) {
 }
 
 function parseSessionId(sessionId) {
+    sessionId = getBaseSessionId(sessionId);
     const parts = sessionId.split('_');
     const name = parts[0] || sessionId;
     const datePart = parts[1] || '';
@@ -3202,9 +3304,28 @@ function resolveSessionDisplayTime(session, parsedSession) {
         'Unknown time';
 }
 
-function sessionInfoFromPoint(sessionId, data = {}) {
+function normalizeSessionForDisplay(session) {
+    const sourceSessionId = session.sourceSessionId || session.sessionId;
+    const baseSessionId = getBaseSessionId(sourceSessionId);
+    const sourceSessionIds = new Set(session.sourceSessionIds || []);
+    if (sourceSessionId) {
+        sourceSessionIds.add(sourceSessionId);
+    }
+
     return {
-        sessionId,
+        ...session,
+        sessionId: baseSessionId,
+        sourceSessionId,
+        sourceSessionIds: [...sourceSessionIds],
+        hasResetFragments: Boolean(session.hasResetFragments || isResetSessionId(sourceSessionId)),
+        hasBaseFragment: Boolean(session.hasBaseFragment || !isResetSessionId(sourceSessionId))
+    };
+}
+
+function sessionInfoFromPoint(sessionId, data = {}) {
+    return normalizeSessionForDisplay({
+        sessionId: getBaseSessionId(sessionId),
+        sourceSessionId: data.sourceSessionId || data.sessionId || sessionId,
         isActive: data.isActive !== undefined ? data.isActive : true,
         person: data.person || data.firstname || sessionPersonNames[sessionId] || '',
         eventName: data.eventName || '',
@@ -3217,35 +3338,79 @@ function sessionInfoFromPoint(sessionId, data = {}) {
         endCountry: data.endCountry || '',
         endAddress: data.endAddress || '',
         version: data.version || ''
-    };
+    });
+}
+
+function hasSessionField(session, fields) {
+    return fields.some(field => session[field] !== undefined && session[field] !== null && session[field] !== '');
 }
 
 function mergeSessionInfo(existing, incoming) {
-    return {
-        ...existing,
+    const startFields = ['startDateTime', 'startCity', 'startCountry', 'startAddress'];
+    const endFields = ['endCity', 'endCountry', 'endAddress'];
+    const normalizedExisting = normalizeSessionForDisplay(existing);
+    const normalizedIncoming = normalizeSessionForDisplay(incoming);
+    const incomingIsBase = normalizedIncoming.hasBaseFragment && !isResetSessionId(normalizedIncoming.sourceSessionId);
+    const preferIncomingStart = incomingIsBase || !hasSessionField(normalizedExisting, startFields);
+    const startSource = preferIncomingStart ? normalizedIncoming : normalizedExisting;
+    const endSource = hasSessionField(normalizedIncoming, endFields) ? normalizedIncoming : normalizedExisting;
+    const sourceSessionIds = new Set([
+        ...(normalizedExisting.sourceSessionIds || []),
+        ...(normalizedIncoming.sourceSessionIds || [])
+    ]);
+
+    const merged = {
+        ...normalizedExisting,
         ...Object.fromEntries(
-            Object.entries(incoming).filter(([, value]) => value !== undefined && value !== null && value !== '')
+            Object.entries(normalizedIncoming).filter(([, value]) => value !== undefined && value !== null && value !== '')
         ),
-        isActive: incoming.isActive !== undefined ? incoming.isActive : existing.isActive
+        sessionId: normalizedExisting.sessionId || normalizedIncoming.sessionId,
+        sourceSessionIds: [...sourceSessionIds],
+        hasResetFragments: normalizedExisting.hasResetFragments || normalizedIncoming.hasResetFragments,
+        hasBaseFragment: normalizedExisting.hasBaseFragment || normalizedIncoming.hasBaseFragment,
+        isActive: Boolean(normalizedExisting.isActive || normalizedIncoming.isActive)
+    };
+
+    return {
+        ...merged,
+        startDateTime: startSource.startDateTime || normalizedExisting.startDateTime || normalizedIncoming.startDateTime || '',
+        startCity: startSource.startCity || normalizedExisting.startCity || normalizedIncoming.startCity || '',
+        startCountry: startSource.startCountry || normalizedExisting.startCountry || normalizedIncoming.startCountry || '',
+        startAddress: startSource.startAddress || normalizedExisting.startAddress || normalizedIncoming.startAddress || '',
+        endCity: endSource.endCity || normalizedExisting.endCity || normalizedIncoming.endCity || '',
+        endCountry: endSource.endCountry || normalizedExisting.endCountry || normalizedIncoming.endCountry || '',
+        endAddress: endSource.endAddress || normalizedExisting.endAddress || normalizedIncoming.endAddress || ''
     };
 }
 
+function addOrMergeSession(sessionMap, session) {
+    if (!session || !session.sessionId) return;
+    const normalizedSession = normalizeSessionForDisplay(session);
+    const existing = sessionMap.get(normalizedSession.sessionId);
+    sessionMap.set(
+        normalizedSession.sessionId,
+        existing ? mergeSessionInfo(existing, normalizedSession) : normalizedSession
+    );
+}
+
 function mergeServerSessionsWithLiveTracks(sessions) {
-    const merged = [];
-    const seen = new Set();
+    const sessionMap = new Map();
 
     sessions.forEach(session => {
-        if (!session || !session.sessionId) return;
-        merged.push(session);
-        seen.add(session.sessionId);
+        addOrMergeSession(sessionMap, session);
     });
 
     Object.keys(trackPoints).forEach(sessionId => {
-        if (seen.has(sessionId) || !shouldDisplaySession(sessionId)) return;
+        const baseSessionId = getBaseSessionId(sessionId);
+        if (!shouldDisplaySession(baseSessionId)) return;
         const points = trackPoints[sessionId] || [];
         const latestPoint = points.length > 0 ? points[points.length - 1] : {};
-        merged.push(sessionInfoFromPoint(sessionId, {
-            person: latestPoint.personName || sessionPersonNames[sessionId] || '',
+        addOrMergeSession(sessionMap, sessionInfoFromPoint(baseSessionId, {
+            sourceSessionId: latestPoint.sourceSessionId || sessionId,
+            person: latestPoint.personName || sessionPersonNames[baseSessionId] || '',
+            eventName: latestPoint.eventName || '',
+            sportType: latestPoint.sportType || '',
+            version: latestPoint.version || '',
             startDateTime: latestPoint.startDateTime || null,
             startCity: latestPoint.startCity || '',
             startCountry: latestPoint.startCountry || '',
@@ -3257,7 +3422,7 @@ function mergeServerSessionsWithLiveTracks(sessions) {
         }));
     });
 
-    return merged;
+    return [...sessionMap.values()];
 }
 
 function normalizeLocation(value) {
@@ -3290,10 +3455,11 @@ function formatSessionLocation(session) {
 }
 
 function ensureSessionAvailable(sessionId, sourceData = {}) {
+    sessionId = getBaseSessionId(sessionId);
     if (!sessionId || !shouldDisplaySession(sessionId)) return;
 
     const incoming = sessionInfoFromPoint(sessionId, sourceData);
-    const existingIndex = availableSessions.findIndex(session => session.sessionId === sessionId);
+    const existingIndex = availableSessions.findIndex(session => getBaseSessionId(session.sessionId) === sessionId);
 
     if (existingIndex === -1) {
         availableSessions.push(incoming);
@@ -3349,6 +3515,7 @@ function handleSessionList(sessions) {
 }
 
 function toggleSessionVisibility(sessionId) {
+    sessionId = getBaseSessionId(sessionId);
     addDebugMessage(`Toggle visibility requested for session ${sessionId}`, 'system');
 
     const personName = sessionPersonNames[sessionId] || "";
@@ -3360,7 +3527,7 @@ function toggleSessionVisibility(sessionId) {
     const altDatasets = altitudeChart.data.datasets;
     for (let i = 0; i < altDatasets.length; i++) {
         const dataset = altDatasets[i];
-        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
 
         if (datasetSessionId === sessionId) {
             if (currentVisibility === null) {
@@ -3374,7 +3541,7 @@ function toggleSessionVisibility(sessionId) {
     const speedDatasets = speedChart.data.datasets;
     for (let i = 0; i < speedDatasets.length; i++) {
         const dataset = speedDatasets[i];
-        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
 
         if (datasetSessionId === sessionId) {
             speedChart.setDatasetVisibility(i, !currentVisibility);
@@ -3386,7 +3553,7 @@ function toggleSessionVisibility(sessionId) {
         const hrDatasets = hrChart.data.datasets;
         for (let i = 0; i < hrDatasets.length; i++) {
             const dataset = hrDatasets[i];
-            const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+            const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
 
             if (datasetSessionId === sessionId) {
                 hrChart.setDatasetVisibility(i, !currentVisibility);
@@ -3412,6 +3579,7 @@ function toggleSessionVisibility(sessionId) {
 }
 
 function updateVisibilityButtonAppearance(sessionId, isVisible) {
+    sessionId = getBaseSessionId(sessionId);
     const sessionItem = document.querySelector(`[data-session-id="${sessionId}"]`);
     if (sessionItem) {
         const visibilityBtn = sessionItem.querySelector('.toggle-visibility');
@@ -3423,6 +3591,7 @@ function updateVisibilityButtonAppearance(sessionId, isVisible) {
 }
 
 function zoomToSession(sessionId) {
+    sessionId = getBaseSessionId(sessionId);
     addDebugMessage(`Zoom to session requested: ${sessionId}`, 'system');
 
     const sessionTrackPoints = trackPoints[sessionId];
@@ -3596,7 +3765,8 @@ function updateSessionList() {
 }
 
 function confirmDeleteSession(sessionId) {
-    const session = availableSessions.find(s => s.sessionId === sessionId);
+    sessionId = getBaseSessionId(sessionId);
+    const session = availableSessions.find(s => getBaseSessionId(s.sessionId) === sessionId);
     if (session && session.isActive) {
         showNotification('Cannot delete an active session. Wait for the session to complete first.', 'warning');
         addDebugMessage(`Attempted to delete active session: ${sessionId}`, 'warning');
@@ -3694,23 +3864,22 @@ function requestSessionList() {
 }
 
 function handleSessionDeleted(sessionId) {
+    sessionId = getBaseSessionId(sessionId);
+    const familyIds = getSessionFamilyIds(sessionId);
     addDebugMessage(`Handling deletion of session ${sessionId}`, 'system');
 
-    availableSessions = availableSessions.filter(session => session.sessionId !== sessionId);
+    availableSessions = availableSessions.filter(session => getBaseSessionId(session.sessionId) !== sessionId);
 
-    if (trackPoints[sessionId]) {
-        delete trackPoints[sessionId];
-    }
-
-    if (speedHistory[sessionId]) {
-        delete speedHistory[sessionId];
-    }
+    familyIds.forEach(familySessionId => {
+        delete trackPoints[familySessionId];
+        delete speedHistory[familySessionId];
+    });
 
     // Remove all datasets for this session from altitude chart (including segments)
     const altDatasets = altitudeChart.data.datasets;
     for (let i = altDatasets.length - 1; i >= 0; i--) {
         const dataset = altDatasets[i];
-        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
 
         if (datasetSessionId === sessionId) {
             addDebugMessage(`Removing altitude dataset: ${dataset.label}`, 'system');
@@ -3723,7 +3892,7 @@ function handleSessionDeleted(sessionId) {
     const speedDatasets = speedChart.data.datasets;
     for (let i = speedDatasets.length - 1; i >= 0; i--) {
         const dataset = speedDatasets[i];
-        const datasetSessionId = dataset.sessionId || extractSessionIdFromDisplayId(dataset.label);
+        const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
 
         if (datasetSessionId === sessionId) {
             addDebugMessage(`Removing speed dataset: ${dataset.label}`, 'system');
@@ -3732,46 +3901,57 @@ function handleSessionDeleted(sessionId) {
     }
     speedChart.update();
 
-    // Remove from map - MapLibre GL JS version (segment-based)
-    const polylineRefs = polylines[sessionId];
-    if (polylineRefs) {
-        if (Array.isArray(polylineRefs)) {
-            polylineRefs.forEach(ref => {
-                if (map.getLayer(ref.layerId)) map.removeLayer(ref.layerId);
-                if (map.getSource(ref.sourceId)) map.removeSource(ref.sourceId);
-            });
-        } else {
-            // Legacy single layer
-            if (map.getLayer(polylineRefs.layerId)) map.removeLayer(polylineRefs.layerId);
-            if (map.getSource(polylineRefs.sourceId)) map.removeSource(polylineRefs.sourceId);
+    if (hrChart) {
+        const hrDatasets = hrChart.data.datasets;
+        for (let i = hrDatasets.length - 1; i >= 0; i--) {
+            const dataset = hrDatasets[i];
+            const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
+
+            if (datasetSessionId === sessionId) {
+                addDebugMessage(`Removing heart-rate dataset: ${dataset.label}`, 'system');
+                hrDatasets.splice(i, 1);
+            }
         }
-        delete polylines[sessionId];
+        hrChart.update();
     }
 
-    if (startMarkers[sessionId]) {
-        startMarkers[sessionId].remove();
-        delete startMarkers[sessionId];
-    }
+    familyIds.forEach(familySessionId => {
+        const polylineRefs = polylines[familySessionId];
+        if (polylineRefs) {
+            if (Array.isArray(polylineRefs)) {
+                polylineRefs.forEach(ref => {
+                    if (map.getLayer(ref.layerId)) map.removeLayer(ref.layerId);
+                    if (map.getSource(ref.sourceId)) map.removeSource(ref.sourceId);
+                });
+            } else {
+                if (map.getLayer(polylineRefs.layerId)) map.removeLayer(polylineRefs.layerId);
+                if (map.getSource(polylineRefs.sourceId)) map.removeSource(polylineRefs.sourceId);
+            }
+            delete polylines[familySessionId];
+        }
 
-    if (endMarkers[sessionId]) {
-        endMarkers[sessionId].remove();
-        delete endMarkers[sessionId];
-    }
+        if (startMarkers[familySessionId]) {
+            startMarkers[familySessionId].remove();
+            delete startMarkers[familySessionId];
+        }
 
-    const speedContainer = document.getElementById(`speed-container-${sessionId}`);
-    if (speedContainer) {
-        speedContainer.remove();
-    }
+        if (endMarkers[familySessionId]) {
+            endMarkers[familySessionId].remove();
+            delete endMarkers[familySessionId];
+        }
 
-    if (hrMiniCharts[sessionId]) {
-        hrMiniCharts[sessionId].destroy();
-        delete hrMiniCharts[sessionId];
-    }
-    delete hrMiniChartData[sessionId];
+        const speedContainer = document.getElementById(`speed-container-${familySessionId}`);
+        if (speedContainer) {
+            speedContainer.remove();
+        }
 
-    if (sessionPersonNames[sessionId]) {
-        delete sessionPersonNames[sessionId];
-    }
+        if (hrMiniCharts[familySessionId]) {
+            hrMiniCharts[familySessionId].destroy();
+            delete hrMiniCharts[familySessionId];
+        }
+        delete hrMiniChartData[familySessionId];
+        delete sessionPersonNames[familySessionId];
+    });
 
     updateSessionList();
 
@@ -3780,6 +3960,7 @@ function handleSessionDeleted(sessionId) {
 }
 
 function deleteSession(sessionId) {
+    sessionId = getBaseSessionId(sessionId);
     if (websocket && websocket.readyState === WebSocket.OPEN) {
         const deleteRequest = {
             type: 'delete_session',
@@ -4005,7 +4186,7 @@ function updateWeatherStats(point) {
 }
 
 function shouldDisplaySession(sessionId) {
-    return !sessionId.includes('_archived_');
+    return !String(sessionId || '').includes('_archived_') && !isResetSessionId(sessionId);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
