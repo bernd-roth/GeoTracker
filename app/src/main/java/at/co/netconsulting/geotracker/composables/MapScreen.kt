@@ -3177,7 +3177,7 @@ fun MapScreen(
                         )
                     }
                 }
-            } else if (isRecording && !followingState.isFollowing && !isBackyardUltraMode) {
+            } else if (isRecording && !isBackyardUltraMode) {
                 // Pause/Resume button (hidden during Backyard Ultra - lap button handles pause/resume)
                 Surface(
                     modifier = Modifier.size(56.dp),
@@ -3328,7 +3328,7 @@ fun MapScreen(
             }
 
             // Backyard Ultra stop button (separate since pause/resume block is hidden)
-            if (isRecording && !followingState.isFollowing && isBackyardUltraMode) {
+            if (isRecording && isBackyardUltraMode) {
                 Surface(
                     modifier = Modifier.size(56.dp),
                     shape = CircleShape,

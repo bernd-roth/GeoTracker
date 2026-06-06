@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.36 (06-06-2026: sport type mountain hiking added)"
+        versionName = "9.37 (06-06-2026: Recording button available when following user and altitude overlay is shown)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
