@@ -2073,14 +2073,6 @@ class TrackingServer:
             # Create new session ID
             actual_session_id = self.session_detector.create_new_session_id(original_session_id)
 
-            # Clean up old session data in memory
-            if original_session_id in self.tracking_history:
-                logging.info(f"Moving {len(self.tracking_history[original_session_id])} points from {original_session_id} to archive")
-                # Keep old data but under a different key for reference
-                archive_key = f"{original_session_id}_archived_{int(time.time())}"
-                self.tracking_history[archive_key] = self.tracking_history[original_session_id].copy()
-                self.tracking_history[original_session_id] = []
-
             # Reset session tracking
             self.session_detector.reset_session_tracking(original_session_id)
 

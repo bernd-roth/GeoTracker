@@ -3196,8 +3196,12 @@ function isResetSessionId(sessionId) {
     return /_reset_\d+$/.test(String(sessionId || ''));
 }
 
+function isArchivedSessionId(sessionId) {
+    return /_archived_\d+$/.test(String(sessionId || ''));
+}
+
 function getBaseSessionId(sessionId) {
-    return String(sessionId || '').replace(/_reset_\d+$/, '');
+    return String(sessionId || '').replace(/_(?:reset|archived)_\d+$/, '');
 }
 
 function getSessionFamilyIds(sessionId) {
@@ -3312,13 +3316,17 @@ function normalizeSessionForDisplay(session) {
         sourceSessionIds.add(sourceSessionId);
     }
 
+    const isResetFragment = isResetSessionId(sourceSessionId);
+    const isArchivedFragment = isArchivedSessionId(sourceSessionId);
+
     return {
         ...session,
         sessionId: baseSessionId,
         sourceSessionId,
         sourceSessionIds: [...sourceSessionIds],
-        hasResetFragments: Boolean(session.hasResetFragments || isResetSessionId(sourceSessionId)),
-        hasBaseFragment: Boolean(session.hasBaseFragment || !isResetSessionId(sourceSessionId))
+        hasResetFragments: Boolean(session.hasResetFragments || isResetFragment),
+        hasArchivedFragments: Boolean(session.hasArchivedFragments || isArchivedFragment),
+        hasBaseFragment: Boolean(session.hasBaseFragment || (!isResetFragment && !isArchivedFragment))
     };
 }
 
@@ -3367,6 +3375,7 @@ function mergeSessionInfo(existing, incoming) {
         sessionId: normalizedExisting.sessionId || normalizedIncoming.sessionId,
         sourceSessionIds: [...sourceSessionIds],
         hasResetFragments: normalizedExisting.hasResetFragments || normalizedIncoming.hasResetFragments,
+        hasArchivedFragments: normalizedExisting.hasArchivedFragments || normalizedIncoming.hasArchivedFragments,
         hasBaseFragment: normalizedExisting.hasBaseFragment || normalizedIncoming.hasBaseFragment,
         isActive: Boolean(normalizedExisting.isActive || normalizedIncoming.isActive)
     };
@@ -4186,7 +4195,7 @@ function updateWeatherStats(point) {
 }
 
 function shouldDisplaySession(sessionId) {
-    return !String(sessionId || '').includes('_archived_') && !isResetSessionId(sessionId);
+    return Boolean(sessionId) && !isResetSessionId(sessionId) && !isArchivedSessionId(sessionId);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
