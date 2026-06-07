@@ -14,11 +14,12 @@ object DirectionArrowHelper {
     private const val ARROW_INTERVAL_METERS = 1000.0
     private const val ARROW_SIZE_DP = 20f
 
-    fun addDirectionArrows(mapView: MapView, points: List<GeoPoint>) {
-        if (points.size < 2) return
+    fun addDirectionArrows(mapView: MapView, points: List<GeoPoint>): List<Marker> {
+        if (points.size < 2) return emptyList()
 
         val context = mapView.context
         val arrowBitmap = createArrowBitmap(context)
+        val markers = mutableListOf<Marker>()
         var accumulatedDistance = 0.0
 
         for (i in 0 until points.size - 1) {
@@ -44,8 +45,11 @@ object DirectionArrowHelper {
                     isFlat = true
                 }
                 mapView.overlays.add(marker)
+                markers.add(marker)
             }
         }
+
+        return markers
     }
 
     private fun createArrowBitmap(context: Context): Bitmap {

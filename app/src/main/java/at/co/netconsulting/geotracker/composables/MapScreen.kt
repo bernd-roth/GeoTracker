@@ -571,6 +571,8 @@ fun MapScreen(
 
     // Create a reference to hold the route overlay
     val routeOverlayRef = remember { mutableStateOf<Polyline?>(null) }
+    val routePolylineOverlaysRef = remember { mutableStateOf<List<Polyline>>(emptyList()) }
+    val routeDirectionArrowMarkersRef = remember { mutableStateOf<List<Marker>>(emptyList()) }
 
     // Route rerun animation state
     var isRunningRerun by remember { mutableStateOf(false) }
@@ -1005,6 +1007,31 @@ fun MapScreen(
         }
     }
 
+    fun clearDisplayedRouteOverlays(mapView: MapView, clearWaypoints: Boolean = true) {
+        val routePolylines = routePolylineOverlaysRef.value
+        val routeArrows = routeDirectionArrowMarkersRef.value
+
+        routePolylines.forEach { overlay ->
+            mapView.overlays.remove(overlay)
+        }
+        routeOverlayRef.value
+            ?.takeIf { overlay -> overlay !in routePolylines }
+            ?.let { overlay -> mapView.overlays.remove(overlay) }
+        routeArrows.forEach { marker ->
+            mapView.overlays.remove(marker)
+        }
+
+        routePolylineOverlaysRef.value = emptyList()
+        routeDirectionArrowMarkersRef.value = emptyList()
+        routeOverlayRef.value = null
+
+        if (clearWaypoints) {
+            waypointOverlayRef.value?.updateWaypoints(emptyList())
+        }
+
+        Timber.d("Removed ${routePolylines.size} route polyline overlay(s) and ${routeArrows.size} route direction arrow marker(s)")
+    }
+
     // Function to clear all tracks from map
     fun clearAllTracksFromMap() {
         mapViewRef.value?.let { mapView ->
@@ -1017,11 +1044,7 @@ fun MapScreen(
             currentImportedTrack = null
 
             // Clear route overlay (from EventsScreen "View on Map")
-            routeOverlayRef.value?.let { overlay ->
-                mapView.overlays.remove(overlay)
-                Timber.d("Removed route overlay")
-            }
-            routeOverlayRef.value = null
+            clearDisplayedRouteOverlays(mapView)
 
             // Clear rerun overlay (from route rerun)
             rerunOverlayRef.value?.let { overlay ->
@@ -1224,12 +1247,10 @@ fun MapScreen(
                 }
                 rerunPositionMarkerRef.value = null
                 
-                // Remove existing route overlay if present
-                routeOverlayRef.value?.let { existingOverlay ->
-                    mapView.overlays.remove(existingOverlay)
-                }
+                clearDisplayedRouteOverlays(mapView)
 
                 // Create route overlay(s) based on visualization type
+                val routePolylines = mutableListOf<Polyline>()
                 if (routeToDisplay.showSlopeColors && !routeToDisplay.metrics.isNullOrEmpty()) {
                     // Create slope-colored route segments
                     val slopeSegments = createSlopeColoredSegments(routeToDisplay.metrics!!, routeToDisplay.points)
@@ -1242,8 +1263,10 @@ fun MapScreen(
                                 title = "Slope: ${String.format("%.1f%%", segment.slope)}"
                             }
                             mapView.overlays.add(polyline)
+                            routePolylines.add(polyline)
                         }
                     }
+                    routeOverlayRef.value = null
                 } else {
                     // Create standard single-color route overlay
                     val routeOverlay = Polyline().apply {
@@ -1253,11 +1276,13 @@ fun MapScreen(
                         title = "Event Route"
                     }
                     mapView.overlays.add(routeOverlay)
+                    routePolylines.add(routeOverlay)
+                    routeOverlayRef.value = routeOverlay
                 }
-                routeOverlayRef.value = null // We're managing multiple overlays for slope colors
+                routePolylineOverlaysRef.value = routePolylines
 
                 // Add directional arrows along the route
-                DirectionArrowHelper.addDirectionArrows(mapView, routeToDisplay.points)
+                routeDirectionArrowMarkersRef.value = DirectionArrowHelper.addDirectionArrows(mapView, routeToDisplay.points)
 
                 // Load waypoints for the route if we have an event ID
                 Timber.d("RouteDisplayData eventId: ${routeToDisplay.eventId}")
@@ -2560,21 +2585,11 @@ fun MapScreen(
                         onClick = {
                             // Clear the displayed route
                             mapViewRef.value?.let { mapView ->
-                                // Remove all Polyline overlays (for both single-color and slope-colored routes)
-                                val overlaysToRemove = mapView.overlays.filterIsInstance<Polyline>().toList()
-                                overlaysToRemove.forEach { overlay ->
-                                    mapView.overlays.remove(overlay)
-                                }
-
-                                // Clear waypoints
-                                waypointOverlayRef.value?.updateWaypoints(emptyList())
-
+                                clearDisplayedRouteOverlays(mapView)
                                 mapView.invalidate()
-                                Timber.d("Removed ${overlaysToRemove.size} polyline overlays and cleared waypoints")
                             }
                             displayedRoute = null
                             showRouteDisplayIndicator = false
-                            routeOverlayRef.value = null
 
                             // Re-enable auto-follow if not recording
                             if (!isRecording) {

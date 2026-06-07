@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.37 (06-06-2026: Recording button available when following user and altitude overlay is shown)"
+        versionName = "9.38 (07-06-2026: Direction arrows are removed when clearing map)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
