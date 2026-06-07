@@ -49,6 +49,16 @@ let weatherStats = {
 // GPX-related variables for MapLibre GL JS
 let gpxLayerId = null;
 
+const SPEED_COLOR_BANDS = [
+    { max: 2, color: '#4FC3F7', label: '0-2', description: 'Stopped / walking' },
+    { max: 5, color: '#2196F3', label: '2-5', description: 'Slow jog' },
+    { max: 8, color: '#4CAF50', label: '5-8', description: 'Jog' },
+    { max: 12, color: '#8BC34A', label: '8-12', description: 'Run' },
+    { max: 16, color: '#FFEB3B', label: '12-16', description: 'Fast run' },
+    { max: 20, color: '#FF9800', label: '16-20', description: 'Sprint' },
+    { max: Infinity, color: '#F44336', label: '>20', description: 'Very fast' }
+];
+
 function getRandomInRange(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -269,13 +279,82 @@ function animateStatValue(element, newVal, decimals) {
 
 // ==================== Speed-to-Color for Trail ====================
 function speedToColor(speed) {
-    if (speed <= 2) return '#4FC3F7';   // light blue (walking/stopped)
-    if (speed <= 5) return '#2196F3';   // blue (slow jog)
-    if (speed <= 8) return '#4CAF50';   // green (jog)
-    if (speed <= 12) return '#8BC34A';  // light green (run)
-    if (speed <= 16) return '#FFEB3B';  // yellow (fast run)
-    if (speed <= 20) return '#FF9800';  // orange (sprint)
-    return '#F44336';                   // red (very fast)
+    const normalizedSpeed = Number(speed);
+    const safeSpeed = Number.isFinite(normalizedSpeed) ? normalizedSpeed : 0;
+    const band = SPEED_COLOR_BANDS.find(item => safeSpeed <= item.max);
+    return (band || SPEED_COLOR_BANDS[SPEED_COLOR_BANDS.length - 1]).color;
+}
+
+function createSpeedLegendControl() {
+    return {
+        onAdd: function () {
+            const container = document.createElement('div');
+            container.id = 'speedLegend';
+            container.className = 'speed-legend maplibregl-ctrl';
+            container.setAttribute('aria-label', 'Covered path speed color legend');
+
+            const header = document.createElement('div');
+            header.className = 'speed-legend-header';
+
+            const title = document.createElement('div');
+            title.className = 'speed-legend-title';
+            title.textContent = 'Covered Path Speed';
+
+            const unit = document.createElement('div');
+            unit.className = 'speed-legend-unit';
+            unit.textContent = 'km/h';
+
+            header.appendChild(title);
+            header.appendChild(unit);
+            container.appendChild(header);
+
+            const bar = document.createElement('div');
+            bar.className = 'speed-legend-bar';
+
+            const rangeList = document.createElement('div');
+            rangeList.className = 'speed-legend-ranges';
+
+            SPEED_COLOR_BANDS.forEach(band => {
+                const segment = document.createElement('span');
+                segment.className = 'speed-legend-segment';
+                segment.style.backgroundColor = band.color;
+                segment.title = `${band.label} km/h: ${band.description}`;
+                bar.appendChild(segment);
+
+                const range = document.createElement('div');
+                range.className = 'speed-legend-range';
+                range.title = `${band.label} km/h: ${band.description}`;
+
+                const swatch = document.createElement('span');
+                swatch.className = 'speed-legend-swatch';
+                swatch.style.backgroundColor = band.color;
+
+                const text = document.createElement('span');
+                text.className = 'speed-legend-range-text';
+                text.textContent = `${band.label} ${band.description}`;
+
+                range.appendChild(swatch);
+                range.appendChild(text);
+                rangeList.appendChild(range);
+            });
+
+            container.appendChild(bar);
+            container.appendChild(rangeList);
+
+            return container;
+        },
+        onRemove: function () {
+            const container = document.getElementById('speedLegend');
+            if (container && container.parentNode) {
+                container.parentNode.removeChild(container);
+            }
+        }
+    };
+}
+
+function addSpeedLegendControl() {
+    if (!map || document.getElementById('speedLegend')) return;
+    map.addControl(createSpeedLegendControl(), 'bottom-left');
 }
 
 function initMap() {
@@ -303,6 +382,7 @@ function initMap() {
                 customAttribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }));
 
+            addSpeedLegendControl();
             initCharts();
             connectToWebSocket();
         });
@@ -374,6 +454,8 @@ function initOSMRasterMap() {
             map.addControl(new maplibregl.AttributionControl({
                 customAttribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
             }));
+
+            addSpeedLegendControl();
 
             // Only call these if they haven't been called yet
             if (typeof initCharts === 'function' && !altitudeChart) {

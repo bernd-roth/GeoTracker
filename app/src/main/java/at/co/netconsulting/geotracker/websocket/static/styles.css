@@ -275,6 +275,95 @@ html {
     transition: background-color 0.3s, color 0.3s;
 }
 
+/* Covered path speed legend */
+.speed-legend {
+    width: 300px;
+    max-width: calc(100vw - 20px);
+    background: var(--bg-panel);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    box-shadow: 0 8px 32px var(--shadow-color);
+    color: var(--text-primary);
+    font-family: Arial, sans-serif;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+.speed-legend.maplibregl-ctrl {
+    margin: 0 0 12px 10px;
+}
+
+.speed-legend-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.speed-legend-title {
+    font-size: 13px;
+    font-weight: bold;
+    color: var(--text-primary);
+}
+
+.speed-legend-unit {
+    font-size: 10px;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 2px 7px;
+    line-height: 1.2;
+}
+
+.speed-legend-bar {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    height: 12px;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border-inner);
+    margin-bottom: 8px;
+}
+
+.speed-legend-segment {
+    display: block;
+    min-width: 0;
+}
+
+.speed-legend-ranges {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px 8px;
+}
+
+.speed-legend-range {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 10px;
+    line-height: 1.2;
+}
+
+.speed-legend-swatch {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 0, 0, 0.18);
+}
+
+.speed-legend-range-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* Session container styles */
 .session-container {
     margin-bottom: 10px;
