@@ -378,9 +378,6 @@ class TrackingServer:
                     comment TEXT,
                     clothing VARCHAR(255),
                     start_date_time TIMESTAMPTZ,
-                    min_distance_meters INTEGER,
-                    min_time_seconds INTEGER,
-                    voice_announcement_interval INTEGER,
                     app_version VARCHAR(255),
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -390,6 +387,19 @@ class TrackingServer:
             # Migration: add app_version to existing deployments
             await conn.execute("""
                 ALTER TABLE tracking_sessions ADD COLUMN IF NOT EXISTS app_version VARCHAR(255)
+            """)
+            await conn.execute("""
+                ALTER TABLE tracking_sessions
+                DROP COLUMN IF EXISTS min_distance_meters,
+                DROP COLUMN IF EXISTS min_time_seconds,
+                DROP COLUMN IF EXISTS voice_announcement_interval
+            """)
+            await conn.execute("DROP INDEX IF EXISTS idx_tracking_data_settings")
+            await conn.execute("""
+                ALTER TABLE IF EXISTS tracking_data
+                DROP COLUMN IF EXISTS min_distance_meters,
+                DROP COLUMN IF EXISTS min_time_seconds,
+                DROP COLUMN IF EXISTS voice_announcement_interval
             """)
 
             # Create gps_tracking_points table with weather and barometer columns
@@ -665,9 +675,8 @@ class TrackingServer:
         await conn.execute("""
             INSERT INTO tracking_sessions (
                 session_id, user_id, event_name, sport_type, comment, clothing,
-                start_date_time, min_distance_meters, min_time_seconds, voice_announcement_interval,
-                app_version
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                start_date_time, app_version
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (session_id) DO NOTHING
         """,
                            session_id, user_id,
@@ -676,9 +685,6 @@ class TrackingServer:
                            message_data.get('comment', ''),
                            message_data.get('clothing', ''),
                            start_date_time,
-                           int(message_data.get('minDistanceMeters', 0)) if message_data.get('minDistanceMeters') else None,
-                           int(message_data.get('minTimeSeconds', 0)) if message_data.get('minTimeSeconds') else None,
-                           int(message_data.get('voiceAnnouncementInterval', 0)) if message_data.get('voiceAnnouncementInterval') else None,
                            message_data.get('version') or None
                            )
 
@@ -1241,7 +1247,6 @@ class TrackingServer:
                     s.event_name, s.sport_type, s.comment, s.clothing, s.app_version,
                     s.start_city, s.start_country, s.start_address,
                     s.end_city, s.end_country, s.end_address,
-                    s.min_distance_meters, s.min_time_seconds, s.voice_announcement_interval,
                     gtp.latitude, gtp.longitude, gtp.altitude,
                     gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
                     gtp.distance, gtp.cumulative_elevation_gain, gtp.heart_rate, hrd.device_name as heart_rate_device,
@@ -1276,9 +1281,6 @@ class TrackingServer:
                     "height": float(row['height']) if row['height'] is not None else 0.0,
                     "weight": float(row['weight']) if row['weight'] is not None else 0.0,
                     "bmi": float(row['bmi']) if row['bmi'] is not None else 0.0,
-                    "minDistanceMeters": int(row['min_distance_meters']) if row['min_distance_meters'] is not None else 0,
-                    "minTimeSeconds": int(row['min_time_seconds']) if row['min_time_seconds'] is not None else 0,
-                    "voiceAnnouncementInterval": int(row['voice_announcement_interval']) if row['voice_announcement_interval'] is not None else 0,
                     "eventName": row['event_name'] or '',
                     "sportType": row['sport_type'] or '',
                     "comment": row['comment'] or '',
@@ -1593,7 +1595,6 @@ class TrackingServer:
                         s.event_name, s.sport_type, s.comment, s.clothing, s.app_version,
                         s.start_city, s.start_country, s.start_address,
                         s.end_city, s.end_country, s.end_address,
-                        s.min_distance_meters, s.min_time_seconds, s.voice_announcement_interval,
                         gtp.latitude, gtp.longitude, gtp.altitude,
                         gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
                         gtp.distance, gtp.cumulative_elevation_gain, gtp.heart_rate, hrd.device_name as heart_rate_device,

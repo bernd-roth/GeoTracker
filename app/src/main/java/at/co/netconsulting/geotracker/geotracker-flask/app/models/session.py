@@ -14,9 +14,6 @@ class TrackingSession(db.Model):
     comment = db.Column(db.Text, nullable=True)
     clothing = db.Column(db.String(255), nullable=True)
     start_date_time = db.Column(db.DateTime(timezone=True), nullable=True)
-    min_distance_meters = db.Column(db.Integer, nullable=True)
-    min_time_seconds = db.Column(db.Integer, nullable=True)
-    voice_announcement_interval = db.Column(db.Integer, nullable=True)
     # Location geocoding fields
     start_city = db.Column(db.String(255), nullable=True)
     start_country = db.Column(db.String(255), nullable=True)
@@ -42,9 +39,6 @@ class TrackingSession(db.Model):
             'comment': self.comment,
             'clothing': self.clothing,
             'start_date_time': self.start_date_time.isoformat() if self.start_date_time else None,
-            'min_distance_meters': self.min_distance_meters,
-            'min_time_seconds': self.min_time_seconds,
-            'voice_announcement_interval': self.voice_announcement_interval,
             'start_city': self.start_city,
             'start_country': self.start_country,
             'start_address': self.start_address,

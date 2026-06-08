@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.38 (07-06-2026: Direction arrows are removed when clearing map)"
+        versionName = "9.39 (08-06-2026: Settings columns and fields removed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

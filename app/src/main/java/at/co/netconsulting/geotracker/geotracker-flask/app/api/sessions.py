@@ -357,9 +357,6 @@ def create_session():
         comment=data.get('comment'),
         clothing=data.get('clothing'),
         start_date_time=start_date_time,
-        min_distance_meters=data.get('min_distance_meters'),
-        min_time_seconds=data.get('min_time_seconds'),
-        voice_announcement_interval=data.get('voice_announcement_interval'),
         # Location geocoding fields
         start_city=data.get('start_city'),
         start_country=data.get('start_country'),
@@ -412,7 +409,6 @@ def update_session(session_id):
     # Update allowed fields
     allowed_fields = [
         'event_name', 'sport_type', 'comment', 'clothing',
-        'min_distance_meters', 'min_time_seconds', 'voice_announcement_interval',
         'start_city', 'start_country', 'start_address',
         'end_city', 'end_country', 'end_address'
     ]

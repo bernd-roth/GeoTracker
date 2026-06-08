@@ -1164,11 +1164,6 @@ class CustomLocationListener: LocationListener {
             weight = weight,
             bmi = bmi,
 
-            // Settings data
-            minDistanceMeters = minDistanceMeters,
-            minTimeSeconds = minTimeSeconds,
-            voiceAnnouncementInterval = voiceAnnouncementInterval,
-
             // Event/Session information
             eventName = eventName,
             sportType = sportType,
@@ -1406,9 +1401,6 @@ class CustomLocationListener: LocationListener {
             height = height,
             weight = weight,
             bmi = bmi,
-            minDistanceMeters = minDistanceMeters,
-            minTimeSeconds = minTimeSeconds,
-            voiceAnnouncementInterval = voiceAnnouncementInterval,
             eventName = eventName,
             sportType = sportType,
             comment = comment,
@@ -1479,9 +1471,6 @@ class CustomLocationListener: LocationListener {
             height = height,
             weight = weight,
             bmi = bmi,
-            minDistanceMeters = minDistanceMeters,
-            minTimeSeconds = minTimeSeconds,
-            voiceAnnouncementInterval = voiceAnnouncementInterval,
             eventName = eventName,
             sportType = sportType,
             comment = comment,

@@ -36,9 +36,6 @@ CREATE TABLE public.tracking_data (
 	birthdate varchar(20) NULL,
 	height numeric(5, 2) NULL,
 	weight numeric(5, 2) NULL,
-	min_distance_meters int4 NULL,
-	min_time_seconds int4 NULL,
-	voice_announcement_interval int4 NULL,
 	event_name varchar(255) NULL,
 	sport_type varchar(100) NULL,
 	"comment" text NULL,
@@ -53,6 +50,5 @@ CREATE INDEX idx_tracking_data_person ON public.tracking_data USING btree (perso
 CREATE INDEX idx_tracking_data_received_at ON public.tracking_data USING btree (received_at);
 CREATE INDEX idx_tracking_data_session_event ON public.tracking_data USING btree (session_id, event_name, sport_type);
 CREATE INDEX idx_tracking_data_session_id ON public.tracking_data USING btree (session_id);
-CREATE INDEX idx_tracking_data_settings ON public.tracking_data USING btree (min_distance_meters, min_time_seconds, voice_announcement_interval);
 CREATE INDEX idx_tracking_data_sport_type ON public.tracking_data USING btree (sport_type);
 CREATE INDEX idx_tracking_data_start_date_time ON public.tracking_data USING btree (start_date_time);

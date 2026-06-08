@@ -52,11 +52,6 @@ data class Metrics(
     val weight: Float = 0f,
     val bmi: Float = 0f,
 
-    // Settings fields
-    val minDistanceMeters: Int = 0,
-    val minTimeSeconds: Int = 0,
-    val voiceAnnouncementInterval: Int = 0,
-
     // Event/Session information fields
     val eventName: String = "",
     val sportType: String = "",
