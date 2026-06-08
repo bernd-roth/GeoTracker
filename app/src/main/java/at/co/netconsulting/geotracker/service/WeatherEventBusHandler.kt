@@ -5,7 +5,9 @@ import android.util.Log
 import at.co.netconsulting.geotracker.data.HeartRateData
 import at.co.netconsulting.geotracker.data.CurrentWeather
 import at.co.netconsulting.geotracker.data.Metrics
+import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.LapTime
+import at.co.netconsulting.geotracker.domain.Metric
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +20,8 @@ import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
 import kotlin.math.abs
+import java.time.Instant
+import java.time.ZoneId
 
 /**
  * Singleton handler for weather and metrics events from EventBus
@@ -78,6 +82,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
 
     // Current session tracking
     private var currentSessionId = ""
+    private var currentEventId = -1
 
     // Lap tracking variables (keeping for backward compatibility)
     private var lastLapDistance = 0.0
@@ -89,6 +94,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         private const val TAG = "WeatherEventBusHandler"
         private const val LAP_DISTANCE_KM = 1.0 // 1 km per lap
         private const val LAP_DISTANCE_METERS = LAP_DISTANCE_KM * 1000
+        private const val CHART_DISTANCE_STEP_KM = 0.01 // Keep chart points every 10 meters.
 
         @Volatile
         private var INSTANCE: WeatherEventBusHandler? = null
@@ -133,16 +139,9 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
     fun onMetricsUpdate(metrics: Metrics) {
         val currentTime = System.currentTimeMillis()
 
-        // Check if session changed and update lap times accordingly
-        if (currentSessionId != metrics.sessionId && metrics.sessionId.isNotEmpty()) {
-            currentSessionId = metrics.sessionId
-            loadLapTimesFromDatabase()
-            Log.d(TAG, "Session changed to: $currentSessionId, loading lap times")
-        }
-
-        // Initialize lap tracking for new session (backward compatibility)
         if (currentSessionId != metrics.sessionId && metrics.sessionId.isNotEmpty()) {
             startNewSession(metrics.sessionId, currentTime)
+            Log.d(TAG, "Session changed to: $currentSessionId, loading stored statistics")
         }
 
         // Check for too frequent updates (less than 250ms apart)
@@ -192,14 +191,8 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
             val distanceKm = metrics.coveredDistance / 1000.0
             val currentHistory = _heartRateHistory.value.toMutableList()
 
-            // Add new data point
-            currentHistory.add(Pair(distanceKm, metrics.heartRate))
-
-            // Keep only the last 100 points to prevent memory issues
-            if (currentHistory.size > 100) {
-                val trimmedHistory = currentHistory.takeLast(100)
-                _heartRateHistory.value = trimmedHistory
-            } else {
+            if (shouldAppendDistancePoint(currentHistory, distanceKm)) {
+                currentHistory.add(Pair(distanceKm, metrics.heartRate))
                 _heartRateHistory.value = currentHistory
             }
         }
@@ -216,14 +209,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
 
             if (shouldAddPoint) {
                 currentSpeedHistory.add(Pair(distanceKm, metrics.speed))
-
-                // Keep only the last 200 points to prevent memory issues while showing good detail
-                if (currentSpeedHistory.size > 200) {
-                    val trimmedHistory = currentSpeedHistory.takeLast(200)
-                    _speedHistory.value = trimmedHistory
-                } else {
-                    _speedHistory.value = currentSpeedHistory
-                }
+                _speedHistory.value = currentSpeedHistory
             }
         }
 
@@ -239,14 +225,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
 
             if (shouldAddPoint) {
                 currentAltitudeHistory.add(Pair(distanceKm, metrics.altitude))
-
-                // Keep only the last 200 points to prevent memory issues while showing good detail
-                if (currentAltitudeHistory.size > 200) {
-                    val trimmedHistory = currentAltitudeHistory.takeLast(200)
-                    _altitudeHistory.value = trimmedHistory
-                } else {
-                    _altitudeHistory.value = currentAltitudeHistory
-                }
+                _altitudeHistory.value = currentAltitudeHistory
             }
         }
 
@@ -262,14 +241,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
 
             if (shouldAddPoint) {
                 currentPressureHistory.add(Pair(distanceKm, metrics.pressure))
-
-                // Keep only the last 200 points to prevent memory issues while showing good detail
-                if (currentPressureHistory.size > 200) {
-                    val trimmedHistory = currentPressureHistory.takeLast(200)
-                    _pressureHistory.value = trimmedHistory
-                } else {
-                    _pressureHistory.value = currentPressureHistory
-                }
+                _pressureHistory.value = currentPressureHistory
             }
         }
 
@@ -285,14 +257,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
 
             if (shouldAddPoint) {
                 currentBarometerHistory.add(Pair(distanceKm, metrics.altitudeFromPressure))
-
-                // Keep only the last 200 points to prevent memory issues while showing good detail
-                if (currentBarometerHistory.size > 200) {
-                    val trimmedHistory = currentBarometerHistory.takeLast(200)
-                    _barometerAltitudeHistory.value = trimmedHistory
-                } else {
-                    _barometerAltitudeHistory.value = currentBarometerHistory
-                }
+                _barometerAltitudeHistory.value = currentBarometerHistory
             }
         }
 
@@ -354,9 +319,172 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         _pressureHistory.value = emptyList()
         _barometerAltitudeHistory.value = emptyList()
         loadLapTimesFromDatabase()
+        loadCurrentEventDataFromDatabase()
 
         Log.d(TAG, "Started new session: $sessionId")
     }
+
+    private fun loadCurrentEventDataFromDatabase() {
+        if (currentSessionId.isEmpty()) return
+
+        scope.launch {
+            try {
+                val eventId = resolveCurrentEventId()
+                if (eventId <= 0) {
+                    Log.d(TAG, "No active event found for session $currentSessionId; skipping statistics hydration")
+                    return@launch
+                }
+
+                val storedMetrics = database.metricDao()
+                    .getMetricsForEvent(eventId)
+                    .sortedBy { it.timeInMilliseconds }
+
+                if (storedMetrics.isEmpty()) {
+                    Log.d(TAG, "No stored metrics found for event $eventId; skipping statistics hydration")
+                    return@launch
+                }
+
+                val event = database.eventDao().getEventById(eventId)
+
+                currentEventId = eventId
+                _speedHistory.value = buildDistanceHistory(
+                    metrics = storedMetrics,
+                    valueSelector = { it.speed },
+                    isValid = { it >= 0f }
+                )
+                _altitudeHistory.value = buildDistanceHistory(
+                    metrics = storedMetrics,
+                    valueSelector = { it.elevation.toDouble() },
+                    isValid = { true }
+                )
+                _heartRateHistory.value = buildDistanceHistory(
+                    metrics = storedMetrics,
+                    valueSelector = { it.heartRate },
+                    isValid = { it > 0 }
+                )
+                _pressureHistory.value = buildDistanceHistory(
+                    metrics = storedMetrics,
+                    valueSelector = { it.pressure },
+                    isValid = { it > 0f }
+                )
+                _barometerAltitudeHistory.value = buildDistanceHistory(
+                    metrics = storedMetrics,
+                    valueSelector = { it.altitudeFromPressure },
+                    isValid = { it != 0f }
+                )
+                _metrics.value = buildMetricsSnapshot(event, storedMetrics)
+
+                storedMetrics.lastOrNull { it.heartRate > 0 }?.let { latestHeartRateMetric ->
+                    if (_heartRate.value == null) {
+                        _heartRate.value = HeartRateData(
+                            deviceName = latestHeartRateMetric.heartRateDevice
+                                .takeIf { it.isNotBlank() && !it.equals("None", ignoreCase = true) }
+                                ?: "Recorded sensor",
+                            deviceAddress = "",
+                            heartRate = latestHeartRateMetric.heartRate,
+                            isConnected = false,
+                            isScanning = false
+                        )
+                    }
+                }
+
+                Log.d(
+                    TAG,
+                    "Hydrated statistics for event $eventId: " +
+                        "speed=${_speedHistory.value.size}, " +
+                        "altitude=${_altitudeHistory.value.size}, " +
+                        "heartRate=${_heartRateHistory.value.size}, " +
+                        "pressure=${_pressureHistory.value.size}, " +
+                        "barometer=${_barometerAltitudeHistory.value.size}"
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error hydrating statistics from database", e)
+            }
+        }
+    }
+
+    private suspend fun resolveCurrentEventId(): Int {
+        val activeEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+            .getInt("active_event_id", -1)
+        if (activeEventId > 0) return activeEventId
+
+        return database.eventDao().getEventBySessionId(currentSessionId)?.eventId ?: -1
+    }
+
+    private fun buildMetricsSnapshot(event: Event?, storedMetrics: List<Metric>): Metrics? {
+        val firstMetric = storedMetrics.firstOrNull() ?: return null
+        val latestMetric = storedMetrics.last()
+        val totalDistance = storedMetrics.maxOfOrNull { it.distance } ?: latestMetric.distance
+        val durationSeconds = ((latestMetric.timeInMilliseconds - firstMetric.timeInMilliseconds) / 1000.0)
+            .coerceAtLeast(0.0)
+        val speeds = storedMetrics.map { it.speed.toDouble() }
+        val recentSpeeds = speeds.takeLast(5)
+        val slopes = storedMetrics.map { it.slope }
+        val nonZeroSlopes = slopes.filter { it != 0.0 }
+
+        return Metrics(
+            latitude = 0.0,
+            longitude = 0.0,
+            speed = latestMetric.speed,
+            altitude = latestMetric.elevation.toDouble(),
+            slope = latestMetric.slope,
+            averageSlope = nonZeroSlopes.averageOrZero(),
+            maxUphillSlope = slopes.filter { it > 0.0 }.maxOrNull() ?: 0.0,
+            maxDownhillSlope = abs(slopes.filter { it < 0.0 }.minOrNull() ?: 0.0),
+            coveredDistance = totalDistance,
+            lap = latestMetric.lap,
+            startDateTime = firstMetric.timeInMilliseconds.toLocalDateTime(),
+            currentDateTime = latestMetric.timeInMilliseconds.toLocalDateTime(),
+            averageSpeed = if (durationSeconds > 0.0) {
+                (totalDistance / durationSeconds) * 3.6
+            } else {
+                0.0
+            },
+            maxSpeed = speeds.maxOrNull() ?: 0.0,
+            cumulativeElevationGain = storedMetrics.sumOf { it.elevationGain.toDouble().coerceAtLeast(0.0) },
+            sessionId = currentSessionId,
+            eventName = event?.eventName.orEmpty(),
+            sportType = event?.artOfSport.orEmpty(),
+            comment = event?.comment.orEmpty(),
+            heartRate = latestMetric.heartRate,
+            heartRateDevice = latestMetric.heartRateDevice,
+            pressure = latestMetric.pressure ?: 0f,
+            pressureAccuracy = latestMetric.pressureAccuracy ?: 0,
+            altitudeFromPressure = latestMetric.altitudeFromPressure ?: 0f,
+            seaLevelPressure = latestMetric.seaLevelPressure ?: 1013.25f,
+            movingAverageSpeed = recentSpeeds.averageOrZero()
+        )
+    }
+
+    private fun <T> buildDistanceHistory(
+        metrics: List<Metric>,
+        valueSelector: (Metric) -> T?,
+        isValid: (T) -> Boolean
+    ): List<Pair<Double, T>> {
+        val history = mutableListOf<Pair<Double, T>>()
+
+        metrics.forEach { metric ->
+            val distanceKm = metric.distance / 1000.0
+            val value = valueSelector(metric)
+            if (distanceKm > 0.0 && value != null && isValid(value) && shouldAppendDistancePoint(history, distanceKm)) {
+                history.add(Pair(distanceKm, value))
+            }
+        }
+
+        return history
+    }
+
+    private fun <T> shouldAppendDistancePoint(history: List<Pair<Double, T>>, distanceKm: Double): Boolean {
+        val lastDistance = history.lastOrNull()?.first ?: return true
+        return distanceKm - lastDistance >= CHART_DISTANCE_STEP_KM
+    }
+
+    private fun List<Double>.averageOrZero(): Double {
+        return if (isNotEmpty()) average() else 0.0
+    }
+
+    private fun Long.toLocalDateTime() =
+        Instant.ofEpochMilli(this).atZone(ZoneId.systemDefault()).toLocalDateTime()
 
     /**
      * Update the speed buffer for smoothing calculations
@@ -464,11 +592,16 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
      * Initialize with session ID to start tracking lap times
      */
     fun initializeWithSession(sessionId: String) {
+        if (sessionId.isEmpty()) return
+
         if (sessionId != currentSessionId) {
             currentSessionId = sessionId
-            loadLapTimesFromDatabase()
-            Log.d(TAG, "Initialized with session: $sessionId")
+            currentEventId = -1
         }
+
+        loadLapTimesFromDatabase()
+        loadCurrentEventDataFromDatabase()
+        Log.d(TAG, "Initialized with session: $sessionId")
     }
 
     /**

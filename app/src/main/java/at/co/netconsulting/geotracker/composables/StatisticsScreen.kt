@@ -631,8 +631,7 @@ fun StatisticsScreen() {
         StatisticsCard(
             title = "Heart Rate vs Distance",
             content = {
-                if (metrics != null && metrics!!.coveredDistance > 0 && heartRateHistory.isNotEmpty() &&
-                    heartRateData?.isConnected == true) {
+                if (metrics != null && metrics!!.coveredDistance > 0 && heartRateHistory.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -675,7 +674,7 @@ fun StatisticsScreen() {
             title = "Heart Rate vs Altitude",
             content = {
                 if (metrics != null && metrics!!.coveredDistance > 0 && heartRateHistory.isNotEmpty() &&
-                    altitudeHistory.isNotEmpty() && heartRateData?.isConnected == true) {
+                    altitudeHistory.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -726,7 +725,7 @@ fun StatisticsScreen() {
             title = "Heart Rate vs Speed",
             content = {
                 if (metrics != null && metrics!!.coveredDistance > 0 && heartRateHistory.isNotEmpty() &&
-                    speedHistory.isNotEmpty() && heartRateData?.isConnected == true) {
+                    speedHistory.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()

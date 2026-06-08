@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.39 (08-06-2026: Settings columns and fields removed)"
+        versionName = "9.40 (08-06-2026: Statistics graphs load full active event history)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
