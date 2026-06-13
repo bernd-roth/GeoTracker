@@ -50,6 +50,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.focus.onFocusChanged
@@ -71,6 +72,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
 import at.co.netconsulting.geotracker.tools.DatabaseImporter
+import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
+import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -189,6 +192,23 @@ fun SettingsScreen(
     var selectedDbFileUri by remember { mutableStateOf<Uri?>(null) }
     var isImportInProgress by remember { mutableStateOf(false) }
 
+    var gpxBackupTreeUri by remember { mutableStateOf(NetworkBackupStorage.getGpxBackupTreeUri(context)) }
+    var databaseBackupTreeUri by remember { mutableStateOf(NetworkBackupStorage.getDatabaseBackupTreeUri(context)) }
+
+    val initialGpxSmbDestination = remember { SmbBackupStorage.getGpxDestination(context) }
+    var gpxSmbUrl by remember { mutableStateOf(initialGpxSmbDestination.url) }
+    var gpxSmbUsername by remember { mutableStateOf(initialGpxSmbDestination.username) }
+    var gpxSmbPassword by remember { mutableStateOf(initialGpxSmbDestination.password) }
+    var gpxSmbDomain by remember { mutableStateOf(initialGpxSmbDestination.domain) }
+    var isTestingGpxSmb by remember { mutableStateOf(false) }
+
+    val initialDatabaseSmbDestination = remember { SmbBackupStorage.getDatabaseDestination(context) }
+    var databaseSmbUrl by remember { mutableStateOf(initialDatabaseSmbDestination.url) }
+    var databaseSmbUsername by remember { mutableStateOf(initialDatabaseSmbDestination.username) }
+    var databaseSmbPassword by remember { mutableStateOf(initialDatabaseSmbDestination.password) }
+    var databaseSmbDomain by remember { mutableStateOf(initialDatabaseSmbDestination.domain) }
+    var isTestingDatabaseSmb by remember { mutableStateOf(false) }
+
     // Update last backup time display
     LaunchedEffect(Unit) {
         val lastBackupTimeMs = backupPrefs.getLong("lastBackupTime", 0L)
@@ -225,6 +245,70 @@ fun SettingsScreen(
         )
     }
 
+    fun currentGpxSmbDestination() = SmbBackupStorage.Destination(
+        url = gpxSmbUrl,
+        username = gpxSmbUsername,
+        password = gpxSmbPassword,
+        domain = gpxSmbDomain
+    )
+
+    fun currentDatabaseSmbDestination() = SmbBackupStorage.Destination(
+        url = databaseSmbUrl,
+        username = databaseSmbUsername,
+        password = databaseSmbPassword,
+        domain = databaseSmbDomain
+    )
+
+    fun saveGpxSmbSettings() {
+        SmbBackupStorage.saveGpxDestination(context, currentGpxSmbDestination())
+    }
+
+    fun saveDatabaseSmbSettings() {
+        SmbBackupStorage.saveDatabaseDestination(context, currentDatabaseSmbDestination())
+    }
+
+    fun testGpxSmbDestination() {
+        val destination = currentGpxSmbDestination()
+        if (!destination.isConfigured) {
+            Toast.makeText(context, "Enter a GPX SMB folder first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isTestingGpxSmb = true
+        coroutineScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                SmbBackupStorage.testDestination(destination)
+            }
+            isTestingGpxSmb = false
+            Toast.makeText(
+                context,
+                if (success) "GPX SMB connection succeeded" else "GPX SMB connection failed",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    fun testDatabaseSmbDestination() {
+        val destination = currentDatabaseSmbDestination()
+        if (!destination.isConfigured) {
+            Toast.makeText(context, "Enter a database SMB folder first", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        isTestingDatabaseSmb = true
+        coroutineScope.launch {
+            val success = withContext(Dispatchers.IO) {
+                SmbBackupStorage.testDestination(destination)
+            }
+            isTestingDatabaseSmb = false
+            Toast.makeText(
+                context,
+                if (success) "Database SMB connection succeeded" else "Database SMB connection failed",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     // Birth date picker dialog
     val birthDateCalendar = Calendar.getInstance()
     val birthDatePickerDialog = DatePickerDialog(
@@ -248,6 +332,32 @@ fun SettingsScreen(
             if (uri != null) {
                 selectedDbFileUri = uri
                 showImportConfirmation = true
+            }
+        }
+    }
+
+    val gpxBackupFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            if (NetworkBackupStorage.saveGpxBackupTreeUri(context, uri)) {
+                gpxBackupTreeUri = uri
+                Toast.makeText(context, "GPX backup folder saved", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Could not save GPX backup folder permission", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val databaseBackupFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            if (NetworkBackupStorage.saveDatabaseBackupTreeUri(context, uri)) {
+                databaseBackupTreeUri = uri
+                Toast.makeText(context, "Database backup folder saved", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, "Could not save database backup folder permission", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -692,12 +802,126 @@ fun SettingsScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Direct SMB destinations:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                SmbDestinationEditor(
+                    label = "GPX SMB folder",
+                    url = gpxSmbUrl,
+                    username = gpxSmbUsername,
+                    password = gpxSmbPassword,
+                    domain = gpxSmbDomain,
+                    isTesting = isTestingGpxSmb,
+                    onUrlChange = {
+                        gpxSmbUrl = it
+                        saveGpxSmbSettings()
+                    },
+                    onUsernameChange = {
+                        gpxSmbUsername = it
+                        saveGpxSmbSettings()
+                    },
+                    onPasswordChange = {
+                        gpxSmbPassword = it
+                        saveGpxSmbSettings()
+                    },
+                    onDomainChange = {
+                        gpxSmbDomain = it
+                        saveGpxSmbSettings()
+                    },
+                    onTest = { testGpxSmbDestination() },
+                    onClear = {
+                        SmbBackupStorage.clearGpxDestination(context)
+                        gpxSmbUrl = ""
+                        gpxSmbUsername = ""
+                        gpxSmbPassword = ""
+                        gpxSmbDomain = ""
+                        Toast.makeText(context, "GPX SMB settings cleared", Toast.LENGTH_SHORT).show()
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                SmbDestinationEditor(
+                    label = "Database SMB folder",
+                    url = databaseSmbUrl,
+                    username = databaseSmbUsername,
+                    password = databaseSmbPassword,
+                    domain = databaseSmbDomain,
+                    isTesting = isTestingDatabaseSmb,
+                    onUrlChange = {
+                        databaseSmbUrl = it
+                        saveDatabaseSmbSettings()
+                    },
+                    onUsernameChange = {
+                        databaseSmbUsername = it
+                        saveDatabaseSmbSettings()
+                    },
+                    onPasswordChange = {
+                        databaseSmbPassword = it
+                        saveDatabaseSmbSettings()
+                    },
+                    onDomainChange = {
+                        databaseSmbDomain = it
+                        saveDatabaseSmbSettings()
+                    },
+                    onTest = { testDatabaseSmbDestination() },
+                    onClear = {
+                        SmbBackupStorage.clearDatabaseDestination(context)
+                        databaseSmbUrl = ""
+                        databaseSmbUsername = ""
+                        databaseSmbPassword = ""
+                        databaseSmbDomain = ""
+                        Toast.makeText(context, "Database SMB settings cleared", Toast.LENGTH_SHORT).show()
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Android folder-picker fallback:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                BackupDestinationSelector(
+                    label = "GPX files",
+                    destinationText = gpxBackupTreeUri?.let { treeUri ->
+                        "Selected: ${NetworkBackupStorage.getTreeDisplayName(context, treeUri) ?: treeUri}"
+                    } ?: "Default: Downloads/GeoTracker/GPX",
+                    hasCustomDestination = gpxBackupTreeUri != null,
+                    onChoose = { gpxBackupFolderLauncher.launch(null) },
+                    onClear = {
+                        NetworkBackupStorage.clearGpxBackupTreeUri(context)
+                        gpxBackupTreeUri = null
+                        Toast.makeText(context, "GPX backup folder reset to default", Toast.LENGTH_SHORT).show()
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                BackupDestinationSelector(
+                    label = "Database",
+                    destinationText = databaseBackupTreeUri?.let { treeUri ->
+                        "Selected: ${NetworkBackupStorage.getTreeDisplayName(context, treeUri) ?: treeUri}"
+                    } ?: "Default: Downloads/GeoTracker/DatabaseBackups",
+                    hasCustomDestination = databaseBackupTreeUri != null,
+                    onChoose = { databaseBackupFolderLauncher.launch(null) },
+                    onClear = {
+                        NetworkBackupStorage.clearDatabaseBackupTreeUri(context)
+                        databaseBackupTreeUri = null
+                        Toast.makeText(context, "Database backup folder reset to default", Toast.LENGTH_SHORT).show()
+                    }
+                )
+
                 Text(
                     text = when (autoExportType) {
-                        "both" -> "Database and GPX files will be backed up daily to Downloads/GeoTracker"
-                        "database" -> "Database will be backed up daily to Downloads/GeoTracker/DatabaseBackups"
-                        "files" -> "GPX files will be exported daily to Downloads/GeoTracker"
-                        else -> "Backup will be performed daily to Downloads/GeoTracker"
+                        "both" -> "Database and GPX files will be backed up daily to their configured destinations"
+                        "database" -> "Database will be backed up daily to its configured destination"
+                        "files" -> "GPX files will be exported daily to their configured destination"
+                        else -> "Backup will be performed daily to configured destinations"
                     },
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(top = 8.dp)
@@ -1085,6 +1309,137 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun SmbDestinationEditor(
+    label: String,
+    url: String,
+    username: String,
+    password: String,
+    domain: String,
+    isTesting: Boolean,
+    onUrlChange: (String) -> Unit,
+    onUsernameChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onDomainChange: (String) -> Unit,
+    onTest: () -> Unit,
+    onClear: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+        OutlinedTextField(
+            value = url,
+            onValueChange = onUrlChange,
+            label = { Text("SMB folder URL") },
+            placeholder = { Text("smb://server/share/folder") },
+            singleLine = true,
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Uri,
+                imeAction = ImeAction.Next
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = username,
+            onValueChange = onUsernameChange,
+            label = { Text("Username") },
+            singleLine = true,
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.Next
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = password,
+            onValueChange = onPasswordChange,
+            label = { Text("Password") },
+            singleLine = true,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Next
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = domain,
+            onValueChange = onDomainChange,
+            label = { Text("Domain / workgroup") },
+            singleLine = true,
+            keyboardOptions = FoundationKeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.Done
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onTest,
+                enabled = !isTesting,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (isTesting) "Testing..." else "Test Connection")
+            }
+            OutlinedButton(
+                onClick = onClear,
+                enabled = !isTesting
+            ) {
+                Text("Clear")
+            }
+        }
+    }
+}
+
+@Composable
+private fun BackupDestinationSelector(
+    label: String,
+    destinationText: String,
+    hasCustomDestination: Boolean,
+    onChoose: () -> Unit,
+    onClear: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = destinationText,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onChoose,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (hasCustomDestination) "Change Folder" else "Choose Folder")
+            }
+            if (hasCustomDestination) {
+                OutlinedButton(onClick = onClear) {
+                    Text("Use Default")
+                }
+            }
+        }
     }
 }
 

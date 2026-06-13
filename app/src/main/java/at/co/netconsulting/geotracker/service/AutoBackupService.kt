@@ -19,6 +19,8 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.gpx.saveGpxFile
 import at.co.netconsulting.geotracker.data.BackupProgress
 import at.co.netconsulting.geotracker.data.BackupPhase
+import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
+import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -305,6 +307,16 @@ class AutoBackupService : Service() {
     private suspend fun clearGpxFiles(): Boolean {
         return try {
             withContext(Dispatchers.IO) {
+                SmbBackupStorage.getGpxDestination(applicationContext).takeIf { it.isConfigured }?.let { destination ->
+                    Timber.d("Clearing GPX files from configured SMB destination: ${destination.url}")
+                    return@withContext SmbBackupStorage.clearGpxFiles(destination)
+                }
+
+                NetworkBackupStorage.getGpxBackupTreeUri(applicationContext)?.let { treeUri ->
+                    Timber.d("Clearing GPX files from configured tree URI: $treeUri")
+                    return@withContext NetworkBackupStorage.clearGpxFiles(applicationContext, treeUri)
+                }
+
                 // Get the public Downloads directory where GPX files are actually saved
                 val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 val gpxDir = File(downloadsDir, "GeoTracker/GPX")
@@ -704,6 +716,68 @@ class AutoBackupService : Service() {
     private fun backupDatabase(onProgress: ((Float) -> Unit)? = null): Boolean {
         return try {
             onProgress?.invoke(0.1f)
+
+            // Get current date/time for the filename
+            val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault())
+            val currentDateTime = dateFormat.format(Date())
+            val backupFileName = "geotracker_backup_$currentDateTime.db"
+
+            // Get the database file
+            val dbFile = getDatabasePath("fitness_tracker.db")
+            if (!dbFile.exists()) {
+                Timber.e("Database file not found: ${dbFile.absolutePath}")
+                return false
+            }
+
+            SmbBackupStorage.getDatabaseDestination(applicationContext).takeIf { it.isConfigured }?.let { destination ->
+                Timber.d("Backing up database to configured SMB destination: ${destination.url}")
+                onProgress?.invoke(0.3f)
+
+                val success = SmbBackupStorage.copyFile(
+                    destination = destination,
+                    sourceFile = dbFile,
+                    fileName = backupFileName
+                ) { bytesCopied, totalBytes ->
+                    val progress = if (totalBytes > 0) {
+                        0.5f + (bytesCopied.toFloat() / totalBytes * 0.5f)
+                    } else {
+                        1.0f
+                    }
+                    onProgress?.invoke(progress)
+                }
+
+                if (success) {
+                    onProgress?.invoke(1.0f)
+                    Timber.d("Database backup successful to configured SMB destination: $backupFileName")
+                }
+                return success
+            }
+
+            NetworkBackupStorage.getDatabaseBackupTreeUri(applicationContext)?.let { treeUri ->
+                Timber.d("Backing up database to configured tree URI: $treeUri")
+                onProgress?.invoke(0.3f)
+
+                val success = NetworkBackupStorage.copyFileToTree(
+                    context = applicationContext,
+                    treeUri = treeUri,
+                    sourceFile = dbFile,
+                    fileName = backupFileName,
+                    mimeType = "application/octet-stream"
+                ) { bytesCopied, totalBytes ->
+                    val progress = if (totalBytes > 0) {
+                        0.5f + (bytesCopied.toFloat() / totalBytes * 0.5f)
+                    } else {
+                        1.0f
+                    }
+                    onProgress?.invoke(progress)
+                }
+
+                if (success) {
+                    onProgress?.invoke(1.0f)
+                    Timber.d("Database backup successful to configured tree URI: $backupFileName")
+                }
+                return success
+            }
             
             // Create the backup directory in the same location as the GPX files
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -722,16 +796,9 @@ class AutoBackupService : Service() {
             }
 
             onProgress?.invoke(0.3f)
-            
-            // Get current date/time for the filename
-            val dateFormat = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.getDefault())
-            val currentDateTime = dateFormat.format(Date())
 
             // Create the backup file
-            val backupFile = File(backupDir, "geotracker_backup_$currentDateTime.db")
-
-            // Get the database file
-            val dbFile = getDatabasePath("fitness_tracker.db")
+            val backupFile = File(backupDir, backupFileName)
             
             onProgress?.invoke(0.5f)
 

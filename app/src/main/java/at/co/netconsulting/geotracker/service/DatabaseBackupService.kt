@@ -15,6 +15,8 @@ import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.data.BackupProgress
 import at.co.netconsulting.geotracker.data.BackupPhase
+import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
+import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -131,8 +133,15 @@ class DatabaseBackupService : Service() {
         // Get database instance
         val database = FitnessTrackerDatabase.getInstance(applicationContext)
 
+        val databaseSmbDestination = SmbBackupStorage.getDatabaseDestination(applicationContext)
+        val databaseBackupTreeUri = NetworkBackupStorage.getDatabaseBackupTreeUri(applicationContext)
+
         // Create backup directory if it doesn't exist
-        val backupDir = File(applicationContext.getExternalFilesDir(null), "backups")
+        val backupDir = if (databaseSmbDestination.isConfigured || databaseBackupTreeUri != null) {
+            File(applicationContext.cacheDir, "database_backups")
+        } else {
+            File(applicationContext.getExternalFilesDir(null), "backups")
+        }
         if (!backupDir.exists()) {
             backupDir.mkdirs()
         }
@@ -213,6 +222,66 @@ class DatabaseBackupService : Service() {
                         input.copyTo(zipOut)
                     }
                     zipOut.closeEntry()
+                }
+            }
+
+            if (databaseSmbDestination.isConfigured) {
+                currentProgress = currentProgress.copy(
+                    overallProgress = 0.85f,
+                    currentFileName = backupFile.name,
+                    status = "Copying backup to selected SMB database share..."
+                )
+                updateNotification(currentProgress)
+
+                val copied = SmbBackupStorage.copyFile(
+                    destination = databaseSmbDestination,
+                    sourceFile = backupFile,
+                    fileName = backupFile.name
+                ) { bytesCopied, totalBytes ->
+                    val progress = if (totalBytes > 0) {
+                        0.85f + (bytesCopied.toFloat() / totalBytes * 0.15f)
+                    } else {
+                        1.0f
+                    }
+                    updateNotification(currentProgress.copy(overallProgress = progress))
+                }
+
+                if (!copied) {
+                    throw IllegalStateException("Failed to copy backup to selected SMB database share")
+                }
+
+                if (!backupFile.delete()) {
+                    Log.w("DatabaseBackupService", "Could not delete temporary backup: ${backupFile.absolutePath}")
+                }
+            } else if (databaseBackupTreeUri != null) {
+                currentProgress = currentProgress.copy(
+                    overallProgress = 0.85f,
+                    currentFileName = backupFile.name,
+                    status = "Copying backup to selected database share..."
+                )
+                updateNotification(currentProgress)
+
+                val copied = NetworkBackupStorage.copyFileToTree(
+                    context = applicationContext,
+                    treeUri = databaseBackupTreeUri,
+                    sourceFile = backupFile,
+                    fileName = backupFile.name,
+                    mimeType = "application/zip"
+                ) { bytesCopied, totalBytes ->
+                    val progress = if (totalBytes > 0) {
+                        0.85f + (bytesCopied.toFloat() / totalBytes * 0.15f)
+                    } else {
+                        1.0f
+                    }
+                    updateNotification(currentProgress.copy(overallProgress = progress))
+                }
+
+                if (!copied) {
+                    throw IllegalStateException("Failed to copy backup to selected database share")
+                }
+
+                if (!backupFile.delete()) {
+                    Log.w("DatabaseBackupService", "Could not delete temporary backup: ${backupFile.absolutePath}")
                 }
             }
 

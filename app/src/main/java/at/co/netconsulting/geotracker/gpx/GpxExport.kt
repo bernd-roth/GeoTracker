@@ -8,6 +8,8 @@ import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
+import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -236,6 +238,20 @@ suspend fun export(eventId: Int, contextActivity: Context) {
  */
 fun saveGpxFile(context: Context, filename: String, content: String): Boolean {
     return try {
+        SmbBackupStorage.getGpxDestination(context).takeIf { it.isConfigured }?.let { destination ->
+            return SmbBackupStorage.writeTextFile(destination, filename, content)
+        }
+
+        NetworkBackupStorage.getGpxBackupTreeUri(context)?.let { treeUri ->
+            return NetworkBackupStorage.writeTextFileToTree(
+                context = context,
+                treeUri = treeUri,
+                fileName = filename,
+                mimeType = "application/gpx+xml",
+                content = content
+            )
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // Android 10+ (API 29+) - Use scoped storage
             saveGpxFileScoped(context, filename, content)

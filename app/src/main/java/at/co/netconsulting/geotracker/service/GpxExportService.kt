@@ -7,7 +7,6 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import android.os.Environment
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -15,12 +14,11 @@ import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Location
 import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.gpx.saveGpxFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.io.File
-import java.io.FileWriter
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -146,20 +144,11 @@ class GpxExportService : Service() {
     }
 
     private fun saveGPXFile(event: Event, content: String) {
-        val directory = File(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            "GeoTracker"
-        )
-        if (!directory.exists()) {
-            directory.mkdirs()
-        }
-
         val fileName = "${event.eventName}_${event.eventDate}.gpx"
-        val file = File(directory, fileName)
-
-        FileWriter(file).use { writer ->
-            writer.write(content)
-        }
+            .replace(" ", "_")
+            .replace(":", "-")
+            .replace("[^a-zA-Z0-9._-]".toRegex(), "_")
+        saveGpxFile(applicationContext, fileName, content)
     }
 
     private fun createNotificationChannel() {

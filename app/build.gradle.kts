@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.40 (08-06-2026: Statistics graphs load full active event history)"
+        versionName = "9.41 (13-06-2026: Back up GPX and database to network share)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -119,6 +119,7 @@ dependencies {
     // Network dependencies - consolidated versions
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.10.1")
+    implementation("eu.agno3.jcifs:jcifs-ng:2.1.10")
 
     // OAuth and authentication
     implementation("net.openid:appauth:0.11.1")
