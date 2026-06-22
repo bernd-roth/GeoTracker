@@ -1,19 +1,14 @@
 package at.co.netconsulting.geotracker.gpx
 
-import android.content.ContentValues
 import android.content.Context
-import android.os.Build
-import android.os.Environment
-import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import at.co.netconsulting.geotracker.tools.LocalBackupStorage
 import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
 import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -252,88 +247,16 @@ fun saveGpxFile(context: Context, filename: String, content: String): Boolean {
             )
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Android 10+ (API 29+) - Use scoped storage
-            saveGpxFileScoped(context, filename, content)
-        } else {
-            // Android 9 and below - Use traditional file approach
-            saveGpxFileLegacy(context, filename, content)
-        }
+        LocalBackupStorage.writeTextFile(
+            context = context,
+            relativeFolder = LocalBackupStorage.GPX_BACKUP_FOLDER,
+            fileName = filename,
+            mimeType = "application/gpx+xml",
+            content = content
+        )
     } catch (e: Exception) {
         Log.e("GPXExport", "Error saving GPX file", e)
         false
-    }
-}
-
-/**
- * Save GPX file using scoped storage (Android 10+)
- * No permissions required!
- */
-private fun saveGpxFileScoped(context: Context, filename: String, content: String): Boolean {
-    return try {
-        val resolver = context.contentResolver
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-            put(MediaStore.MediaColumns.MIME_TYPE, "application/gpx+xml")
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GeoTracker/GPX")
-        }
-
-        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-        uri?.let { fileUri ->
-            resolver.openOutputStream(fileUri)?.use { outputStream ->
-                outputStream.write(content.toByteArray())
-                outputStream.flush()
-            }
-            true
-        } ?: false
-    } catch (e: Exception) {
-        Log.e("GPXExport", "Error with scoped storage", e)
-        false
-    }
-}
-
-/**
- * Save GPX file using legacy approach (Android 9 and below)
- * Requires WRITE_EXTERNAL_STORAGE permission
- */
-private fun saveGpxFileLegacy(context: Context, filename: String, content: String): Boolean {
-    return try {
-        // Try app-specific directory first (no permissions needed)
-        val appDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), "GeoTracker/GPX")
-        if (!appDir.exists()) {
-            appDir.mkdirs()
-        }
-
-        val file = File(appDir, filename)
-        FileOutputStream(file).use { output ->
-            output.write(content.toByteArray())
-        }
-
-        Log.d("GPXExport", "GPX saved to app directory: ${file.absolutePath}")
-        true
-    } catch (e: Exception) {
-        Log.e("GPXExport", "Error with legacy storage", e)
-        // Fallback: try public Downloads (requires permission)
-        try {
-            val publicDir = File(
-                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-                "GeoTracker/GPX"
-            )
-            if (!publicDir.exists()) {
-                publicDir.mkdirs()
-            }
-
-            val file = File(publicDir, filename)
-            FileOutputStream(file).use { output ->
-                output.write(content.toByteArray())
-            }
-
-            Log.d("GPXExport", "GPX saved to public directory: ${file.absolutePath}")
-            true
-        } catch (e2: Exception) {
-            Log.e("GPXExport", "Both storage methods failed", e2)
-            false
-        }
     }
 }
 

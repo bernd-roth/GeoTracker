@@ -15,6 +15,7 @@ import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.data.BackupProgress
 import at.co.netconsulting.geotracker.data.BackupPhase
+import at.co.netconsulting.geotracker.tools.LocalBackupStorage
 import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
 import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.CoroutineScope
@@ -137,11 +138,7 @@ class DatabaseBackupService : Service() {
         val databaseBackupTreeUri = NetworkBackupStorage.getDatabaseBackupTreeUri(applicationContext)
 
         // Create backup directory if it doesn't exist
-        val backupDir = if (databaseSmbDestination.isConfigured || databaseBackupTreeUri != null) {
-            File(applicationContext.cacheDir, "database_backups")
-        } else {
-            File(applicationContext.getExternalFilesDir(null), "backups")
-        }
+        val backupDir = File(applicationContext.cacheDir, "database_backups")
         if (!backupDir.exists()) {
             backupDir.mkdirs()
         }
@@ -278,6 +275,38 @@ class DatabaseBackupService : Service() {
 
                 if (!copied) {
                     throw IllegalStateException("Failed to copy backup to selected database share")
+                }
+
+                if (!backupFile.delete()) {
+                    Log.w("DatabaseBackupService", "Could not delete temporary backup: ${backupFile.absolutePath}")
+                }
+            } else {
+                currentProgress = currentProgress.copy(
+                    overallProgress = 0.85f,
+                    currentFileName = backupFile.name,
+                    status = "Copying backup to ${LocalBackupStorage.displayPath(LocalBackupStorage.DATABASE_BACKUP_FOLDER)}..."
+                )
+                updateNotification(currentProgress)
+
+                val copied = LocalBackupStorage.copyFile(
+                    context = applicationContext,
+                    relativeFolder = LocalBackupStorage.DATABASE_BACKUP_FOLDER,
+                    sourceFile = backupFile,
+                    fileName = backupFile.name,
+                    mimeType = "application/zip"
+                ) { bytesCopied, totalBytes ->
+                    val progress = if (totalBytes > 0) {
+                        0.85f + (bytesCopied.toFloat() / totalBytes * 0.15f)
+                    } else {
+                        1.0f
+                    }
+                    updateNotification(currentProgress.copy(overallProgress = progress))
+                }
+
+                if (!copied) {
+                    throw IllegalStateException(
+                        "Failed to copy backup to ${LocalBackupStorage.displayPath(LocalBackupStorage.DATABASE_BACKUP_FOLDER)}"
+                    )
                 }
 
                 if (!backupFile.delete()) {

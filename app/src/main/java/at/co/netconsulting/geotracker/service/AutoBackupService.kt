@@ -9,7 +9,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
-import android.os.Environment
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
@@ -19,6 +18,7 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.gpx.saveGpxFile
 import at.co.netconsulting.geotracker.data.BackupProgress
 import at.co.netconsulting.geotracker.data.BackupPhase
+import at.co.netconsulting.geotracker.tools.LocalBackupStorage
 import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
 import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.CoroutineScope
@@ -28,8 +28,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
-import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -317,78 +315,17 @@ class AutoBackupService : Service() {
                     return@withContext NetworkBackupStorage.clearGpxFiles(applicationContext, treeUri)
                 }
 
-                // Get the public Downloads directory where GPX files are actually saved
-                val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                val gpxDir = File(downloadsDir, "GeoTracker/GPX")
+                val defaultCleared = LocalBackupStorage.clearGpxFiles(
+                    applicationContext,
+                    LocalBackupStorage.GPX_BACKUP_FOLDER
+                )
+                val legacyCleared = LocalBackupStorage.clearGpxFiles(
+                    applicationContext,
+                    LocalBackupStorage.LEGACY_GPX_BACKUP_FOLDER
+                )
 
-                Timber.d("Attempting to clear files from: ${gpxDir.absolutePath}")
-                Timber.d("Downloads directory exists: ${downloadsDir.exists()}")
-                Timber.d("GPX directory exists: ${gpxDir.exists()}")
-
-                if (!downloadsDir.exists()) {
-                    Timber.w("Downloads directory doesn't exist: ${downloadsDir.absolutePath}")
-                    return@withContext false
-                }
-
-                if (!gpxDir.exists()) {
-                    Timber.d("GPX directory doesn't exist at ${gpxDir.absolutePath}, nothing to clear")
-                    return@withContext true
-                }
-
-                if (!gpxDir.canRead() || !gpxDir.canWrite()) {
-                    Timber.w("No read/write permission for GPX directory: ${gpxDir.absolutePath}")
-                    return@withContext false
-                }
-
-                var clearedCount = 0
-                var errorCount = 0
-
-                // List all files for debugging
-                val allFiles = gpxDir.listFiles()
-                Timber.d("Found ${allFiles?.size ?: 0} items in GPX directory")
-                allFiles?.forEach { file ->
-                    Timber.d("Found item: ${file.name}, isFile: ${file.isFile}, isDirectory: ${file.isDirectory}")
-                }
-
-                // Iterate through all files in the GPX directory
-                allFiles?.forEach { file ->
-                    try {
-                        when {
-                            // Delete GPX files
-                            file.isFile && file.name.endsWith(".gpx", ignoreCase = true) -> {
-                                if (file.delete()) {
-                                    clearedCount++
-                                    Timber.d("Deleted GPX file: ${file.name}")
-                                } else {
-                                    errorCount++
-                                    Timber.w("Failed to delete GPX file: ${file.name}")
-                                }
-                            }
-                            // Optionally delete other non-directory files (but preserve subdirectories)
-                            file.isFile -> {
-                                if (file.delete()) {
-                                    clearedCount++
-                                    Timber.d("Deleted file: ${file.name}")
-                                } else {
-                                    errorCount++
-                                    Timber.w("Failed to delete file: ${file.name}")
-                                }
-                            }
-                            // Log directories that are being preserved
-                            file.isDirectory -> {
-                                Timber.d("Preserving directory: ${file.name}")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        errorCount++
-                        Timber.e(e, "Error processing file: ${file.name}")
-                    }
-                }
-
-                Timber.i("File cleanup completed in ${gpxDir.absolutePath}: $clearedCount files deleted, $errorCount errors")
-
-                // Consider it successful if we had no errors, or if errors were minor compared to successes
-                return@withContext errorCount == 0 || (clearedCount > 0 && errorCount < clearedCount)
+                Timber.i("GPX cleanup completed in default Downloads folders")
+                return@withContext defaultCleared && legacyCleared
             }
         } catch (e: Exception) {
             Timber.e(e, "Error during file cleanup")
@@ -779,52 +716,33 @@ class AutoBackupService : Service() {
                 return success
             }
             
-            // Create the backup directory in the same location as the GPX files
-            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val backupDir = File(downloadsDir, "GeoTracker/DatabaseBackups")
-
-            Timber.d("Database backup directory: ${backupDir.absolutePath}")
+            Timber.d("Database backup directory: ${LocalBackupStorage.displayPath(LocalBackupStorage.DATABASE_BACKUP_FOLDER)}")
             onProgress?.invoke(0.2f)
-
-            if (!backupDir.exists()) {
-                val created = backupDir.mkdirs()
-                Timber.d("Created backup directory: $created")
-                if (!created) {
-                    Timber.e("Failed to create backup directory: ${backupDir.absolutePath}")
-                    return false
-                }
-            }
 
             onProgress?.invoke(0.3f)
 
-            // Create the backup file
-            val backupFile = File(backupDir, backupFileName)
-            
             onProgress?.invoke(0.5f)
 
-            // Copy the database file to the backup location with progress tracking
-            dbFile.inputStream().use { input ->
-                FileOutputStream(backupFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalBytesRead = 0L
-                    val totalSize = dbFile.length()
-                    
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalBytesRead += bytesRead
-                        
-                        // Update progress: 50% to 100%
-                        if (totalSize > 0) {
-                            val progress = 0.5f + (totalBytesRead.toFloat() / totalSize * 0.5f)
-                            onProgress?.invoke(progress)
-                        }
-                    }
+            val success = LocalBackupStorage.copyFile(
+                context = applicationContext,
+                relativeFolder = LocalBackupStorage.DATABASE_BACKUP_FOLDER,
+                sourceFile = dbFile,
+                fileName = backupFileName,
+                mimeType = "application/octet-stream"
+            ) { bytesCopied, totalBytes ->
+                if (totalBytes > 0) {
+                    val progress = 0.5f + (bytesCopied.toFloat() / totalBytes * 0.5f)
+                    onProgress?.invoke(progress)
                 }
             }
 
+            if (!success) {
+                Timber.e("Failed to create database backup in ${LocalBackupStorage.displayPath(LocalBackupStorage.DATABASE_BACKUP_FOLDER)}")
+                return false
+            }
+
             onProgress?.invoke(1.0f)
-            Timber.d("Database backup successful: ${backupFile.absolutePath}")
+            Timber.d("Database backup successful: ${LocalBackupStorage.displayPath(LocalBackupStorage.DATABASE_BACKUP_FOLDER)}/$backupFileName")
             true
         } catch (e: Exception) {
             Timber.e(e, "Error backing up database")

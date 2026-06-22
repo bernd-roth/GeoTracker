@@ -72,6 +72,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.app.Activity
 import at.co.netconsulting.geotracker.tools.DatabaseImporter
+import at.co.netconsulting.geotracker.tools.LocalBackupStorage
 import at.co.netconsulting.geotracker.tools.NetworkBackupStorage
 import at.co.netconsulting.geotracker.tools.SmbBackupStorage
 import kotlinx.coroutines.delay
@@ -890,7 +891,7 @@ fun SettingsScreen(
                     label = "GPX files",
                     destinationText = gpxBackupTreeUri?.let { treeUri ->
                         "Selected: ${NetworkBackupStorage.getTreeDisplayName(context, treeUri) ?: treeUri}"
-                    } ?: "Default: Downloads/GeoTracker/GPX",
+                    } ?: "Default: ${LocalBackupStorage.displayPath(LocalBackupStorage.GPX_BACKUP_FOLDER)}",
                     hasCustomDestination = gpxBackupTreeUri != null,
                     onChoose = { gpxBackupFolderLauncher.launch(null) },
                     onClear = {
@@ -906,7 +907,7 @@ fun SettingsScreen(
                     label = "Database",
                     destinationText = databaseBackupTreeUri?.let { treeUri ->
                         "Selected: ${NetworkBackupStorage.getTreeDisplayName(context, treeUri) ?: treeUri}"
-                    } ?: "Default: Downloads/GeoTracker/DatabaseBackups",
+                    } ?: "Default: ${LocalBackupStorage.displayPath(LocalBackupStorage.DATABASE_BACKUP_FOLDER)}",
                     hasCustomDestination = databaseBackupTreeUri != null,
                     onChoose = { databaseBackupFolderLauncher.launch(null) },
                     onClear = {

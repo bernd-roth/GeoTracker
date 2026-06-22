@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.41 (13-06-2026: Back up GPX and database to network share)"
+        versionName = "9.42 (22-06-2026: Default storage backup set to Downloads/GeoTracker)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
