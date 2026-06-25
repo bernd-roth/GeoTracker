@@ -1237,8 +1237,9 @@ class TrackingServer:
             return
 
         try:
-            # Use the configurable retention period
-            cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=self.data_retention_hours)
+            # Use an offset-aware cutoff for timestamptz comparisons. A session
+            # stays visible while its latest GPS point is within the live window.
+            cutoff_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=self.data_retention_hours)
 
             query = """
                 SELECT
@@ -1260,7 +1261,12 @@ class TrackingServer:
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
                 JOIN users u ON s.user_id = u.user_id
                 LEFT JOIN heart_rate_devices hrd ON gtp.heart_rate_device_id = hrd.device_id
-                WHERE s.start_date_time >= $1
+                WHERE gtp.session_id IN (
+                    SELECT recent_gtp.session_id
+                    FROM gps_tracking_points recent_gtp
+                    GROUP BY recent_gtp.session_id
+                    HAVING MAX(recent_gtp.received_at) >= $1
+                )
                 ORDER BY gtp.session_id, gtp.received_at
             """
 
@@ -1277,7 +1283,7 @@ class TrackingServer:
                     "sessionId": row['session_id'],
                     "firstname": row['firstname'],
                     "lastname": row['lastname'] or '',
-                    "birthdate": row['birthdate'] or '',
+                    "birthdate": row['birthdate'].isoformat() if row['birthdate'] else '',
                     "height": float(row['height']) if row['height'] is not None else 0.0,
                     "weight": float(row['weight']) if row['weight'] is not None else 0.0,
                     "bmi": float(row['bmi']) if row['bmi'] is not None else 0.0,
