@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.42 (22-06-2026: Default storage backup set to Downloads/GeoTracker)"
+        versionName = "9.43 (27-06-2026: Running cadence tracking and analysis graph implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

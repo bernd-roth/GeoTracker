@@ -101,6 +101,10 @@ class MainActivity : ComponentActivity() {
     private var paceEventName by mutableStateOf("")
     private var paceMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
+    // cadence data
+    private var cadenceEventName by mutableStateOf("")
+    private var cadenceMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
+
     // Route navigation state
     private val routeToDisplay = mutableStateOf<RouteDisplayData?>(null)
     private val routeRerunData = mutableStateOf<RouteRerunData?>(null)
@@ -114,6 +118,7 @@ class MainActivity : ComponentActivity() {
         const val BAROMETER_DETAIL = "barometer_detail"
         const val ALTITUDE_DETAIL = "altitude_detail"
         const val PACE_DETAIL = "pace_detail"
+        const val CADENCE_DETAIL = "cadence_detail"
         const val ROUTE_COMPARISON = "route_comparison/{eventId}"
         const val EXPORT_SYNC = "export_sync"
         const val CALENDAR = "calendar"
@@ -126,6 +131,7 @@ class MainActivity : ComponentActivity() {
         fun barometerDetail() = "barometer_detail"
         fun altitudeDetail() = "altitude_detail"
         fun paceDetail() = "pace_detail"
+        fun cadenceDetail() = "cadence_detail"
         fun routeComparison(eventId: Int) = "route_comparison/$eventId"
         fun workoutShare(eventId: Int) = "workout_share/$eventId"
         fun exportSync() = "export_sync"
@@ -259,6 +265,12 @@ class MainActivity : ComponentActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) {
             permissionsToRequest.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+
+        // Optional: enables running cadence from the device step detector.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION)
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACTIVITY_RECOGNITION)
         }
 
         // Storage permission - only for Android 9 and below
@@ -632,6 +644,12 @@ class MainActivity : ComponentActivity() {
                         paceMetrics = metrics
                         navController.navigate(Routes.paceDetail())
                     },
+                    onNavigateToCadenceDetail = { eventName, metrics ->
+                        Log.d("MainActivity", "Navigating to cadence detail for event: $eventName")
+                        cadenceEventName = eventName
+                        cadenceMetrics = metrics
+                        navController.navigate(Routes.cadenceDetail())
+                    },
                     onNavigateToMapWithRoute = onNavigateToMapWithRoute,
                     onNavigateToMapWithRouteRerun = onNavigateToMapWithRouteRerun,
                     onNavigateToRouteComparison = { eventId, eventName ->
@@ -750,6 +768,20 @@ class MainActivity : ComponentActivity() {
                         navController.popBackStack()
                         paceEventName = ""
                         paceMetrics = emptyList()
+                    }
+                )
+            }
+
+            // Cadence detail screen
+            composable(Routes.CADENCE_DETAIL) {
+                Log.d("MainActivity", "Showing cadence detail screen")
+                at.co.netconsulting.geotracker.composables.CadenceDetailScreen(
+                    eventName = cadenceEventName,
+                    metrics = cadenceMetrics,
+                    onBackClick = {
+                        navController.popBackStack()
+                        cadenceEventName = ""
+                        cadenceMetrics = emptyList()
                     }
                 )
             }

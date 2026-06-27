@@ -97,7 +97,9 @@ class GpxImporter(private val context: Context) {
             while (parserEventType != XmlPullParser.END_DOCUMENT) {
                 when (parserEventType) {
                     XmlPullParser.START_TAG -> {
-                        when (parser.name) {
+                        // XmlPullParser may expose either a local name (cad) or a
+                        // prefixed name (ns3:cad), depending on parser settings.
+                        when (parser.name.substringAfter(':')) {
                             "metadata" -> {
                                 inMetadata = true
                                 Log.d(TAG, "Entered metadata section")
@@ -197,10 +199,19 @@ class GpxImporter(private val context: Context) {
                                     }
                                 }
                             }
+                            "cad" -> {
+                                if (inTrackPoint) {
+                                    parser.next()
+                                    if (parser.eventType == XmlPullParser.TEXT) {
+                                        currentPoint.cadence = parser.text.toIntOrNull()
+                                            ?.coerceIn(0, 254)
+                                    }
+                                }
+                            }
                         }
                     }
                     XmlPullParser.END_TAG -> {
-                        when (parser.name) {
+                        when (parser.name.substringAfter(':')) {
                             "metadata" -> inMetadata = false
                             "trk" -> inTrack = false
                             "wpt" -> {
@@ -645,7 +656,7 @@ class GpxImporter(private val context: Context) {
                     speed = cappedSpeed.toFloat(),
                     heartRate = 0,
                     heartRateDevice = "None",
-                    cadence = null,
+                    cadence = currentPoint.cadence,
                     lap = calculateLapNumber(totalDistance),
                     unity = "metric",
                     elevation = currentPoint.ele.toFloat(),
@@ -689,7 +700,8 @@ class GpxImporter(private val context: Context) {
         var lon: Double = 0.0,
         var ele: Double = 0.0,
         var time: Long = 0,
-        var slope: Double = 0.0
+        var slope: Double = 0.0,
+        var cadence: Int? = null
     )
 
     private data class GpxWaypoint(

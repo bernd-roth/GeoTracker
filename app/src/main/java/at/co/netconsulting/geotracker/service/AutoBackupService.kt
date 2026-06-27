@@ -494,17 +494,31 @@ class AutoBackupService : Service() {
 |        <extensions>
 |          <custom:distance>${metric.distance}</custom:distance>""")
 
-                    // Add heart rate if available
-                    if (metric.heartRate > 0) {
-                        gpxBuilder.append("""
-|          <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>""")
-                    }
-
-                    // Add air temperature if available (from weather data or metric)
                     val temperature = weatherInfo?.temperature ?: getMetricTemperature(metric)
-                    temperature?.let { temp ->
+                    val cadence = metric.cadence
+                    val hasGarminExtensions = metric.heartRate > 0 ||
+                        temperature != null ||
+                        (cadence != null && cadence > 0)
+
+                    if (hasGarminExtensions) {
                         gpxBuilder.append("""
-|          <gpxtpx:atemp>${temp}</gpxtpx:atemp>""")
+|          <gpxtpx:TrackPointExtension>""")
+
+                        temperature?.let { temp ->
+                            gpxBuilder.append("""
+|            <gpxtpx:atemp>${temp}</gpxtpx:atemp>""")
+                        }
+                        if (metric.heartRate > 0) {
+                            gpxBuilder.append("""
+|            <gpxtpx:hr>${metric.heartRate}</gpxtpx:hr>""")
+                        }
+                        if (cadence != null && cadence > 0) {
+                            gpxBuilder.append("""
+|            <gpxtpx:cad>${cadence}</gpxtpx:cad>""")
+                        }
+
+                        gpxBuilder.append("""
+|          </gpxtpx:TrackPointExtension>""")
                     }
 
                     // Add lap number
@@ -527,14 +541,6 @@ class AutoBackupService : Service() {
                     if (metric.speed > 0) {
                         gpxBuilder.append("""
 |          <custom:speed>${metric.speed}</custom:speed>""")
-                    }
-
-                    // Add cadence if available
-                    metric.cadence?.let { cadence ->
-                        if (cadence > 0) {
-                            gpxBuilder.append("""
-|          <custom:cadence>${cadence}</custom:cadence>""")
-                        }
                     }
 
                     // Add GPS accuracy if available

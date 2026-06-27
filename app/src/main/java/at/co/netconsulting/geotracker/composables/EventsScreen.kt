@@ -164,6 +164,7 @@ fun EventsScreen(
     onNavigateToBarometerDetail: (String, List<Metric>) -> Unit,
     onNavigateToAltitudeDetail: (String, List<Metric>) -> Unit,
     onNavigateToPaceDetail: (String, List<Metric>) -> Unit = { _, _ -> },
+    onNavigateToCadenceDetail: (String, List<Metric>) -> Unit = { _, _ -> },
     onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
     onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit,
     onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> },
@@ -1339,6 +1340,9 @@ fun EventsScreen(
                             onPaceClick = {
                                 onNavigateToPaceDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
                             },
+                            onCadenceClick = {
+                                onNavigateToCadenceDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
+                            },
                             // Pass the map navigation callback and recording state
                             onViewOnMap = { locationPoints ->
                                 onNavigateToMapWithRoute(RouteDisplayData(locationPoints, eventWithDetails.event.eventId))
@@ -1469,6 +1473,7 @@ fun EventCard(
     onBarometerClick: () -> Unit = {},
     onAltitudeClick: () -> Unit = {},
     onPaceClick: () -> Unit = {},
+    onCadenceClick: () -> Unit = {},
     onViewOnMap: (List<GeoPoint>) -> Unit = {},
     onViewOnMapRerun: (List<GeoPoint>) -> Unit = {},
     onViewSlopeOnMap: (List<GeoPoint>) -> Unit = {},
@@ -2281,6 +2286,78 @@ fun EventCard(
                     } else {
                         Text(
                             text = "No pace data available",
+                            fontSize = 14.sp,
+                            color = Color.Gray
+                        )
+                    }
+                }
+
+                // Cadence is an independent performance metric, separate from pace and laps.
+                Spacer(modifier = Modifier.height(4.dp))
+                val cadenceValues = event.metrics.mapNotNull {
+                    it.cadence?.takeIf { cadence -> cadence > 0 }
+                }
+                val hasCadenceData = cadenceValues.size >= 2
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasCadenceData) Modifier.clickable { onCadenceClick() } else Modifier
+                        )
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Cadence",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (hasCadenceData) {
+                            Icon(
+                                imageVector = Icons.Default.TrendingUp,
+                                contentDescription = "View detailed cadence analysis",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+
+                    if (hasCadenceData) {
+                        val averageCadence = cadenceValues.average().toInt()
+                        Text(
+                            text = "avg $averageCadence cycles/min (about ${averageCadence * 2} running steps/min)",
+                            fontSize = 12.sp,
+                            color = Color(0xFF7E57C2)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFF5F5F5))
+                                .padding(8.dp)
+                        ) {
+                            CadenceGraph(
+                                metrics = event.metrics,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Tap for cadence vs time and distance",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Text(
+                            text = "No cadence data available",
                             fontSize = 14.sp,
                             color = Color.Gray
                         )

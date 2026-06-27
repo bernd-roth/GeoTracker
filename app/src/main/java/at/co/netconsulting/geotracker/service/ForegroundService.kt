@@ -45,6 +45,7 @@ import at.co.netconsulting.geotracker.domain.User
 import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.location.CustomLocationListener
 import at.co.netconsulting.geotracker.sensor.BarometerSensorService
+import at.co.netconsulting.geotracker.sensor.RunningCadenceTracker
 import at.co.netconsulting.geotracker.service.WeatherEventBusHandler
 import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.BarometerUtils
@@ -134,6 +135,9 @@ class ForegroundService : Service() {
     private var currentPressureAccuracy: Int = 0
     private var currentAltitudeFromPressure: Float = 0f
     private var currentSeaLevelPressure: Float = 1013.25f
+
+    // Running cadence from the device step detector
+    private var runningCadenceTracker: RunningCadenceTracker? = null
 
     //reconnection logic
     private var connectionMonitorJob: Job? = null
@@ -563,6 +567,9 @@ class ForegroundService : Service() {
 
         // Initialize barometer sensor service
         barometerSensorService = BarometerSensorService.getInstance(this)
+
+        // Initialize running cadence sensor (started after the sport type is known)
+        runningCadenceTracker = RunningCadenceTracker(this)
 
         // Start connection monitoring
         startConnectionMonitoring()
@@ -1355,6 +1362,50 @@ class ForegroundService : Service() {
         }
     }
 
+    private fun refreshForegroundServiceTypes(includeCadence: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            var serviceTypes = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            if (includeCadence && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                serviceTypes = serviceTypes or ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH
+            }
+            startForeground(1, notificationBuilder.build(), serviceTypes)
+        } else {
+            startForeground(1, notificationBuilder.build())
+        }
+    }
+
+    private fun supportsStepCadence(sportType: String): Boolean {
+        val normalized = sportType.lowercase(Locale.ROOT)
+        return listOf(
+            "running",
+            "marathon",
+            "walking",
+            "hiking",
+            "backyard ultra",
+            "wings for life",
+            "lactate threshold"
+        ).any(normalized::contains)
+    }
+
+    private fun startCadenceTrackingIfSupported(sportType: String = artofsport) {
+        val tracker = runningCadenceTracker ?: return
+        if (!supportsStepCadence(sportType)) {
+            tracker.pause()
+            return
+        }
+
+        if (tracker.start()) {
+            refreshForegroundServiceTypes(includeCadence = true)
+            Log.d(TAG, "Running cadence tracking started for '$sportType'")
+        } else {
+            Log.i(
+                TAG,
+                "Running cadence unavailable for '$sportType' " +
+                    "(step detector missing or activity-recognition permission denied)"
+            )
+        }
+    }
+
     private fun getRecordedDurationMs(): Long {
         val startMs = recordingStartTimestampMs
         if (startMs <= 0L) return getEffectiveRecordingMs()
@@ -1651,7 +1702,7 @@ class ForegroundService : Service() {
                     heartRateDevice = heartRateDeviceName ?: "None",
                     speed = speed,
                     distance = distance,
-                    cadence = 0,
+                    cadence = runningCadenceTracker?.currentCadence(),
                     lap = lap,
                     timeInMilliseconds = metricTimestampMs,
                     unity = "metric",
@@ -1850,6 +1901,7 @@ class ForegroundService : Service() {
                     isStoppingIntentionally = true
                     isAcceptingLocationUpdates = false
                     customLocationListener?.stopLocationCallbacks("stop_recording")
+                    runningCadenceTracker?.stop()
 
                     // Finalize Lactate Threshold test if active
                     if (isLactateThresholdMode) {
@@ -1875,6 +1927,7 @@ class ForegroundService : Service() {
                 }
                 "pause_recording" -> {
                     customLocationListener?.pauseTracking()
+                    runningCadenceTracker?.pause()
                     isPaused = true
                     pauseStartTime = System.currentTimeMillis()
 
@@ -1895,6 +1948,7 @@ class ForegroundService : Service() {
                 }
                 "resume_recording" -> {
                     customLocationListener?.resumeTracking()
+                    startCadenceTrackingIfSupported()
 
                     // Calculate how long we were paused and add to total
                     if (pauseStartTime > 0) {
@@ -1952,6 +2006,8 @@ class ForegroundService : Service() {
                         .putInt("discipline_transition_count", nextTransitionNumber)
                         .apply()
 
+                    startCadenceTrackingIfSupported(newDiscipline)
+
                     // Send discipline transition to WebSocket server via EventBus
                     EventBus.getDefault().post(
                         WebSocketMessage.DisciplineTransitionMessage(
@@ -1971,6 +2027,7 @@ class ForegroundService : Service() {
                 "backyard_start_lap" -> {
                     // Resume GPS tracking
                     customLocationListener?.resumeTracking()
+                    startCadenceTrackingIfSupported()
                     isPaused = false
 
                     // Increment lap counter
@@ -2022,6 +2079,7 @@ class ForegroundService : Service() {
 
                     // Pause GPS tracking
                     customLocationListener?.pauseTracking()
+                    runningCadenceTracker?.pause()
                     isPaused = true
                     pauseStartTime = currentTime
 
@@ -2248,6 +2306,10 @@ class ForegroundService : Service() {
                 }
             }
 
+            if (!isPaused) {
+                startCadenceTrackingIfSupported()
+            }
+
             // Initialize Wings for Life Run mode (virtual catcher car)
             isWingsForLifeMode = artofsport.equals("Wings for Life Run", ignoreCase = true)
             if (isWingsForLifeMode) {
@@ -2363,7 +2425,7 @@ class ForegroundService : Service() {
                 }
             }
             acquireWakeLock()
-            startForeground(1, notificationBuilder.build())
+            refreshForegroundServiceTypes(includeCadence = runningCadenceTracker?.isListening == true)
         } catch (e: Exception) {
             Log.e(TAG, "Error in onStartCommand", e)
         }
@@ -2433,6 +2495,13 @@ class ForegroundService : Service() {
             barometerSensorService?.stopListening()
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping barometer sensor", e)
+        }
+
+        // Stop running cadence sensor
+        try {
+            runningCadenceTracker?.stop()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error stopping running cadence sensor", e)
         }
 
         if (isStoppingIntentionally) {
