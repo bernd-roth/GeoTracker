@@ -100,6 +100,7 @@ def get_track(session_id):
             'alt':      float(p.altitude)                  if p.altitude                  is not None else None,
             'speed':    float(p.current_speed)             if p.current_speed             is not None else None,
             'hr':       p.heart_rate,
+            'cadence':  p.cadence,
             # distance is stored in metres → convert to km for chart axis
             'distance': _m_to_km(p.distance),
             'ts':       p.received_at.isoformat()          if p.received_at               else None,
@@ -241,6 +242,8 @@ def get_summary(session_id):
             func.avg(GPSTrackingPoint.current_speed).label('avg_speed'),
             func.avg(GPSTrackingPoint.heart_rate).label('avg_hr'),
             func.max(GPSTrackingPoint.heart_rate).label('max_hr'),
+            func.avg(GPSTrackingPoint.cadence).label('avg_cadence'),
+            func.max(GPSTrackingPoint.cadence).label('max_cadence'),
             func.count(GPSTrackingPoint.id).label('point_count'),
         )
         .filter(GPSTrackingPoint.session_id.in_(session_ids))
@@ -267,6 +270,8 @@ def get_summary(session_id):
         'elevation_gain_m':  round(float(totals.max_ele_gain), 1) if totals and totals.max_ele_gain  else None,
         'avg_heart_rate':    round(float(agg.avg_hr),     1)      if agg.avg_hr                      else None,
         'max_heart_rate':    int(agg.max_hr)                      if agg.max_hr                      else None,
+        'avg_cadence':       round(float(agg.avg_cadence), 1)     if agg.avg_cadence is not None     else None,
+        'max_cadence':       int(agg.max_cadence)                 if agg.max_cadence is not None     else None,
         'duration_ms':       duration_ms,
         'point_count':       agg.point_count,
         'lap_count':         lap_count,

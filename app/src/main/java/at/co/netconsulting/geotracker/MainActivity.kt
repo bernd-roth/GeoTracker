@@ -102,7 +102,9 @@ class MainActivity : ComponentActivity() {
     private var paceMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
     // cadence data
+    private var cadenceEventId by mutableStateOf(0)
     private var cadenceEventName by mutableStateOf("")
+    private var cadenceSportType by mutableStateOf("")
     private var cadenceMetrics by mutableStateOf<List<at.co.netconsulting.geotracker.domain.Metric>>(emptyList())
 
     // Route navigation state
@@ -644,9 +646,11 @@ class MainActivity : ComponentActivity() {
                         paceMetrics = metrics
                         navController.navigate(Routes.paceDetail())
                     },
-                    onNavigateToCadenceDetail = { eventName, metrics ->
+                    onNavigateToCadenceDetail = { eventId, eventName, sportType, metrics ->
                         Log.d("MainActivity", "Navigating to cadence detail for event: $eventName")
+                        cadenceEventId = eventId
                         cadenceEventName = eventName
+                        cadenceSportType = sportType
                         cadenceMetrics = metrics
                         navController.navigate(Routes.cadenceDetail())
                     },
@@ -776,11 +780,15 @@ class MainActivity : ComponentActivity() {
             composable(Routes.CADENCE_DETAIL) {
                 Log.d("MainActivity", "Showing cadence detail screen")
                 at.co.netconsulting.geotracker.composables.CadenceDetailScreen(
+                    eventId = cadenceEventId,
                     eventName = cadenceEventName,
+                    sportType = cadenceSportType,
                     metrics = cadenceMetrics,
                     onBackClick = {
                         navController.popBackStack()
+                        cadenceEventId = 0
                         cadenceEventName = ""
+                        cadenceSportType = ""
                         cadenceMetrics = emptyList()
                     }
                 )

@@ -24,6 +24,7 @@ CREATE TABLE public.gps_tracking_points (
 	covered_distance numeric(12, 4) NULL,
 	cumulative_elevation_gain numeric(10, 4) NULL,
 	heart_rate int4 NULL,
+	cadence int4 NULL,
 	heart_rate_device_id int4 NULL,
 	lap int4 DEFAULT 0 NULL,
 	received_at timestamptz DEFAULT now() NULL,

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.44 (27-06-2026: Halfmarathon added to new activity)"
+        versionName = "9.45 (27-06-2026: Cadence vs Altitude, Cadence vs Speed, Cadence map added)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

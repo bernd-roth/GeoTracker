@@ -569,7 +569,9 @@ class ForegroundService : Service() {
         barometerSensorService = BarometerSensorService.getInstance(this)
 
         // Initialize running cadence sensor (started after the sport type is known)
-        runningCadenceTracker = RunningCadenceTracker(this)
+        runningCadenceTracker = RunningCadenceTracker(this) { cadence ->
+            customLocationListener?.updateCadenceOnly(cadence)
+        }
 
         // Start connection monitoring
         startConnectionMonitoring()
@@ -753,6 +755,7 @@ class ForegroundService : Service() {
                 // Create the location listener with restored session context
                 Log.d(TAG, "DIAG FG createBackgroundCoroutine CREATING CLL isRestoring=$isRestoring distance=$distance lastKnownPosition=$lastKnownPosition lap=$lap lapCounter=$lapCounter")
                 customLocationListener = CustomLocationListener(applicationContext).also {
+                    it.setCadenceProvider { runningCadenceTracker?.currentCadence() }
                     // Use the restored start time if this is a restored session
                     if (isRestoring) {
                         it.startDateTime = startDateTime
@@ -2840,6 +2843,7 @@ class ForegroundService : Service() {
                         // Recreate the location listener if needed
                         customLocationListener?.cleanup()
                         customLocationListener = CustomLocationListener(applicationContext).also {
+                            it.setCadenceProvider { runningCadenceTracker?.currentCadence() }
                             it.startDateTime = startDateTime
                             delay(100) // Short delay to ensure sessionId is saved
                             it.startListener()
@@ -2926,6 +2930,7 @@ class ForegroundService : Service() {
                     sportType = artofsport,
                     comment = comment,
                     clothing = clothing,
+                    cadence = runningCadenceTracker?.currentCadence(),
                     movingAverageSpeed = 0.0, // Will be calculated by CustomLocationListener
                     lapTimes = lapTimeData
                 )

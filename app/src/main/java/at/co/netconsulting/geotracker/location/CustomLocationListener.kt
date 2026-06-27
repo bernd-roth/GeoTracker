@@ -124,6 +124,10 @@ class CustomLocationListener: LocationListener {
     private var currentHeartRate: Int = 0
     private var heartRateDeviceName: String = ""
 
+    // Raw GPX-compatible cadence in cycles per minute
+    @Volatile private var currentCadence: Int? = null
+    private var cadenceProvider: (() -> Int?)? = null
+
     // restoring after crash
     private var recoveredDistance = 0.0
     private var lastAnnouncedDistanceKey = "last_announced_km"
@@ -812,6 +816,10 @@ class CustomLocationListener: LocationListener {
             Log.d(TAG_WEBSOCKET, "Heart rate confirmed in JSON message")
         }
 
+        if (metrics.cadence != null && !jsonData.contains("cadence")) {
+            Log.e(TAG_WEBSOCKET, "WARNING: Cadence not included in JSON message!")
+        }
+
         if (jsonData.contains("\"temperature\":") && jsonData.contains("\"windSpeed\":")) {
             Log.d(TAG_WEBSOCKET, "Weather data confirmed in JSON message")
         } else {
@@ -1181,6 +1189,7 @@ class CustomLocationListener: LocationListener {
             // Heart rate data (current values)
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
+            cadence = cadenceForPayload(),
 
             // Weather data (current values)
             temperature = currentTemperature,
@@ -1369,6 +1378,23 @@ class CustomLocationListener: LocationListener {
         Log.d(TAG_WEBSOCKET, "Heart rate updated to $heartRate bpm from device $deviceName")
     }
 
+    fun updateCadenceOnly(cadence: Int?) {
+        currentCadence = cadence
+        Log.d(TAG_WEBSOCKET, "Cadence updated to ${cadence ?: "unavailable"} cycles/min")
+    }
+
+    fun setCadenceProvider(provider: () -> Int?) {
+        cadenceProvider = provider
+        updateCadenceOnly(provider())
+    }
+
+    private fun cadenceForPayload(): Int? {
+        val provider = cadenceProvider
+        val cadence = if (provider != null) provider() else currentCadence
+        currentCadence = cadence
+        return cadence
+    }
+
     // Helper function to check if we have valid coordinates
     private fun checkLatitudeLongitude(): Boolean {
         return oldLatitude != -999.0 && oldLongitude != -999.0
@@ -1416,6 +1442,7 @@ class CustomLocationListener: LocationListener {
 
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
+            cadence = cadenceForPayload(),
 
             // Weather data
             temperature = currentTemperature,
@@ -1486,6 +1513,7 @@ class CustomLocationListener: LocationListener {
 
             heartRate = currentHeartRate,
             heartRateDevice = heartRateDeviceName,
+            cadence = cadenceForPayload(),
 
             // Weather data
             temperature = currentTemperature,

@@ -164,7 +164,7 @@ fun EventsScreen(
     onNavigateToBarometerDetail: (String, List<Metric>) -> Unit,
     onNavigateToAltitudeDetail: (String, List<Metric>) -> Unit,
     onNavigateToPaceDetail: (String, List<Metric>) -> Unit = { _, _ -> },
-    onNavigateToCadenceDetail: (String, List<Metric>) -> Unit = { _, _ -> },
+    onNavigateToCadenceDetail: (Int, String, String, List<Metric>) -> Unit = { _, _, _, _ -> },
     onNavigateToMapWithRoute: (RouteDisplayData) -> Unit,
     onNavigateToMapWithRouteRerun: (RouteRerunData) -> Unit,
     onNavigateToRouteComparison: (Int, String) -> Unit = { _, _ -> },
@@ -1341,7 +1341,12 @@ fun EventsScreen(
                                 onNavigateToPaceDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
                             },
                             onCadenceClick = {
-                                onNavigateToCadenceDetail(eventWithDetails.event.eventName, eventWithDetails.metrics)
+                                onNavigateToCadenceDetail(
+                                    eventWithDetails.event.eventId,
+                                    eventWithDetails.event.eventName,
+                                    eventWithDetails.event.artOfSport,
+                                    eventWithDetails.metrics
+                                )
                             },
                             // Pass the map navigation callback and recording state
                             onViewOnMap = { locationPoints ->
@@ -2297,6 +2302,7 @@ fun EventCard(
                 val cadenceValues = event.metrics.mapNotNull {
                     it.cadence?.takeIf { cadence -> cadence > 0 }
                 }
+                val cadenceDisplay = cadenceDisplayFor(event.event.artOfSport)
                 val hasCadenceData = cadenceValues.size >= 2
                 Column(
                     modifier = Modifier
@@ -2327,9 +2333,9 @@ fun EventCard(
                     }
 
                     if (hasCadenceData) {
-                        val averageCadence = cadenceValues.average().toInt()
+                        val averageCadence = cadenceDisplay.value(cadenceValues.average().toInt())
                         Text(
-                            text = "avg $averageCadence cycles/min (about ${averageCadence * 2} running steps/min)",
+                            text = "avg $averageCadence ${cadenceDisplay.unit}",
                             fontSize = 12.sp,
                             color = Color(0xFF7E57C2)
                         )
@@ -2344,6 +2350,7 @@ fun EventCard(
                         ) {
                             CadenceGraph(
                                 metrics = event.metrics,
+                                displayMultiplier = cadenceDisplay.multiplier,
                                 modifier = Modifier.fillMaxSize()
                             )
                         }

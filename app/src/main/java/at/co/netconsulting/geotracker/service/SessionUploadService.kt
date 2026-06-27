@@ -142,6 +142,9 @@ class SessionUploadService(private val context: Context) {
                         point.addProperty("heartRateDevice", metric.heartRateDevice)
                     }
 
+                    // Keep cadence in its GPX-compatible raw unit (cycles per minute).
+                    metric.cadence?.let { point.addProperty("cadence", it.coerceIn(0, 254)) }
+
                     // Lap
                     point.addProperty("lap", metric.lap)
 

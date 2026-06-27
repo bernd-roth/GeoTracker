@@ -252,6 +252,15 @@ class FollowedUsersOverlay(
             if (userPoint.heartRate != null) {
                 append("\nHeart Rate: ${userPoint.heartRate} bpm")
             }
+            if (userPoint.cadence != null) {
+                val running = userPoint.sportType.lowercase().let {
+                    it.contains("run") || it.contains("marathon") ||
+                        it.contains("backyard ultra") || it.contains("lactate threshold")
+                }
+                val displayedCadence = if (running) userPoint.cadence * 2 else userPoint.cadence
+                val cadenceUnit = if (running) "spm" else "cycles/min"
+                append("\nCadence: $displayedCadence $cadenceUnit")
+            }
             if (userPoint.timestamp.isNotEmpty()) {
                 append("\nLast update: ${userPoint.timestamp}")
             }

@@ -90,6 +90,7 @@ class GPXExporter:
                     speed,
                     speed_accuracy_meters_per_second,
                     heart_rate,
+                    cadence,
                     distance,
                     covered_distance,
                     cumulative_elevation_gain,
@@ -297,7 +298,7 @@ class GPXExporter:
 
             # Add extensions for comprehensive additional data
             extensions_needed = any([
-                point['current_speed'], point['heart_rate'], point['temperature'],
+                point['current_speed'], point['heart_rate'], point['cadence'], point['temperature'],
                 point['pressure'], point['distance'], point['wind_speed'],
                 point['altitude_from_pressure'], point['number_of_satellites'],
                 point['lap'], point['pressure_accuracy'], point['horizontal_accuracy']
@@ -327,6 +328,10 @@ class GPXExporter:
                 if point['heart_rate'] is not None:
                     hr = ET.SubElement(extensions, "hr")
                     hr.text = str(int(point['heart_rate']))
+
+                if point['cadence'] is not None:
+                    cadence = ET.SubElement(extensions, "cad")
+                    cadence.text = str(int(point['cadence']))
 
                 # Weather data
                 if point['temperature'] is not None:
@@ -455,6 +460,7 @@ class GPXExporter:
                 sample_point = gps_points[0]
                 available_data = []
                 if sample_point.get('heart_rate'): available_data.append("Heart Rate")
+                if sample_point.get('cadence') is not None: available_data.append("Cadence")
                 if sample_point.get('pressure'): available_data.append("Barometer")
                 if sample_point.get('temperature'): available_data.append("Weather")
                 if sample_point.get('number_of_satellites'): available_data.append("GPS Quality")

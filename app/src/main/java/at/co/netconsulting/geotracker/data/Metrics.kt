@@ -70,6 +70,9 @@ data class Metrics(
     val heartRate: Int = 0,
     val heartRateDevice: String = "",
 
+    // Raw GPX-compatible cadence in cycles per minute (running UI displays cadence * 2 as spm)
+    val cadence: Int? = null,
+
     // Weather data
     val temperature: Double? = null,
     val windSpeed: Double = 0.0,

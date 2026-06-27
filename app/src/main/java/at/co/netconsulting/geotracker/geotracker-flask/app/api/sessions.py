@@ -484,6 +484,7 @@ def create_gps_point(session_id, data):
         covered_distance=data.get('covered_distance'),
         cumulative_elevation_gain=data.get('cumulative_elevation_gain'),
         heart_rate=data.get('heart_rate'),
+        cadence=data.get('cadence'),
         heart_rate_device_id=data.get('heart_rate_device_id'),
         lap=data.get('lap', 0),
         received_at=received_at,

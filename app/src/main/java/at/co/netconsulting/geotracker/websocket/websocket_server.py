@@ -424,6 +424,7 @@ class TrackingServer:
                     covered_distance NUMERIC(12, 4),
                     cumulative_elevation_gain NUMERIC(10, 4),
                     heart_rate INTEGER,
+                    cadence INTEGER,
                     heart_rate_device_id INTEGER REFERENCES heart_rate_devices(device_id),
                     lap INTEGER DEFAULT 0,
                     temperature NUMERIC(5, 2),
@@ -443,6 +444,12 @@ class TrackingServer:
                     received_at TIMESTAMPTZ DEFAULT NOW(),
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 )
+            """)
+
+            # Idempotent migration for installations created before cadence support.
+            await conn.execute("""
+                ALTER TABLE gps_tracking_points
+                ADD COLUMN IF NOT EXISTS cadence INTEGER
             """)
 
             # Create lap_times table
@@ -1071,14 +1078,14 @@ class TrackingServer:
                             used_number_of_satellites, current_speed, average_speed, max_speed,
                             moving_average_speed, speed, speed_accuracy_meters_per_second,
                             distance, covered_distance, cumulative_elevation_gain, heart_rate,
-                            heart_rate_device_id, lap, temperature, wind_speed, wind_direction,
+                            cadence, heart_rate_device_id, lap, temperature, wind_speed, wind_direction,
                             humidity, weather_timestamp, weather_code,
                             pressure, pressure_accuracy, altitude_from_pressure, sea_level_pressure,
                             slope, average_slope, max_uphill_slope, max_downhill_slope
                         ) VALUES (
                             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                             $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                            $27, $28, $29, $30, $31, $32, $33, $34
+                            $27, $28, $29, $30, $31, $32, $33, $34, $35
                         )
                     """,
                                        session_id,
@@ -1099,6 +1106,7 @@ class TrackingServer:
                                        float(message_data.get('coveredDistance', 0)) if message_data.get('coveredDistance') is not None else float(message_data.get('distance', 0)),
                                        float(message_data.get('cumulativeElevationGain', 0)) if message_data.get('cumulativeElevationGain') is not None else None,
                                        int(message_data.get('heartRate', 0)) if message_data.get('heartRate') and message_data.get('heartRate') > 0 else None,
+                                       max(0, min(254, int(message_data['cadence']))) if message_data.get('cadence') is not None else None,
                                        heart_rate_device_id,
                                        int(message_data.get('lap', 0)) if message_data.get('lap') is not None else 0,
                                        temperature,
@@ -1250,7 +1258,7 @@ class TrackingServer:
                     s.end_city, s.end_country, s.end_address,
                     gtp.latitude, gtp.longitude, gtp.altitude,
                     gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
-                    gtp.distance, gtp.cumulative_elevation_gain, gtp.heart_rate, hrd.device_name as heart_rate_device,
+                    gtp.distance, gtp.cumulative_elevation_gain, gtp.heart_rate, gtp.cadence, hrd.device_name as heart_rate_device,
                     gtp.temperature, gtp.wind_speed, gtp.wind_direction,
                     gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
                     gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
@@ -1319,6 +1327,8 @@ class TrackingServer:
                 # Add heart rate data if available
                 if row['heart_rate'] and row['heart_rate'] > 0:
                     tracking_point["heartRate"] = int(row['heart_rate'])
+                if row['cadence'] is not None:
+                    tracking_point["cadence"] = int(row['cadence'])
                 if row['heart_rate_device']:
                     tracking_point["heartRateDevice"] = row['heart_rate_device']
 
@@ -1603,7 +1613,7 @@ class TrackingServer:
                         s.end_city, s.end_country, s.end_address,
                         gtp.latitude, gtp.longitude, gtp.altitude,
                         gtp.current_speed, gtp.average_speed, gtp.max_speed, gtp.moving_average_speed,
-                        gtp.distance, gtp.cumulative_elevation_gain, gtp.heart_rate, hrd.device_name as heart_rate_device,
+                        gtp.distance, gtp.cumulative_elevation_gain, gtp.heart_rate, gtp.cadence, hrd.device_name as heart_rate_device,
                         gtp.temperature, gtp.wind_speed, gtp.wind_direction,
                         gtp.humidity, gtp.weather_timestamp, gtp.weather_code,
                         gtp.pressure, gtp.pressure_accuracy, gtp.altitude_from_pressure, gtp.sea_level_pressure,
@@ -1656,6 +1666,8 @@ class TrackingServer:
                 # Add heart rate data if available
                 if row['heart_rate'] and row['heart_rate'] > 0:
                     tracking_point["heartRate"] = int(row['heart_rate'])
+                if row['cadence'] is not None:
+                    tracking_point["cadence"] = int(row['cadence'])
 
                 # Add weather data if available
                 if row['temperature'] is not None:
@@ -1863,7 +1875,9 @@ class TrackingServer:
                                         'altitude': point.get("altitude", 0.0),
                                         'currentSpeed': point.get("currentSpeed", 0.0),
                                         'distance': point.get("distance", 0.0),
+                                        'sportType': point.get("sportType", ""),
                                         'heartRate': point.get("heartRate"),
+                                        'cadence': point.get("cadence"),
                                         'slope': point.get("slope"),
                                         'averageSlope': point.get("averageSlope"),
                                         'maxUphillSlope': point.get("maxUphillSlope"),
@@ -1896,7 +1910,9 @@ class TrackingServer:
                                 'altitude': latest_point.get("altitude", 0.0),
                                 'currentSpeed': latest_point.get("currentSpeed", 0.0),
                                 'distance': latest_point.get("distance", 0.0),
+                                'sportType': latest_point.get("sportType", ""),
                                 'heartRate': latest_point.get("heartRate"),
+                                'cadence': latest_point.get("cadence"),
                                 'slope': latest_point.get("slope"),
                                 'averageSlope': latest_point.get("averageSlope"),
                                 'maxUphillSlope': latest_point.get("maxUphillSlope"),
@@ -2145,6 +2161,9 @@ class TrackingServer:
 
         if "heartRateDevice" in message_data:
             tracking_point["heartRateDevice"] = message_data["heartRateDevice"]
+
+        if message_data.get("cadence") is not None:
+            tracking_point["cadence"] = max(0, min(254, int(message_data["cadence"])))
 
         # Add weather data if available
         if "temperature" in message_data:
@@ -2600,6 +2619,7 @@ class TrackingServer:
                             'reason': tracking_point.get('reason', 'Invalid GPS coordinates'),
                             'otherData': {
                                 'heartRate': tracking_point.get('heartRate'),
+                                'cadence': tracking_point.get('cadence'),
                                 'slope': tracking_point.get('slope'),
                                 'currentSpeed': tracking_point.get('currentSpeed'),
                                 'timestamp': tracking_point.get('timestamp')
@@ -2646,7 +2666,9 @@ class TrackingServer:
                                 'altitude': tracking_point.get("altitude", 0.0),
                                 'currentSpeed': tracking_point.get("currentSpeed", 0.0),
                                 'distance': tracking_point.get("distance", 0.0),
+                                'sportType': tracking_point.get("sportType", ""),
                                 'heartRate': tracking_point.get("heartRate"),
+                                'cadence': tracking_point.get("cadence"),
                                 'slope': tracking_point.get("slope"),
                                 'averageSlope': tracking_point.get("averageSlope"),
                                 'maxUphillSlope': tracking_point.get("maxUphillSlope"),

@@ -25,5 +25,9 @@ def ensure_database_schema(app):
             ALTER TABLE IF EXISTS planned_events
             ADD COLUMN IF NOT EXISTS planned_event_end_date DATE
         """))
+        db.session.execute(text("""
+            ALTER TABLE IF EXISTS gps_tracking_points
+            ADD COLUMN IF NOT EXISTS cadence INTEGER
+        """))
         db.session.commit()
         app.logger.info("Database schema verified")

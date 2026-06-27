@@ -24,7 +24,8 @@ enum class CadenceXAxis { TIME, DISTANCE }
 fun CadenceGraph(
     metrics: List<Metric>,
     modifier: Modifier = Modifier,
-    xAxis: CadenceXAxis = CadenceXAxis.TIME
+    xAxis: CadenceXAxis = CadenceXAxis.TIME,
+    displayMultiplier: Int = 1
 ) {
     val points = metrics
         .filter { (it.cadence ?: 0) > 0 && it.timeInMilliseconds > 0 }
@@ -57,7 +58,7 @@ fun CadenceGraph(
         val maxX = xValues.maxOrNull() ?: 1.0
         val xRange = (maxX - minX).coerceAtLeast(1.0)
 
-        val cadenceValues = points.map { it.cadence!!.toFloat() }
+        val cadenceValues = points.map { it.cadence!!.toFloat() * displayMultiplier }
         val minCadence = cadenceValues.minOrNull() ?: 0f
         val maxCadence = cadenceValues.maxOrNull() ?: 1f
         val cadencePadding = ((maxCadence - minCadence) * 0.15f).coerceAtLeast(3f)
@@ -96,7 +97,7 @@ fun CadenceGraph(
                 metric.distance
             }
             val x = toX(xValue)
-            val y = toY(metric.cadence!!.toFloat())
+            val y = toY(metric.cadence!!.toFloat() * displayMultiplier)
             if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         drawPath(path, Color(0xFF7E57C2), style = Stroke(2.dp.toPx()))

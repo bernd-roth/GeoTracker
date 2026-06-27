@@ -25,24 +25,37 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.domain.Metric
+import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CadenceDetailScreen(
+    eventId: Int,
     eventName: String,
+    sportType: String,
     metrics: List<Metric>,
     onBackClick: () -> Unit
 ) {
     val cadenceValues = metrics.mapNotNull { it.cadence?.takeIf { value -> value > 0 } }
+    val cadenceDisplay = cadenceDisplayFor(sportType)
+    val context = LocalContext.current
+    var selectedMetricIndex by remember(eventId, metrics) {
+        mutableStateOf(metrics.indexOfFirst { (it.cadence ?: 0) > 0 }.takeIf { it >= 0 })
+    }
 
     Scaffold(
         topBar = {
@@ -84,25 +97,70 @@ fun CadenceDetailScreen(
                     }
                 }
             } else {
-                CadenceSummary(cadenceValues)
+                CadenceSummary(cadenceValues, cadenceDisplay)
                 CadenceGraphCard(
                     title = "Cadence vs Time",
-                    description = "GPX-compatible cadence throughout the activity"
+                    description = "Tap a cadence point to locate it on the map"
                 ) {
-                    CadenceGraph(
+                    InteractiveCadenceGraph(
                         metrics = metrics,
-                        xAxis = CadenceXAxis.TIME,
+                        xAxis = CadenceRelationXAxis.TIME,
+                        selectedMetricIndex = selectedMetricIndex,
+                        onPointSelected = { selectedMetricIndex = it },
+                        displayMultiplier = cadenceDisplay.multiplier,
                         modifier = Modifier.fillMaxWidth().height(240.dp)
                     )
                 }
                 CadenceGraphCard(
                     title = "Cadence vs Distance",
-                    description = "How cadence changed along the covered distance"
+                    description = "Tap a cadence point to locate it on the map"
                 ) {
-                    CadenceGraph(
+                    InteractiveCadenceGraph(
                         metrics = metrics,
-                        xAxis = CadenceXAxis.DISTANCE,
+                        xAxis = CadenceRelationXAxis.DISTANCE,
+                        selectedMetricIndex = selectedMetricIndex,
+                        onPointSelected = { selectedMetricIndex = it },
+                        displayMultiplier = cadenceDisplay.multiplier,
                         modifier = Modifier.fillMaxWidth().height(240.dp)
+                    )
+                }
+                CadenceGraphCard(
+                    title = "Cadence vs Altitude",
+                    description = "Cadence distribution by recorded altitude; tap to select a sample"
+                ) {
+                    InteractiveCadenceGraph(
+                        metrics = metrics,
+                        xAxis = CadenceRelationXAxis.ALTITUDE,
+                        selectedMetricIndex = selectedMetricIndex,
+                        onPointSelected = { selectedMetricIndex = it },
+                        displayMultiplier = cadenceDisplay.multiplier,
+                        modifier = Modifier.fillMaxWidth().height(240.dp)
+                    )
+                }
+                CadenceGraphCard(
+                    title = "Cadence vs Speed",
+                    description = "Cadence distribution by speed in km/h; tap to select a sample"
+                ) {
+                    InteractiveCadenceGraph(
+                        metrics = metrics,
+                        xAxis = CadenceRelationXAxis.SPEED,
+                        selectedMetricIndex = selectedMetricIndex,
+                        onPointSelected = { selectedMetricIndex = it },
+                        displayMultiplier = cadenceDisplay.multiplier,
+                        modifier = Modifier.fillMaxWidth().height(240.dp)
+                    )
+                }
+                CadenceGraphCard(
+                    title = "Selected Cadence Point",
+                    description = "The selected graph point is highlighted on the recorded route"
+                ) {
+                    CadencePointMap(
+                        database = FitnessTrackerDatabase.getInstance(context),
+                        eventId = eventId,
+                        metrics = metrics,
+                        selectedMetricIndex = selectedMetricIndex,
+                        cadenceDisplay = cadenceDisplay,
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }
@@ -111,8 +169,9 @@ fun CadenceDetailScreen(
 }
 
 @Composable
-private fun CadenceSummary(values: List<Int>) {
-    val average = values.average().roundToInt()
+private fun CadenceSummary(values: List<Int>, display: CadenceDisplay) {
+    val displayValues = values.map(display::value)
+    val average = displayValues.average().roundToInt()
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
@@ -124,13 +183,17 @@ private fun CadenceSummary(values: List<Int>) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                CadenceStat("Minimum", values.minOrNull() ?: 0)
-                CadenceStat("Average", average)
-                CadenceStat("Maximum", values.maxOrNull() ?: 0)
+                CadenceStat("Minimum", displayValues.minOrNull() ?: 0, display.unit)
+                CadenceStat("Average", average, display.unit)
+                CadenceStat("Maximum", displayValues.maxOrNull() ?: 0, display.unit)
             }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
-                text = "Values are GPX cycles/min. For running, approximately ${average * 2} steps/min average.",
+                text = if (display.isRunning) {
+                    "Running cadence is shown in steps per minute, counting both feet."
+                } else {
+                    "Cadence is shown in ${display.unit}."
+                },
                 fontSize = 13.sp,
                 color = MaterialTheme.colorScheme.onTertiaryContainer
             )
@@ -139,10 +202,10 @@ private fun CadenceSummary(values: List<Int>) {
 }
 
 @Composable
-private fun CadenceStat(label: String, value: Int) {
+private fun CadenceStat(label: String, value: Int, unit: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(value.toString(), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7E57C2))
-        Text("cycles/min", fontSize = 11.sp, color = Color.Gray)
+        Text(unit, fontSize = 11.sp, color = Color.Gray)
         Text(label, fontSize = 12.sp)
     }
 }

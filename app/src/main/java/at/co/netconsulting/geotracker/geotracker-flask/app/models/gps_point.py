@@ -26,6 +26,7 @@ class GPSTrackingPoint(db.Model):
     covered_distance = db.Column(db.Numeric(12, 4), nullable=True)
     cumulative_elevation_gain = db.Column(db.Numeric(10, 4), nullable=True)
     heart_rate = db.Column(db.Integer, nullable=True)
+    cadence = db.Column(db.Integer, nullable=True)
     heart_rate_device_id = db.Column(db.Integer, db.ForeignKey('heart_rate_devices.device_id'), nullable=True)
     lap = db.Column(db.Integer, default=0)
     received_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
@@ -66,6 +67,7 @@ class GPSTrackingPoint(db.Model):
             'covered_distance': float(self.covered_distance) if self.covered_distance else None,
             'cumulative_elevation_gain': float(self.cumulative_elevation_gain) if self.cumulative_elevation_gain else None,
             'heart_rate': self.heart_rate,
+            'cadence': self.cadence,
             'heart_rate_device_id': self.heart_rate_device_id,
             'lap': self.lap,
             'received_at': self.received_at.isoformat() if self.received_at else None,

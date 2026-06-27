@@ -12,7 +12,10 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 
 /** Records running cadence from Android's low-power step detector. */
-class RunningCadenceTracker(context: Context) : SensorEventListener {
+class RunningCadenceTracker(
+    context: Context,
+    private val onCadenceChanged: (Int?) -> Unit = {}
+) : SensorEventListener {
     private val appContext = context.applicationContext
     private val sensorManager = appContext.getSystemService(Context.SENSOR_SERVICE) as SensorManager
     private val stepDetector = sensorManager.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)
@@ -34,6 +37,7 @@ class RunningCadenceTracker(context: Context) : SensorEventListener {
             stepDetector,
             SensorManager.SENSOR_DELAY_NORMAL
         )
+        if (isListening) onCadenceChanged(0)
         Log.d(TAG, "Step detector listening=$isListening")
         return isListening
     }
@@ -42,6 +46,7 @@ class RunningCadenceTracker(context: Context) : SensorEventListener {
         if (isListening) sensorManager.unregisterListener(this)
         isListening = false
         calculator.reset()
+        onCadenceChanged(null)
     }
 
     fun stop() = pause()
@@ -55,6 +60,7 @@ class RunningCadenceTracker(context: Context) : SensorEventListener {
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_STEP_DETECTOR) {
             calculator.addStep(event.timestamp)
+            onCadenceChanged(calculator.cadenceAt(event.timestamp))
         }
     }
 

@@ -19,6 +19,7 @@ data class FollowedUserLapTime(
 data class FollowedUserPoint(
     val sessionId: String,
     val person: String,
+    val sportType: String = "",
     val latitude: Double,
     val longitude: Double,
     val altitude: Double = 0.0,
@@ -29,6 +30,7 @@ data class FollowedUserPoint(
     val maxUphillSlope: Double? = null,
     val maxDownhillSlope: Double? = null,
     val heartRate: Int? = null,
+    val cadence: Int? = null,
     val timestamp: String = "",
     // Weather data
     val temperature: Double? = null,

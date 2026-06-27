@@ -423,6 +423,7 @@ class FollowingService private constructor(private val context: Context) {
                     val newPoint = FollowedUserPoint(
                         sessionId = sessionId,
                         person = point.getString("person"),
+                        sportType = point.optString("sportType", ""),
                         latitude = point.getDouble("latitude"),
                         longitude = point.getDouble("longitude"),
                         altitude = point.optDouble("altitude", 0.0),
@@ -433,6 +434,7 @@ class FollowingService private constructor(private val context: Context) {
                         maxUphillSlope = if (point.has("maxUphillSlope")) point.getDouble("maxUphillSlope") else null,
                         maxDownhillSlope = if (point.has("maxDownhillSlope")) point.getDouble("maxDownhillSlope") else null,
                         heartRate = if (point.has("heartRate") && point.getInt("heartRate") > 0) point.getInt("heartRate") else null,
+                        cadence = if (point.has("cadence") && !point.isNull("cadence")) point.optInt("cadence") else null,
                         timestamp = point.optString("timestamp", ""),
                         // Weather data from full update message
                         temperature = temperature,
@@ -502,6 +504,7 @@ class FollowingService private constructor(private val context: Context) {
             val newPoint = FollowedUserPoint(
                 sessionId = pointJson.getString("sessionId"),
                 person = pointJson.getString("person"),
+                sportType = pointJson.optString("sportType", ""),
                 latitude = pointJson.getDouble("latitude"),
                 longitude = pointJson.getDouble("longitude"),
                 altitude = pointJson.optDouble("altitude", 0.0),
@@ -512,6 +515,7 @@ class FollowingService private constructor(private val context: Context) {
                 maxUphillSlope = if (pointJson.has("maxUphillSlope")) pointJson.getDouble("maxUphillSlope") else null,
                 maxDownhillSlope = if (pointJson.has("maxDownhillSlope")) pointJson.getDouble("maxDownhillSlope") else null,
                 heartRate = if (pointJson.has("heartRate") && pointJson.getInt("heartRate") > 0) pointJson.getInt("heartRate") else null,
+                cadence = if (pointJson.has("cadence") && !pointJson.isNull("cadence")) pointJson.optInt("cadence") else null,
                 timestamp = pointJson.optString("timestamp", ""),
                 // Weather data
                 temperature = temperature,
@@ -548,6 +552,7 @@ class FollowingService private constructor(private val context: Context) {
                 val point = FollowedUserPoint(
                     sessionId = sessionId,
                     person = person,
+                    sportType = pointJson.optString("sportType", ""),
                     latitude = pointJson.getDouble("latitude"),
                     longitude = pointJson.getDouble("longitude"),
                     altitude = pointJson.optDouble("altitude", 0.0),
@@ -558,6 +563,7 @@ class FollowingService private constructor(private val context: Context) {
                     maxUphillSlope = if (pointJson.has("maxUphillSlope") && !pointJson.isNull("maxUphillSlope")) pointJson.getDouble("maxUphillSlope") else null,
                     maxDownhillSlope = if (pointJson.has("maxDownhillSlope") && !pointJson.isNull("maxDownhillSlope")) pointJson.getDouble("maxDownhillSlope") else null,
                     heartRate = if (pointJson.has("heartRate") && !pointJson.isNull("heartRate") && pointJson.optInt("heartRate", 0) > 0) pointJson.getInt("heartRate") else null,
+                    cadence = if (pointJson.has("cadence") && !pointJson.isNull("cadence")) pointJson.optInt("cadence") else null,
                     timestamp = pointJson.optString("timestamp", ""),
                     temperature = if (pointJson.has("temperature") && !pointJson.isNull("temperature")) pointJson.getDouble("temperature") else null,
                     weatherCode = if (pointJson.has("weatherCode") && !pointJson.isNull("weatherCode")) pointJson.getInt("weatherCode") else null,
