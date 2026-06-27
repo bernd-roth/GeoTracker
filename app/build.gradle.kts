@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "9.43 (27-06-2026: Running cadence tracking and analysis graph implemented)"
+        versionName = "9.44 (27-06-2026: Halfmarathon added to new activity)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

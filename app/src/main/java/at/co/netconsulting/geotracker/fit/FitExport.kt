@@ -91,7 +91,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
 private fun mapSportType(sportType: String?): Pair<Int, Int> {
     return when (sportType?.lowercase()) {
         "running", "jogging" -> Pair(1, 0) // Running, Generic
-        "marathon", "trail running" -> Pair(1, 3) // Running, Trail
+        "marathon", "halfmarathon", "trail running" -> Pair(1, 3) // Running, Trail
         "cycling", "bicycle", "bike", "biking" -> Pair(2, 0) // Cycling, Generic
         "mountain bike" -> Pair(2, 8) // Cycling, Mountain
         "gravel bike" -> Pair(2, 46) // Cycling, Gravel

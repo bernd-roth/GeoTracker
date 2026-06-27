@@ -34,7 +34,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
 
             // Map sport type to activity type for descriptions
             val activityType = when (event?.artOfSport?.lowercase()) {
-                "running", "jogging", "marathon" -> "Running"
+                "running", "jogging", "marathon", "halfmarathon" -> "Running"
                 "cycling", "bicycle", "bike", "biking" -> "Cycling"
                 "hiking", "walking", "trekking" -> "Hiking"
                 "skating", "inline skating", "ice skating" -> "Skating"

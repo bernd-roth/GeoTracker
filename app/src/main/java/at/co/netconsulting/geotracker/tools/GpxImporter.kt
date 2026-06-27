@@ -393,6 +393,7 @@ class GpxImporter(private val context: Context) {
                 "trail running", "trailrun", "trail run" -> "Trail Running"
                 "ultramarathon", "ultra marathon", "ultra" -> "Ultramarathon"
                 "marathon" -> "Marathon"
+                "halfmarathon", "half marathon" -> "Halfmarathon"
                 "cycling", "bike", "biking" -> "Cycling"
                 "e-bike", "ebike", "electric bike" -> "E-Bike"
                 "gravel bike", "gravel" -> "Gravel Bike"

@@ -447,7 +447,7 @@ class StravaApiClient(private val context: Context) {
      */
     private fun mapToStravaActivityType(artOfSport: String): String {
         return when (artOfSport.lowercase()) {
-            "running", "jogging", "marathon", "trail running", "ultramarathon", "road running" -> "Run"
+            "running", "jogging", "marathon", "halfmarathon", "trail running", "ultramarathon", "road running" -> "Run"
             "cycling", "bicycle", "bike", "biking", "gravel bike", "racing bicycle" -> "Ride"
             "mountain bike" -> "MountainBikeRide"
             "e-bike" -> "EBikeRide"

@@ -134,7 +134,7 @@ class ExportSyncManager(private val context: Context) {
 
             // Map sport type to GPX activity type
             val activityType = when (event.artOfSport.lowercase()) {
-                "running", "jogging", "marathon", "trail running", "ultramarathon", "road running" -> "run"
+                "running", "jogging", "marathon", "halfmarathon", "trail running", "ultramarathon", "road running" -> "run"
                 "cycling", "bicycle", "bike", "biking", "gravel bike", "racing bicycle", "mountain bike" -> "bike"
                 "hiking", "walking", "trekking", "mountain hiking", "forest hiking" -> "hike"
                 "swimming - open water", "swimming - pool" -> "swim"

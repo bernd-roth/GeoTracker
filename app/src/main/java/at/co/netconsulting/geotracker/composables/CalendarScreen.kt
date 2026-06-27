@@ -1970,7 +1970,7 @@ private fun calendarBuildRecurringSummary(
 /** Maps a specific sport subcategory to its parent category. */
 private fun getSportCategory(artOfSport: String): String {
     return when (artOfSport) {
-        "Trail Running", "Ultramarathon", "Marathon", "Road Running",
+        "Trail Running", "Ultramarathon", "Marathon", "Halfmarathon", "Road Running",
         "Orienteering", "Backyard Ultra", "Running" -> "Running"
 
         "Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike", "Cycling" -> "Cycling"
@@ -2020,6 +2020,7 @@ private fun getSportIconForCalendar(sportName: String): ImageVector {
         "Trail Running" -> Icons.Default.Terrain
         "Ultramarathon" -> Icons.Default.Timer
         "Marathon" -> Icons.Default.Speed
+        "Halfmarathon" -> Icons.Default.Speed
         "Road Running" -> Icons.Default.Route
         "Orienteering" -> Icons.Default.MyLocation
         "Backyard Ultra" -> Icons.Default.Replay

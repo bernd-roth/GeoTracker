@@ -428,7 +428,7 @@ class AutoBackupService : Service() {
                 "training" -> "training"
 
                 // Running variants
-                "running", "jogging", "marathon", "trail running", "ultramarathon", "road running", "orienteering" -> "run"
+                "running", "jogging", "marathon", "halfmarathon", "trail running", "ultramarathon", "road running", "orienteering" -> "run"
 
                 // Cycling variants
                 "cycling", "bicycle", "bike", "biking", "gravel bike", "e-bike", "racing bicycle", "mountain bike" -> "bike"

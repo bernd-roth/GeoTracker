@@ -33,7 +33,7 @@ suspend fun export(eventId: Int, contextActivity: Context) {
             // Map sport type to GPX activity type
             val activityType = when (event?.artOfSport?.lowercase()) {
                 "training" -> "training"
-                "running", "jogging", "marathon", "trail running", "ultramarathon", "road running", "orienteering" -> "run"
+                "running", "jogging", "marathon", "halfmarathon", "trail running", "ultramarathon", "road running", "orienteering" -> "run"
                 "cycling", "bicycle", "bike", "biking", "gravel bike", "e-bike", "racing bicycle", "mountain bike" -> "bike"
                 "hiking", "walking", "trekking", "mountain hiking", "forest hiking", "nordic walking", "urban walking" -> "hike"
                 "swimming - open water", "swimming - pool", "kayaking", "canoeing", "stand up paddleboarding" -> "swim"

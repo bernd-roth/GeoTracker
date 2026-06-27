@@ -166,7 +166,7 @@ class GarminConnectApiClient(private val context: Context) {
      */
     private fun mapToGarminActivityType(artOfSport: String): String {
         return when (artOfSport.lowercase()) {
-            "running", "jogging", "marathon", "trail running", "ultramarathon" -> "running"
+            "running", "jogging", "marathon", "halfmarathon", "trail running", "ultramarathon" -> "running"
             "cycling", "bicycle", "bike", "biking", "gravel bike", "racing bicycle" -> "cycling"
             "mountain bike" -> "mountain_biking"
             "hiking", "mountain hiking", "forest hiking" -> "hiking"
