@@ -197,6 +197,34 @@ html {
     height: 100% !important;
 }
 
+.cadence-rolling-average {
+    margin-top: 3px;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+
+.cadence-rolling-average span {
+    color: #9C27B0;
+    font-weight: 600;
+}
+
+.cadence-mini-chart-container {
+    height: 60px;
+    margin: 0 10px 8px 10px;
+    background: transparent;
+}
+
+.cadence-mini-chart-title {
+    margin: 0 0 2px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.cadence-mini-chart-container canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
 /* Charts container */
 .charts-container {
     height: 33vh;
@@ -240,6 +268,44 @@ html {
     background: var(--accent-blue);
     color: #fff;
     border-color: var(--accent-blue);
+}
+
+.chart-overlay-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.3;
+}
+
+.chart-mode-controls {
+    position: absolute;
+    top: 4px;
+    left: 36px;
+    z-index: 10;
+    display: flex;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    background: var(--bg-secondary);
+    opacity: 0.9;
+}
+
+.chart-mode-controls button {
+    border: 0;
+    border-radius: 3px;
+    padding: 2px 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 10px;
+    cursor: pointer;
+}
+
+.chart-mode-controls button.active {
+    background: var(--accent-blue);
+    color: #fff;
+}
+
+.chart-mode-controls button:disabled {
+    display: none;
 }
 
 .charts-container.three-charts #altitudeChartContainer,
@@ -1123,6 +1189,17 @@ html {
 
 /* Responsive adjustments for smaller screens */
 @media (max-width: 768px) {
+    .chart-mode-controls {
+        left: 2px;
+        gap: 1px;
+        padding: 1px;
+    }
+
+    .chart-mode-controls button {
+        padding: 1px 3px;
+        font-size: 9px;
+    }
+
     #chartInfoPopup {
         max-width: 320px !important;
         font-size: 11px !important;

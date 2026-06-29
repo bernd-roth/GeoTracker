@@ -19,6 +19,10 @@ let elevChart         = null;
 let speedChart        = null;
 let hrChart           = null;
 let hrAltVisible      = false;
+let effortMode        = 'both';
+let currentSportType  = '';
+let currentHasHR      = false;
+let currentHasCadence = false;
 let sessionPage       = 1;
 let allSessions       = [];       // all pages loaded so far
 let hasNextPage       = false;
@@ -361,6 +365,7 @@ async function selectSession(sessionId) {
         }
 
         const summary = summaryJson.data;
+        currentSportType = summary.sport_type || '';
         document.getElementById('summaryTitle').textContent =
             summary.event_name || formatDate(summary.start_date_time) || 'Summary';
 
@@ -380,6 +385,25 @@ function closeSummary() {
     document.getElementById('summaryPanel').style.display = 'none';
 }
 
+function isRunningCadenceSport(sportType) {
+    const normalized = String(sportType || '').toLowerCase();
+    return normalized.includes('run') || normalized.includes('marathon') ||
+        normalized.includes('backyard ultra') || normalized.includes('lactate threshold');
+}
+
+function cadenceDisplayConfig(sportType = currentSportType) {
+    const isRunning = isRunningCadenceSport(sportType);
+    return {
+        multiplier: isRunning ? 2 : 1,
+        unit: isRunning ? 'spm' : 'cycles/min'
+    };
+}
+
+function displayCadence(rawCadence, sportType = currentSportType) {
+    if (rawCadence === undefined || rawCadence === null) return null;
+    return Number(rawCadence) * cadenceDisplayConfig(sportType).multiplier;
+}
+
 // ─────────────────────────────────────────────────────────────
 // SUMMARY STATS
 // ─────────────────────────────────────────────────────────────
@@ -395,6 +419,18 @@ function renderSummary(s) {
             <div class="${color}-unit">${unit}</div>
         </div>`;
 
+    const cadenceConfig = cadenceDisplayConfig(s.sport_type);
+    const avgCadence = s.avg_cadence != null && s.avg_cadence > 0
+        ? Math.round(s.avg_cadence * cadenceConfig.multiplier)
+        : null;
+    const maxCadence = s.max_cadence != null && s.max_cadence > 0
+        ? Math.round(s.max_cadence * cadenceConfig.multiplier)
+        : null;
+    const cadenceStats = avgCadence != null
+        ? `${stat('Avg Cadence', avgCadence, cadenceConfig.unit, 'speed')}
+           ${stat('Max Cadence', maxCadence ?? '--', cadenceConfig.unit, 'speed')}`
+        : '';
+
     document.getElementById('summaryContent').innerHTML = `
         <div class="stats-grid">
             ${stat('Distance',      s.total_distance_km  != null ? s.total_distance_km.toFixed(2)  : '--', 'km',    'elevation')}
@@ -405,6 +441,7 @@ function renderSummary(s) {
             ${stat('Avg Pace',      pace,                                                              '/km',   'speed')}
             ${stat('Avg HR',        s.avg_heart_rate     != null ? Math.round(s.avg_heart_rate)     : '--', 'bpm',  'speed')}
             ${stat('Max HR',        s.max_heart_rate     != null ? s.max_heart_rate                 : '--', 'bpm',  'speed')}
+            ${cadenceStats}
         </div>
         <div class="summary-footer">
             ${[s.sport_type, s.start_city, s.start_country].filter(Boolean).join(' · ')}
@@ -632,18 +669,22 @@ function renderCharts(points) {
 
     // ── Heart rate chart (only when HR data exists)
     const heartRates = points.map(p => p.hr || null);
-    const hasHR = heartRates.some(v => v != null && v > 0);
+    const cadenceConfig = cadenceDisplayConfig();
+    const cadenceValues = points.map(p => p.cadence != null ? displayCadence(p.cadence) : null);
+    currentHasHR = heartRates.some(v => v != null && v > 0);
+    currentHasCadence = cadenceValues.some(v => v != null && v > 0);
     const hrContainer = document.getElementById('hrChartContainer');
     const chartsContainer = document.querySelector('.charts-container');
 
     if (hrChart) { hrChart.destroy(); hrChart = null; }
 
-    if (hasHR) {
+    if (currentHasHR || currentHasCadence) {
+        if (!currentHasHR) effortMode = 'cadence';
+        else if (!currentHasCadence) effortMode = 'hr';
+        else if (!['hr', 'cadence', 'both'].includes(effortMode)) effortMode = 'both';
+
         hrContainer.style.display = '';
         chartsContainer.classList.add('three-charts');
-        // Toggle button state
-        const toggleBtn = document.getElementById('hrAltToggle');
-        if (toggleBtn) toggleBtn.classList.toggle('active', hrAltVisible);
 
         hrChart = new Chart(document.getElementById('hrChart'), {
             type: 'line',
@@ -662,6 +703,17 @@ function renderCharts(points) {
                         order: 1
                     },
                     {
+                        data: cadenceValues,
+                        borderColor: '#9C27B0',
+                        backgroundColor: 'rgba(156,39,176,0.12)',
+                        borderWidth: 1.5,
+                        pointRadius: 0,
+                        fill: true,
+                        spanGaps: false,
+                        yAxisID: 'yCadence',
+                        order: 1
+                    },
+                    {
                         data: altitudes,
                         borderColor: 'rgba(160,160,160,0.4)',
                         backgroundColor: 'rgba(160,160,160,0.12)',
@@ -670,7 +722,7 @@ function renderCharts(points) {
                         fill: true,
                         yAxisID: 'yAlt',
                         order: 2,
-                        hidden: !hrAltVisible
+                        hidden: true
                     }
                 ]
             },
@@ -683,6 +735,12 @@ function renderCharts(points) {
                         position: 'left',
                         title: { display: true, text: 'Heart Rate (bpm)', color: 'var(--text-muted)', font: { size: 10 } }
                     },
+                    yCadence: {
+                        ...axisStyle,
+                        position: 'right',
+                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: `Cadence (${cadenceConfig.unit})`, color: '#9C27B0', font: { size: 10 } }
+                    },
                     yAlt: {
                         ...axisStyle,
                         position: 'right',
@@ -694,6 +752,7 @@ function renderCharts(points) {
             },
             plugins: [rangeHighlightPlugin]
         });
+        applyEffortMode();
         document.getElementById('hrChart').addEventListener('mouseleave', hideInfoPopup);
     } else {
         hrContainer.style.display = 'none';
@@ -716,6 +775,51 @@ function renderCharts(points) {
 // ─────────────────────────────────────────────────────────────
 // MEDIA
 // ─────────────────────────────────────────────────────────────
+function setEffortMode(mode) {
+    if (mode === 'hr' && !currentHasHR) return;
+    if (mode === 'cadence' && !currentHasCadence) return;
+    if (mode === 'both' && !(currentHasHR && currentHasCadence)) return;
+    effortMode = mode;
+    applyEffortMode();
+}
+
+function applyEffortMode() {
+    if (!hrChart) return;
+
+    const showHR = currentHasHR && (effortMode === 'hr' || effortMode === 'both');
+    const showCadence = currentHasCadence && (effortMode === 'cadence' || effortMode === 'both');
+    const showAltitude = hrAltVisible && effortMode !== 'both';
+
+    hrChart.data.datasets[0].hidden = !showHR;
+    hrChart.data.datasets[0].fill = effortMode !== 'both';
+    hrChart.data.datasets[1].hidden = !showCadence;
+    hrChart.data.datasets[1].fill = effortMode !== 'both';
+    hrChart.data.datasets[2].hidden = !showAltitude;
+    hrChart.options.scales.y.display = showHR;
+    hrChart.options.scales.yCadence.display = showCadence;
+    hrChart.options.scales.yAlt.display = showAltitude;
+
+    document.querySelectorAll('#effortModeControls button').forEach(button => {
+        const mode = button.dataset.mode;
+        button.disabled = (mode === 'hr' && !currentHasHR) ||
+            (mode === 'cadence' && !currentHasCadence) ||
+            (mode === 'both' && !(currentHasHR && currentHasCadence));
+        button.classList.toggle('active', mode === effortMode);
+        button.setAttribute('aria-pressed', String(mode === effortMode));
+    });
+
+    const altitudeButton = document.getElementById('hrAltToggle');
+    if (altitudeButton) {
+        altitudeButton.disabled = effortMode === 'both';
+        altitudeButton.classList.toggle('active', showAltitude);
+        altitudeButton.title = effortMode === 'both'
+            ? 'Altitude overlay is unavailable while showing both effort metrics'
+            : 'Toggle altitude overlay';
+    }
+
+    hrChart.update('none');
+}
+
 function renderMedia(mediaList) {
     // Remove any previous media section
     const existing = document.querySelector('.media-section');
@@ -907,15 +1011,9 @@ function redrawCharts() {
 }
 
 function toggleHrAltitude() {
-    if (!hrChart) return;
+    if (!hrChart || effortMode === 'both') return;
     hrAltVisible = !hrAltVisible;
-    const btn = document.getElementById('hrAltToggle');
-    if (btn) btn.classList.toggle('active', hrAltVisible);
-    // Toggle altitude dataset visibility (index 1)
-    hrChart.data.datasets[1].hidden = !hrAltVisible;
-    // Toggle right y-axis
-    hrChart.options.scales.yAlt.display = hrAltVisible;
-    hrChart.update();
+    applyEffortMode();
 }
 
 function clearRangeMapMarkers() {
@@ -1006,6 +1104,9 @@ function showRangeStats() {
     const speeds = vals('speed');
     const alts   = vals('alt');
     const hrs    = vals('hr');
+    const cadences = vals('cadence')
+        .filter(value => value > 0)
+        .map(value => displayCadence(value));
     const slopes = vals('slope');
 
     // Elevation gain/loss within range
@@ -1093,6 +1194,7 @@ function showRangeStats() {
                     ${statRow('Speed', fmt(minV(speeds),1), fmt(avgV(speeds),1), fmt(maxV(speeds),1), 'km/h')}
                     ${statRow('Altitude', fmt(minV(alts),1), fmt(avgV(alts),1), fmt(maxV(alts),1), 'm')}
                     ${hrs.length ? statRow('Heart Rate', fmt(minV(hrs),0), fmt(avgV(hrs),0), fmt(maxV(hrs),0), 'bpm') : ''}
+                    ${cadences.length ? statRow('Cadence', fmt(minV(cadences),0), fmt(avgV(cadences),0), fmt(maxV(cadences),0), cadenceDisplayConfig().unit) : ''}
                     ${slopes.length ? statRow('Slope', fmt(minV(slopes),1), fmt(avgV(slopes),1), fmt(maxV(slopes),1), '%') : ''}
                     ${weatherRows}
                     ${baroRows}
@@ -1250,6 +1352,10 @@ function showInfoPopup(event, point) {
             <div>
                 <strong style="color:${getHeartRateColor(point.hr || 0)}">Heart Rate</strong><br>
                 ${point.hr || 0} bpm
+            </div>
+            <div>
+                <strong style="color:#9C27B0">Cadence</strong><br>
+                ${point.cadence != null ? Math.round(displayCadence(point.cadence)) : '--'} ${cadenceDisplayConfig().unit}
             </div>
             <div>
                 <strong style="color:${getSlopeColor(point.slope || 0)}">Slope</strong><br>

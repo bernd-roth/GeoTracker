@@ -20,8 +20,12 @@ let availableSessions = [];
 let sessionPanelVisible = true;
 let hrMiniCharts = {};
 let hrMiniChartData = {};
+let cadenceMiniCharts = {};
+let cadenceMiniChartData = {};
 let sessionStartTimes = {};  // sessionId -> Date object from startDateTime
 const SESSION_ID_START_TIME_TOLERANCE_MS = 5 * 60 * 1000;
+const CADENCE_ROLLING_WINDOW_MS = 10 * 1000;
+const CADENCE_SPARKLINE_WINDOW_MS = 5 * 60 * 1000;
 
 // Interactive chart variables
 let hoverMarker = null;
@@ -1656,7 +1660,9 @@ function handleHistoryBatch(points) {
             movingAverageSpeed: parseFloat(point.movingAverageSpeed || 0),
             cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
             heartRate: parseInt(point.heartRate || 0),
-            cadence: parseInt(point.cadence || 0),
+            cadence: point.cadence !== undefined && point.cadence !== null
+                ? parseInt(point.cadence)
+                : null,
             slope: parseFloat(point.slope || 0),
             averageSlope: parseFloat(point.averageSlope || 0),
             maxUphillSlope: parseFloat(point.maxUphillSlope || 0),
@@ -1708,7 +1714,8 @@ function handleHistoryBatch(points) {
                 currentAltitude: 0,
                 elevationGain: 0,
                 heartRate: 0,
-                cadence: 0,
+                cadence: null,
+                cadenceSamples: [],
                 sportType: processedPoint.sportType,
                 slope: 0,
                 averageSlope: 0,
@@ -1803,7 +1810,7 @@ function finalizeBatchProcessing(sessionLapTimes) {
                 speedHistory[sessionId] = {
                     speeds: [], maxSpeed: 0, avgSpeed: 0, movingAvg: 0,
                     currentAltitude: 0, elevationGain: 0, heartRate: 0,
-                    cadence: 0, sportType: '',
+                    cadence: null, cadenceSamples: [], sportType: '',
                     slope: 0, averageSlope: 0, maxUphillSlope: 0, maxDownhillSlope: 0,
                     totalDistance: 0, lastUpdate: new Date(), personName: '',
                     temperatures: [], minTemperature: null, maxTemperature: null, avgTemperature: null,
@@ -1937,7 +1944,9 @@ function handlePoint(data) {
         movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
         heartRate: parseInt(data.heartRate || 0),
-        cadence: parseInt(data.cadence || 0),
+        cadence: data.cadence !== undefined && data.cadence !== null
+            ? parseInt(data.cadence)
+            : null,
         slope: parseFloat(data.slope || 0),
         averageSlope: parseFloat(data.averageSlope || 0),
         maxUphillSlope: parseFloat(data.maxUphillSlope || 0),
@@ -2567,17 +2576,83 @@ function isRunningCadenceSport(sportType) {
         normalized.includes('backyard ultra') || normalized.includes('lactate threshold');
 }
 
+function getCadenceDisplay(rawCadence, sportType) {
+    const cadence = Math.max(0, Number(rawCadence) || 0);
+    const isRunning = isRunningCadenceSport(sportType);
+    return {
+        value: isRunning ? cadence * 2 : cadence,
+        unit: isRunning ? 'spm' : 'cycles/min'
+    };
+}
+
 function updateCadenceDisplay(sessionId, rawCadence, sportType) {
     const valueElement = document.getElementById(`cadence-${sessionId}`);
     const unitElement = document.getElementById(`cadenceUnit-${sessionId}`);
+    const averageElement = document.getElementById(`cadenceAvg-${sessionId}`);
+    if (!valueElement || rawCadence === undefined || rawCadence === null) return;
+
+    const history = speedHistory[sessionId] || {};
+    const resolvedSportType = sportType || history.sportType || '';
+    const display = getCadenceDisplay(rawCadence, resolvedSportType);
+    valueElement.textContent = String(Math.round(display.value));
+    if (unitElement) unitElement.textContent = display.unit;
+
+    const now = Date.now();
+    if (!history.cadenceSamples) history.cadenceSamples = [];
+    const numericCadence = Math.max(0, Number(rawCadence) || 0);
+    if (numericCadence > 0) history.hasCadenceData = true;
+    history.cadenceSamples.push({ timestamp: now, rawCadence: numericCadence });
+    history.cadenceSamples = history.cadenceSamples.filter(
+        sample => sample.timestamp >= now - CADENCE_SPARKLINE_WINDOW_MS
+    );
+
+    const activeRollingSamples = history.cadenceSamples.filter(
+        sample => sample.timestamp >= now - CADENCE_ROLLING_WINDOW_MS && sample.rawCadence > 0
+    );
+    if (averageElement) {
+        if (activeRollingSamples.length > 0) {
+            const rawAverage = activeRollingSamples.reduce((sum, sample) => sum + sample.rawCadence, 0) /
+                activeRollingSamples.length;
+            averageElement.textContent = String(Math.round(getCadenceDisplay(rawAverage, resolvedSportType).value));
+        } else {
+            averageElement.textContent = '--';
+        }
+    }
+
+    updateCadenceMiniChart(sessionId, now, display.value, display.unit);
+}
+
+function updateCadenceMissingDisplay(sessionId, sportType) {
+    const valueElement = document.getElementById(`cadence-${sessionId}`);
+    const unitElement = document.getElementById(`cadenceUnit-${sessionId}`);
+    const averageElement = document.getElementById(`cadenceAvg-${sessionId}`);
     if (!valueElement) return;
 
     const history = speedHistory[sessionId] || {};
     const resolvedSportType = sportType || history.sportType || '';
-    const cadence = Math.max(0, parseInt(rawCadence || 0));
-    const isRunning = isRunningCadenceSport(resolvedSportType);
-    valueElement.textContent = String(isRunning ? cadence * 2 : cadence);
-    if (unitElement) unitElement.textContent = isRunning ? 'spm' : 'cycles/min';
+    const unit = getCadenceDisplay(0, resolvedSportType).unit;
+    const now = Date.now();
+    valueElement.textContent = '--';
+    if (unitElement) unitElement.textContent = unit;
+
+    if (!history.cadenceSamples) history.cadenceSamples = [];
+    history.cadenceSamples.push({ timestamp: now, rawCadence: null });
+    history.cadenceSamples = history.cadenceSamples.filter(
+        sample => sample.timestamp >= now - CADENCE_SPARKLINE_WINDOW_MS
+    );
+    const activeRollingSamples = history.cadenceSamples.filter(
+        sample => sample.timestamp >= now - CADENCE_ROLLING_WINDOW_MS && sample.rawCadence > 0
+    );
+    if (averageElement) {
+        if (activeRollingSamples.length > 0) {
+            const rawAverage = activeRollingSamples.reduce((sum, sample) => sum + sample.rawCadence, 0) /
+                activeRollingSamples.length;
+            averageElement.textContent = String(Math.round(getCadenceDisplay(rawAverage, resolvedSportType).value));
+        } else {
+            averageElement.textContent = '--';
+        }
+    }
+    updateCadenceMiniChart(sessionId, now, null, unit);
 }
 
 function createHrMiniChart(canvasId, sessionId) {
@@ -2635,6 +2710,80 @@ function updateHrMiniChart(sessionId, distance, heartRate) {
     chart.update('none');
 }
 
+function createCadenceMiniChart(canvasId, sessionId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+    const chart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { datasets: [{
+            data: [],
+            borderColor: '#9C27B0',
+            borderWidth: 1.5,
+            pointRadius: 0,
+            tension: 0.25,
+            spanGaps: false,
+            fill: {
+                target: 'origin',
+                above: 'rgba(156, 39, 176, 0.12)'
+            }
+        }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false }, tooltip: { enabled: false } },
+            scales: {
+                x: {
+                    type: 'linear',
+                    display: true,
+                    grid: { display: false },
+                    ticks: {
+                        display: true,
+                        font: { size: 8 },
+                        color: '#999',
+                        maxTicksLimit: 4,
+                        callback: value => new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    }
+                },
+                y: {
+                    display: true,
+                    beginAtZero: true,
+                    grid: { display: false },
+                    ticks: { display: true, font: { size: 8 }, color: '#999', maxTicksLimit: 3 }
+                }
+            },
+            layout: { padding: { left: 2, right: 2, top: 2, bottom: 0 } }
+        }
+    });
+    cadenceMiniCharts[sessionId] = chart;
+    cadenceMiniChartData[sessionId] = [];
+    return chart;
+}
+
+function updateCadenceMiniChart(sessionId, timestamp, cadence, unit) {
+    if (!cadenceMiniChartData[sessionId]) cadenceMiniChartData[sessionId] = [];
+    const cutoff = timestamp - CADENCE_SPARKLINE_WINDOW_MS;
+    cadenceMiniChartData[sessionId].push({ x: timestamp, y: cadence });
+    cadenceMiniChartData[sessionId] = cadenceMiniChartData[sessionId].filter(point => point.x >= cutoff);
+
+    const chart = cadenceMiniCharts[sessionId];
+    if (!chart) return;
+    const history = speedHistory[sessionId] || {};
+    if (!history.hasCadenceData) return;
+    const canvas = document.getElementById(`cadenceMiniChart-${sessionId}`);
+    if (canvas && canvas.parentElement && canvas.parentElement.style.display === 'none') {
+        canvas.parentElement.style.display = '';
+        chart.resize();
+    }
+    chart.data.datasets[0].data = cadenceMiniChartData[sessionId];
+    chart.options.scales.x.min = cutoff;
+    chart.options.scales.x.max = timestamp;
+    chart.update('none');
+
+    const title = document.getElementById(`cadenceMiniTitle-${sessionId}`);
+    if (title) title.textContent = `Cadence - last 5 min (${unit})`;
+}
+
 function getSlopeColor(slope) {
     if (slope === null || slope === undefined) return '#999';
     if (slope < -10) return '#F44336';  // Steep downhill - red
@@ -2677,7 +2826,8 @@ function updateSpeedDisplay(sessionId, speed, data) {
             currentAltitude: 0,
             elevationGain: 0,
             heartRate: 0,
-            cadence: 0,
+            cadence: null,
+            cadenceSamples: [],
             sportType: data.sportType || '',
             slope: 0,
             averageSlope: 0,
@@ -2865,8 +3015,9 @@ function updateSpeedDisplay(sessionId, speed, data) {
             </div>
             <div class="stat-box">
                 <div class="speed-label">Cadence</div>
-                <div class="speed-value" id="cadence-${sessionId}">0</div>
+                <div class="speed-value" id="cadence-${sessionId}">--</div>
                 <div class="speed-unit" id="cadenceUnit-${sessionId}">cycles/min</div>
+                <div class="cadence-rolling-average">10s avg <span id="cadenceAvg-${sessionId}">--</span></div>
             </div>
             <div class="stat-box">
                 <div class="speed-label">Current Slope</div>
@@ -2926,6 +3077,14 @@ function updateSpeedDisplay(sessionId, speed, data) {
         speedContainer.appendChild(miniChartDiv);
 
         createHrMiniChart(`hrMiniChart-${sessionId}`, sessionId);
+
+        const cadenceMiniChartDiv = document.createElement('div');
+        cadenceMiniChartDiv.className = 'cadence-mini-chart-container';
+        cadenceMiniChartDiv.style.display = 'none';
+        cadenceMiniChartDiv.innerHTML = `<h4 class="cadence-mini-chart-title" id="cadenceMiniTitle-${sessionId}">Cadence - last 5 min</h4><canvas id="cadenceMiniChart-${sessionId}"></canvas>`;
+        speedContainer.appendChild(cadenceMiniChartDiv);
+
+        createCadenceMiniChart(`cadenceMiniChart-${sessionId}`, sessionId);
 
         speedDisplay.scrollTop = speedDisplay.scrollHeight;
 
@@ -3009,9 +3168,12 @@ function updateSpeedDisplay(sessionId, speed, data) {
     if (data.sportType) {
         history.sportType = data.sportType;
     }
-    if (data.cadence !== undefined) {
+    if (data.cadence !== undefined && data.cadence !== null) {
         history.cadence = data.cadence;
         updateCadenceDisplay(sessionId, history.cadence, history.sportType);
+    } else {
+        history.cadence = null;
+        updateCadenceMissingDisplay(sessionId, history.sportType);
     }
 
     // Update mini HR vs Distance chart
@@ -3180,6 +3342,17 @@ function cleanupOldSessions() {
                 container.remove();
             }
             delete speedHistory[sessionId];
+
+            if (hrMiniCharts[sessionId]) {
+                hrMiniCharts[sessionId].destroy();
+                delete hrMiniCharts[sessionId];
+            }
+            delete hrMiniChartData[sessionId];
+            if (cadenceMiniCharts[sessionId]) {
+                cadenceMiniCharts[sessionId].destroy();
+                delete cadenceMiniCharts[sessionId];
+            }
+            delete cadenceMiniChartData[sessionId];
 
             if (!shouldDisplaySession(sessionId)) {
                 addDebugMessage(`Cleaned up filtered session from speed display: ${sessionId}`, 'system');
@@ -4096,6 +4269,11 @@ function handleSessionDeleted(sessionId) {
             delete hrMiniCharts[familySessionId];
         }
         delete hrMiniChartData[familySessionId];
+        if (cadenceMiniCharts[familySessionId]) {
+            cadenceMiniCharts[familySessionId].destroy();
+            delete cadenceMiniCharts[familySessionId];
+        }
+        delete cadenceMiniChartData[familySessionId];
         delete sessionPersonNames[familySessionId];
     });
 

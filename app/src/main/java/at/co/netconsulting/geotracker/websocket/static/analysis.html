@@ -369,6 +369,11 @@
         <canvas id="spdChart"></canvas>
     </div>
     <div id="hrChartContainer" style="display:none">
+        <div id="effortModeControls" class="chart-mode-controls" aria-label="Effort chart metric">
+            <button type="button" data-mode="hr" onclick="setEffortMode('hr')">HR</button>
+            <button type="button" data-mode="cadence" onclick="setEffortMode('cadence')">Cadence</button>
+            <button type="button" data-mode="both" onclick="setEffortMode('both')">Both</button>
+        </div>
         <button id="hrAltToggle" class="chart-overlay-btn" onclick="toggleHrAltitude()" title="Toggle altitude overlay">&#9968;</button>
         <canvas id="hrChart"></canvas>
     </div>

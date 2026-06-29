@@ -1,6 +1,6 @@
 import re
 from flask import Blueprint, request
-from sqlalchemy import func
+from sqlalchemy import case, func
 from ..extensions import db
 from ..models import TrackingSession, GPSTrackingPoint, LapTime
 from ..utils.responses import success_response
@@ -242,8 +242,14 @@ def get_summary(session_id):
             func.avg(GPSTrackingPoint.current_speed).label('avg_speed'),
             func.avg(GPSTrackingPoint.heart_rate).label('avg_hr'),
             func.max(GPSTrackingPoint.heart_rate).label('max_hr'),
-            func.avg(GPSTrackingPoint.cadence).label('avg_cadence'),
-            func.max(GPSTrackingPoint.cadence).label('max_cadence'),
+            func.avg(case(
+                (GPSTrackingPoint.cadence > 0, GPSTrackingPoint.cadence),
+                else_=None,
+            )).label('avg_cadence'),
+            func.max(case(
+                (GPSTrackingPoint.cadence > 0, GPSTrackingPoint.cadence),
+                else_=None,
+            )).label('max_cadence'),
             func.count(GPSTrackingPoint.id).label('point_count'),
         )
         .filter(GPSTrackingPoint.session_id.in_(session_ids))
