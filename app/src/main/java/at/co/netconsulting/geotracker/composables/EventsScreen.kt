@@ -1,9 +1,12 @@
 package at.co.netconsulting.geotracker.composables
 
 import HeartRateGraph
+import android.Manifest
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -139,17 +142,23 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
+import androidx.core.content.ContextCompat
 import at.co.netconsulting.geotracker.domain.DisciplineTransition
 import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.tools.GpxImporter
 import at.co.netconsulting.geotracker.tools.Tools
+import at.co.netconsulting.geotracker.tools.CalendarExporter
+import at.co.netconsulting.geotracker.tools.CalendarExportEvent
+import at.co.netconsulting.geotracker.tools.GoogleCalendar
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
 import at.co.netconsulting.geotracker.viewmodel.EventsViewModelFactory
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
@@ -372,6 +381,167 @@ fun EventsScreen(
     var isCombining by remember { mutableStateOf(false) }
     val isDateFilterActive by eventsViewModel.isDateFilterActive.collectAsState() // Track if date filter is active from ViewModel
     val selectedTab by eventsViewModel.selectedTab.collectAsState()
+
+    // Bulk Google Calendar export state. Single-event export uses the calendar app's
+    // insert screen and therefore does not require calendar permissions.
+    var googleCalendars by remember { mutableStateOf<List<GoogleCalendar>>(emptyList()) }
+    var calendarEventsToExport by remember {
+        mutableStateOf<List<CalendarExportEvent>>(emptyList())
+    }
+    var showCalendarSelectionDialog by remember { mutableStateOf(false) }
+    var isCalendarExporting by remember { mutableStateOf(false) }
+
+    val loadBulkCalendarExport: () -> Unit = {
+        coroutineScope.launch {
+            isCalendarExporting = true
+            try {
+                val exportEvents = CalendarExporter.loadRecordedEvents(
+                    FitnessTrackerDatabase.getInstance(context)
+                )
+                val calendars = withContext(Dispatchers.IO) {
+                    CalendarExporter.getWritableGoogleCalendars(context)
+                }
+                when {
+                    exportEvents.isEmpty() -> Toast.makeText(
+                        context,
+                        "There are no recorded events to export",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    calendars.isEmpty() -> Toast.makeText(
+                        context,
+                        "No writable Google calendar was found. Enable Google Calendar sync first.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                    else -> {
+                        calendarEventsToExport = exportEvents
+                        googleCalendars = calendars
+                        showCalendarSelectionDialog = true
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("EventsScreen", "Unable to prepare calendar export", e)
+                Toast.makeText(
+                    context,
+                    "Unable to access Google Calendar: ${e.message ?: "unknown error"}",
+                    Toast.LENGTH_LONG
+                ).show()
+            } finally {
+                isCalendarExporting = false
+            }
+        }
+    }
+
+    val calendarPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        if (permissions[Manifest.permission.READ_CALENDAR] == true &&
+            permissions[Manifest.permission.WRITE_CALENDAR] == true
+        ) {
+            loadBulkCalendarExport()
+        } else {
+            Toast.makeText(
+                context,
+                "Calendar permission is required to export all events",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    val startBulkCalendarExport: () -> Unit = {
+        val hasReadPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasWritePermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasReadPermission && hasWritePermission) {
+            loadBulkCalendarExport()
+        } else {
+            calendarPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.READ_CALENDAR,
+                    Manifest.permission.WRITE_CALENDAR
+                )
+            )
+        }
+    }
+
+    if (showCalendarSelectionDialog) {
+        AlertDialog(
+            onDismissRequest = { showCalendarSelectionDialog = false },
+            title = { Text("Export all events") },
+            text = {
+                Column {
+                    Text(
+                        "Choose the Google calendar for ${calendarEventsToExport.size} " +
+                                "recorded event${if (calendarEventsToExport.size == 1) "" else "s"}."
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Events already exported to the selected calendar will be skipped.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    googleCalendars.forEach { calendar ->
+                        TextButton(
+                            onClick = {
+                                showCalendarSelectionDialog = false
+                                coroutineScope.launch {
+                                    isCalendarExporting = true
+                                    try {
+                                        val result = withContext(Dispatchers.IO) {
+                                            CalendarExporter.exportAll(
+                                                context,
+                                                calendar.id,
+                                                calendarEventsToExport
+                                            )
+                                        }
+                                        val message = buildString {
+                                            append("Exported ${result.exported} event")
+                                            if (result.exported != 1) append("s")
+                                            append(" to ${calendar.displayName}")
+                                            if (result.skipped > 0) {
+                                                append("; skipped ${result.skipped} already exported")
+                                            }
+                                        }
+                                        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                    } catch (e: Exception) {
+                                        Log.e("EventsScreen", "Calendar export failed", e)
+                                        Toast.makeText(
+                                            context,
+                                            "Calendar export failed: ${e.message ?: "unknown error"}",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                    } finally {
+                                        isCalendarExporting = false
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(calendar.displayName)
+                                Text(
+                                    calendar.accountName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showCalendarSelectionDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
     // Media viewer dialog
     mediaToView?.let { media ->
@@ -813,6 +983,32 @@ fun EventsScreen(
                                 contentDescription = "Calendar",
                                 modifier = Modifier.padding(start = 4.dp)
                             )
+                        }
+
+                        if (selectedTab == 0) {
+                            TextButton(
+                                onClick = startBulkCalendarExport,
+                                enabled = !isCalendarExporting,
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.primary
+                                )
+                            ) {
+                                Text("Export All")
+                                if (isCalendarExporting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier
+                                            .padding(start = 6.dp)
+                                            .size(16.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.DateRange,
+                                        contentDescription = "Export all events to Google Calendar",
+                                        modifier = Modifier.padding(start = 4.dp)
+                                    )
+                                }
+                            }
                         }
 
                         // Detailed Statistics button
@@ -1648,6 +1844,78 @@ fun EventCard(
                                     }
                                 }
                             )
+                            if (event.event.eventSource == null ||
+                                event.event.eventSource == "recorded"
+                            ) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.DateRange,
+                                                contentDescription = "Google Calendar",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = "Add to Google Calendar",
+                                                style = MaterialTheme.typography.bodyMedium
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        showExportDropdown = false
+                                        if (database == null) {
+                                            Toast.makeText(
+                                                context,
+                                                "Event data is unavailable",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            coroutineScope.launch {
+                                                try {
+                                                    val exportEvent = withContext(Dispatchers.IO) {
+                                                        CalendarExporter.buildExportEvent(
+                                                            event.event,
+                                                            database.metricDao().getEventTimeRange(
+                                                                event.event.eventId
+                                                            )
+                                                        )
+                                                    }
+                                                    val intent = CalendarExporter
+                                                        .createInsertIntent(exportEvent)
+                                                        .setPackage("com.google.android.calendar")
+                                                    try {
+                                                        context.startActivity(intent)
+                                                    } catch (_: ActivityNotFoundException) {
+                                                        intent.setPackage(null)
+                                                        context.startActivity(
+                                                            Intent.createChooser(
+                                                                intent,
+                                                                "Add event to calendar"
+                                                            )
+                                                        )
+                                                    }
+                                                } catch (e: Exception) {
+                                                    Log.e(
+                                                        "EventCard",
+                                                        "Unable to open calendar export",
+                                                        e
+                                                    )
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Unable to open calendar: " +
+                                                                (e.message ?: "unknown error"),
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                            }
                         }
                     }
 

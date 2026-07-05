@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import at.co.netconsulting.geotracker.data.TimeRange
+import at.co.netconsulting.geotracker.data.EventTimeRange
 import at.co.netconsulting.geotracker.domain.Metric
 
 @Dao
@@ -37,6 +38,14 @@ interface MetricDao {
 
     @Query("SELECT MIN(timeInMilliseconds) as minTime, MAX(timeInMilliseconds) as maxTime FROM metrics WHERE eventId = :eventId")
     suspend fun getEventTimeRange(eventId: Int): TimeRange?
+
+    @Query("""
+        SELECT eventId, MIN(timeInMilliseconds) AS minTime,
+               MAX(timeInMilliseconds) AS maxTime
+        FROM metrics
+        GROUP BY eventId
+    """)
+    suspend fun getAllEventTimeRanges(): List<EventTimeRange>
 
     @Query("SELECT * FROM metrics WHERE eventId = :eventId ORDER BY metricId ASC")
     suspend fun getMetricsByEventId(eventId: Int): List<Metric>
