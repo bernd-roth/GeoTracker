@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.00 (05-07-2026: Export recorded events to Google calendar)"
+        versionName = "10.01 (06-07-2026: Fix GPS callback race when recording starts)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

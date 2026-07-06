@@ -122,10 +122,13 @@ class BackgroundLocationService : Service(), LocationListener {
                 MIN_DISTANCE_BETWEEN_UPDATES,
                 this
             )
+            locationCallbacksActive = true
             Log.d(TAG, "Location updates requested")
         } catch (e: SecurityException) {
+            locationCallbacksActive = false
             Log.e(TAG, "Missing permissions for location updates.", e)
         } catch (e: Exception) {
+            locationCallbacksActive = false
             Log.e(TAG, "Error starting location updates", e)
         }
     }
@@ -392,6 +395,11 @@ class BackgroundLocationService : Service(), LocationListener {
             Log.d(TAG, "Location updates removed")
         } catch (e: Exception) {
             Log.e(TAG, "Error removing location updates", e)
+        } finally {
+            // ForegroundService waits for this exact handoff point before it
+            // registers its own GPS listener. ActivityManager can report this
+            // service as stopped before onDestroy() has removed the callbacks.
+            locationCallbacksActive = false
         }
 
         try {
@@ -418,6 +426,11 @@ class BackgroundLocationService : Service(), LocationListener {
     }
 
     companion object {
+        @Volatile
+        private var locationCallbacksActive: Boolean = false
+
+        fun hasActiveLocationCallbacks(): Boolean = locationCallbacksActive
+
         private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
         private const val TAG: String = "BackgroundLocationService"

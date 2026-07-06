@@ -2801,12 +2801,12 @@ class ForegroundService : Service() {
         val startMs = currentTimeMillis()
         val deadline = startMs + timeoutMs
         var polls = 0
-        Log.d(TAG, "DIAG waitForBackgroundLocationServiceStopped ENTER timeout=${timeoutMs}ms initialCheck=${isBackgroundLocationServiceRunning()}")
-        while (isBackgroundLocationServiceRunning() && currentTimeMillis() < deadline) {
+        Log.d(TAG, "DIAG waitForBackgroundLocationServiceStopped ENTER timeout=${timeoutMs}ms callbacksActive=${BackgroundLocationService.hasActiveLocationCallbacks()}")
+        while (BackgroundLocationService.hasActiveLocationCallbacks() && currentTimeMillis() < deadline) {
             polls++
             delay(50)
         }
-        val stillRunning = isBackgroundLocationServiceRunning()
+        val stillRunning = BackgroundLocationService.hasActiveLocationCallbacks()
         val elapsed = currentTimeMillis() - startMs
         Log.d(TAG, "DIAG waitForBackgroundLocationServiceStopped EXIT elapsed=${elapsed}ms polls=$polls stillRunning=$stillRunning")
         if (stillRunning) {
