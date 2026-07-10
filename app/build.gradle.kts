@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.01 (06-07-2026: Fix GPS callback race when recording starts)"
+        versionName = "10.02 (10-07-2026: Recorded event(s) in Google calendar removed with batch delete)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

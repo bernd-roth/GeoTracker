@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.tools
 
+import android.provider.CalendarContract
 import at.co.netconsulting.geotracker.data.TimeRange
 import at.co.netconsulting.geotracker.domain.Event
 import org.junit.Assert.assertEquals
@@ -25,6 +26,7 @@ class CalendarExporterTest {
         )
 
         assertEquals("Sunday run", exported.title)
+        assertEquals("geotracker-7-42@at.co.netconsulting.geotracker", exported.uid)
         assertEquals(1_700_000_000_000L, exported.startMillis)
         assertEquals(1_700_003_600_000L, exported.endMillis)
         assertFalse(exported.allDay)
@@ -55,6 +57,36 @@ class CalendarExporterTest {
 
         assertEquals(start + 60_000L, exported.endMillis)
         assertFalse(exported.allDay)
+    }
+
+    @Test
+    fun `calendar detail fallback selection matches title all-day flag and rounded times`() {
+        val start = 1_700_000_000_000L
+        val end = 1_700_003_600_000L
+        val exported = CalendarExporter.buildExportEvent(
+            recordedEvent(eventName = "Yesterday run"),
+            TimeRange(start, end)
+        )
+
+        val (selection, args) = CalendarExporter.calendarDetailSelection(listOf(11L, 12L), exported)
+
+        assertTrue(selection.contains(CalendarContract.Events.CALENDAR_ID))
+        assertTrue(selection.contains(CalendarContract.Events.TITLE))
+        assertTrue(selection.contains(CalendarContract.Events.DTSTART))
+        assertTrue(selection.contains(CalendarContract.Events.DTEND))
+        assertEquals(
+            listOf(
+                "11",
+                "12",
+                "Yesterday run",
+                "0",
+                (start - 120_000L).toString(),
+                (start + 120_000L).toString(),
+                (end - 120_000L).toString(),
+                (end + 120_000L).toString()
+            ),
+            args.toList()
+        )
     }
 
     private fun recordedEvent(
