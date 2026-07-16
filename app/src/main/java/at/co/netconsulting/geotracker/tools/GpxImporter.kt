@@ -25,6 +25,42 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
+internal fun isValidGpxContent(content: ByteArray): Boolean {
+    if (content.isEmpty()) return false
+
+    return try {
+        content.inputStream().use { inputStream ->
+            val parser = XmlPullParserFactory.newInstance().newPullParser()
+            parser.setInput(inputStream, null)
+
+            var rootFound = false
+            var supportedContentFound = false
+            var parserEventType = parser.eventType
+
+            while (parserEventType != XmlPullParser.END_DOCUMENT) {
+                if (parserEventType == XmlPullParser.START_TAG) {
+                    val elementName = parser.name.substringAfter(':')
+                    if (!rootFound) {
+                        if (elementName != "gpx" ||
+                            parser.getAttributeValue(null, "version").isNullOrBlank()
+                        ) {
+                            return@use false
+                        }
+                        rootFound = true
+                    } else if (elementName == "trk" || elementName == "wpt") {
+                        supportedContentFound = true
+                    }
+                }
+                parserEventType = parser.next()
+            }
+
+            rootFound && supportedContentFound
+        }
+    } catch (_: Exception) {
+        false
+    }
+}
+
 /**
  * Enhanced GPX Importer with better error handling and time parsing
  */
@@ -43,10 +79,9 @@ class GpxImporter(private val context: Context) {
             }
 
             // Validate file content first
-            val content = inputStream.readBytes()
-            val contentString = String(content)
+            val content = inputStream.use { it.readBytes() }
 
-            if (!isValidGpxContent(contentString)) {
+            if (!isValidGpxContent(content)) {
                 Log.e(TAG, "Invalid GPX content detected")
                 return -2
             }
@@ -65,13 +100,6 @@ class GpxImporter(private val context: Context) {
             Log.e(TAG, "Exception in importGpx: ${e.message}", e)
             -1
         }
-    }
-
-    private fun isValidGpxContent(content: String): Boolean {
-        return content.contains("<?xml") &&
-                content.contains("<gpx") &&
-                content.contains("version=") &&
-                (content.contains("<trk") || content.contains("<wpt"))
     }
 
     private suspend fun parseGpxAndCreateEvent(inputStream: InputStream, eventSource: String): Int {

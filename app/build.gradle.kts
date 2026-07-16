@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.02 (10-07-2026: Recorded event(s) in Google calendar removed with batch delete)"
+        versionName = "10.03 (16-07-2026: Missing XML declaration when importing gpx file is ignored)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
