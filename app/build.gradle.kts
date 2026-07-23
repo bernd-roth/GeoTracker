@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.03 (16-07-2026: Missing XML declaration when importing gpx file is ignored)"
+        versionName = "10.04 (23-07-2026: Removed 'Clean Up Invalid Events' button and associated methods)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
