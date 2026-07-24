@@ -1171,6 +1171,9 @@ function showInfoPopup(event, point, sessionId, chartType) {
             `;
         }
 
+        const cadenceDisplay = getCadenceDisplay(point.cadence || 0, point.sportType);
+        const cadenceValue = point.cadence != null ? Math.round(cadenceDisplay.value) : '--';
+
         const content = `
             <div style="font-weight: bold; color: ${isGPXTrack ? 'red' : getColorForUser(sessionId)}; margin-bottom: 8px;">
                 ${displayId}
@@ -1196,6 +1199,10 @@ function showInfoPopup(event, point, sessionId, chartType) {
                 <div>
                     <strong style="color: ${getHeartRateColor(point.heartRate || 0)};">Heart Rate</strong><br>
                     ${point.heartRate || 0} bpm
+                </div>
+                <div>
+                    <strong style="color: #9C27B0;">Cadence</strong><br>
+                    ${cadenceValue} ${cadenceDisplay.unit}
                 </div>
                 <div>
                     <strong style="color: ${getSlopeColor(point.slope || 0)};">Slope</strong><br>
