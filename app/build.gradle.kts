@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.05 (25-07-2026: Removal of slope analysis in event overview)"
+        versionName = "10.06 (25-07-2026: Categorize events toolbar actions into descriptive menus)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

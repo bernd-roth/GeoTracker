@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -112,6 +113,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -166,6 +168,240 @@ import java.util.Calendar
 private enum class CalendarPermissionAction {
     EXPORT_ALL,
     DELETE_ALL
+}
+
+private enum class EventsToolCategory {
+    CALENDAR,
+    STATISTICS,
+    SERVER,
+    TOOLS
+}
+
+@Composable
+private fun EventsToolCategoryMenu(
+    label: String,
+    icon: ImageVector,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    content: @Composable () -> Unit
+) {
+    Box {
+        TextButton(onClick = { onExpandedChange(!expanded) }) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(label)
+            Icon(
+                imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (expanded) "Close $label menu" else "Open $label menu",
+                modifier = Modifier.padding(start = 2.dp).size(18.dp)
+            )
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChange(false) },
+            modifier = Modifier.widthIn(min = 288.dp, max = 320.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun EventsToolMenuItem(
+    title: String,
+    description: String,
+    icon: ImageVector,
+    enabled: Boolean = true,
+    loading: Boolean = false,
+    destructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val actionColor = if (destructive) MaterialTheme.colorScheme.error else Color.Unspecified
+
+    DropdownMenuItem(
+        text = {
+            Column {
+                Text(text = title, color = actionColor)
+                Text(
+                    text = description,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+            }
+        },
+        leadingIcon = {
+            if (loading) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+            } else {
+                Icon(imageVector = icon, contentDescription = null, tint = actionColor)
+            }
+        },
+        enabled = enabled,
+        onClick = onClick
+    )
+}
+
+@Composable
+private fun EventsToolsBar(
+    selectedTab: Int,
+    showYearlyStats: Boolean,
+    isConnectMode: Boolean,
+    isCalendarExporting: Boolean,
+    isCalendarDeleting: Boolean,
+    onOpenCalendar: () -> Unit,
+    onExportAllToCalendar: () -> Unit,
+    onDeleteCalendarExports: () -> Unit,
+    onOpenDetailedStatistics: () -> Unit,
+    onToggleYearlyStats: () -> Unit,
+    onUploadEvents: () -> Unit,
+    onDownloadEvents: () -> Unit,
+    onToggleConnectMode: () -> Unit
+) {
+    var expandedCategory by remember { mutableStateOf<EventsToolCategory?>(null) }
+    val isCalendarBusy = isCalendarExporting || isCalendarDeleting
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        EventsToolCategoryMenu(
+            label = "Calendar",
+            icon = Icons.Default.DateRange,
+            expanded = expandedCategory == EventsToolCategory.CALENDAR,
+            onExpandedChange = { expanded ->
+                expandedCategory = EventsToolCategory.CALENDAR.takeIf { expanded }
+            }
+        ) {
+            EventsToolMenuItem(
+                title = "Open training calendar",
+                description = "Browse recorded activities and competitions by date.",
+                icon = Icons.Default.DateRange,
+                onClick = {
+                    expandedCategory = null
+                    onOpenCalendar()
+                }
+            )
+
+            if (selectedTab == 0) {
+                HorizontalDivider()
+                EventsToolMenuItem(
+                    title = "Export all recordings",
+                    description = "Add every recorded event to a Google Calendar.",
+                    icon = Icons.Default.DateRange,
+                    enabled = !isCalendarBusy,
+                    loading = isCalendarExporting,
+                    onClick = {
+                        expandedCategory = null
+                        onExportAllToCalendar()
+                    }
+                )
+                EventsToolMenuItem(
+                    title = "Remove all calendar exports",
+                    description = "Remove Google Calendar copies only; GeoTracker recordings stay.",
+                    icon = Icons.Default.Delete,
+                    enabled = !isCalendarBusy,
+                    loading = isCalendarDeleting,
+                    destructive = true,
+                    onClick = {
+                        expandedCategory = null
+                        onDeleteCalendarExports()
+                    }
+                )
+            }
+        }
+
+        EventsToolCategoryMenu(
+            label = "Statistics",
+            icon = Icons.Default.TrendingUp,
+            expanded = expandedCategory == EventsToolCategory.STATISTICS,
+            onExpandedChange = { expanded ->
+                expandedCategory = EventsToolCategory.STATISTICS.takeIf { expanded }
+            }
+        ) {
+            EventsToolMenuItem(
+                title = "Detailed statistics",
+                description = "Open the full yearly statistics screen.",
+                icon = Icons.Default.TrendingUp,
+                onClick = {
+                    expandedCategory = null
+                    onOpenDetailedStatistics()
+                }
+            )
+            EventsToolMenuItem(
+                title = if (showYearlyStats) "Hide activity summary" else "Show activity summary",
+                description = if (showYearlyStats) {
+                    "Hide the year and week overview above the event list."
+                } else {
+                    "Show a year and week overview above the event list."
+                },
+                icon = if (showYearlyStats) {
+                    Icons.Default.KeyboardArrowUp
+                } else {
+                    Icons.Default.KeyboardArrowDown
+                },
+                onClick = {
+                    expandedCategory = null
+                    onToggleYearlyStats()
+                }
+            )
+        }
+
+        EventsToolCategoryMenu(
+            label = "Server",
+            icon = Icons.Default.CompareArrows,
+            expanded = expandedCategory == EventsToolCategory.SERVER,
+            onExpandedChange = { expanded ->
+                expandedCategory = EventsToolCategory.SERVER.takeIf { expanded }
+            }
+        ) {
+            EventsToolMenuItem(
+                title = "Upload events",
+                description = "Choose local events to save on the GeoTracker server.",
+                icon = Icons.Default.CloudUpload,
+                onClick = {
+                    expandedCategory = null
+                    onUploadEvents()
+                }
+            )
+            EventsToolMenuItem(
+                title = "Download events",
+                description = "Browse and import events stored on the GeoTracker server.",
+                icon = Icons.Default.CloudDownload,
+                onClick = {
+                    expandedCategory = null
+                    onDownloadEvents()
+                }
+            )
+        }
+
+        EventsToolCategoryMenu(
+            label = "Tools",
+            icon = Icons.Default.Link,
+            expanded = expandedCategory == EventsToolCategory.TOOLS,
+            onExpandedChange = { expanded ->
+                expandedCategory = EventsToolCategory.TOOLS.takeIf { expanded }
+            }
+        ) {
+            EventsToolMenuItem(
+                title = if (isConnectMode) "Stop connecting events" else "Connect events",
+                description = if (isConnectMode) {
+                    "Leave selection mode without combining events."
+                } else {
+                    "Combine consecutive recordings into one event."
+                },
+                icon = if (isConnectMode) Icons.Default.Clear else Icons.Default.Link,
+                destructive = isConnectMode,
+                onClick = {
+                    expandedCategory = null
+                    onToggleConnectMode()
+                }
+            )
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -402,7 +638,6 @@ fun EventsScreen(
     var pendingCalendarPermissionAction by remember {
         mutableStateOf<CalendarPermissionAction?>(null)
     }
-    val isCalendarBusy = isCalendarExporting || isCalendarDeleting
 
     val loadBulkCalendarExport: () -> Unit = {
         coroutineScope.launch {
@@ -1106,163 +1341,31 @@ fun EventsScreen(
             contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Header with Events title and buttons
+            // Categorized event tools
             item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Calendar button
-                        TextButton(
-                            onClick = onNavigateToCalendar,
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text("Calendar")
-                            Icon(
-                                imageVector = Icons.Default.DateRange,
-                                contentDescription = "Calendar",
-                                modifier = Modifier.padding(start = 4.dp)
-                            )
-                        }
-
-                        if (selectedTab == 0) {
-                            TextButton(
-                                onClick = startBulkCalendarExport,
-                                enabled = !isCalendarBusy,
-                                colors = ButtonDefaults.textButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.primary
-                                )
-                            ) {
-                                Text("Export All")
-                                if (isCalendarExporting) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier
-                                            .padding(start = 6.dp)
-                                            .size(16.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.DateRange,
-                                        contentDescription = "Export all events to Google Calendar",
-                                        modifier = Modifier.padding(start = 4.dp)
-                                    )
-                                }
-                            }
-
-                            TextButton(
-                                onClick = startBulkCalendarDelete,
-                                enabled = !isCalendarBusy,
-                                colors = ButtonDefaults.textButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.error
-                                )
-                            ) {
-                                Text("Delete Exports")
-                                if (isCalendarDeleting) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier
-                                            .padding(start = 6.dp)
-                                            .size(16.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete exported Google Calendar events",
-                                        modifier = Modifier.padding(start = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Detailed Statistics button
-                        TextButton(
-                            onClick = {
-                                val intent = Intent(context, YearlyStatisticsActivity::class.java)
-                                context.startActivity(intent)
-                            },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.secondary
-                            )
-                        ) {
-                            Text("Detailed Stats")
-                            Icon(
-                                imageVector = Icons.Default.TrendingUp,
-                                contentDescription = "Detailed Statistics",
-                                modifier = Modifier.padding(start = 4.dp)
-                            )
-                        }
-
-                        // Toggle button for quick stats
-                        TextButton(
-                            onClick = { showYearlyStats = !showYearlyStats },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text(if (showYearlyStats) "Hide Stats" else "Show Stats")
-                            Icon(
-                                imageVector = if (showYearlyStats) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Toggle stats",
-                                modifier = Modifier.padding(start = 4.dp)
-                            )
-                        }
-
-                        // Upload events button
-                        IconButton(
-                            onClick = { showUploadDialog = true },
-                            modifier = Modifier.padding(start = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudUpload,
-                                contentDescription = "Upload Events",
-                                tint = MaterialTheme.colorScheme.tertiary
-                            )
-                        }
-
-                        // Download events button
-                        IconButton(
-                            onClick = { showDownloadDialog = true },
-                            modifier = Modifier.padding(start = 4.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudDownload,
-                                contentDescription = "Download Events",
-                                tint = MaterialTheme.colorScheme.secondary
-                            )
-                        }
-
-                        // Connect Events toggle button
-                        TextButton(
-                            onClick = {
-                                isConnectMode = !isConnectMode
-                                if (!isConnectMode) {
-                                    connectSelectedIds = emptyList()
-                                }
-                            },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = if (isConnectMode) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.primary
-                            )
-                        ) {
-                            Text(if (isConnectMode) "Cancel" else "Connect")
-                            Icon(
-                                imageVector = Icons.Default.Link,
-                                contentDescription = "Connect Events",
-                                modifier = Modifier.padding(start = 4.dp)
-                            )
+                EventsToolsBar(
+                    selectedTab = selectedTab,
+                    showYearlyStats = showYearlyStats,
+                    isConnectMode = isConnectMode,
+                    isCalendarExporting = isCalendarExporting,
+                    isCalendarDeleting = isCalendarDeleting,
+                    onOpenCalendar = onNavigateToCalendar,
+                    onExportAllToCalendar = startBulkCalendarExport,
+                    onDeleteCalendarExports = startBulkCalendarDelete,
+                    onOpenDetailedStatistics = {
+                        val intent = Intent(context, YearlyStatisticsActivity::class.java)
+                        context.startActivity(intent)
+                    },
+                    onToggleYearlyStats = { showYearlyStats = !showYearlyStats },
+                    onUploadEvents = { showUploadDialog = true },
+                    onDownloadEvents = { showDownloadDialog = true },
+                    onToggleConnectMode = {
+                        isConnectMode = !isConnectMode
+                        if (!isConnectMode) {
+                            connectSelectedIds = emptyList()
                         }
                     }
-                }
+                )
             }
 
             // Search bar
