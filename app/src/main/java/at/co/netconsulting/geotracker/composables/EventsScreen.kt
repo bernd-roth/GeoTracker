@@ -3576,11 +3576,6 @@ fun EventCard(
                             color = Color.Gray,
                             fontStyle = FontStyle.Italic
                         )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Add slope color legend
-                        SlopeColorLegend()
                     }
                 }
 

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.04 (23-07-2026: Removed 'Clean Up Invalid Events' button and associated methods)"
+        versionName = "10.05 (25-07-2026: Removal of slope analysis in event overview)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
