@@ -1667,9 +1667,7 @@ function handleHistoryBatch(points) {
             movingAverageSpeed: parseFloat(point.movingAverageSpeed || 0),
             cumulativeElevationGain: parseFloat(point.cumulativeElevationGain || 0),
             heartRate: parseInt(point.heartRate || 0),
-            cadence: point.cadence !== undefined && point.cadence !== null
-                ? parseInt(point.cadence)
-                : null,
+            cadence: parseOptionalCadence(point),
             slope: parseFloat(point.slope || 0),
             averageSlope: parseFloat(point.averageSlope || 0),
             maxUphillSlope: parseFloat(point.maxUphillSlope || 0),
@@ -1849,6 +1847,7 @@ function finalizeBatchProcessing(sessionLapTimes) {
 
                 const latestPoint = trackPoints[sessionId][trackPoints[sessionId].length - 1];
                 if (latestPoint) {
+                    const latestCadence = findLatestRecordedCadence(trackPoints[sessionId]);
                     updateSpeedDisplay(sessionId, latestPoint.speed, {
                         averageSpeed: latestPoint.averageSpeed,
                         maxSpeed: latestPoint.maxSpeed,
@@ -1856,7 +1855,10 @@ function finalizeBatchProcessing(sessionLapTimes) {
                         altitude: latestPoint.altitude,
                         cumulativeElevationGain: latestPoint.cumulativeElevationGain,
                         heartRate: latestPoint.heartRate,
-                        cadence: latestPoint.cadence,
+                        // The last history row can be a partial update without cadence
+                        // (for example a lap-time or paused-state update). Keep the most
+                        // recent recorded cadence that is already visible in the graphs.
+                        cadence: latestCadence,
                         sportType: latestPoint.sportType,
                         slope: latestPoint.slope,
                         averageSlope: latestPoint.averageSlope,
@@ -1951,9 +1953,7 @@ function handlePoint(data) {
         movingAverageSpeed: parseFloat(data.movingAverageSpeed || 0),
         cumulativeElevationGain: parseFloat(data.cumulativeElevationGain || 0),
         heartRate: parseInt(data.heartRate || 0),
-        cadence: data.cadence !== undefined && data.cadence !== null
-            ? parseInt(data.cadence)
-            : null,
+        cadence: parseOptionalCadence(data),
         slope: parseFloat(data.slope || 0),
         averageSlope: parseFloat(data.averageSlope || 0),
         maxUphillSlope: parseFloat(data.maxUphillSlope || 0),
@@ -2592,6 +2592,30 @@ function getCadenceDisplay(rawCadence, sportType) {
     };
 }
 
+function parseOptionalCadence(data) {
+    if (!data || !Object.prototype.hasOwnProperty.call(data, 'cadence')) {
+        return undefined;
+    }
+    if (data.cadence === null || data.cadence === '') {
+        return null;
+    }
+
+    const cadence = Number.parseInt(data.cadence, 10);
+    return Number.isFinite(cadence) ? Math.max(0, Math.min(254, cadence)) : null;
+}
+
+function findLatestRecordedCadence(points) {
+    if (!points) return undefined;
+
+    for (let index = points.length - 1; index >= 0; index--) {
+        const cadence = points[index]?.cadence;
+        if (cadence !== undefined && cadence !== null && Number.isFinite(Number(cadence))) {
+            return Math.max(0, Math.min(254, Number(cadence)));
+        }
+    }
+    return undefined;
+}
+
 function updateCadenceDisplay(sessionId, rawCadence, sportType) {
     const valueElement = document.getElementById(`cadence-${sessionId}`);
     const unitElement = document.getElementById(`cadenceUnit-${sessionId}`);
@@ -3175,12 +3199,14 @@ function updateSpeedDisplay(sessionId, speed, data) {
     if (data.sportType) {
         history.sportType = data.sportType;
     }
-    if (data.cadence !== undefined && data.cadence !== null) {
-        history.cadence = data.cadence;
-        updateCadenceDisplay(sessionId, history.cadence, history.sportType);
-    } else {
-        history.cadence = null;
-        updateCadenceMissingDisplay(sessionId, history.sportType);
+    if (data.cadence !== undefined) {
+        if (data.cadence !== null) {
+            history.cadence = data.cadence;
+            updateCadenceDisplay(sessionId, history.cadence, history.sportType);
+        } else {
+            history.cadence = null;
+            updateCadenceMissingDisplay(sessionId, history.sportType);
+        }
     }
 
     // Update mini HR vs Distance chart
