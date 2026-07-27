@@ -44,23 +44,31 @@ services:
       - ./websocket_server.py:/app/websocket_server.py
       - ./logs:/app/logs
     command: >
-      sh -c "pip install websockets asyncpg python-dateutil &&
+      sh -c "pip install websockets asyncpg python-dateutil redis &&
              python /app/websocket_server.py"
     expose:
       - "6789"
     environment:
       - USE_DATABASE=true
+      - DATA_RETENTION_HOURS=48
       - POSTGRES_HOST=postgres-geotracker
       - POSTGRES_PORT=5432
       - POSTGRES_DB=geotracker
       - POSTGRES_USER=geotracker
       - POSTGRES_PASSWORD=xxx
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - REDIS_HISTORY_KEY=geotracker:live:tracking_points
+    env_file:
+      - ../redis/.env
     depends_on:
       postgres-geotracker:
         condition: service_healthy
     networks:
       - app-network
       - geotracker-network
+      - redis-network
   flask-api:
     restart: always
     build:
@@ -102,3 +110,6 @@ networks:
   geotracker-network:
     name: geotracker-network
     driver: bridge
+  redis-network:
+    name: redis_default
+    external: true

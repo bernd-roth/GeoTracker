@@ -11,7 +11,9 @@ from collections import defaultdict
 from typing import Set, DefaultDict, List, Dict, Any, Optional
 import re
 import asyncpg
+import redis.asyncio as redis
 from dateutil import parser
+import uuid
 
 # Configure rotating log handler (10 MB max, keep 5 backups)
 log_handler = RotatingFileHandler(
@@ -133,7 +135,7 @@ class TrackingServer:
 
         # CONFIGURABLE CLEANUP SETTINGS
         # Data retention period in hours - configurable via environment variable or script modification
-        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '24'))  # Default: 24 hours
+        self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '48'))  # Default: 48 hours
 
         # Cleanup interval in seconds - how often to run cleanup
         self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '3600'))  # Default: 1 hour
@@ -147,6 +149,20 @@ class TrackingServer:
 
         # Database connection pool
         self.db_pool: Optional[asyncpg.Pool] = None
+
+        # Redis stores the recent live-view history. PostgreSQL remains the
+        # permanent source for analysis and historical pages.
+        self.redis_client: Optional[redis.Redis] = None
+        self.redis_history_key = os.getenv(
+            'REDIS_HISTORY_KEY',
+            'geotracker:live:tracking_points'
+        )
+        self.redis_config = {
+            'host': os.getenv('REDIS_HOST', 'redis'),
+            'port': int(os.getenv('REDIS_PORT', '6379')),
+            'password': os.getenv('REDIS_PASSWORD') or None,
+            'db': int(os.getenv('REDIS_DB', '0'))
+        }
 
         # Database configuration - use environment variables if available, fallback to defaults
         self.db_config = {
@@ -253,13 +269,20 @@ class TrackingServer:
             logging.error(f"Error during memory cleanup: {str(e)}")
 
     async def manual_cleanup_memory(self) -> Dict[str, Any]:
-        """Manually trigger memory cleanup and return result."""
+        """Manually clean the live in-memory and Redis history."""
         try:
             await self.cleanup_old_data_from_memory()
-            return {"success": True, "message": f"Memory cleanup completed (retention: {self.data_retention_hours} hours)"}
+            await self.cleanup_old_data_from_redis()
+            return {
+                "success": True,
+                "message": (
+                    f"Live history cleanup completed "
+                    f"(retention: {self.data_retention_hours} hours)"
+                )
+            }
         except Exception as e:
-            logging.error(f"Manual memory cleanup failed: {str(e)}")
-            return {"success": False, "message": f"Memory cleanup failed: {str(e)}"}
+            logging.error(f"Manual live history cleanup failed: {str(e)}")
+            return {"success": False, "message": f"Live history cleanup failed: {str(e)}"}
 
     async def broadcast_session_list_update(self) -> None:
         """Broadcast updated session list to all clients."""
@@ -311,11 +334,232 @@ class TrackingServer:
             try:
                 await asyncio.sleep(self.cleanup_interval_seconds)
                 await self.cleanup_old_data_from_memory()
+                await self.cleanup_old_data_from_redis()
             except asyncio.CancelledError:
                 logging.info("Periodic cleanup task cancelled")
                 break
             except Exception as e:
                 logging.error(f"Error in periodic cleanup task: {str(e)}")
+
+    async def init_redis(self) -> None:
+        """Connect to Redis, which is the source for recent live history."""
+        self.redis_client = redis.Redis(
+            **self.redis_config,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            health_check_interval=30
+        )
+        await self.redis_client.ping()
+        logging.info(
+            "Redis connection established for live history: %s:%s db=%s key=%s",
+            self.redis_config['host'],
+            self.redis_config['port'],
+            self.redis_config['db'],
+            self.redis_history_key
+        )
+
+    async def close_redis(self) -> None:
+        """Close the Redis connection."""
+        if self.redis_client:
+            await self.redis_client.aclose()
+            self.redis_client = None
+            logging.info("Redis connection closed")
+
+    async def cache_tracking_point(self, tracking_point: Dict[str, Any]) -> bool:
+        """Add one live tracking point to the 48-hour Redis cache."""
+        if not self.redis_client:
+            logging.warning("Redis is unavailable; live point was not cached")
+            return False
+
+        try:
+            cached_at = time.time()
+            cache_entry = json.dumps(
+                {
+                    "cacheId": uuid.uuid4().hex,
+                    "cachedAt": cached_at,
+                    "point": tracking_point
+                },
+                separators=(',', ':'),
+                ensure_ascii=False,
+                default=str
+            )
+            await self.redis_client.zadd(
+                self.redis_history_key,
+                {cache_entry: cached_at}
+            )
+            return True
+        except Exception as e:
+            logging.error(
+                "Failed to cache live point for session %s in Redis: %s",
+                tracking_point.get('sessionId', 'unknown'),
+                str(e)
+            )
+            return False
+
+    async def cleanup_old_data_from_redis(self) -> int:
+        """Remove live tracking points older than the retention window."""
+        if not self.redis_client:
+            return 0
+
+        try:
+            cutoff_epoch = time.time() - (self.data_retention_hours * 3600)
+            removed = await self.redis_client.zremrangebyscore(
+                self.redis_history_key,
+                '-inf',
+                cutoff_epoch
+            )
+            if removed:
+                logging.info(
+                    "Removed %s Redis live points older than %s hours",
+                    removed,
+                    self.data_retention_hours
+                )
+            return int(removed)
+        except Exception as e:
+            logging.error(f"Redis live history cleanup failed: {str(e)}")
+            return 0
+
+    async def load_tracking_history_from_redis(self) -> int:
+        """Restore the live WebSocket history exclusively from Redis."""
+        if not self.redis_client:
+            raise RuntimeError("Redis is not initialized")
+
+        cutoff_epoch = time.time() - (self.data_retention_hours * 3600)
+        await self.redis_client.zremrangebyscore(
+            self.redis_history_key,
+            '-inf',
+            cutoff_epoch
+        )
+        cached_entries = await self.redis_client.zrangebyscore(
+            self.redis_history_key,
+            cutoff_epoch,
+            '+inf',
+            withscores=True
+        )
+
+        self.tracking_history.clear()
+        self.active_sessions.clear()
+        self.last_activity.clear()
+        latest_session_state: Dict[str, tuple] = {}
+        skipped_entries = 0
+
+        for raw_entry, cached_at in cached_entries:
+            try:
+                cache_entry = json.loads(raw_entry)
+                tracking_point = cache_entry.get('point')
+                if not isinstance(tracking_point, dict):
+                    raise ValueError("cache entry has no point object")
+
+                session_id = tracking_point.get('sessionId')
+                if not session_id:
+                    raise ValueError("cached point has no sessionId")
+
+                self.tracking_history[session_id].append(tracking_point)
+                latest_session_state[session_id] = (tracking_point, float(cached_at))
+            except Exception as e:
+                skipped_entries += 1
+                logging.warning(f"Skipping invalid Redis live-history entry: {str(e)}")
+
+        for session_id, (latest_point, cached_at) in latest_session_state.items():
+            last_seen = datetime.datetime.fromtimestamp(cached_at)
+            self.last_activity[session_id] = last_seen
+
+            try:
+                latitude = float(latest_point.get('latitude', -999))
+                longitude = float(latest_point.get('longitude', -999))
+                if latitude != -999.0 and longitude != -999.0:
+                    self.session_detector.session_last_coords[session_id] = (
+                        latitude,
+                        longitude
+                    )
+
+                distance = float(latest_point.get('distance', 0))
+                if distance > 0:
+                    self.session_detector.session_last_distance[session_id] = distance
+                self.session_detector.session_last_seen[session_id] = last_seen
+            except (TypeError, ValueError):
+                logging.warning(
+                    "Could not restore reset-detector state for session %s",
+                    session_id
+                )
+
+        self.update_active_sessions()
+        loaded_count = sum(len(points) for points in self.tracking_history.values())
+        logging.info(
+            "Loaded %s live points across %s sessions from Redis "
+            "(last %s hours, skipped %s invalid entries)",
+            loaded_count,
+            len(self.tracking_history),
+            self.data_retention_hours,
+            skipped_entries
+        )
+        return loaded_count
+
+    async def get_tracking_points_from_redis(self) -> List[Dict[str, Any]]:
+        """Read the current 48-hour live history directly from Redis."""
+        if not self.redis_client:
+            logging.error("Cannot read live history because Redis is unavailable")
+            return []
+
+        try:
+            cutoff_epoch = time.time() - (self.data_retention_hours * 3600)
+            cached_entries = await self.redis_client.zrangebyscore(
+                self.redis_history_key,
+                cutoff_epoch,
+                '+inf'
+            )
+            tracking_points = []
+            for raw_entry in cached_entries:
+                try:
+                    cache_entry = json.loads(raw_entry)
+                    tracking_point = cache_entry.get('point')
+                    if isinstance(tracking_point, dict):
+                        tracking_points.append(tracking_point)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    logging.warning("Skipped invalid Redis entry while sending history")
+            return tracking_points
+        except Exception as e:
+            logging.error(f"Failed to read live history from Redis: {str(e)}")
+            return []
+
+    async def delete_sessions_from_redis(self, session_ids: Set[str]) -> int:
+        """Remove deleted sessions from the Redis live-history cache."""
+        if not self.redis_client or not session_ids:
+            return 0
+
+        try:
+            cached_entries = await self.redis_client.zrange(
+                self.redis_history_key,
+                0,
+                -1
+            )
+            entries_to_remove = []
+            for raw_entry in cached_entries:
+                try:
+                    cache_entry = json.loads(raw_entry)
+                    point = cache_entry.get('point', {})
+                    if point.get('sessionId') in session_ids:
+                        entries_to_remove.append(raw_entry)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    continue
+
+            removed = 0
+            for index in range(0, len(entries_to_remove), 500):
+                removed += await self.redis_client.zrem(
+                    self.redis_history_key,
+                    *entries_to_remove[index:index + 500]
+                )
+
+            logging.info(
+                "Removed %s cached live points for deleted sessions %s",
+                removed,
+                sorted(session_ids)
+            )
+            return int(removed)
+        except Exception as e:
+            logging.error(f"Failed to remove deleted sessions from Redis: {str(e)}")
+            return 0
 
     async def init_database(self) -> None:
         """Initialize database connection pool and create normalized tables."""
@@ -1966,15 +2210,14 @@ class TrackingServer:
             }))
 
     async def send_history(self, websocket: websockets.WebSocketServerProtocol) -> None:
-        """Send historical data to newly connected client in batches."""
+        """Send Redis-backed live history to a newly connected client."""
         try:
             # Check for stale active sessions before sending data
             self.update_active_sessions()
 
-            # Gather and sort all points from all sessions
-            all_points = []
-            for session_id, points in self.tracking_history.items():
-                all_points.extend(points)
+            # Redis, not PostgreSQL or process memory, is the source for the
+            # live webpage's request_history response.
+            all_points = await self.get_tracking_points_from_redis()
 
             all_points.sort(key=lambda x: datetime.datetime.strptime(x['timestamp'], self.timestamp_format))
 
@@ -2330,6 +2573,8 @@ class TrackingServer:
                 logging.warning(f"Attempted to delete non-existent session: {session_id}")
                 return {"success": False, "reason": "Session does not exist"}
 
+            await self.delete_sessions_from_redis(family_session_ids)
+
             for family_session_id in family_session_ids:
                 self.tracking_history.pop(family_session_id, None)
                 self.last_activity.pop(family_session_id, None)
@@ -2634,6 +2879,16 @@ class TrackingServer:
                     if not db_success:
                         logging.warning("Failed to save to database, but continuing with in-memory storage")
 
+                    # Redis is the recent-history source for the live webpage.
+                    # A Redis failure must not interrupt PostgreSQL persistence
+                    # or delivery of the current point to connected clients.
+                    redis_success = await self.cache_tracking_point(tracking_point)
+                    if not redis_success:
+                        logging.warning(
+                            "Point for session %s is live but was not cached in Redis",
+                            actual_session_id
+                        )
+
                     # Store tracking point (only valid coordinates)
                     self.tracking_history[actual_session_id].append(tracking_point)
 
@@ -2717,13 +2972,25 @@ async def main():
     logging.info(f"WebSocket server starting on port 6789")
     logging.info(f"Database config: {server.db_config}")
 
-    # Try to initialize database, but don't fail if it's not available
+    # PostgreSQL remains the permanent store used by analysis/history pages.
     try:
         await server.init_database()
-        await server.load_tracking_history_from_db()
     except Exception as e:
         logging.error(f"Database initialization failed: {str(e)}")
         logging.info("Continuing without database - data will be stored in memory only")
+
+    # Redis is the only startup source for the live webpage's recent history.
+    # Do not fall back to PostgreSQL here: analysis and live data paths remain
+    # intentionally separate.
+    try:
+        await server.init_redis()
+        await server.load_tracking_history_from_redis()
+    except Exception as e:
+        logging.error(f"Redis live-history initialization failed: {str(e)}")
+        logging.info(
+            "Starting with empty live history; current points will still be "
+            "broadcast and PostgreSQL storage will continue"
+        )
 
     # Start the periodic cleanup task if enabled
     cleanup_task = None
@@ -2752,6 +3019,11 @@ async def main():
         # Clean up database connections if they exist
         try:
             await server.close_database()
+        except:
+            pass
+
+        try:
+            await server.close_redis()
         except:
             pass
 
