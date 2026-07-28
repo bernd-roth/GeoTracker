@@ -1888,7 +1888,7 @@ function finalizeBatchProcessing(sessionLapTimes) {
                     updateLapTable(sessionId, speedHistory[sessionId].lapTimes);
                 }
 
-                // Populate mini HR chart from all history points
+                // Populate the mini charts from all history points
                 const points = trackPoints[sessionId];
                 if (points && points.length > 0) {
                     hrMiniChartData[sessionId] = points
@@ -1899,6 +1899,12 @@ function finalizeBatchProcessing(sessionLapTimes) {
                         miniChart.data.datasets[0].data = hrMiniChartData[sessionId];
                         miniChart.update('none');
                     }
+
+                    populateCadenceMiniChartFromHistory(
+                        sessionId,
+                        points,
+                        speedHistory[sessionId]?.sportType || latestPoint?.sportType || ''
+                    );
                 }
             } else {
                 addDebugMessage(`Skipping visualization update for filtered session: ${sessionId}`, 'system');
@@ -2797,10 +2803,82 @@ function updateCadenceMiniChart(sessionId, timestamp, cadence, unit) {
     cadenceMiniChartData[sessionId].push({ x: timestamp, y: cadence });
     cadenceMiniChartData[sessionId] = cadenceMiniChartData[sessionId].filter(point => point.x >= cutoff);
 
+    renderCadenceMiniChart(sessionId, timestamp, unit);
+}
+
+function populateCadenceMiniChartFromHistory(sessionId, points, sportType) {
+    if (!points || points.length === 0) return;
+
+    const resolvedSportType = sportType || speedHistory[sessionId]?.sportType || '';
+    const unit = getCadenceDisplay(0, resolvedSportType).unit;
+    let latestTimestamp = null;
+    const timestampedPoints = [];
+
+    points.forEach(point => {
+        const timestamp = point.timestamp instanceof Date
+            ? point.timestamp.getTime()
+            : new Date(point.timestamp).getTime();
+        if (!Number.isFinite(timestamp)) return;
+
+        latestTimestamp = latestTimestamp === null
+            ? timestamp
+            : Math.max(latestTimestamp, timestamp);
+        timestampedPoints.push({ point, timestamp });
+    });
+
+    if (latestTimestamp === null) return;
+
+    const cutoff = latestTimestamp - CADENCE_SPARKLINE_WINDOW_MS;
+    const cadenceSamples = [];
+    const chartData = [];
+
+    timestampedPoints.forEach(({ point, timestamp }) => {
+        if (timestamp < cutoff || point.cadence === undefined) return;
+
+        const rawCadence = point.cadence === null ? null : Number(point.cadence);
+        const normalizedCadence = Number.isFinite(rawCadence)
+            ? Math.max(0, Math.min(254, rawCadence))
+            : null;
+        cadenceSamples.push({ timestamp, rawCadence: normalizedCadence });
+        chartData.push({
+            x: timestamp,
+            y: normalizedCadence === null
+                ? null
+                : getCadenceDisplay(normalizedCadence, resolvedSportType).value
+        });
+    });
+
+    const history = speedHistory[sessionId] || {};
+    history.cadenceSamples = cadenceSamples;
+    history.hasCadenceData = cadenceSamples.some(sample => sample.rawCadence > 0);
+    cadenceMiniChartData[sessionId] = chartData;
+
+    const averageElement = document.getElementById(`cadenceAvg-${sessionId}`);
+    if (averageElement) {
+        const rollingSamples = cadenceSamples.filter(
+            sample => sample.timestamp >= latestTimestamp - CADENCE_ROLLING_WINDOW_MS &&
+                sample.rawCadence > 0
+        );
+        if (rollingSamples.length > 0) {
+            const rawAverage = rollingSamples.reduce((sum, sample) => sum + sample.rawCadence, 0) /
+                rollingSamples.length;
+            averageElement.textContent = String(Math.round(
+                getCadenceDisplay(rawAverage, resolvedSportType).value
+            ));
+        } else {
+            averageElement.textContent = '--';
+        }
+    }
+
+    renderCadenceMiniChart(sessionId, latestTimestamp, unit);
+}
+
+function renderCadenceMiniChart(sessionId, timestamp, unit) {
     const chart = cadenceMiniCharts[sessionId];
     if (!chart) return;
     const history = speedHistory[sessionId] || {};
     if (!history.hasCadenceData) return;
+    const cutoff = timestamp - CADENCE_SPARKLINE_WINDOW_MS;
     const canvas = document.getElementById(`cadenceMiniChart-${sessionId}`);
     if (canvas && canvas.parentElement && canvas.parentElement.style.display === 'none') {
         canvas.parentElement.style.display = '';
