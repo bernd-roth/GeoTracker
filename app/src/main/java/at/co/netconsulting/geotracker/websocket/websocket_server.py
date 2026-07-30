@@ -138,7 +138,7 @@ class TrackingServer:
         self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '48'))  # Default: 48 hours
 
         # Cleanup interval in seconds - how often to run cleanup
-        self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '3600'))  # Default: 1 hour
+        self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '60   '))  # Default: 1 hour
 
         # Enable/disable automatic cleanup
         self.enable_automatic_cleanup = os.getenv('ENABLE_AUTOMATIC_CLEANUP', 'true').lower() == 'true'
@@ -211,8 +211,8 @@ class TrackingServer:
         except (ValueError, TypeError):
             return False, "Invalid coordinate format"
 
-    async def cleanup_old_data_from_memory(self) -> None:
-        """Remove tracking data older than retention period from memory ONLY (database is untouched)."""
+    async def cleanup_old_data_from_memory(self) -> int:
+        """Remove expired tracking data from memory and return the removal count."""
         try:
             # Calculate cutoff time
             cutoff_time = datetime.datetime.now() - datetime.timedelta(hours=self.data_retention_hours)
@@ -259,20 +259,20 @@ class TrackingServer:
 
             if removed_points > 0 or sessions_to_remove:
                 logging.info(f"Memory cleanup completed: removed {removed_points} old points and {len(sessions_to_remove)} empty sessions from memory")
-
-                # Broadcast updated session list to all clients
-                await self.broadcast_session_list_update()
             else:
                 logging.info(f"Memory cleanup completed: no old data found (retention: {self.data_retention_hours} hours)")
 
+            return removed_points + len(sessions_to_remove)
         except Exception as e:
             logging.error(f"Error during memory cleanup: {str(e)}")
+            return 0
 
     async def manual_cleanup_memory(self) -> Dict[str, Any]:
         """Manually clean the live in-memory and Redis history."""
         try:
-            await self.cleanup_old_data_from_memory()
             await self.cleanup_old_data_from_redis()
+            await self.cleanup_old_data_from_memory()
+            await self.broadcast_session_list_update()
             return {
                 "success": True,
                 "message": (
@@ -285,10 +285,11 @@ class TrackingServer:
             return {"success": False, "message": f"Live history cleanup failed: {str(e)}"}
 
     async def broadcast_session_list_update(self) -> None:
-        """Broadcast updated session list to all clients."""
+        """Broadcast the Redis-backed live session list to all clients."""
         try:
             self.update_active_sessions()
-            session_info = self.build_session_info()
+            tracking_points = await self.get_tracking_points_from_redis()
+            session_info = self.build_session_info(tracking_points)
 
             await self.broadcast_update({
                 'type': 'session_list',
@@ -300,11 +301,19 @@ class TrackingServer:
         except Exception as e:
             logging.error(f"Error broadcasting session list update: {str(e)}")
 
-    def build_session_info(self) -> List[Dict[str, Any]]:
-        """Build session metadata for the live Session Manager UI."""
+    def build_session_info(
+        self,
+        tracking_points: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Build Session Manager metadata from the same snapshot as the graphs."""
+        latest_points: Dict[str, Dict[str, Any]] = {}
+        for point in tracking_points:
+            session_id = point.get("sessionId")
+            if session_id:
+                latest_points[session_id] = point
+
         session_info = []
-        for session_id, points in self.tracking_history.items():
-            latest_point = points[-1] if points else {}
+        for session_id, latest_point in latest_points.items():
             session_info.append({
                 "sessionId": session_id,
                 "isActive": session_id in self.active_sessions,
@@ -333,8 +342,10 @@ class TrackingServer:
         while True:
             try:
                 await asyncio.sleep(self.cleanup_interval_seconds)
-                await self.cleanup_old_data_from_memory()
-                await self.cleanup_old_data_from_redis()
+                redis_removed = await self.cleanup_old_data_from_redis()
+                memory_removed = await self.cleanup_old_data_from_memory()
+                if redis_removed or memory_removed:
+                    await self.broadcast_session_list_update()
             except asyncio.CancelledError:
                 logging.info("Periodic cleanup task cancelled")
                 break
@@ -2230,8 +2241,9 @@ class TrackingServer:
                 }))
                 await asyncio.sleep(0.001)  # Minimal delay between batches
 
-            # Send session IDs for UI along with active status
-            session_info = self.build_session_info()
+            # Build the Session Manager from this exact Redis snapshot so the
+            # graph and the list cannot disagree about which sessions exist.
+            session_info = self.build_session_info(all_points)
 
             await websocket.send(json.dumps({
                 'type': 'session_list',
@@ -2789,7 +2801,8 @@ class TrackingServer:
                     # Handle session status request
                     if message_data.get('type') == 'request_sessions':
                         self.update_active_sessions()
-                        session_info = self.build_session_info()
+                        tracking_points = await self.get_tracking_points_from_redis()
+                        session_info = self.build_session_info(tracking_points)
 
                         await websocket.send(json.dumps({
                             'type': 'session_list',

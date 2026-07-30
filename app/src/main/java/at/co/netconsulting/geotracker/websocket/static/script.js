@@ -3833,6 +3833,9 @@ function mergeServerSessionsWithLiveTracks(sessions) {
     Object.keys(trackPoints).forEach(sessionId => {
         const baseSessionId = getBaseSessionId(sessionId);
         if (!shouldDisplaySession(baseSessionId)) return;
+        // The server list is authoritative. Local history may enrich a live
+        // session, but it must never resurrect one that Redis has expired.
+        if (!sessionMap.has(baseSessionId)) return;
         const points = trackPoints[sessionId] || [];
         const latestPoint = points.length > 0 ? points[points.length - 1] : {};
         addOrMergeSession(sessionMap, sessionInfoFromPoint(baseSessionId, {
@@ -3848,7 +3851,7 @@ function mergeServerSessionsWithLiveTracks(sessions) {
             endCity: latestPoint.endCity || '',
             endCountry: latestPoint.endCountry || '',
             endAddress: latestPoint.endAddress || '',
-            isActive: true
+            isActive: Boolean(sessionMap.get(baseSessionId).isActive)
         }));
     });
 
@@ -3937,6 +3940,26 @@ function handleSessionList(sessions) {
         addDebugMessage('Sessions data not in expected format', 'error');
         return;
     }
+
+    const serverSessionIds = new Set(
+        sessions
+            .filter(session => session && session.sessionId)
+            .map(session => getBaseSessionId(session.sessionId))
+    );
+    const localSessionIds = new Set([
+        ...Object.keys(trackPoints).map(getBaseSessionId),
+        ...Object.keys(speedHistory).map(getBaseSessionId),
+        ...Object.keys(polylines).map(getBaseSessionId),
+        ...availableSessions
+            .filter(session => session && session.sessionId)
+            .map(session => getBaseSessionId(session.sessionId))
+    ]);
+
+    localSessionIds.forEach(sessionId => {
+        if (!serverSessionIds.has(sessionId)) {
+            removeSessionFromDisplays(sessionId, false);
+        }
+    });
 
     availableSessions = mergeServerSessionsWithLiveTracks(sessions);
     updateSessionList();
@@ -4293,16 +4316,19 @@ function requestSessionList() {
     }
 }
 
-function handleSessionDeleted(sessionId) {
+function removeSessionFromDisplays(sessionId, notifyUser = false) {
     sessionId = getBaseSessionId(sessionId);
     const familyIds = getSessionFamilyIds(sessionId);
-    addDebugMessage(`Handling deletion of session ${sessionId}`, 'system');
+    addDebugMessage(`Removing session ${sessionId} from local displays`, 'system');
 
     availableSessions = availableSessions.filter(session => getBaseSessionId(session.sessionId) !== sessionId);
 
     familyIds.forEach(familySessionId => {
         delete trackPoints[familySessionId];
         delete speedHistory[familySessionId];
+        delete elevationHistory[familySessionId];
+        delete sessionStartTimes[familySessionId];
+        delete userColors[familySessionId];
     });
 
     // Remove all datasets for this session from altitude chart (including segments)
@@ -4390,8 +4416,14 @@ function handleSessionDeleted(sessionId) {
 
     updateSessionList();
 
-    addDebugMessage(`Session ${sessionId} deleted and removed from all displays`, 'system');
-    showNotification(`Session ${sessionId} deleted successfully`, 'info');
+    addDebugMessage(`Session ${sessionId} removed from all displays`, 'system');
+    if (notifyUser) {
+        showNotification(`Session ${sessionId} deleted successfully`, 'info');
+    }
+}
+
+function handleSessionDeleted(sessionId) {
+    removeSessionFromDisplays(sessionId, true);
 }
 
 function deleteSession(sessionId) {
