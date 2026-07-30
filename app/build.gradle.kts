@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.06 (25-07-2026: Categorize events toolbar actions into descriptive menus)"
+        versionName = "10.07 (30-07-2026: Replaced the static ring when calling detailed statistics; added cadence plots and the three-number SPM summary)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

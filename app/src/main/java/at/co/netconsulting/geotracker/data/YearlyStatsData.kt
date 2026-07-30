@@ -8,7 +8,8 @@ data class YearlyStatsData(
     val averageDistancePerMonth: Double,
     val monthlyStats: List<MonthlyStats>,
     val weeklyStats: List<WeeklyStats>,
-    val heartRateStats: HeartRateYearlyStats?
+    val heartRateStats: HeartRateYearlyStats?,
+    val cadenceStats: CadenceYearlyStats? = null
 )
 
 data class MonthlyStats(
@@ -51,4 +52,29 @@ data class HeartRateZoneStats(
     val zone3Count: Int, // Aerobic zone (70-80% max HR)
     val zone4Count: Int, // Lactate threshold (80-90% max HR)
     val zone5Count: Int  // Neuromuscular power (90-100% max HR)
+)
+
+data class CadenceYearlyStats(
+    val year: Int,
+    val overallMinSpm: Int,
+    val overallAvgSpm: Double,
+    val overallMaxSpm: Int,
+    val activitiesWithCadence: Int,
+    val totalRunningActivities: Int,
+    val monthlyCadenceStats: List<MonthlyCadenceStats>,
+    val distribution: List<CadenceBucketStats>
+)
+
+data class MonthlyCadenceStats(
+    val year: Int,
+    val month: Int,
+    val minSpm: Int,
+    val avgSpm: Double,
+    val maxSpm: Int,
+    val activitiesWithCadence: Int
+)
+
+data class CadenceBucketStats(
+    val label: String,
+    val sampleCount: Int
 )

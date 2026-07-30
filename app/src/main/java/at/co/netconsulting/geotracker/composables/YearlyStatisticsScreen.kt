@@ -1,6 +1,13 @@
 package at.co.netconsulting.geotracker.composables
 
 import android.util.Log
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,17 +25,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,37 +44,44 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import at.co.netconsulting.geotracker.data.CadenceBucketStats
+import at.co.netconsulting.geotracker.data.CadenceYearlyStats
 import at.co.netconsulting.geotracker.data.EventWithTotalDistance
 import at.co.netconsulting.geotracker.data.HeartRateYearlyStats
 import at.co.netconsulting.geotracker.data.HeartRateZoneStats
 import at.co.netconsulting.geotracker.data.MonthlyHeartRateStats
+import at.co.netconsulting.geotracker.data.MonthlyCadenceStats
 import at.co.netconsulting.geotracker.data.MonthlyStats
 import at.co.netconsulting.geotracker.data.WeeklyStats
 import at.co.netconsulting.geotracker.data.YearlyStatsData
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
-import at.co.netconsulting.geotracker.domain.Metric
-import at.co.netconsulting.geotracker.repository.MetricDao
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
-import kotlin.math.roundToInt
 
 // Simple cache to avoid recalculating statistics
 private var statsCache: Map<Int, YearlyStatsData>? = null
 private var cacheTimestamp: Long = 0
 private const val CACHE_DURATION_MS = 5 * 60 * 1000L // 5 minutes
+
+private enum class StatisticsLoadingPhase {
+    ACTIVITIES,
+    TRENDS,
+    HEART_RATE,
+    SPM
+}
 
 @Composable
 fun YearlyStatisticsScreen(
@@ -77,8 +92,9 @@ fun YearlyStatisticsScreen(
     var expandedYear by remember { mutableStateOf<Int?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var loadingProgress by remember { mutableStateOf(0f) }
-    var loadingMessage by remember { mutableStateOf("Loading events...") }
-    val coroutineScope = rememberCoroutineScope()
+    var loadingMessage by remember { mutableStateOf("Finding your activities") }
+    var loadingDetail by remember { mutableStateOf("Opening your training history") }
+    var loadingPhase by remember { mutableStateOf(StatisticsLoadingPhase.ACTIVITIES) }
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
 
     // Current year for highlighting
@@ -88,43 +104,50 @@ fun YearlyStatisticsScreen(
     LaunchedEffect(Unit) {
         isLoading = true
         loadingProgress = 0f
+        loadingMessage = "Finding your activities"
+        loadingDetail = "Opening your training history"
+        loadingPhase = StatisticsLoadingPhase.ACTIVITIES
 
-        coroutineScope.launch {
-            try {
-                // Check cache first
-                val currentTime = System.currentTimeMillis()
-                if (statsCache != null && (currentTime - cacheTimestamp) < CACHE_DURATION_MS) {
-                    yearlyStatsData = statsCache!!
-                    isLoading = false
-                    return@launch
-                }
-
-                loadingMessage = "Loading events..."
-                loadingProgress = 0.1f
-
-                val eventsWithMetrics = getAllEventsWithMetrics(database)
-
-                loadingMessage = "Calculating statistics..."
-                loadingProgress = 0.5f
-
-                val statsData = calculateComprehensiveStatsWithProgress(
-                    eventsWithMetrics,
-                    database
-                ) { progress, message ->
-                    loadingProgress = 0.5f + (progress * 0.5f)
-                    loadingMessage = message
-                }
-
-                // Cache the results
-                statsCache = statsData
-                cacheTimestamp = currentTime
-
-                yearlyStatsData = statsData
+        try {
+            // Check cache first
+            val currentTime = System.currentTimeMillis()
+            if (statsCache != null && (currentTime - cacheTimestamp) < CACHE_DURATION_MS) {
+                yearlyStatsData = statsCache!!
                 isLoading = false
-            } catch (e: Exception) {
-                Log.e("YearlyStatisticsScreen", "Error loading stats", e)
-                isLoading = false
+                return@LaunchedEffect
             }
+
+            val eventsWithMetrics = getAllEventsWithMetrics(database) { progress, message, detail ->
+                loadingProgress = 0.04f + (progress * 0.42f)
+                loadingMessage = message
+                loadingDetail = detail
+            }
+
+            loadingPhase = StatisticsLoadingPhase.TRENDS
+            loadingMessage = "Building yearly trends"
+            loadingDetail = "Grouping ${eventsWithMetrics.size} activities by week and month"
+            loadingProgress = 0.48f
+
+            val statsData = calculateComprehensiveStatsWithProgress(
+                eventsWithMetrics,
+                database
+            ) { progress, message, detail, phase ->
+                loadingProgress = 0.48f + (progress * 0.50f)
+                loadingMessage = message
+                loadingDetail = detail
+                loadingPhase = phase
+            }
+
+            // Cache the results
+            statsCache = statsData
+            cacheTimestamp = currentTime
+
+            loadingProgress = 1f
+            yearlyStatsData = statsData
+            isLoading = false
+        } catch (e: Exception) {
+            Log.e("YearlyStatisticsScreen", "Error loading stats", e)
+            isLoading = false
         }
     }
 
@@ -135,34 +158,12 @@ fun YearlyStatisticsScreen(
             .padding(16.dp)
     ) {
         if (isLoading) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    CircularProgressIndicator(
-                        progress = loadingProgress,
-                        color = MaterialTheme.colorScheme.primary,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(48.dp)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = loadingMessage,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = "${(loadingProgress * 100).toInt()}%",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+            StatisticsLoadingCard(
+                progress = loadingProgress,
+                message = loadingMessage,
+                detail = loadingDetail,
+                phase = loadingPhase
+            )
         } else if (yearlyStatsData.isEmpty()) {
             Card(
                 modifier = Modifier
@@ -211,6 +212,184 @@ fun YearlyStatisticsScreen(
 }
 
 @Composable
+private fun StatisticsLoadingCard(
+    progress: Float,
+    message: String,
+    detail: String,
+    phase: StatisticsLoadingPhase
+) {
+    val animatedProgress by animateFloatAsState(
+        targetValue = progress.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 450, easing = FastOutSlowInEasing),
+        label = "statistics progress"
+    )
+    val infiniteTransition = rememberInfiniteTransition(label = "statistics loading pulse")
+    val iconScale by infiniteTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "statistics icon scale"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 20.dp),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(54.dp)
+                        .scale(iconScale)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(30.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(16.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Preparing detailed statistics",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Your activity story is taking shape",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.primary)
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "${(animatedProgress * 100).toInt()}%",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            LinearProgressIndicator(
+                progress = { animatedProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(50)),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.70f)
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Text(
+                text = message,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+            )
+
+            Spacer(modifier = Modifier.height(22.dp))
+            StatisticsLoadingSteps(currentPhase = phase)
+        }
+    }
+}
+
+@Composable
+private fun StatisticsLoadingSteps(currentPhase: StatisticsLoadingPhase) {
+    val labels = listOf("Activities", "Trends", "Heart rate", "SPM")
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        labels.forEachIndexed { index, label ->
+            val isComplete = index < currentPhase.ordinal
+            val isActive = index == currentPhase.ordinal
+            val stepColor = when {
+                isComplete -> MaterialTheme.colorScheme.primary
+                isActive -> MaterialTheme.colorScheme.tertiary
+                else -> MaterialTheme.colorScheme.outlineVariant
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(stepColor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isComplete) "✓" else "${index + 1}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = when {
+                            isComplete -> MaterialTheme.colorScheme.onPrimary
+                            isActive -> MaterialTheme.colorScheme.onTertiary
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isActive || isComplete) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun YearlyStatsCard(
     year: Int,
     statsData: YearlyStatsData,
@@ -250,7 +429,7 @@ fun YearlyStatsCard(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.TrendingUp,
+                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                         contentDescription = "Statistics",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
@@ -517,6 +696,110 @@ fun DetailedYearBreakdown(
                     )
                 }
             }
+
+            statsData.cadenceStats?.let { cadenceStats ->
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Running Cadence (SPM)",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 8.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.55f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            HeartRateStatItem(
+                                label = "Overall Min",
+                                value = "${cadenceStats.overallMinSpm} spm",
+                                color = Color(0xFF5E35B1),
+                                modifier = Modifier.weight(1f)
+                            )
+                            HeartRateStatItem(
+                                label = "Overall Avg",
+                                value = "${cadenceStats.overallAvgSpm.toInt()} spm",
+                                color = Color(0xFF7E57C2),
+                                modifier = Modifier.weight(1f)
+                            )
+                            HeartRateStatItem(
+                                label = "Overall Max",
+                                value = "${cadenceStats.overallMaxSpm} spm",
+                                color = Color(0xFFD81B60),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val cadenceCoverage = if (cadenceStats.totalRunningActivities > 0) {
+                            cadenceStats.activitiesWithCadence * 100 / cadenceStats.totalRunningActivities
+                        } else {
+                            0
+                        }
+                        Text(
+                            text = "${cadenceStats.activitiesWithCadence} running activities with cadence · $cadenceCoverage% coverage",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Monthly SPM Trend",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFF5F5F5))
+                        .padding(8.dp)
+                ) {
+                    CadenceTrendGraph(
+                        monthlyCadenceStats = cadenceStats.monthlyCadenceStats,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "SPM Distribution",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFFF5F5F5))
+                        .padding(8.dp)
+                ) {
+                    CadenceDistributionGraph(
+                        buckets = cadenceStats.distribution,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
         }
     }
 }
@@ -627,18 +910,38 @@ private fun getMonthName(month: Int): String {
 private suspend fun calculateComprehensiveStatsWithProgress(
     events: List<EventWithTotalDistance>,
     database: FitnessTrackerDatabase,
-    onProgress: (Float, String) -> Unit
+    onProgress: (Float, String, String, StatisticsLoadingPhase) -> Unit
 ): Map<Int, YearlyStatsData> {
     return withContext(Dispatchers.Default) {
         val yearGroups = events.groupBy { event ->
             event.eventDate.split("-")[0].toInt()
+        }.toSortedMap(compareByDescending { it })
+
+        if (yearGroups.isEmpty()) {
+            withContext(Dispatchers.Main) {
+                onProgress(
+                    1f,
+                    "No recorded activities found",
+                    "There is nothing to calculate yet",
+                    StatisticsLoadingPhase.TRENDS
+                )
+            }
+            return@withContext emptyMap()
         }
 
         val totalYears = yearGroups.size
+        val overallActivityCount = events.size.coerceAtLeast(1)
         val results = mutableMapOf<Int, YearlyStatsData>()
 
         yearGroups.entries.forEachIndexed { yearIndex, (year, yearEvents) ->
-            onProgress(yearIndex.toFloat() / totalYears, "Processing year $year...")
+            withContext(Dispatchers.Main) {
+                onProgress(
+                    0.12f * (yearIndex.toFloat() / totalYears),
+                    "Building trends for $year",
+                    "Year ${yearIndex + 1} of $totalYears",
+                    StatisticsLoadingPhase.TRENDS
+                )
+            }
 
             val totalDistance = yearEvents.sumOf { it.totalDistance / 1000.0 }
             val totalActivities = yearEvents.size
@@ -680,10 +983,6 @@ private suspend fun calculateComprehensiveStatsWithProgress(
                 )
             }.sortedBy { it.week }
 
-            // Calculate heart rate statistics
-            onProgress((yearIndex + 0.5f) / totalYears, "Calculating heart rate data for $year...")
-            val heartRateStats = calculateHeartRateStats(year, yearEvents, database)
-
             results[year] = YearlyStatsData(
                 year = year,
                 totalDistance = totalDistance,
@@ -692,8 +991,83 @@ private suspend fun calculateComprehensiveStatsWithProgress(
                 averageDistancePerMonth = averageDistancePerMonth,
                 monthlyStats = monthlyStats,
                 weeklyStats = weeklyStats,
-                heartRateStats = heartRateStats
+                heartRateStats = null
             )
+
+            withContext(Dispatchers.Main) {
+                onProgress(
+                    0.12f * ((yearIndex + 1f) / totalYears),
+                    "Built trends for $year",
+                    "Year ${yearIndex + 1} of $totalYears",
+                    StatisticsLoadingPhase.TRENDS
+                )
+            }
+        }
+
+        var analyzedActivities = 0
+        yearGroups.entries.forEach { (year, yearEvents) ->
+            val heartRateStats = calculateHeartRateStats(
+                year = year,
+                events = yearEvents,
+                database = database
+            ) { completedInYear, _ ->
+                val completedOverall = analyzedActivities + completedInYear
+                val calculationProgress = completedOverall.toFloat() / overallActivityCount
+
+                withContext(Dispatchers.Main) {
+                    onProgress(
+                        0.12f + (calculationProgress * 0.63f),
+                        "Reading heart-rate data for $year",
+                        "$completedOverall of ${events.size} activities analyzed",
+                        StatisticsLoadingPhase.HEART_RATE
+                    )
+                }
+            }
+
+            results[year] = results.getValue(year).copy(heartRateStats = heartRateStats)
+            analyzedActivities += yearEvents.size
+        }
+
+        val runningActivityCount = events.count { cadenceDisplayFor(it.artOfSport).isRunning }
+        var analyzedRunningActivities = 0
+
+        if (runningActivityCount == 0) {
+            withContext(Dispatchers.Main) {
+                onProgress(
+                    1f,
+                    "SPM analysis complete",
+                    "No running activities with cadence were found",
+                    StatisticsLoadingPhase.SPM
+                )
+            }
+        } else {
+            yearGroups.entries.forEach { (year, yearEvents) ->
+                val runningYearEvents = yearEvents.filter {
+                    cadenceDisplayFor(it.artOfSport).isRunning
+                }
+                if (runningYearEvents.isEmpty()) return@forEach
+
+                val cadenceStats = calculateCadenceStats(
+                    year = year,
+                    events = runningYearEvents,
+                    database = database
+                ) { completedInYear, _ ->
+                    val completedOverall = analyzedRunningActivities + completedInYear
+                    val cadenceProgress = completedOverall.toFloat() / runningActivityCount
+
+                    withContext(Dispatchers.Main) {
+                        onProgress(
+                            0.75f + (cadenceProgress * 0.25f),
+                            "Calculating SPM for $year",
+                            "$completedOverall of $runningActivityCount running activities analyzed",
+                            StatisticsLoadingPhase.SPM
+                        )
+                    }
+                }
+
+                results[year] = results.getValue(year).copy(cadenceStats = cadenceStats)
+                analyzedRunningActivities += runningYearEvents.size
+            }
         }
 
         results
@@ -765,19 +1139,40 @@ private suspend fun calculateComprehensiveStats(events: List<EventWithTotalDista
     }
 }
 
-private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): List<EventWithTotalDistance> {
+private suspend fun getAllEventsWithMetrics(
+    database: FitnessTrackerDatabase,
+    onProgress: suspend (progress: Float, message: String, detail: String) -> Unit
+): List<EventWithTotalDistance> {
     return withContext(Dispatchers.IO) {
         val result = mutableListOf<EventWithTotalDistance>()
 
         try {
+            withContext(Dispatchers.Main) {
+                onProgress(0.02f, "Finding your activities", "Opening your training history")
+            }
+
             val eventsFlow = database.eventDao().getRecordedEvents()
             val events = eventsFlow.first()
+
+            if (events.isEmpty()) {
+                withContext(Dispatchers.Main) {
+                    onProgress(1f, "No recorded activities found", "There is nothing to scan yet")
+                }
+                return@withContext emptyList()
+            }
 
             // Get all event IDs at once
             val eventIds = events.map { it.eventId }
 
-            // Batch query: Get max distance for all events in one query
-            val eventDistances = getMaxDistancesForEvents(database, eventIds)
+            val eventDistances = getMaxDistancesForEvents(database, eventIds) { completed, total ->
+                withContext(Dispatchers.Main) {
+                    onProgress(
+                        0.05f + (completed.toFloat() / total * 0.90f),
+                        "Reading activity details",
+                        "$completed of $total activities scanned"
+                    )
+                }
+            }
 
             // Process events without individual queries
             events.forEach { event ->
@@ -797,6 +1192,10 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
                     Log.e("YearlyStatisticsScreen", "Error processing event ${event.eventId}: ${e.message}", e)
                 }
             }
+
+            withContext(Dispatchers.Main) {
+                onProgress(1f, "Activities ready", "${result.size} activities loaded")
+            }
         } catch (e: Exception) {
             Log.e("YearlyStatisticsScreen", "Error getting events: ${e.message}", e)
         }
@@ -804,28 +1203,30 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
     }
 }
 
-// Optimized batch query to get max distances for all events at once
-private suspend fun getMaxDistancesForEvents(database: FitnessTrackerDatabase, eventIds: List<Int>): Map<Int, Double> {
+private suspend fun getMaxDistancesForEvents(
+    database: FitnessTrackerDatabase,
+    eventIds: List<Int>,
+    onProgress: suspend (completed: Int, total: Int) -> Unit
+): Map<Int, Double> {
     return withContext(Dispatchers.IO) {
         try {
-            // This would ideally be a single SQL query like:
-            // SELECT eventId, MAX(distance) FROM metrics WHERE eventId IN (...) GROUP BY eventId
-            // Since we don't have direct SQL access, we'll do a more efficient approach
-
             val distances = mutableMapOf<Int, Double>()
+            var completedEvents = 0
 
-            // Get all metrics for these events in chunks to avoid memory issues
+            // Keep the queries small and publish each completed activity to the UI.
             val chunkSize = 50
             eventIds.chunked(chunkSize).forEach { chunk ->
                 chunk.forEach { eventId ->
                     try {
-                        val metrics = database.metricDao().getMetricsByEventId(eventId)
-                        val maxDistance = metrics.maxOfOrNull { it.distance } ?: 0.0
-                        distances[eventId] = maxDistance
+                        distances[eventId] = database.metricDao()
+                            .getMaxDistanceForEvent(eventId) ?: 0.0
                     } catch (e: Exception) {
                         Log.w("YearlyStatisticsScreen", "Error getting distance for event $eventId: ${e.message}")
                         distances[eventId] = 0.0
                     }
+
+                    completedEvents++
+                    onProgress(completedEvents, eventIds.size)
                 }
             }
 
@@ -837,12 +1238,92 @@ private suspend fun getMaxDistancesForEvents(database: FitnessTrackerDatabase, e
     }
 }
 
-private suspend fun calculateHeartRateStats(year: Int, events: List<EventWithTotalDistance>, database: FitnessTrackerDatabase): HeartRateYearlyStats? {
+private suspend fun calculateCadenceStats(
+    year: Int,
+    events: List<EventWithTotalDistance>,
+    database: FitnessTrackerDatabase,
+    onProgress: suspend (completed: Int, total: Int) -> Unit
+): CadenceYearlyStats? {
+    return withContext(Dispatchers.IO) {
+        try {
+            val allSpmValues = mutableListOf<Int>()
+            val monthlySpmValues = (1..12).associateWith { mutableListOf<Int>() }
+            val monthlyActivityCounts = mutableMapOf<Int, Int>()
+            var activitiesWithCadence = 0
+
+            events.forEachIndexed { index, event ->
+                try {
+                    val spmValues = database.metricDao()
+                        .getCadenceValuesForEvent(event.eventId)
+                        .map { rawCadence -> rawCadence * 2 }
+
+                    if (spmValues.isNotEmpty()) {
+                        activitiesWithCadence++
+                        allSpmValues.addAll(spmValues)
+                        val month = event.eventDate.split("-")[1].toInt()
+                        monthlySpmValues.getValue(month).addAll(spmValues)
+                        monthlyActivityCounts[month] = (monthlyActivityCounts[month] ?: 0) + 1
+                    }
+                } catch (e: Exception) {
+                    Log.w("CadenceStats", "Error getting cadence for event ${event.eventId}: ${e.message}")
+                }
+
+                onProgress(index + 1, events.size)
+            }
+
+            if (allSpmValues.isEmpty()) return@withContext null
+
+            val monthlyStats = (1..12).map { month ->
+                val values = monthlySpmValues.getValue(month)
+                MonthlyCadenceStats(
+                    year = year,
+                    month = month,
+                    minSpm = values.minOrNull() ?: 0,
+                    avgSpm = if (values.isNotEmpty()) values.average() else 0.0,
+                    maxSpm = values.maxOrNull() ?: 0,
+                    activitiesWithCadence = monthlyActivityCounts[month] ?: 0
+                )
+            }
+
+            val distribution = cadenceDistributionFor(allSpmValues)
+
+            CadenceYearlyStats(
+                year = year,
+                overallMinSpm = allSpmValues.minOrNull() ?: 0,
+                overallAvgSpm = allSpmValues.average(),
+                overallMaxSpm = allSpmValues.maxOrNull() ?: 0,
+                activitiesWithCadence = activitiesWithCadence,
+                totalRunningActivities = events.size,
+                monthlyCadenceStats = monthlyStats,
+                distribution = distribution
+            )
+        } catch (e: Exception) {
+            Log.e("CadenceStats", "Error calculating SPM statistics for $year: ${e.message}", e)
+            null
+        }
+    }
+}
+
+internal fun cadenceDistributionFor(spmValues: List<Int>): List<CadenceBucketStats> = listOf(
+    CadenceBucketStats("<140", spmValues.count { it < 140 }),
+    CadenceBucketStats("140-149", spmValues.count { it in 140..149 }),
+    CadenceBucketStats("150-159", spmValues.count { it in 150..159 }),
+    CadenceBucketStats("160-169", spmValues.count { it in 160..169 }),
+    CadenceBucketStats("170-179", spmValues.count { it in 170..179 }),
+    CadenceBucketStats("180+", spmValues.count { it >= 180 })
+)
+
+private suspend fun calculateHeartRateStats(
+    year: Int,
+    events: List<EventWithTotalDistance>,
+    database: FitnessTrackerDatabase,
+    onProgress: suspend (completed: Int, total: Int) -> Unit = { _, _ -> }
+): HeartRateYearlyStats? {
     return withContext(Dispatchers.IO) {
         try {
             // Batch get heart rate data for all events at once
             val eventIds = events.map { it.eventId }
-            val heartRateData = getBatchHeartRateData(database, eventIds)
+            val heartRateData = getBatchHeartRateData(database, eventIds, onProgress)
 
             if (heartRateData.isEmpty()) {
                 return@withContext null
@@ -920,10 +1401,15 @@ private suspend fun calculateHeartRateStats(year: Int, events: List<EventWithTot
 }
 
 // Optimized batch heart rate data retrieval
-private suspend fun getBatchHeartRateData(database: FitnessTrackerDatabase, eventIds: List<Int>): Map<Int, List<Int>> {
+private suspend fun getBatchHeartRateData(
+    database: FitnessTrackerDatabase,
+    eventIds: List<Int>,
+    onProgress: suspend (completed: Int, total: Int) -> Unit
+): Map<Int, List<Int>> {
     return withContext(Dispatchers.IO) {
         try {
             val heartRateData = mutableMapOf<Int, List<Int>>()
+            var completedEvents = 0
 
             // Process in smaller chunks to avoid memory issues
             val chunkSize = 25  // Smaller chunks for better memory management
@@ -937,6 +1423,9 @@ private suspend fun getBatchHeartRateData(database: FitnessTrackerDatabase, even
                         Log.w("HeartRateStats", "Error getting HR for event $eventId: ${e.message}")
                         heartRateData[eventId] = emptyList()
                     }
+
+                    completedEvents++
+                    onProgress(completedEvents, eventIds.size)
                 }
 
                 // Small delay between chunks to prevent overwhelming the database

@@ -52,4 +52,7 @@ interface MetricDao {
 
     @Query("SELECT MAX(distance) FROM metrics WHERE eventId = :eventId")
     suspend fun getMaxDistanceForEvent(eventId: Int): Double?
+
+    @Query("SELECT cadence FROM metrics WHERE eventId = :eventId AND cadence IS NOT NULL AND cadence > 0 ORDER BY metricId ASC")
+    suspend fun getCadenceValuesForEvent(eventId: Int): List<Int>
 }
