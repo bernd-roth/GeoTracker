@@ -138,7 +138,7 @@ class TrackingServer:
         self.data_retention_hours = int(os.getenv('DATA_RETENTION_HOURS', '48'))  # Default: 48 hours
 
         # Cleanup interval in seconds - how often to run cleanup
-        self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '60   '))  # Default: 1 hour
+        self.cleanup_interval_seconds = int(os.getenv('CLEANUP_INTERVAL_SECONDS', '60'))  # Default: 1 hour
 
         # Enable/disable automatic cleanup
         self.enable_automatic_cleanup = os.getenv('ENABLE_AUTOMATIC_CLEANUP', 'true').lower() == 'true'
@@ -407,6 +407,59 @@ class TrackingServer:
                 str(e)
             )
             return False
+
+    async def backfill_empty_redis_history_from_db(self) -> int:
+        """Restore the live Redis window from PostgreSQL when Redis is empty."""
+        if not self.redis_client or not self.db_pool:
+            return 0
+
+        if await self.redis_client.zcard(self.redis_history_key):
+            logging.info("Redis live history is not empty; database backfill skipped")
+            return 0
+
+        loaded_count = await self.load_tracking_history_from_db()
+        if not loaded_count:
+            logging.info("No recent PostgreSQL tracking points available for Redis backfill")
+            return 0
+
+        cache_entries = []
+        for points in self.tracking_history.values():
+            for tracking_point in points:
+                try:
+                    cached_at = datetime.datetime.strptime(
+                        tracking_point['timestamp'],
+                        self.timestamp_format
+                    ).replace(tzinfo=datetime.timezone.utc).timestamp()
+                except (KeyError, TypeError, ValueError):
+                    logging.warning(
+                        "Skipping PostgreSQL point with invalid timestamp during Redis backfill"
+                    )
+                    continue
+
+                cache_entry = json.dumps(
+                    {
+                        "cacheId": uuid.uuid4().hex,
+                        "cachedAt": cached_at,
+                        "point": tracking_point
+                    },
+                    separators=(',', ':'),
+                    ensure_ascii=False,
+                    default=str
+                )
+                cache_entries.append((cache_entry, cached_at))
+
+        for index in range(0, len(cache_entries), 500):
+            batch = cache_entries[index:index + 500]
+            await self.redis_client.zadd(
+                self.redis_history_key,
+                {entry: score for entry, score in batch}
+            )
+
+        logging.info(
+            "Backfilled %s live tracking points from PostgreSQL into Redis",
+            len(cache_entries)
+        )
+        return len(cache_entries)
 
     async def cleanup_old_data_from_redis(self) -> int:
         """Remove live tracking points older than the retention window."""
@@ -1493,15 +1546,15 @@ class TrackingServer:
             logging.error(f"Data that failed to save: {json.dumps(message_data, indent=2)}")
             return False
 
-    async def load_tracking_history_from_db(self) -> None:
+    async def load_tracking_history_from_db(self) -> int:
         """Load recent tracking history from normalized database using configurable retention period."""
         if not self.db_pool:
             logging.warning("Database pool not initialized, skipping history load")
-            return
+            return 0
 
         try:
-            # Use an offset-aware cutoff for timestamptz comparisons. A session
-            # stays visible while its latest GPS point is within the live window.
+            # Use an offset-aware cutoff and restore only points that still
+            # belong to the configured live-history window.
             cutoff_time = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=self.data_retention_hours)
 
             query = """
@@ -1524,12 +1577,7 @@ class TrackingServer:
                 JOIN tracking_sessions s ON gtp.session_id = s.session_id
                 JOIN users u ON s.user_id = u.user_id
                 LEFT JOIN heart_rate_devices hrd ON gtp.heart_rate_device_id = hrd.device_id
-                WHERE gtp.session_id IN (
-                    SELECT recent_gtp.session_id
-                    FROM gps_tracking_points recent_gtp
-                    GROUP BY recent_gtp.session_id
-                    HAVING MAX(recent_gtp.received_at) >= $1
-                )
+                WHERE gtp.received_at >= $1
                 ORDER BY gtp.session_id, gtp.received_at
             """
 
@@ -1546,7 +1594,11 @@ class TrackingServer:
                     "sessionId": row['session_id'],
                     "firstname": row['firstname'],
                     "lastname": row['lastname'] or '',
-                    "birthdate": row['birthdate'].isoformat() if row['birthdate'] else '',
+                    "birthdate": (
+                        row['birthdate'].isoformat()
+                        if hasattr(row['birthdate'], 'isoformat')
+                        else str(row['birthdate'] or '')
+                    ),
                     "height": float(row['height']) if row['height'] is not None else 0.0,
                     "weight": float(row['weight']) if row['weight'] is not None else 0.0,
                     "bmi": float(row['bmi']) if row['bmi'] is not None else 0.0,
@@ -1620,9 +1672,11 @@ class TrackingServer:
                 self.tracking_history[row['session_id']].append(tracking_point)
 
             logging.info(f"Loaded {len(rows)} tracking points from database (last {self.data_retention_hours} hours)")
+            return len(rows)
 
         except Exception as e:
             logging.error(f"Error loading tracking history from normalized database: {str(e)}")
+            return 0
 
     async def get_weather_data_for_session(self, session_id: str) -> List[Dict[str, Any]]:
         """Retrieve weather data from GPS tracking points for a specific session."""
@@ -2992,11 +3046,12 @@ async def main():
         logging.error(f"Database initialization failed: {str(e)}")
         logging.info("Continuing without database - data will be stored in memory only")
 
-    # Redis is the only startup source for the live webpage's recent history.
-    # Do not fall back to PostgreSQL here: analysis and live data paths remain
-    # intentionally separate.
+    # Redis is the normal startup source for the live webpage. If its live key
+    # is empty after an outage or recreation, rebuild the configured live
+    # window from PostgreSQL before loading the in-memory state.
     try:
         await server.init_redis()
+        await server.backfill_empty_redis_history_from_db()
         await server.load_tracking_history_from_redis()
     except Exception as e:
         logging.error(f"Redis live-history initialization failed: {str(e)}")

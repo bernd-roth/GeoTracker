@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest.mock import AsyncMock
 
 
 def load_websocket_server_module():
@@ -101,6 +102,42 @@ class LiveSnapshotTest(unittest.TestCase):
             "endAddress": "",
             "version": "",
         }], self.server.build_session_info(points))
+
+
+class RedisBackfillTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.server = websocket_server.TrackingServer()
+        self.server.db_pool = object()
+        self.server.redis_client = AsyncMock()
+
+    async def test_nonempty_redis_history_is_not_overwritten(self):
+        self.server.redis_client.zcard.return_value = 3
+        self.server.load_tracking_history_from_db = AsyncMock()
+
+        restored = await self.server.backfill_empty_redis_history_from_db()
+
+        self.assertEqual(0, restored)
+        self.server.load_tracking_history_from_db.assert_not_awaited()
+        self.server.redis_client.zadd.assert_not_awaited()
+
+    async def test_empty_redis_history_is_backfilled_with_original_timestamp(self):
+        self.server.redis_client.zcard.return_value = 0
+        self.server.load_tracking_history_from_db = AsyncMock(return_value=1)
+        self.server.tracking_history["session-1"].append({
+            "sessionId": "session-1",
+            "timestamp": "03-08-2026 18:45:54",
+            "latitude": 48.2,
+            "longitude": 16.3,
+        })
+
+        restored = await self.server.backfill_empty_redis_history_from_db()
+
+        self.assertEqual(1, restored)
+        self.server.redis_client.zadd.assert_awaited_once()
+        key, entries = self.server.redis_client.zadd.await_args.args
+        self.assertEqual(self.server.redis_history_key, key)
+        self.assertEqual(1, len(entries))
+        self.assertEqual(1785782754.0, next(iter(entries.values())))
 
 
 if __name__ == "__main__":

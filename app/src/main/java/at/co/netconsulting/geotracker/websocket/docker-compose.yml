@@ -1,4 +1,27 @@
 services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: redis
+    restart: unless-stopped
+    command:
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"
+    ports:
+      - "192.168.0.82:6379:6379"
+    volumes:
+      - ../redis/data:/data
+    env_file:
+      - ../redis/.env
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - redis-network
+
   postgres-geotracker:
     image: postgres:15
     container_name: postgres-geotracker
@@ -64,6 +87,8 @@ services:
       - ../redis/.env
     depends_on:
       postgres-geotracker:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - app-network
