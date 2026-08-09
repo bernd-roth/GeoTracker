@@ -141,6 +141,7 @@ class ForegroundService : Service() {
 
     //reconnection logic
     private var connectionMonitorJob: Job? = null
+    private var startupLocationWatchdogJob: Job? = null
     private var isWebSocketConnected = false
     //Weather
     private var weatherJob: Job? = null
@@ -784,6 +785,7 @@ class ForegroundService : Service() {
 
                     isAcceptingLocationUpdates = true
                     it.startListener()
+                    startStartupLocationWatchdog(it)
 
                     // If we have restored position and distance, initialize the location listener with them
                     if (isRestoring && distance > 0) {
@@ -2469,6 +2471,13 @@ class ForegroundService : Service() {
         }
 
         try {
+            startupLocationWatchdogJob?.cancel()
+            startupLocationWatchdogJob = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling startup location watchdog", e)
+        }
+
+        try {
             serviceJob.cancel()
         } catch (e: Exception) {
             Log.e(TAG, "Error cancelling service job", e)
@@ -2886,6 +2895,72 @@ class ForegroundService : Service() {
         }
     }
 
+    private fun startStartupLocationWatchdog(listener: CustomLocationListener) {
+        startupLocationWatchdogJob?.cancel()
+        startupLocationWatchdogJob = serviceScope.launch {
+            delay(STARTUP_LOCATION_CHECK_DELAY_MS)
+
+            if (!canRunStartupLocationWatchdog(listener)) {
+                return@launch
+            }
+
+            val initialCallbackCount = listener.getAcceptedLocationCallbackCount()
+            if (!StartupLocationWatchdogPolicy.shouldRestartInitially(initialCallbackCount)) {
+                Log.d(
+                    TAG,
+                    "Startup GPS watchdog healthy: $initialCallbackCount callbacks received"
+                )
+                return@launch
+            }
+
+            Log.w(
+                TAG,
+                "Startup GPS watchdog restarting location updates: only " +
+                    "$initialCallbackCount callback(s) received after " +
+                    "${STARTUP_LOCATION_CHECK_DELAY_MS}ms"
+            )
+            listener.restartLocationUpdates(
+                "Startup watchdog received fewer than repeated GPS callbacks"
+            )
+
+            val callbackCountAtRestart = listener.getAcceptedLocationCallbackCount()
+            delay(STARTUP_LOCATION_RETRY_DELAY_MS)
+
+            if (!canRunStartupLocationWatchdog(listener)) {
+                return@launch
+            }
+
+            val callbackCountAfterRestart = listener.getAcceptedLocationCallbackCount()
+            if (StartupLocationWatchdogPolicy.shouldRetryAfterRestart(
+                    callbackCountAtRestart,
+                    callbackCountAfterRestart
+                )
+            ) {
+                Log.w(
+                    TAG,
+                    "Startup GPS watchdog retrying location updates: callback count " +
+                        "advanced from $callbackCountAtRestart to $callbackCountAfterRestart"
+                )
+                listener.restartLocationUpdates(
+                    "Startup watchdog still has no repeated GPS callbacks after first restart"
+                )
+            } else {
+                Log.d(
+                    TAG,
+                    "Startup GPS watchdog recovered: callback count advanced from " +
+                        "$callbackCountAtRestart to $callbackCountAfterRestart"
+                )
+            }
+        }
+    }
+
+    private fun canRunStartupLocationWatchdog(listener: CustomLocationListener): Boolean =
+        customLocationListener === listener &&
+            isServiceStarted &&
+            isAcceptingLocationUpdates &&
+            !isStoppingIntentionally &&
+            !isPaused
+
     /**
      * Transmit current lap times to WebSocket server
      */
@@ -3034,6 +3109,8 @@ class ForegroundService : Service() {
         // reconnection logic
         private const val CONNECTION_CHECK_INTERVAL = 15_000L
         private const val LOCATION_STALL_TIMEOUT_MS = 30_000L
+        private const val STARTUP_LOCATION_CHECK_DELAY_MS = 4_000L
+        private const val STARTUP_LOCATION_RETRY_DELAY_MS = 4_000L
 
         // restoring logic
         private const val STATE_CONSISTENCY_CHECK_INTERVAL = 30_000L // 30 seconds

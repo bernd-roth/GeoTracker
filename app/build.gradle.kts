@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.07 (30-07-2026: Replaced the static ring when calling detailed statistics; added cadence plots and the three-number SPM summary)"
+        versionName = "10.08 (09-08-2026: Recover immediately when GPS callbacks stall at recording startup)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

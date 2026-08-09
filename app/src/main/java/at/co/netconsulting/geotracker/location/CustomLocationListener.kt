@@ -36,6 +36,7 @@ import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import java.util.LinkedList
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.TimeUnit
 import android.content.BroadcastReceiver
 import android.content.Intent
@@ -94,6 +95,7 @@ class CustomLocationListener: LocationListener {
     private var lastMessageTime: Long = System.currentTimeMillis()
     @Volatile private var lastLocationUpdateTimestamp: Long = System.currentTimeMillis()
     @Volatile private var acceptLocationUpdates: Boolean = true
+    private val acceptedLocationCallbackCount = AtomicLong(0L)
     private var healthCheckJob: Job? = null
     private var isWebSocketConnected = false
     private var connectivityManager: ConnectivityManager? = null
@@ -342,6 +344,8 @@ class CustomLocationListener: LocationListener {
         return now - lastLocationUpdateTimestamp
     }
 
+    fun getAcceptedLocationCallbackCount(): Long = acceptedLocationCallbackCount.get()
+
     fun restartLocationUpdates(reason: String) {
         val lastLocationAgeMs = getMillisSinceLastLocationUpdate()
         lastLocationUpdateTimestamp = System.currentTimeMillis()
@@ -544,6 +548,7 @@ class CustomLocationListener: LocationListener {
             return
         }
 
+        acceptedLocationCallbackCount.incrementAndGet()
         lastLocationUpdateTimestamp = System.currentTimeMillis()
         val instId = System.identityHashCode(this)
         Log.d("CustomLocationListener",
