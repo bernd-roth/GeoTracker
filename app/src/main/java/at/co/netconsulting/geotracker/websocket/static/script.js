@@ -289,6 +289,57 @@ function speedToColor(speed) {
     return (band || SPEED_COLOR_BANDS[SPEED_COLOR_BANDS.length - 1]).color;
 }
 
+function buildLineGradientStops(segment, segmentSpeeds, maxStops = 100) {
+    if (!Array.isArray(segment) || segment.length < 2) return [];
+
+    const distances = [0];
+    let totalDistance = 0;
+
+    for (let i = 1; i < segment.length; i++) {
+        const dx = segment[i][0] - segment[i - 1][0];
+        const dy = segment[i][1] - segment[i - 1][1];
+        totalDistance += Math.sqrt(dx * dx + dy * dy);
+        distances.push(totalDistance);
+    }
+
+    // A stationary track has no drawable gradient. The caller will use a
+    // solid line instead of constructing an invalid interpolate expression.
+    if (!Number.isFinite(totalDistance) || totalDistance <= 0) return [];
+
+    const safeMaxStops = Math.max(2, Math.floor(maxStops) || 100);
+    const step = Math.max(1, Math.ceil(segment.length / safeMaxStops));
+    const gradientStops = [];
+
+    const addStop = (fraction, color) => {
+        if (!Number.isFinite(fraction)) return;
+
+        const clampedFraction = Math.max(0, Math.min(1, fraction));
+        const previousFractionIndex = gradientStops.length - 2;
+
+        if (previousFractionIndex >= 0) {
+            const previousFraction = gradientStops[previousFractionIndex];
+            if (clampedFraction <= previousFraction) {
+                // Consecutive identical GPS positions have the same cumulative
+                // distance. Keep the newest color without adding a duplicate
+                // stop, because MapLibre requires strictly increasing inputs.
+                if (clampedFraction === previousFraction) {
+                    gradientStops[gradientStops.length - 1] = color;
+                }
+                return;
+            }
+        }
+
+        gradientStops.push(clampedFraction, color);
+    };
+
+    for (let i = 0; i < segment.length; i += step) {
+        addStop(distances[i] / totalDistance, speedToColor(segmentSpeeds[i]));
+    }
+
+    addStop(1, speedToColor(segmentSpeeds[segmentSpeeds.length - 1]));
+    return gradientStops;
+}
+
 function createSpeedLegendControl() {
     return {
         onAdd: function () {
@@ -365,6 +416,7 @@ function initMap() {
     try {
         console.log("Initializing MapLibre GL JS map...");
         const initialLocation = [0, 0]; // Center of the world [lng, lat]
+        let initialMapLoadComplete = false;
 
         const mapStyle = currentTheme === 'dark'
             ? 'https://tiles.openfreemap.org/styles/dark'
@@ -379,6 +431,7 @@ function initMap() {
         });
 
         map.on('load', () => {
+            initialMapLoadComplete = true;
             console.log("MapLibre GL JS map with vector tiles loaded successfully");
 
             // Add attribution
@@ -394,8 +447,10 @@ function initMap() {
         // If the vector style fails on initial load, fall back to OSM raster
         // Use 'once' to avoid replacing the map on every transient error (e.g. tile 404)
         map.once('error', (e) => {
-            // Only fall back if the map has no loaded style (initial load failure)
-            if (!map.isStyleLoaded()) {
+            // isStyleLoaded() can temporarily become false when a GeoJSON
+            // source is added. Only errors before the map's initial load event
+            // are allowed to replace the map with the raster fallback.
+            if (!initialMapLoadComplete) {
                 console.error('Vector map failed, falling back to OSM raster:', e);
                 addDebugMessage(`Vector map error, using OSM fallback: ${e.message}`, 'warning');
                 initOSMRasterMap();
@@ -410,6 +465,14 @@ function initMap() {
         addDebugMessage(`Map initialization error: ${error.message}`, 'error');
         initOSMRasterMap(); // Fallback to OSM raster
     }
+}
+
+function redrawStoredMapTracks() {
+    Object.keys(trackPoints).forEach(sessionId => {
+        if (shouldDisplaySession(sessionId)) {
+            updateMapTrack(sessionId);
+        }
+    });
 }
 
 // Fallback function for OSM raster map with better zoom
@@ -460,6 +523,10 @@ function initOSMRasterMap() {
             }));
 
             addSpeedLegendControl();
+
+            // A fallback can replace a map after history has already arrived.
+            // Re-create its custom sources, layers, and markers on the new map.
+            redrawStoredMapTracks();
 
             // Only call these if they haven't been called yet
             if (typeof initCharts === 'function' && !altitudeChart) {
@@ -2175,9 +2242,6 @@ function updateMapTrack(sessionId) {
             if (map.getSource(polylines[sessionId].sourceId)) map.removeSource(polylines[sessionId].sourceId);
         }
 
-        // Build speed data for each valid point
-        const pointSpeeds = validPoints.map(p => p.speed || 0);
-
         // Create color-coded segments for each track segment
         const segmentRefs = [];
 
@@ -2210,31 +2274,7 @@ function updateMapTrack(sessionId) {
             }
 
             if (segment.length >= 2) {
-                // Calculate cumulative distances for line-progress mapping
-                const distances = [0];
-                let totalDist = 0;
-                for (let i = 1; i < segment.length; i++) {
-                    const dx = segment[i][0] - segment[i-1][0];
-                    const dy = segment[i][1] - segment[i-1][1];
-                    totalDist += Math.sqrt(dx * dx + dy * dy);
-                    distances.push(totalDist);
-                }
-
-                // Sample gradient stops (max 100 to keep performance reasonable)
-                const maxStops = 100;
-                const step = segment.length > maxStops ? Math.floor(segment.length / maxStops) : 1;
-                const gradientStops = [];
-
-                for (let i = 0; i < segment.length; i += step) {
-                    const frac = totalDist > 0 ? distances[i] / totalDist : 0;
-                    gradientStops.push(frac, speedToColor(segSpeeds[i]));
-                }
-                // Ensure we have the last point
-                const lastFrac = 1.0;
-                const lastColor = speedToColor(segSpeeds[segSpeeds.length - 1]);
-                if (gradientStops.length >= 2 && gradientStops[gradientStops.length - 2] < 1.0) {
-                    gradientStops.push(lastFrac, lastColor);
-                }
+                const gradientStops = buildLineGradientStops(segment, segSpeeds);
 
                 const geojson = {
                     type: 'Feature',
