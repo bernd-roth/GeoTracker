@@ -5,9 +5,11 @@ import android.location.Address
 import android.location.Geocoder
 import android.os.Build
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.util.Locale
 import kotlin.coroutines.resume
 
@@ -19,13 +21,16 @@ data class LocationInfo(
 
 object GeocodingHelper {
     private const val TAG = "GeocodingHelper"
+    internal const val GEOCODING_TIMEOUT_MS = 10_000L
+
+    private val emptyLocationInfo = LocationInfo(null, null, null)
 
     suspend fun getLocationInfo(context: Context, latitude: Double, longitude: Double): LocationInfo {
-        return withContext(Dispatchers.IO) {
+        val locationInfo = runWithGeocodingTimeout {
             try {
                 if (!Geocoder.isPresent()) {
                     Log.w(TAG, "Geocoder is not present on this device")
-                    return@withContext LocationInfo(null, null, null)
+                    return@runWithGeocodingTimeout emptyLocationInfo
                 }
 
                 val geocoder = Geocoder(context, Locale.getDefault())
@@ -34,32 +39,54 @@ object GeocodingHelper {
                     // Use the async API for Android 13+
                     suspendCancellableCoroutine { continuation ->
                         geocoder.getFromLocation(latitude, longitude, 1) { addresses ->
-                            if (addresses.isNotEmpty()) {
-                                val locationInfo = extractLocationInfo(addresses[0])
-                                continuation.resume(locationInfo)
-                            } else {
-                                Log.w(TAG, "No address found for coordinates: $latitude, $longitude")
-                                continuation.resume(LocationInfo(null, null, null))
+                            // The platform callback can arrive after our timeout.
+                            // A cancelled continuation must not be resumed.
+                            if (continuation.isActive) {
+                                if (addresses.isNotEmpty()) {
+                                    val locationInfo = extractLocationInfo(addresses[0])
+                                    continuation.resume(locationInfo)
+                                } else {
+                                    Log.w(TAG, "No address found for coordinates: $latitude, $longitude")
+                                    continuation.resume(emptyLocationInfo)
+                                }
                             }
                         }
                     }
                 } else {
                     // Use the synchronous API for older Android versions
                     @Suppress("DEPRECATION")
-                    val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+                    val addresses = runInterruptible(Dispatchers.IO) {
+                        geocoder.getFromLocation(latitude, longitude, 1)
+                    }
                     if (!addresses.isNullOrEmpty()) {
                         extractLocationInfo(addresses[0])
                     } else {
                         Log.w(TAG, "No address found for coordinates: $latitude, $longitude")
-                        LocationInfo(null, null, null)
+                        emptyLocationInfo
                     }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error during reverse geocoding", e)
-                LocationInfo(null, null, null)
+                emptyLocationInfo
             }
         }
+
+        if (locationInfo == null) {
+            Log.w(
+                TAG,
+                "Reverse geocoding timed out after ${GEOCODING_TIMEOUT_MS}ms " +
+                    "for coordinates: $latitude, $longitude"
+            )
+        }
+        return locationInfo ?: emptyLocationInfo
     }
+
+    internal suspend fun <T> runWithGeocodingTimeout(
+        timeoutMs: Long = GEOCODING_TIMEOUT_MS,
+        block: suspend () -> T
+    ): T? = withTimeoutOrNull(timeoutMs) { block() }
 
     private fun extractLocationInfo(address: Address): LocationInfo {
         val city = address.locality ?: address.subAdminArea ?: address.adminArea

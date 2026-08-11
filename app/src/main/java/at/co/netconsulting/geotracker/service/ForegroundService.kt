@@ -226,6 +226,7 @@ class ForegroundService : Service() {
 
     // Geocoding flag to track if start location has been geocoded
     private var hasGeocodedStartLocation = false
+    private var startLocationGeocodingJob: Job? = null
 
     // Session data management methods
     private fun saveSessionDataToPreferences(
@@ -1745,21 +1746,10 @@ class ForegroundService : Service() {
                 database.locationDao().insertLocation(location)
                 Log.d("ForegroundService: ", "Location saved: lat=$latitude, lon=$longitude")
 
-                // Geocode start location on first valid coordinates
-                if (!hasGeocodedStartLocation && eventId > 0) {
-                    hasGeocodedStartLocation = true
-                    try {
-                        val locationInfo = GeocodingHelper.getLocationInfo(applicationContext, latitude, longitude)
-                        if (locationInfo.city != null || locationInfo.country != null || locationInfo.address != null) {
-                            database.eventDao().updateEventStartLocation(eventId, locationInfo.city, locationInfo.country, locationInfo.address)
-                            // Update CustomLocationListener for WebSocket transfer
-                            customLocationListener?.updateStartLocationData(locationInfo.city, locationInfo.country, locationInfo.address)
-                            Log.d(TAG, "Start location geocoded: ${locationInfo.address ?: "${locationInfo.city}, ${locationInfo.country}"}")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error geocoding start location", e)
-                    }
-                }
+                // Reverse geocoding depends on a remote system service and is not
+                // part of recording. Never await it here: a geocoder callback that
+                // fails to arrive must not freeze notification and route persistence.
+                startLocationGeocoding(latitude, longitude, eventId)
 
                 // Always save device status regardless of speed
                 val deviceStatus = DeviceStatus(
@@ -2478,6 +2468,13 @@ class ForegroundService : Service() {
         }
 
         try {
+            startLocationGeocodingJob?.cancel()
+            startLocationGeocodingJob = null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error cancelling start-location geocoding", e)
+        }
+
+        try {
             serviceJob.cancel()
         } catch (e: Exception) {
             Log.e(TAG, "Error cancelling service job", e)
@@ -2891,6 +2888,52 @@ class ForegroundService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in connection monitoring", e)
                 }
+            }
+        }
+    }
+
+    private fun startLocationGeocoding(
+        startLatitude: Double,
+        startLongitude: Double,
+        startEventId: Int
+    ) {
+        if (hasGeocodedStartLocation || startEventId <= 0) return
+
+        hasGeocodedStartLocation = true
+        startLocationGeocodingJob = serviceScope.launch {
+            try {
+                val locationInfo = GeocodingHelper.getLocationInfo(
+                    applicationContext,
+                    startLatitude,
+                    startLongitude
+                )
+                if (
+                    locationInfo.city != null ||
+                    locationInfo.country != null ||
+                    locationInfo.address != null
+                ) {
+                    database.eventDao().updateEventStartLocation(
+                        startEventId,
+                        locationInfo.city,
+                        locationInfo.country,
+                        locationInfo.address
+                    )
+                    customLocationListener?.updateStartLocationData(
+                        locationInfo.city,
+                        locationInfo.country,
+                        locationInfo.address
+                    )
+                    Log.d(
+                        TAG,
+                        "Start location geocoded: " +
+                            (locationInfo.address
+                                ?: "${locationInfo.city}, ${locationInfo.country}")
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Error geocoding start location", e)
             }
         }
     }
