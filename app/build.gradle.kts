@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.09 (11-08-2026: Keep recording alive when reverse geocoding stalls)"
+        versionName = "10.10 (15-08-2026: Refresh live weather every five minutes)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -126,7 +126,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
     /**
      * Receive weather updates from EventBus
      */
-    @Subscribe(threadMode = ThreadMode.MAIN)
+    @Subscribe(threadMode = ThreadMode.MAIN, sticky = true)
     fun onWeatherUpdate(weather: CurrentWeather) {
         _weather.value = weather
         Log.d(TAG, "Weather update received: temp=${weather.temperature}")
@@ -305,6 +305,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
      * Start a new session and initialize lap tracking (backward compatibility)
      */
     private fun startNewSession(sessionId: String, currentTime: Long) {
+        clearWeather()
         currentSessionId = sessionId
         sessionStartTime = currentTime
         lapStartTime = currentTime
@@ -540,6 +541,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
      * Clear lap times (for new sessions)
      */
     fun clearLapTimes() {
+        clearWeather()
         _lapTimes.value = emptyList()
         _speedHistory.value = emptyList() // Clear speed history as well
         _heartRateHistory.value = emptyList() // Clear heart rate history for consistency
@@ -547,7 +549,12 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         _pressureHistory.value = emptyList() // Clear pressure history for consistency
         _barometerAltitudeHistory.value = emptyList() // Clear barometric altitude history for consistency
         currentSessionId = ""
-        Log.d(TAG, "Cleared all lap times, speed history, heart rate history, altitude history, and barometric histories")
+        Log.d(TAG, "Cleared weather, lap times, speed history, heart rate history, altitude history, and barometric histories")
+    }
+
+    private fun clearWeather() {
+        _weather.value = null
+        EventBus.getDefault().removeStickyEvent(CurrentWeather::class.java)
     }
 
     /**

@@ -405,8 +405,11 @@ class ForegroundService : Service() {
                                 currentWeatherCode = currentWeather.weathercode
                                 currentWeatherTime = currentWeather.time
 
-                                // Directly publish CurrentWeather to EventBus
-                                EventBus.getDefault().post(weatherResponse.currentWeather)
+                                // Keep the latest weather available for StatisticsScreen even when
+                                // that tab is opened after this fetch. The normal update interval is
+                                // five minutes, so a non-sticky event could otherwise leave the card at
+                                // N/A for an entire interval.
+                                EventBus.getDefault().postSticky(currentWeather)
                                 Log.d(TAG, "Weather data published to EventBus: ${weatherResponse.currentWeather}")
 
                                 try {
@@ -3145,7 +3148,7 @@ class ForegroundService : Service() {
         private const val STATE_SAVE_INTERVAL = 5000L // 5 seconds
 
         // Weather
-        private const val WEATHER_UPDATE_INTERVAL = 1800000L // 30 minutes in milliseconds
+        private const val WEATHER_UPDATE_INTERVAL = 5 * 60 * 1000L // 5 minutes
         private const val ERROR_RETRY_INTERVAL = 300000L // 5 minutes in milliseconds
         private const val WEATHER_FAST_POLL_INTERVAL = 10000L // 10 seconds for initial polling
 
