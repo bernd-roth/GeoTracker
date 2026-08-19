@@ -442,6 +442,18 @@ function renderSummary(s) {
             ${stat('Avg HR',        s.avg_heart_rate     != null ? Math.round(s.avg_heart_rate)     : '--', 'bpm',  'speed')}
             ${stat('Max HR',        s.max_heart_rate     != null ? s.max_heart_rate                 : '--', 'bpm',  'speed')}
             ${cadenceStats}
+            ${stat('Min Slope',      s.min_slope          != null ? s.min_slope.toFixed(1)           : '--', '%',    'elevation')}
+            ${stat('Avg Slope',      s.avg_slope          != null ? s.avg_slope.toFixed(1)           : '--', '%',    'elevation')}
+            ${stat('Max Slope',      s.max_slope          != null ? s.max_slope.toFixed(1)           : '--', '%',    'elevation')}
+            ${stat('Min Temp',       s.min_temperature_c  != null ? s.min_temperature_c.toFixed(1)   : '--', '&deg;C', 'speed')}
+            ${stat('Avg Temp',       s.avg_temperature_c  != null ? s.avg_temperature_c.toFixed(1)   : '--', '&deg;C', 'speed')}
+            ${stat('Max Temp',       s.max_temperature_c  != null ? s.max_temperature_c.toFixed(1)   : '--', '&deg;C', 'speed')}
+            ${stat('Min Pressure',   s.min_pressure_hpa   != null ? s.min_pressure_hpa.toFixed(1)    : '--', 'hPa',  'elevation')}
+            ${stat('Avg Pressure',   s.avg_pressure_hpa   != null ? s.avg_pressure_hpa.toFixed(1)    : '--', 'hPa',  'elevation')}
+            ${stat('Max Pressure',   s.max_pressure_hpa   != null ? s.max_pressure_hpa.toFixed(1)    : '--', 'hPa',  'elevation')}
+            ${stat('Min Altitude',   s.min_altitude_m     != null ? s.min_altitude_m.toFixed(1)      : '--', 'm',    'elevation')}
+            ${stat('Avg Altitude',   s.avg_altitude_m     != null ? s.avg_altitude_m.toFixed(1)      : '--', 'm',    'elevation')}
+            ${stat('Max Altitude',   s.max_altitude_m     != null ? s.max_altitude_m.toFixed(1)      : '--', 'm',    'elevation')}
         </div>
         <div class="summary-footer">
             ${[s.sport_type, s.start_city, s.start_country].filter(Boolean).join(' · ')}

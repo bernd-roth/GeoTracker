@@ -240,6 +240,27 @@ def get_summary(session_id):
         db.session.query(
             func.max(GPSTrackingPoint.current_speed).label('max_speed'),
             func.avg(GPSTrackingPoint.current_speed).label('avg_speed'),
+            func.min(GPSTrackingPoint.altitude).label('min_altitude'),
+            func.avg(GPSTrackingPoint.altitude).label('avg_altitude'),
+            func.max(GPSTrackingPoint.altitude).label('max_altitude'),
+            func.min(GPSTrackingPoint.slope).label('min_slope'),
+            func.avg(GPSTrackingPoint.slope).label('avg_slope'),
+            func.max(GPSTrackingPoint.slope).label('max_slope'),
+            func.min(GPSTrackingPoint.temperature).label('min_temperature'),
+            func.avg(GPSTrackingPoint.temperature).label('avg_temperature'),
+            func.max(GPSTrackingPoint.temperature).label('max_temperature'),
+            func.min(case(
+                (GPSTrackingPoint.pressure > 0, GPSTrackingPoint.pressure),
+                else_=None,
+            )).label('min_pressure'),
+            func.avg(case(
+                (GPSTrackingPoint.pressure > 0, GPSTrackingPoint.pressure),
+                else_=None,
+            )).label('avg_pressure'),
+            func.max(case(
+                (GPSTrackingPoint.pressure > 0, GPSTrackingPoint.pressure),
+                else_=None,
+            )).label('max_pressure'),
             func.avg(GPSTrackingPoint.heart_rate).label('avg_hr'),
             func.max(GPSTrackingPoint.heart_rate).label('max_hr'),
             func.avg(case(
@@ -272,6 +293,18 @@ def get_summary(session_id):
         'avg_speed_kmh':     round(float(totals.max_distance) / (duration_ms / 1000) * 3.6, 2)
                              if totals and totals.max_distance and duration_ms
                              else None,
+        'min_altitude_m':    round(float(agg.min_altitude), 1)    if agg.min_altitude is not None    else None,
+        'avg_altitude_m':    round(float(agg.avg_altitude), 1)    if agg.avg_altitude is not None    else None,
+        'max_altitude_m':    round(float(agg.max_altitude), 1)    if agg.max_altitude is not None    else None,
+        'min_slope':         round(float(agg.min_slope), 1)       if agg.min_slope is not None       else None,
+        'avg_slope':         round(float(agg.avg_slope), 1)       if agg.avg_slope is not None       else None,
+        'max_slope':         round(float(agg.max_slope), 1)       if agg.max_slope is not None       else None,
+        'min_temperature_c': round(float(agg.min_temperature), 1) if agg.min_temperature is not None else None,
+        'avg_temperature_c': round(float(agg.avg_temperature), 1) if agg.avg_temperature is not None else None,
+        'max_temperature_c': round(float(agg.max_temperature), 1) if agg.max_temperature is not None else None,
+        'min_pressure_hpa':  round(float(agg.min_pressure), 1)    if agg.min_pressure is not None    else None,
+        'avg_pressure_hpa':  round(float(agg.avg_pressure), 1)    if agg.avg_pressure is not None    else None,
+        'max_pressure_hpa':  round(float(agg.max_pressure), 1)    if agg.max_pressure is not None    else None,
         # elevation_gain stored in metres already
         'elevation_gain_m':  round(float(totals.max_ele_gain), 1) if totals and totals.max_ele_gain  else None,
         'avg_heart_rate':    round(float(agg.avg_hr),     1)      if agg.avg_hr                      else None,
