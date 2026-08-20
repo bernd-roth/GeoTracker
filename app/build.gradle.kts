@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.10 (15-08-2026: Refresh live weather every five minutes)"
+        versionName = "10.11 (20-08-2026: add configurable lap grouping to web and app analysis)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

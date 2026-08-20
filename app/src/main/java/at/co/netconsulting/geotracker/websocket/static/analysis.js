@@ -33,6 +33,8 @@ let lightboxIndex     = 0;
 let infoPopup         = null;     // chart hover info popup element
 let searchDebounceTimer = null;   // debounce timer for server-side search
 let isSearchActive      = false;  // true when showing server search results
+let currentLaps         = [];     // recorded laps for the selected session
+let lapGroupSize        = 1;      // number of consecutive laps shown per table row
 
 // ── Range selection state ───────────────────────────────────
 let rangeStartIdx     = null;     // first click index into currentTrack
@@ -338,6 +340,8 @@ async function selectSession(sessionId) {
     document.getElementById('summaryContent').innerHTML =
         '<p style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px;font-family:Arial,sans-serif">Loading...</p>';
     document.getElementById('lapTableContainer').innerHTML = '';
+    currentLaps = [];
+    lapGroupSize = 1;
 
     try {
         const [trackResp, summaryResp, lapsResp, mediaResp] = await Promise.all([
@@ -370,7 +374,8 @@ async function selectSession(sessionId) {
             summary.event_name || formatDate(summary.start_date_time) || 'Summary';
 
         renderSummary(summary);
-        renderLaps(lapsJson.data.laps);
+        currentLaps = lapsJson.data.laps || [];
+        renderLaps(currentLaps);
         renderCharts(currentTrack);
         renderMedia(mediaJson.data.media);
 
@@ -465,41 +470,99 @@ function renderSummary(s) {
 // ─────────────────────────────────────────────────────────────
 // LAPS TABLE
 // ─────────────────────────────────────────────────────────────
+function groupLaps(laps, requestedGroupSize) {
+    if (!Array.isArray(laps) || laps.length === 0) return [];
+
+    const parsedGroupSize = Number.parseInt(requestedGroupSize, 10);
+    const groupSize = Number.isFinite(parsedGroupSize) && parsedGroupSize > 0
+        ? parsedGroupSize
+        : 1;
+
+    // A substantially shorter final recorded lap is already incomplete before
+    // grouping. Keep that information so it is not highlighted as a best/worst
+    // result when it happens to complete a group.
+    let lastLapIncomplete = false;
+    if (laps.length >= 2) {
+        const previousDistances = laps.slice(0, -1)
+            .map(lap => Number(lap.distance_km))
+            .filter(distance => Number.isFinite(distance) && distance > 0);
+        const typicalDistance = previousDistances.length
+            ? previousDistances.reduce((sum, distance) => sum + distance, 0) / previousDistances.length
+            : 0;
+        const lastDistance = Number(laps[laps.length - 1].distance_km);
+        lastLapIncomplete = typicalDistance > 0 &&
+            (!Number.isFinite(lastDistance) || lastDistance < typicalDistance * 0.9);
+    }
+
+    const groups = [];
+    for (let start = 0; start < laps.length; start += groupSize) {
+        const members = laps.slice(start, start + groupSize);
+        const durationMs = members.reduce((sum, lap) => sum + (Number(lap.duration_ms) || 0), 0);
+        const distanceKm = members.reduce((sum, lap) => sum + (Number(lap.distance_km) || 0), 0);
+        const end = start + members.length;
+
+        groups.push({
+            lap_number: groups.length + 1,
+            lap_label: members.length === 1 ? String(start + 1) : `${start + 1}-${end}`,
+            source_lap_count: members.length,
+            duration_ms: durationMs,
+            distance_km: distanceKm,
+            pace_min_per_km: distanceKm > 0 && durationMs > 0
+                ? (durationMs / 1000 / 60) / distanceKm
+                : null,
+            is_incomplete: members.length < groupSize ||
+                (lastLapIncomplete && end === laps.length)
+        });
+    }
+
+    return groups;
+}
+
+function setLapGroupSize(value) {
+    const parsed = Number.parseInt(value, 10);
+    lapGroupSize = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+    renderLaps(currentLaps);
+}
+
 function renderLaps(laps) {
     const container = document.getElementById('lapTableContainer');
     if (!laps || laps.length === 0) { container.innerHTML = ''; return; }
 
-    // Detect incomplete last lap (distance < 90% of typical lap distance)
-    const lastIdx = laps.length - 1;
-    let lastLapIncomplete = false;
-    if (laps.length >= 2) {
-        const allButLast = laps.slice(0, -1);
-        const typicalDist = allButLast.reduce((s, l) => s + l.distance_km, 0) / allButLast.length;
-        lastLapIncomplete = laps[lastIdx].distance_km < typicalDist * 0.9;
-    }
+    lapGroupSize = Math.min(Math.max(1, lapGroupSize), laps.length);
+    const groupedLaps = groupLaps(laps, lapGroupSize);
 
-    const eligiblePaces = laps
-        .filter((l, i) => l.pace_min_per_km && !(i === lastIdx && lastLapIncomplete))
+    const eligiblePaces = groupedLaps
+        .filter(lap => lap.pace_min_per_km != null && !lap.is_incomplete)
         .map(l => l.pace_min_per_km);
     const fastestPace  = eligiblePaces.length ? Math.min(...eligiblePaces) : null;
     const slowestPace  = eligiblePaces.length ? Math.max(...eligiblePaces) : null;
 
-    const rows = laps.map(l => {
+    const rows = groupedLaps.map(l => {
         let cls = '';
-        if (l.pace_min_per_km != null && l.pace_min_per_km === fastestPace) cls = 'fastest-lap';
-        else if (l.pace_min_per_km != null && l.pace_min_per_km === slowestPace) cls = 'slowest-lap';
+        if (!l.is_incomplete && l.pace_min_per_km != null && l.pace_min_per_km === fastestPace) cls = 'fastest-lap';
+        else if (!l.is_incomplete && l.pace_min_per_km != null && l.pace_min_per_km === slowestPace) cls = 'slowest-lap';
         return `<tr class="${cls}">
-            <td>${l.lap_number}</td>
+            <td>${l.lap_label}</td>
             <td>${l.distance_km.toFixed(2)}</td>
             <td>${formatDuration(l.duration_ms)}</td>
             <td>${l.pace_min_per_km != null ? formatPace(l.pace_min_per_km) : '--'}</td>
         </tr>`;
     }).join('');
 
+    const groupOptions = Array.from({ length: laps.length }, (_, index) => index + 1)
+        .map(size => `<option value="${size}"${size === lapGroupSize ? ' selected' : ''}>${size} ${size === 1 ? 'lap' : 'laps'}</option>`)
+        .join('');
+
     container.innerHTML = `
         <div class="lap-table-container">
             <div class="lap-table-header">
                 <h4>Laps</h4>
+                <label class="lap-group-control">
+                    <span>Combine</span>
+                    <select aria-label="Laps per calculated split" onchange="setLapGroupSize(this.value)">
+                        ${groupOptions}
+                    </select>
+                </label>
             </div>
             <div class="lap-table-scroll">
                 <table class="lap-table">
@@ -1516,8 +1579,9 @@ function formatDuration(ms) {
 }
 
 function formatPace(minPerKm) {
-    const m = Math.floor(minPerKm);
-    const s = Math.round((minPerKm - m) * 60);
+    const totalSeconds = Math.round(minPerKm * 60);
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
     return `${m}:${pad(s)}`;
 }
 

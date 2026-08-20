@@ -64,7 +64,8 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
     var pathPoints by remember { mutableStateOf<List<PathPoint>>(emptyList()) }
     var lapTimes by remember { mutableStateOf<List<LapTime>>(emptyList()) }
     var selectedPoint by remember { mutableStateOf<PathPoint?>(null) }
-    var selectedLap by remember { mutableStateOf<LapTime?>(null) }
+    var selectedLapGroup by remember { mutableStateOf<CalculatedLapGroup?>(null) }
+    var lapGroupSize by remember { mutableIntStateOf(1) }
     var isLoading by remember { mutableStateOf(true) }
 
     // val context = LocalContext.current // Unused for now
@@ -148,6 +149,8 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                     allPathPoints = sortedPoints
                     pathPoints = sortedPoints
                     lapTimes = laps
+                    selectedLapGroup = null
+                    lapGroupSize = 1
                     isLoading = false
                 }
             } catch (e: Exception) {
@@ -159,14 +162,18 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
     }
 
     // Filter path points when a lap is selected
-    LaunchedEffect(selectedLap) {
-        if (selectedLap != null) {
-            // Filter points that fall within the selected lap's time range
+    LaunchedEffect(selectedLapGroup) {
+        val lapGroup = selectedLapGroup
+        if (lapGroup != null) {
+            // Filter points that fall within the selected lap group's time range
             val filteredPoints = allPathPoints.filter { point ->
-                point.timestamp >= selectedLap!!.startTime && point.timestamp <= selectedLap!!.endTime
+                point.timestamp >= lapGroup.startTime && point.timestamp <= lapGroup.endTime
             }
             pathPoints = filteredPoints
-            android.util.Log.d("LapAnalysis", "Filtered to ${filteredPoints.size} points for lap ${selectedLap!!.lapNumber}")
+            android.util.Log.d(
+                "LapAnalysis",
+                "Filtered to ${filteredPoints.size} points for laps ${lapGroup.label}"
+            )
         } else {
             // Show all points when no lap is selected
             pathPoints = allPathPoints
@@ -213,8 +220,8 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                         InteractivePathMap(
                             pathPoints = pathPoints,
                             selectedPoint = selectedPoint,
-                            zoomToFit = selectedLap != null,
-                            key = selectedLap?.lapNumber,
+                            zoomToFit = selectedLapGroup != null,
+                            key = selectedLapGroup?.let { "${it.firstLapNumber}-${it.lastLapNumber}" },
                             modifier = Modifier.fillMaxSize()
                         )
                     } else {
@@ -299,9 +306,14 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                     ) {
                         LapTimesTable(
                             lapTimes = lapTimes,
-                            selectedLap = selectedLap,
+                            lapGroupSize = lapGroupSize,
+                            selectedLapGroup = selectedLapGroup,
+                            onLapGroupSizeChange = { newGroupSize ->
+                                lapGroupSize = newGroupSize
+                                selectedLapGroup = null
+                            },
                             onLapClick = { lap ->
-                                selectedLap = if (selectedLap == lap) null else lap
+                                selectedLapGroup = if (selectedLapGroup == lap) null else lap
                             },
                             modifier = Modifier.fillMaxSize()
                         )
@@ -312,22 +324,78 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LapTimesTable(
     lapTimes: List<LapTime>,
-    selectedLap: LapTime?,
-    onLapClick: (LapTime) -> Unit,
+    lapGroupSize: Int,
+    selectedLapGroup: CalculatedLapGroup?,
+    onLapGroupSizeChange: (Int) -> Unit,
+    onLapClick: (CalculatedLapGroup) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var groupMenuExpanded by remember { mutableStateOf(false) }
+    val calculatedLaps = remember(lapTimes, lapGroupSize) {
+        groupLapTimes(lapTimes, lapGroupSize)
+    }
+    val eligiblePaces = calculatedLaps.filterNot { it.isIncomplete }
+        .mapNotNull { it.paceSecondsPerKm }
+    val fastestPace = eligiblePaces.minOrNull()
+    val slowestPace = eligiblePaces.maxOrNull()
+
     Column(
         modifier = modifier.padding(16.dp)
     ) {
-        Text(
-            text = "Lap Times",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 8.dp)
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Lap Times",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (lapTimes.isNotEmpty()) {
+                ExposedDropdownMenuBox(
+                    expanded = groupMenuExpanded,
+                    onExpandedChange = { groupMenuExpanded = !groupMenuExpanded },
+                    modifier = Modifier.width(140.dp)
+                ) {
+                    OutlinedTextField(
+                        value = "$lapGroupSize ${if (lapGroupSize == 1) "lap" else "laps"}",
+                        onValueChange = {},
+                        readOnly = true,
+                        singleLine = true,
+                        label = { Text("Combine") },
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = groupMenuExpanded)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = groupMenuExpanded,
+                        onDismissRequest = { groupMenuExpanded = false }
+                    ) {
+                        (1..lapTimes.size).forEach { size ->
+                            DropdownMenuItem(
+                                text = { Text("$size ${if (size == 1) "lap" else "laps"}") },
+                                onClick = {
+                                    onLapGroupSizeChange(size)
+                                    groupMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
 
         if (lapTimes.isEmpty()) {
             Text(
@@ -350,30 +418,51 @@ fun LapTimesTable(
                         Text(
                             text = "Lap",
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(0.3f)
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(0.23f)
+                        )
+                        Text(
+                            text = "km",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(0.19f)
                         )
                         Text(
                             text = "Time",
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(0.4f)
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(0.31f)
                         )
                         Text(
                             text = "Pace",
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(0.3f)
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(0.27f)
                         )
                     }
                     HorizontalDivider()
                 }
 
                 // Lap data
-                items(lapTimes) { lapTime ->
-                    val isSelected = selectedLap == lapTime
+                items(calculatedLaps) { lapGroup ->
+                    val isSelected = selectedLapGroup == lapGroup
+                    val pace = lapGroup.paceSecondsPerKm
+                    val resultColor = when {
+                        lapGroup.isIncomplete -> Color.Gray
+                        pace != null && pace == fastestPace -> Color(0xFF008B00)
+                        pace != null && pace == slowestPace -> Color.Red
+                        else -> Color.Unspecified
+                    }
+                    val rowTextColor = if (isSelected) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        resultColor
+                    }
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth(),
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                        onClick = { onLapClick(lapTime) }
+                        onClick = { onLapClick(lapGroup) }
                     ) {
                         Row(
                             modifier = Modifier
@@ -382,19 +471,28 @@ fun LapTimesTable(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "${lapTime.lapNumber}",
-                                modifier = Modifier.weight(0.3f),
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                                text = lapGroup.label,
+                                modifier = Modifier.weight(0.23f),
+                                fontSize = 13.sp,
+                                color = rowTextColor
                             )
                             Text(
-                                text = Tools().formatDuration(lapTime.endTime - lapTime.startTime),
-                                modifier = Modifier.weight(0.4f),
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                                text = String.format("%.2f", lapGroup.distanceKm),
+                                modifier = Modifier.weight(0.19f),
+                                fontSize = 13.sp,
+                                color = rowTextColor
                             )
                             Text(
-                                text = calculatePace(lapTime.endTime - lapTime.startTime),
-                                modifier = Modifier.weight(0.3f),
-                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color.Unspecified
+                                text = Tools().formatDuration(lapGroup.durationMs),
+                                modifier = Modifier.weight(0.31f),
+                                fontSize = 13.sp,
+                                color = rowTextColor
+                            )
+                            Text(
+                                text = calculatePace(lapGroup.durationMs, lapGroup.distanceKm),
+                                modifier = Modifier.weight(0.27f),
+                                fontSize = 13.sp,
+                                color = rowTextColor
                             )
                         }
                     }
@@ -402,12 +500,4 @@ fun LapTimesTable(
             }
         }
     }
-}
-
-fun calculatePace(durationMs: Long): String {
-    val durationSeconds = durationMs / 1000.0
-    val paceSecondsPerKm = (durationSeconds / 1.0).toInt() // Assuming 1km laps
-    val minutes = paceSecondsPerKm / 60
-    val seconds = paceSecondsPerKm % 60
-    return String.format("%d:%02d/km", minutes, seconds)
 }
