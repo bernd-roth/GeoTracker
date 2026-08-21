@@ -49,10 +49,11 @@ else
     exit 1
 fi
 
-# Step 5: Start websocket server
-echo "🌐 Starting WebSocket server..."
+# Step 5: Build and start the application services. Static files are bind-mounted,
+# but the Flask API is copied into its Docker image and must be rebuilt.
+echo "🌐 Building and starting application services..."
 cd /home/bernd/docker-container/geotracker
-docker-compose up -d
+docker-compose up -d --build
 
 # Wait for websocket server to start
 echo "⏳ Waiting for WebSocket server to start..."

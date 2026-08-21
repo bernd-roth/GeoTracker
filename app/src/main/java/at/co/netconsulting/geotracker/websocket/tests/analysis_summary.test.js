@@ -7,6 +7,10 @@ const vm = require('node:vm');
 const scriptPath = path.join(__dirname, '..', 'static', 'analysis.js');
 const scriptSource = fs.readFileSync(scriptPath, 'utf8');
 
+function assertClose(actual, expected) {
+    assert.ok(Math.abs(actual - expected) < 1e-9, `expected ${actual} to be close to ${expected}`);
+}
+
 function renderSummary(summary) {
     const summaryContent = { innerHTML: '' };
     const context = {
@@ -32,6 +36,23 @@ function renderSummary(summary) {
     context.summary = summary;
     vm.runInContext('renderSummary(summary)', context);
     return summaryContent.innerHTML;
+}
+
+function addTrackAggregatesToSummary(summary, points) {
+    const context = {
+        console: { log() {}, warn() {}, error() {} },
+        localStorage: { getItem() { return null; }, setItem() {} },
+        document: { addEventListener() {} }
+    };
+
+    vm.createContext(context);
+    vm.runInContext(scriptSource, context, { filename: scriptPath });
+    context.summary = summary;
+    context.points = points;
+    return JSON.parse(vm.runInContext(
+        'JSON.stringify(addTrackAggregatesToSummary(summary, points))',
+        context
+    ));
 }
 
 test('session summary renders slope, temperature, pressure, and altitude aggregates', () => {
@@ -92,4 +113,49 @@ test('session summary keeps missing aggregate boxes visible with placeholders', 
     }
 
     assert.equal((html.match(/>--</g) || []).length, 20);
+});
+
+test('missing aggregates are calculated from full track data', () => {
+    const summary = addTrackAggregatesToSummary(
+        { point_count: 3 },
+        [
+            { alt: 228, slope: -4.2, temperature: 26.7, pressure: 978.88 },
+            { alt: 257, slope: 0, temperature: 27.5, pressure: 982.3 },
+            { alt: 289, slope: 8.1, temperature: 28.4, pressure: 985.1 }
+        ]
+    );
+
+    assert.equal(summary.min_altitude_m, 228);
+    assert.equal(summary.avg_altitude_m, 258);
+    assert.equal(summary.max_altitude_m, 289);
+    assert.equal(summary.min_slope, -4.2);
+    assertClose(summary.avg_slope, 1.3);
+    assert.equal(summary.max_slope, 8.1);
+    assert.equal(summary.min_temperature_c, 26.7);
+    assertClose(summary.avg_temperature_c, 27.53333333333333);
+    assert.equal(summary.max_temperature_c, 28.4);
+    assert.equal(summary.min_pressure_hpa, 978.88);
+    assertClose(summary.avg_pressure_hpa, 982.0933333333332);
+    assert.equal(summary.max_pressure_hpa, 985.1);
+});
+
+test('track fallback preserves backend aggregates and ignores invalid pressure', () => {
+    const summary = addTrackAggregatesToSummary(
+        { min_slope: -9, avg_slope: 2, max_slope: 12 },
+        [
+            { alt: 100, slope: -1, temperature: 0, pressure: 0 },
+            { alt: 120, slope: 1, temperature: 2, pressure: 1000 },
+            { alt: null, slope: null, temperature: null, pressure: -1 }
+        ]
+    );
+
+    assert.equal(summary.min_slope, -9);
+    assert.equal(summary.avg_slope, 2);
+    assert.equal(summary.max_slope, 12);
+    assert.equal(summary.min_temperature_c, 0);
+    assert.equal(summary.avg_temperature_c, 1);
+    assert.equal(summary.max_temperature_c, 2);
+    assert.equal(summary.min_pressure_hpa, 1000);
+    assert.equal(summary.avg_pressure_hpa, 1000);
+    assert.equal(summary.max_pressure_hpa, 1000);
 });

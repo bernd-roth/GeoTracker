@@ -368,7 +368,29 @@ async function selectSession(sessionId) {
             map.once('load', () => renderTrackOnMap(currentTrack));
         }
 
-        const summary = summaryJson.data;
+        let summary = summaryJson.data;
+        if (hasMissingTrackAggregates(summary)) {
+            let aggregatePoints = currentTrack;
+            const totalPointCount = Number(summary.point_count);
+
+            // The map track is downsampled for rendering. Fetch all points only
+            // when the deployed summary API does not provide these aggregates.
+            if (Number.isFinite(totalPointCount) && aggregatePoints.length < totalPointCount) {
+                try {
+                    const aggregateResp = await fetch(
+                        `${API_BASE}/sessions/${sessionId}/track?max_points=0&include_resets=true`
+                    );
+                    if (aggregateResp.ok) {
+                        const aggregateJson = await aggregateResp.json();
+                        aggregatePoints = aggregateJson.data.points || aggregatePoints;
+                    }
+                } catch (aggregateErr) {
+                    console.warn('Full track aggregate fallback failed:', aggregateErr);
+                }
+            }
+
+            summary = addTrackAggregatesToSummary(summary, aggregatePoints);
+        }
         currentSportType = summary.sport_type || '';
         document.getElementById('summaryTitle').textContent =
             summary.event_name || formatDate(summary.start_date_time) || 'Summary';
@@ -412,6 +434,46 @@ function displayCadence(rawCadence, sportType = currentSportType) {
 // ─────────────────────────────────────────────────────────────
 // SUMMARY STATS
 // ─────────────────────────────────────────────────────────────
+const TRACK_AGGREGATE_FIELDS = [
+    ['alt',         'min_altitude_m',    'avg_altitude_m',    'max_altitude_m',    value => true],
+    ['slope',       'min_slope',         'avg_slope',         'max_slope',         value => true],
+    ['temperature', 'min_temperature_c', 'avg_temperature_c', 'max_temperature_c', value => true],
+    ['pressure',    'min_pressure_hpa',  'avg_pressure_hpa',  'max_pressure_hpa',  value => value > 0]
+];
+
+function hasMissingTrackAggregates(summary) {
+    return TRACK_AGGREGATE_FIELDS.some(([, minKey, avgKey, maxKey]) =>
+        summary[minKey] == null || summary[avgKey] == null || summary[maxKey] == null
+    );
+}
+
+function addTrackAggregatesToSummary(summary, points) {
+    const enriched = { ...summary };
+    if (!Array.isArray(points) || points.length === 0) return enriched;
+
+    TRACK_AGGREGATE_FIELDS.forEach(([pointKey, minKey, avgKey, maxKey, isValid]) => {
+        const values = points
+            .map(point => point[pointKey])
+            .filter(value => value !== null && value !== undefined && value !== '')
+            .map(value => Number(value))
+            .filter(value => Number.isFinite(value) && isValid(value));
+
+        if (values.length === 0) return;
+
+        if (enriched[minKey] == null) {
+            enriched[minKey] = values.reduce((minimum, value) => Math.min(minimum, value));
+        }
+        if (enriched[avgKey] == null) {
+            enriched[avgKey] = values.reduce((sum, value) => sum + value, 0) / values.length;
+        }
+        if (enriched[maxKey] == null) {
+            enriched[maxKey] = values.reduce((maximum, value) => Math.max(maximum, value));
+        }
+    });
+
+    return enriched;
+}
+
 function renderSummary(s) {
     const duration = s.duration_ms != null ? formatDuration(s.duration_ms) : '--';
     const pace     = (s.avg_speed_kmh && s.avg_speed_kmh > 0.5)
