@@ -230,7 +230,8 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         }
 
         // Update pressure history for chart
-        if (metrics.coveredDistance > 0 && metrics.pressure > 0) {
+        val pressure = metrics.pressure
+        if (metrics.coveredDistance > 0 && pressure != null && pressure > 0) {
             val distanceKm = metrics.coveredDistance / 1000.0
             val currentPressureHistory = _pressureHistory.value.toMutableList()
 
@@ -240,7 +241,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
                                 distanceKm - lastDistance >= 0.01 // Every 10 meters
 
             if (shouldAddPoint) {
-                currentPressureHistory.add(Pair(distanceKm, metrics.pressure))
+                currentPressureHistory.add(Pair(distanceKm, pressure))
                 _pressureHistory.value = currentPressureHistory
             }
         }
@@ -449,7 +450,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
             comment = event?.comment.orEmpty(),
             heartRate = latestMetric.heartRate,
             heartRateDevice = latestMetric.heartRateDevice,
-            pressure = latestMetric.pressure ?: 0f,
+            pressure = latestMetric.pressure?.takeIf { it > 0f },
             pressureAccuracy = latestMetric.pressureAccuracy ?: 0,
             altitudeFromPressure = latestMetric.altitudeFromPressure ?: 0f,
             seaLevelPressure = latestMetric.seaLevelPressure ?: 1013.25f,

@@ -149,7 +149,8 @@ class SessionUploadService(private val context: Context) {
                     point.addProperty("lap", metric.lap)
 
                     // Barometer data
-                    point.addProperty("pressure", metric.pressure ?: 0.0)
+                    metric.pressure?.takeIf { it > 0f }
+                        ?.let { point.addProperty("pressure", it) }
                     point.addProperty("pressureAccuracy", metric.pressureAccuracy ?: 0)
                     point.addProperty("altitudeFromPressure", metric.altitudeFromPressure ?: 0.0)
                     point.addProperty("seaLevelPressure", metric.seaLevelPressure ?: 0.0)

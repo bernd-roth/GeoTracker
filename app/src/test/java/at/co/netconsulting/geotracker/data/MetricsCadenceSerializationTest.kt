@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker.data
 import at.co.netconsulting.geotracker.tools.LocalDateTimeAdapter
 import com.google.gson.GsonBuilder
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.time.LocalDateTime
 
@@ -29,5 +30,28 @@ class MetricsCadenceSerializationTest {
             .toJsonTree(metrics)
 
         assertEquals(82, json.asJsonObject.get("cadence").asInt)
+    }
+
+    @Test
+    fun `websocket metrics omit unavailable pressure`() {
+        val timestamp = LocalDateTime.of(2026, 8, 21, 18, 47)
+        val metrics = Metrics(
+            latitude = 48.1817,
+            longitude = 16.3606,
+            speed = 10f,
+            altitude = 245.0,
+            startDateTime = timestamp,
+            currentDateTime = timestamp,
+            sessionId = "pressure-test",
+            movingAverageSpeed = 10.0
+        )
+
+        val json = GsonBuilder()
+            .registerTypeAdapter(LocalDateTime::class.java, LocalDateTimeAdapter())
+            .create()
+            .toJsonTree(metrics)
+            .asJsonObject
+
+        assertFalse(json.has("pressure"))
     }
 }

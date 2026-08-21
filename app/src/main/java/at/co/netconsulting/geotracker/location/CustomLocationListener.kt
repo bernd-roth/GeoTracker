@@ -162,7 +162,7 @@ class CustomLocationListener: LocationListener {
     private var currentWeatherTime: String = ""
 
     // Barometer data fields
-    private var currentPressure: Float = 0f
+    private var currentPressure: Float? = null
     private var currentPressureAccuracy: Int = 0
     private var currentAltitudeFromPressure: Float = 0f
     private var currentSeaLevelPressure: Float = 1013.25f
@@ -1269,10 +1269,10 @@ class CustomLocationListener: LocationListener {
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onBarometerUpdate(barometerData: BarometerData) {
-        currentPressure = barometerData.pressure
         currentPressureAccuracy = barometerData.accuracy
 
         if (barometerData.pressure > 0f) {
+            currentPressure = barometerData.pressure
             // On the first valid reading, derive the actual QNH from the current GPS altitude.
             // ForegroundService tries this at service start but the barometer hasn't fired yet;
             // here we retry as soon as the first real pressure value arrives.
@@ -1288,6 +1288,7 @@ class CustomLocationListener: LocationListener {
             currentAltitudeFromPressure = 44330f * (1f - (barometerData.pressure / barometerQnh).pow(1f / 5.255f))
             currentSeaLevelPressure = barometerQnh
         } else {
+            currentPressure = null
             currentAltitudeFromPressure = 0f
             currentSeaLevelPressure = barometerData.seaLevelPressure
         }

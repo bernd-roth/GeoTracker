@@ -103,6 +103,29 @@ class LiveSnapshotTest(unittest.TestCase):
             "version": "",
         }], self.server.build_session_info(points))
 
+    def test_zero_pressure_is_removed_from_tracking_points(self):
+        point = {
+            "pressure": 0,
+            "pressureAccuracy": 0,
+            "altitudeFromPressure": 0,
+            "seaLevelPressure": 1013.25,
+            "sessionId": "pressure-session",
+        }
+
+        normalized = self.server.normalize_tracking_point_pressure(point)
+
+        self.assertNotIn("pressure", normalized)
+        self.assertNotIn("pressureAccuracy", normalized)
+        self.assertNotIn("altitudeFromPressure", normalized)
+        self.assertNotIn("seaLevelPressure", normalized)
+
+    def test_real_pressure_is_preserved_as_a_number(self):
+        point = {"pressure": "978.57", "sessionId": "pressure-session"}
+
+        normalized = self.server.normalize_tracking_point_pressure(point)
+
+        self.assertEqual(978.57, normalized["pressure"])
+
 
 class RedisBackfillTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self):

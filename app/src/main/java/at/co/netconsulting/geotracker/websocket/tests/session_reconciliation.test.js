@@ -33,6 +33,7 @@ function loadLivePageScript() {
         clearTimeout() {},
         WebSocket: { OPEN: 1, CLOSED: 3 }
     };
+    context.window = context;
 
     vm.createContext(context);
     vm.runInContext(scriptSource, context, { filename: scriptPath });
@@ -107,4 +108,67 @@ test('local history enriches only sessions that still exist in the server snapsh
         sportType: 'Running',
         isActive: false
     }]);
+});
+
+test('pressure normalization treats zero sentinels as missing', () => {
+    const { context } = loadLivePageScript();
+
+    const result = JSON.parse(vm.runInContext(`
+        JSON.stringify([
+            normalizePressure(undefined),
+            normalizePressure(null),
+            normalizePressure(0),
+            normalizePressure('0.00'),
+            normalizePressure(-1),
+            normalizePressure('978.57')
+        ]);
+    `, context));
+
+    assert.deepEqual(result, [null, null, null, null, null, 978.57]);
+});
+
+test('historical pressure statistics exclude zero sentinels', () => {
+    const { context } = loadLivePageScript();
+
+    const stats = JSON.parse(vm.runInContext(`
+        handleHistoryBatch([
+            {
+                sessionId: 'pressure-session',
+                timestamp: '21-08-2026 18:47:01',
+                latitude: 48.1817,
+                longitude: 16.3606,
+                distance: 1,
+                pressure: 0
+            },
+            {
+                sessionId: 'pressure-session',
+                timestamp: '21-08-2026 18:47:02',
+                latitude: 48.1817,
+                longitude: 16.3606,
+                distance: 2,
+                pressure: 978
+            },
+            {
+                sessionId: 'pressure-session',
+                timestamp: '21-08-2026 18:47:03',
+                latitude: 48.1817,
+                longitude: 16.3606,
+                distance: 3,
+                pressure: 979
+            }
+        ]);
+        JSON.stringify({
+            pressures: speedHistory['pressure-session'].pressures,
+            min: speedHistory['pressure-session'].minPressure,
+            avg: speedHistory['pressure-session'].avgPressure,
+            max: speedHistory['pressure-session'].maxPressure
+        });
+    `, context));
+
+    assert.deepEqual(stats, {
+        pressures: [978, 979],
+        min: 978,
+        avg: 978.5,
+        max: 979
+    });
 });

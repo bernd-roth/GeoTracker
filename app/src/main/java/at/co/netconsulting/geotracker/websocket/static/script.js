@@ -1352,14 +1352,15 @@ function extractWeatherData(point) {
 }
 
 function extractBarometerData(point) {
-    const hasPressure = point.pressure !== undefined && point.pressure !== null && point.pressure > 0;
+    const pressure = normalizePressure(point.pressure);
+    const hasPressure = pressure !== null;
     const hasAltitudeFromPressure = point.altitudeFromPressure !== undefined && point.altitudeFromPressure !== null;
     const hasSeaLevelPressure = point.seaLevelPressure !== undefined && point.seaLevelPressure !== null && point.seaLevelPressure > 0;
     const hasPressureAccuracy = point.pressureAccuracy !== undefined && point.pressureAccuracy !== null;
 
     return {
         hasData: hasPressure || hasAltitudeFromPressure || hasSeaLevelPressure || hasPressureAccuracy,
-        pressure: hasPressure ? point.pressure : null,
+        pressure: pressure,
         altitudeFromPressure: hasAltitudeFromPressure ? point.altitudeFromPressure : null,
         seaLevelPressure: hasSeaLevelPressure ? point.seaLevelPressure : null,
         pressureAccuracy: hasPressureAccuracy ? point.pressureAccuracy : null
@@ -1759,7 +1760,7 @@ function handleHistoryBatch(points) {
             weatherCode: parseInt(point.weatherCode || 0),
             weatherTime: point.weatherTime || "",
 
-            pressure: point.pressure !== undefined && point.pressure !== null ? parseFloat(point.pressure) : null,
+            pressure: normalizePressure(point.pressure),
             altitudeFromPressure: parseFloat(point.altitudeFromPressure || 0),
             seaLevelPressure: parseFloat(point.seaLevelPressure || 0),
             pressureAccuracy: parseInt(point.pressureAccuracy || 0)
@@ -2650,6 +2651,13 @@ function parseOptionalCadence(data) {
     return Number.isFinite(cadence) ? Math.max(0, Math.min(254, cadence)) : null;
 }
 
+function normalizePressure(value) {
+    if (value === undefined || value === null || value === '') return null;
+
+    const pressure = Number(value);
+    return Number.isFinite(pressure) && pressure > 0 ? pressure : null;
+}
+
 function findLatestRecordedCadence(points) {
     if (!points) return undefined;
 
@@ -2948,7 +2956,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
     sessionId = getBaseSessionId(sessionId);
     // Extract temperature and pressure from nested objects for easier access
     const temperature = data.weather?.temperature ?? data.temperature;
-    const pressure = data.barometer?.pressure ?? data.pressure;
+    const pressure = normalizePressure(data.barometer?.pressure ?? data.pressure);
 
     console.log(`[DEBUG] updateSpeedDisplay called for session ${sessionId}`, {
         temperature: temperature,

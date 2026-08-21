@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.11 (20-08-2026: add configurable lap grouping to web and app analysis)"
+        versionName = "10.12 (21-08-2026: 0.0 pressure metrics are omitted)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

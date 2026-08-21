@@ -82,7 +82,7 @@ data class Metrics(
     val weatherTime: String = "",
 
     // Barometer sensor data
-    val pressure: Float = 0f,
+    val pressure: Float? = null,
     val pressureAccuracy: Int = 0,
     val altitudeFromPressure: Float = 0f,
     val seaLevelPressure: Float = 1013.25f,         // Standard atmospheric pressure

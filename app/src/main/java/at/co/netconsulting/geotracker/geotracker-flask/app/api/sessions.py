@@ -1,3 +1,4 @@
+import math
 import re
 
 from flask import Blueprint, request, current_app
@@ -10,6 +11,19 @@ from ..utils.responses import success_response, error_response, paginated_respon
 from .errors import NotFoundError, ValidationError, ConflictError
 
 sessions_bp = Blueprint('sessions', __name__)
+
+
+def _positive_float_or_none(value):
+    """Normalize missing and legacy zero sentinels to SQL NULL."""
+    if value is None:
+        return None
+
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    return parsed if math.isfinite(parsed) and parsed > 0 else None
 
 
 def _base_session_id(session_id):
@@ -465,6 +479,8 @@ def create_gps_point(session_id, data):
         except (ValueError, TypeError):
             received_at = datetime.utcnow()
 
+    pressure = _positive_float_or_none(data.get('pressure'))
+
     return GPSTrackingPoint(
         session_id=session_id,
         latitude=data.get('latitude', 0),
@@ -494,10 +510,10 @@ def create_gps_point(session_id, data):
         humidity=data.get('humidity'),
         weather_timestamp=data.get('weather_timestamp'),
         weather_code=data.get('weather_code'),
-        pressure=data.get('pressure'),
-        pressure_accuracy=data.get('pressure_accuracy'),
-        altitude_from_pressure=data.get('altitude_from_pressure'),
-        sea_level_pressure=data.get('sea_level_pressure'),
+        pressure=pressure,
+        pressure_accuracy=data.get('pressure_accuracy') if pressure is not None else None,
+        altitude_from_pressure=data.get('altitude_from_pressure') if pressure is not None else None,
+        sea_level_pressure=data.get('sea_level_pressure') if pressure is not None else None,
         slope=data.get('slope'),
         average_slope=data.get('average_slope'),
         max_uphill_slope=data.get('max_uphill_slope'),

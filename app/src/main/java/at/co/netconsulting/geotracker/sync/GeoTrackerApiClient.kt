@@ -339,7 +339,8 @@ class GeoTrackerApiClient(private val context: Context) {
                         put("cumulative_elevation_gain", metric.elevationGain)
                         put("heart_rate", metric.heartRate)
                         put("lap", metric.lap)
-                        put("pressure", metric.pressure ?: 0.0)
+                        metric.pressure?.takeIf { it > 0f }
+                            ?.let { put("pressure", it) }
                         put("pressure_accuracy", metric.pressureAccuracy ?: 0)
                         put("altitude_from_pressure", metric.altitudeFromPressure ?: 0.0)
                         put("sea_level_pressure", metric.seaLevelPressure ?: 0.0)
@@ -933,7 +934,7 @@ class GeoTrackerApiClient(private val context: Context) {
                             distance = point.optDouble("distance").takeIf { !it.isNaN() },
                             heartRate = point.optInt("heart_rate", 0).takeIf { it > 0 },
                             lap = point.optInt("lap", 1),
-                            pressure = point.optDouble("pressure").takeIf { !it.isNaN() }?.toFloat(),
+                            pressure = point.optDouble("pressure").takeIf { !it.isNaN() && it > 0.0 }?.toFloat(),
                             pressureAccuracy = point.optInt("pressure_accuracy", 0).takeIf { it > 0 },
                             altitudeFromPressure = point.optDouble("altitude_from_pressure").takeIf { !it.isNaN() }?.toFloat(),
                             seaLevelPressure = point.optDouble("sea_level_pressure").takeIf { !it.isNaN() }?.toFloat(),

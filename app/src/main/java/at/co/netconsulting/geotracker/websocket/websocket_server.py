@@ -5,6 +5,7 @@ import time
 import websockets
 import json
 import logging
+import math
 from logging.handlers import RotatingFileHandler
 import os
 from collections import defaultdict
@@ -185,6 +186,34 @@ class TrackingServer:
                     f"time_tolerance={self.duplicate_time_tolerance_seconds}s, "
                     f"coord_tolerance={self.duplicate_coordinate_tolerance} degrees, "
                     f"search_window={self.duplicate_search_window_days} days")
+
+    @staticmethod
+    def normalize_pressure(value: Any) -> Optional[float]:
+        """Return a real pressure reading, or None for missing/legacy sentinels."""
+        if value is None:
+            return None
+
+        try:
+            pressure = float(value)
+        except (TypeError, ValueError):
+            return None
+
+        return pressure if math.isfinite(pressure) and pressure > 0 else None
+
+    def normalize_tracking_point_pressure(self, tracking_point: Dict[str, Any]) -> Dict[str, Any]:
+        """Keep zero pressure from leaking out of legacy clients or Redis history."""
+        pressure = self.normalize_pressure(tracking_point.get('pressure'))
+        if pressure is None:
+            for field in (
+                'pressure',
+                'pressureAccuracy',
+                'altitudeFromPressure',
+                'seaLevelPressure'
+            ):
+                tracking_point.pop(field, None)
+        else:
+            tracking_point['pressure'] = pressure
+        return tracking_point
 
     def validate_gps_coordinates(self, latitude: float, longitude: float) -> tuple:
         """Validate GPS coordinates and return (is_valid, reason)"""
@@ -515,6 +544,8 @@ class TrackingServer:
                 if not isinstance(tracking_point, dict):
                     raise ValueError("cache entry has no point object")
 
+                self.normalize_tracking_point_pressure(tracking_point)
+
                 session_id = tracking_point.get('sessionId')
                 if not session_id:
                     raise ValueError("cached point has no sessionId")
@@ -579,7 +610,9 @@ class TrackingServer:
                     cache_entry = json.loads(raw_entry)
                     tracking_point = cache_entry.get('point')
                     if isinstance(tracking_point, dict):
-                        tracking_points.append(tracking_point)
+                        tracking_points.append(
+                            self.normalize_tracking_point_pressure(tracking_point)
+                        )
                 except (TypeError, ValueError, json.JSONDecodeError):
                     logging.warning("Skipped invalid Redis entry while sending history")
             return tracking_points
@@ -1362,13 +1395,12 @@ class TrackingServer:
                     altitude_from_pressure = None
                     sea_level_pressure = None
 
-                    if message_data.get('pressure') is not None:
-                        pressure = float(message_data.get('pressure'))
-                    if message_data.get('pressureAccuracy') is not None:
+                    pressure = self.normalize_pressure(message_data.get('pressure'))
+                    if pressure is not None and message_data.get('pressureAccuracy') is not None:
                         pressure_accuracy = int(message_data.get('pressureAccuracy'))
-                    if message_data.get('altitudeFromPressure') is not None:
+                    if pressure is not None and message_data.get('altitudeFromPressure') is not None:
                         altitude_from_pressure = float(message_data.get('altitudeFromPressure'))
-                    if message_data.get('seaLevelPressure') is not None:
+                    if pressure is not None and message_data.get('seaLevelPressure') is not None:
                         sea_level_pressure = float(message_data.get('seaLevelPressure'))
 
                     # Log weather and barometer data for debugging
@@ -1658,14 +1690,15 @@ class TrackingServer:
                     tracking_point["weatherCode"] = int(row['weather_code'])
 
                 # Add barometer data if available
-                if row['pressure'] is not None:
-                    tracking_point["pressure"] = float(row['pressure'])
-                if row['pressure_accuracy'] is not None:
-                    tracking_point["pressureAccuracy"] = int(row['pressure_accuracy'])
-                if row['altitude_from_pressure'] is not None:
-                    tracking_point["altitudeFromPressure"] = float(row['altitude_from_pressure'])
-                if row['sea_level_pressure'] is not None:
-                    tracking_point["seaLevelPressure"] = float(row['sea_level_pressure'])
+                pressure = self.normalize_pressure(row['pressure'])
+                if pressure is not None:
+                    tracking_point["pressure"] = pressure
+                    if row['pressure_accuracy'] is not None:
+                        tracking_point["pressureAccuracy"] = int(row['pressure_accuracy'])
+                    if row['altitude_from_pressure'] is not None:
+                        tracking_point["altitudeFromPressure"] = float(row['altitude_from_pressure'])
+                    if row['sea_level_pressure'] is not None:
+                        tracking_point["seaLevelPressure"] = float(row['sea_level_pressure'])
 
                 # Note: slope data is now added directly in tracking_point creation above
 
@@ -1831,7 +1864,7 @@ class TrackingServer:
                         altitude_from_pressure, sea_level_pressure, altitude, received_at
                     FROM gps_tracking_points 
                     WHERE session_id = $1 
-                    AND (pressure IS NOT NULL OR altitude_from_pressure IS NOT NULL)
+                    AND pressure > 0
                     ORDER BY received_at ASC
                 """, session_id)
 
@@ -1841,7 +1874,7 @@ class TrackingServer:
                         "id": row['id'],
                         "latitude": float(row['latitude']),
                         "longitude": float(row['longitude']),
-                        "pressure": float(row['pressure']) if row['pressure'] is not None else None,
+                        "pressure": self.normalize_pressure(row['pressure']),
                         "pressureAccuracy": int(row['pressure_accuracy']) if row['pressure_accuracy'] is not None else None,
                         "altitudeFromPressure": float(row['altitude_from_pressure']) if row['altitude_from_pressure'] is not None else None,
                         "seaLevelPressure": float(row['sea_level_pressure']) if row['sea_level_pressure'] is not None else None,
@@ -1865,19 +1898,19 @@ class TrackingServer:
             async with self.db_pool.acquire() as conn:
                 row = await conn.fetchrow("""
                     SELECT 
-                        COUNT(*) as barometer_point_count,
-                        AVG(pressure) as avg_pressure,
-                        MIN(pressure) as min_pressure,
-                        MAX(pressure) as max_pressure,
-                        AVG(altitude_from_pressure) as avg_barometric_altitude,
-                        MIN(altitude_from_pressure) as min_barometric_altitude,
-                        MAX(altitude_from_pressure) as max_barometric_altitude,
-                        AVG(sea_level_pressure) as avg_sea_level_pressure,
-                        MIN(received_at) as first_barometer_reading,
-                        MAX(received_at) as last_barometer_reading
+                        COUNT(*) FILTER (WHERE pressure > 0) as barometer_point_count,
+                        AVG(pressure) FILTER (WHERE pressure > 0) as avg_pressure,
+                        MIN(pressure) FILTER (WHERE pressure > 0) as min_pressure,
+                        MAX(pressure) FILTER (WHERE pressure > 0) as max_pressure,
+                        AVG(altitude_from_pressure) FILTER (WHERE pressure > 0) as avg_barometric_altitude,
+                        MIN(altitude_from_pressure) FILTER (WHERE pressure > 0) as min_barometric_altitude,
+                        MAX(altitude_from_pressure) FILTER (WHERE pressure > 0) as max_barometric_altitude,
+                        AVG(sea_level_pressure) FILTER (WHERE pressure > 0) as avg_sea_level_pressure,
+                        MIN(received_at) FILTER (WHERE pressure > 0) as first_barometer_reading,
+                        MAX(received_at) FILTER (WHERE pressure > 0) as last_barometer_reading
                     FROM gps_tracking_points
                     WHERE session_id = $1
-                    AND (pressure IS NOT NULL OR altitude_from_pressure IS NOT NULL)
+                    AND pressure > 0
                 """, session_id)
 
                 if row and row['barometer_point_count'] > 0:
@@ -1991,8 +2024,9 @@ class TrackingServer:
                     tracking_point["weatherCode"] = int(row['weather_code'])
 
                 # Add barometer data if available
-                if row['pressure'] is not None:
-                    tracking_point["pressure"] = float(row['pressure'])
+                pressure = self.normalize_pressure(row['pressure'])
+                if pressure is not None:
+                    tracking_point["pressure"] = pressure
 
                 history_points.append(tracking_point)
 
@@ -2494,9 +2528,6 @@ class TrackingServer:
             tracking_point["weatherCode"] = int(message_data["weatherCode"])
 
         # Add barometer data if available
-        if "pressure" in message_data:
-            tracking_point["pressure"] = float(message_data["pressure"])
-
         if "pressureAccuracy" in message_data:
             tracking_point["pressureAccuracy"] = int(message_data["pressureAccuracy"])
 
@@ -2505,6 +2536,8 @@ class TrackingServer:
 
         if "seaLevelPressure" in message_data:
             tracking_point["seaLevelPressure"] = float(message_data["seaLevelPressure"])
+
+        self.normalize_tracking_point_pressure(tracking_point)
 
         # Note: slope data is now added directly in tracking_point creation above
 
