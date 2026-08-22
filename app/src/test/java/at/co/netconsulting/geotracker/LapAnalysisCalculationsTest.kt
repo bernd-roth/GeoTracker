@@ -22,12 +22,14 @@ class LapAnalysisCalculationsTest {
         assertEquals(2, groups.size)
         assertEquals("1-2", groups[0].label)
         assertEquals(630_000L, groups[0].durationMs)
+        assertEquals(630_000L, groups[0].totalDurationMs)
         assertEquals(2.0, groups[0].distanceKm, 0.0)
         assertEquals(315.0, groups[0].paceSecondsPerKm!!, 0.0)
         assertFalse(groups[0].isIncomplete)
 
         assertEquals("3", groups[1].label)
         assertEquals(720_000L, groups[1].durationMs)
+        assertEquals(1_350_000L, groups[1].totalDurationMs)
         assertEquals(2.0, groups[1].distanceKm, 0.0)
         assertEquals(360.0, groups[1].paceSecondsPerKm!!, 0.0)
         assertTrue(groups[1].isIncomplete)
@@ -77,6 +79,8 @@ class LapAnalysisCalculationsTest {
         assertEquals(2, groups.size)
         assertEquals("1", groups[0].label)
         assertEquals("2", groups[1].label)
+        assertEquals(300_000L, groups[0].totalDurationMs)
+        assertEquals(610_000L, groups[1].totalDurationMs)
     }
 
     @Test

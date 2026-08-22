@@ -419,25 +419,31 @@ fun LapTimesTable(
                             text = "Lap",
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            modifier = Modifier.weight(0.23f)
+                            modifier = Modifier.weight(0.15f)
                         )
                         Text(
                             text = "km",
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            modifier = Modifier.weight(0.19f)
+                            modifier = Modifier.weight(0.14f)
                         )
                         Text(
                             text = "Time",
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            modifier = Modifier.weight(0.31f)
+                            modifier = Modifier.weight(0.23f)
+                        )
+                        Text(
+                            text = "Total",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(0.25f)
                         )
                         Text(
                             text = "Pace",
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp,
-                            modifier = Modifier.weight(0.27f)
+                            modifier = Modifier.weight(0.23f)
                         )
                     }
                     HorizontalDivider()
@@ -472,25 +478,31 @@ fun LapTimesTable(
                         ) {
                             Text(
                                 text = lapGroup.label,
-                                modifier = Modifier.weight(0.23f),
+                                modifier = Modifier.weight(0.15f),
                                 fontSize = 13.sp,
                                 color = rowTextColor
                             )
                             Text(
                                 text = String.format("%.2f", lapGroup.distanceKm),
-                                modifier = Modifier.weight(0.19f),
+                                modifier = Modifier.weight(0.14f),
                                 fontSize = 13.sp,
                                 color = rowTextColor
                             )
                             Text(
                                 text = Tools().formatDuration(lapGroup.durationMs),
-                                modifier = Modifier.weight(0.31f),
+                                modifier = Modifier.weight(0.23f),
+                                fontSize = 13.sp,
+                                color = rowTextColor
+                            )
+                            Text(
+                                text = Tools().formatDuration(lapGroup.totalDurationMs),
+                                modifier = Modifier.weight(0.25f),
                                 fontSize = 13.sp,
                                 color = rowTextColor
                             )
                             Text(
                                 text = calculatePace(lapGroup.durationMs, lapGroup.distanceKm),
-                                modifier = Modifier.weight(0.27f),
+                                modifier = Modifier.weight(0.23f),
                                 fontSize = 13.sp,
                                 color = rowTextColor
                             )

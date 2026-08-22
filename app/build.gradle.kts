@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.12 (21-08-2026: 0.0 pressure metrics are omitted)"
+        versionName = "10.13 (22-08-2026: Add cumulative total time to lap analysis)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

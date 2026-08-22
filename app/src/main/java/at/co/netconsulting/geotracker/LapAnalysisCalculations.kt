@@ -9,6 +9,7 @@ data class CalculatedLapGroup(
     val startTime: Long,
     val endTime: Long,
     val durationMs: Long,
+    val totalDurationMs: Long,
     val distanceKm: Double,
     val sourceLapCount: Int,
     val isIncomplete: Boolean
@@ -42,14 +43,18 @@ fun groupLapTimes(
     val lastLapIncomplete = lapTimes.size >= 2 && typicalDistance > 0.0 &&
             lapTimes.last().distance < typicalDistance * 0.9
 
+    var totalDurationMs = 0L
     return lapTimes.chunked(groupSize).mapIndexed { groupIndex, members ->
         val finalMemberIndex = groupIndex * groupSize + members.lastIndex
+        val durationMs = members.sumOf { it.endTime - it.startTime }
+        totalDurationMs += durationMs
         CalculatedLapGroup(
             firstLapNumber = members.first().lapNumber,
             lastLapNumber = members.last().lapNumber,
             startTime = members.first().startTime,
             endTime = members.last().endTime,
-            durationMs = members.sumOf { it.endTime - it.startTime },
+            durationMs = durationMs,
+            totalDurationMs = totalDurationMs,
             distanceKm = members.sumOf { it.distance },
             sourceLapCount = members.size,
             isIncomplete = members.size < groupSize ||
