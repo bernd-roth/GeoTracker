@@ -242,6 +242,7 @@ class ForegroundService : Service() {
             // Save to SessionPrefs for CustomLocationListener to access
             val sessionPrefs = getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
             sessionPrefs.edit().apply {
+                remove("last_session_id")
                 putString("current_event_name", eventName)
                 putString("current_event_date", eventDate)
                 putString("current_sport_type", sportType)
@@ -267,25 +268,29 @@ class ForegroundService : Service() {
     private fun clearSessionDataFromPreferences() {
         try {
             val sessionPrefs = getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+            val completedSessionId = sessionPrefs.getString("current_session_id", "").orEmpty()
             sessionPrefs.edit().apply {
                 remove("current_event_name")
                 remove("current_event_date")
                 remove("current_sport_type")
                 remove("current_comment")
                 remove("current_clothing")
-                remove("current_session_id") // Clear the session ID to prevent old lap data from loading
+                if (completedSessionId.isNotEmpty()) {
+                    putString("last_session_id", completedSessionId)
+                }
+                remove("current_session_id")
                 apply()
             }
 
-            // Clear lap times from the WeatherEventBusHandler
+            // End live tracking but retain the final statistics until another session starts.
             try {
-                WeatherEventBusHandler.getInstance(this@ForegroundService).clearLapTimes()
-                Log.d(TAG, "Cleared lap times from WeatherEventBusHandler")
+                WeatherEventBusHandler.getInstance(this@ForegroundService).stopLapTracking()
+                Log.d(TAG, "Stopped lap tracking and retained final statistics")
             } catch (e: Exception) {
-                Log.e(TAG, "Error clearing lap times from handler", e)
+                Log.e(TAG, "Error stopping lap tracking", e)
             }
 
-            Log.d(TAG, "Session data and lap times cleared from SharedPreferences")
+            Log.d(TAG, "Active session data cleared; completed session retained for statistics")
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing session data from SharedPreferences", e)
         }
@@ -2259,6 +2264,15 @@ class ForegroundService : Service() {
                     sessionId = sessionId,
                     enableWebSocketTransfer = enableWebSocketTransfer
                 )
+            }
+
+            // A newly triggered recording replaces the statistics shown for the previous
+            // recording. Crash recovery rehydrates the existing session instead.
+            val weatherHandler = WeatherEventBusHandler.getInstance(this@ForegroundService)
+            if (isRestoredSession) {
+                weatherHandler.initializeWithSession(sessionId)
+            } else {
+                weatherHandler.startLapTracking(sessionId)
             }
 
             // Connect to heart rate sensor if address is available

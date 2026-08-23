@@ -1,6 +1,5 @@
 package at.co.netconsulting.geotracker.composables
 
-import android.app.ActivityManager
 import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.background
@@ -38,19 +37,19 @@ fun StatisticsScreen() {
     val weatherHandler = remember { WeatherEventBusHandler.getInstance(context) }
     val followingService = remember { FollowingService.getInstance(context) }
 
-    // Initialize with current session ID, but only if the service is actually running
+    // Hydrate the active session, or the most recently completed session after recording
+    // has stopped. Opening this tab must never clear the final statistics.
     LaunchedEffect(Unit) {
-        val isServiceRunning = isServiceRunning(context, "at.co.netconsulting.geotracker.service.ForegroundService")
-        val sessionId = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
-            .getString("current_session_id", "") ?: ""
+        val sessionPreferences = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
+        val sessionId = sessionPreferences.getString("current_session_id", "")
+            ?.takeIf { it.isNotEmpty() }
+            ?: sessionPreferences.getString("last_session_id", "").orEmpty()
 
-        if (isServiceRunning && sessionId.isNotEmpty()) {
+        if (sessionId.isNotEmpty()) {
             weatherHandler.initializeWithSession(sessionId)
-            Log.d("StatisticsScreen", "Service is running - initialized WeatherEventBusHandler with session: $sessionId")
+            Log.d("StatisticsScreen", "Initialized WeatherEventBusHandler with retained session: $sessionId")
         } else {
-            // Service is not running or no session - clear any existing lap times to prevent showing old data
-            weatherHandler.clearLapTimes()
-            Log.d("StatisticsScreen", "Service not running or no session - cleared existing lap times (service running: $isServiceRunning, sessionId: $sessionId)")
+            Log.d("StatisticsScreen", "No persisted session found; retaining in-memory statistics")
         }
     }
 
@@ -1668,14 +1667,6 @@ private fun calculateLapPace(timeInMilliseconds: Long, distanceKm: Double): Stri
     val paceMinutes = paceSecondsPerKm / 60
     val paceSeconds = paceSecondsPerKm % 60
     return String.format("%d:%02d /km", paceMinutes, paceSeconds)
-}
-
-private fun isServiceRunning(context: Context, serviceName: String): Boolean {
-    val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-    return manager.getRunningServices(Integer.MAX_VALUE)
-        .any { service ->
-            serviceName == service.service.className && service.foreground
-        }
 }
 
 private fun calculateElevationGain(trail: List<FollowedUserPoint>): Double {

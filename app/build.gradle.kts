@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.13 (22-08-2026: Add cumulative total time to lap analysis)"
+        versionName = "10.14 (22-08-2026: Preserve last recording on map and statistics tab)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

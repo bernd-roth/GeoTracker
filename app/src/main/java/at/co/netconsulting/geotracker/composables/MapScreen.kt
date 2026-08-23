@@ -634,9 +634,15 @@ fun MapScreen(
 
     // Get current event ID from shared preferences
     val currentEventId = remember {
+        val eventPreferences = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+        val activeEventId = eventPreferences.getInt("active_event_id", -1)
         mutableStateOf(
-            context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                .getInt("active_event_id", -1)
+            if (isRecording) {
+                activeEventId
+            } else {
+                activeEventId.takeIf { it > 0 }
+                    ?: eventPreferences.getInt("last_event_id", -1)
+            }
         )
     }
 
@@ -1079,6 +1085,11 @@ fun MapScreen(
 
         // Clear weather overlays from map
         clearWeatherOverlays()
+
+        displayedRoute = null
+        showRouteDisplayIndicator = false
+        isRunningRerun = false
+        rerunProgress = 0f
     }
 
     // Set tap callbacks on waypoint overlays so tapping a waypoint opens the popup
@@ -1230,6 +1241,8 @@ fun MapScreen(
     LaunchedEffect(routeToDisplay) {
         Timber.d("LaunchedEffect triggered with routeToDisplay: ${routeToDisplay?.let { "points=${it.points.size}, eventId=${it.eventId}" } ?: "null"}")
         if (routeToDisplay != null && routeToDisplay.points.isNotEmpty()) {
+            // Content selected from Events replaces the previously displayed recording.
+            clearAllTracksFromMap()
             displayedRoute = routeToDisplay
             showRouteDisplayIndicator = true
 
@@ -1355,6 +1368,9 @@ fun MapScreen(
     // Handle route rerun animation - simple version
     LaunchedEffect(routeRerunData) {
         if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty() && !isRunningRerun) {
+            // Content selected from Events replaces the previously displayed recording.
+            clearAllTracksFromMap()
+
             // Auto-enable rerun mode when starting route rerun
             isRerunModeEnabled = true
             context.getSharedPreferences("MapSettings", Context.MODE_PRIVATE)
@@ -2035,9 +2051,11 @@ fun MapScreen(
         }
     }
 
-    // Initialize or clean up path tracker with immediate updates
-    LaunchedEffect(showPath, currentEventId.value, isRecording, followingState.isFollowing) {
-        if (showPath && isRecording) {
+    // Initialize or clean up path tracker with immediate updates. Finishing a recording
+    // deliberately leaves its final path and waypoints visible until replacement content
+    // is requested.
+    LaunchedEffect(showPath, currentEventId.value, isRecording, isMapInitialized) {
+        if (showPath && currentEventId.value > 0) {
             mapViewRef.value?.let { mapView ->
                 pathTracker.initialize(mapView)
                 pathTracker.setCurrentEventId(currentEventId.value, mapView)
@@ -2053,17 +2071,19 @@ fun MapScreen(
                 // Force immediate update when initializing
                 pathTracker.updatePathForViewport(mapView, forceUpdate = true)
 
-                // Schedule additional immediate updates for the first few seconds
-                repeat(5) { attempt ->
-                    delay(1000L * (attempt + 1)) // 1s, 2s, 3s, 4s, 5s
-                    if (isActive && isRecording && showPath) {
-                        pathTracker.updatePathForViewport(mapView, forceUpdate = true)
-                        Timber.d("Scheduled path update ${attempt + 1}")
+                if (isRecording) {
+                    // Schedule additional immediate updates for the first few seconds.
+                    repeat(5) { attempt ->
+                        delay(1000L * (attempt + 1)) // 1s, 2s, 3s, 4s, 5s
+                        if (isActive && isRecording && showPath) {
+                            pathTracker.updatePathForViewport(mapView, forceUpdate = true)
+                            Timber.d("Scheduled path update ${attempt + 1}")
+                        }
                     }
                 }
             }
-            Timber.d("Path tracker initialized with immediate updates for event: ${currentEventId.value}")
-        } else {
+            Timber.d("Path tracker initialized for event: ${currentEventId.value}, recording=$isRecording")
+        } else if (!showPath) {
             mapViewRef.value?.let { mapView ->
                 pathTracker.clearPath(mapView)
                 
@@ -2074,6 +2094,9 @@ fun MapScreen(
                 }
             }
             Timber.d("Path tracking disabled")
+        } else {
+            pathTracker.setRecording(false)
+            Timber.d("Recording finished; retaining final path and waypoints")
         }
     }
 
@@ -2105,7 +2128,7 @@ fun MapScreen(
         }
     }
 
-    // Monitor recording state changes - with track cleanup when recording stops
+    // Monitor recording state changes without changing displayed map content on stop.
     LaunchedEffect(Unit) {
         while (true) {
             val newIsRecording = context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
@@ -2114,15 +2137,17 @@ fun MapScreen(
             val newShowPath = context.getSharedPreferences("PathSettings", Context.MODE_PRIVATE)
                 .getBoolean("show_path", false)
 
-            val newEventId = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
-                .getInt("active_event_id", -1)
+            val eventPreferences = context.getSharedPreferences("CurrentEvent", Context.MODE_PRIVATE)
+            val activeEventId = eventPreferences.getInt("active_event_id", -1)
+            val newEventId = if (newIsRecording) {
+                activeEventId
+            } else {
+                activeEventId.takeIf { it > 0 }
+                    ?: eventPreferences.getInt("last_event_id", -1)
+            }
 
             if (isRecording != newIsRecording) {
                 android.util.Log.d("MapScreen", "Recording state changed from $isRecording to $newIsRecording")
-
-                // Don't clear imported tracks/weather when recording stops - user might want to keep them
-                // Only clear the live recording path
-                // Note: clearAllTracksFromMap() is called when user manually stops via stop button
 
                 isRecording = newIsRecording
                 pathTracker.setRecording(newIsRecording)
@@ -2425,7 +2450,7 @@ fun MapScreen(
 
                     mapViewRef.value = this
 
-                    if (showPath && isRecording) {
+                    if (showPath && currentEventId.value > 0 && routeToDisplay == null && routeRerunData == null) {
                         pathTracker.initialize(this)
                         pathTracker.setCurrentEventId(currentEventId.value, this)
                         pathTracker.setRecording(isRecording)
@@ -2467,16 +2492,16 @@ fun MapScreen(
                                 Timber.d("Scroll event without recent touch - keeping auto-follow states active")
                             }
 
-                            // Force path updates during recording on scroll
-                            if (showPath && isRecording) {
+                            // Keep retained and live paths correctly sampled for the viewport.
+                            if (showPath && currentEventId.value > 0) {
                                 pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
                             return true
                         }
 
                         override fun onZoom(event: ZoomEvent?): Boolean {
-                            // Force path updates during recording on zoom
-                            if (showPath && isRecording) {
+                            // Keep retained and live paths correctly sampled for the viewport.
+                            if (showPath && currentEventId.value > 0) {
                                 pathTracker.updatePathForViewport(this@apply, forceUpdate = true)
                             }
                             return true
@@ -3290,9 +3315,6 @@ fun MapScreen(
                                     .putBoolean("was_running", false)
                                     .apply()
 
-                                // Clear all tracks immediately
-                                clearAllTracksFromMap()
-
                                 // Stop and remove ghost racer overlay if active
                                 if (isGhostRacerEnabled) {
                                     ghostRacerOverlayRef.value?.let { ghostOverlay ->
@@ -3401,8 +3423,6 @@ fun MapScreen(
                                     .edit()
                                     .putBoolean("was_running", false)
                                     .apply()
-
-                                clearAllTracksFromMap()
 
                                 currentLocationInfoOverlayRef.value?.disable()
 
@@ -3737,6 +3757,11 @@ fun MapScreen(
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
                 val recordingStartMillis = System.currentTimeMillis()
+
+                // A new recording is replacement content, so this is the point at which
+                // the completed recording (or an event route) is removed from the map.
+                clearAllTracksFromMap()
+                currentEventId.value = -1
 
                 // Handle imported track
                 importedGpx?.let { gpxTrack ->

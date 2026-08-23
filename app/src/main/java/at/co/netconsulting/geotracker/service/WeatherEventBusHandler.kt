@@ -306,20 +306,13 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
      * Start a new session and initialize lap tracking (backward compatibility)
      */
     private fun startNewSession(sessionId: String, currentTime: Long) {
-        clearWeather()
+        clearSessionStatistics()
         currentSessionId = sessionId
         sessionStartTime = currentTime
         lapStartTime = currentTime
         lastLapDistance = 0.0
         isTrackingLaps = true
 
-        // Clear existing lap times, speed history, heart rate history, altitude history, and barometric histories, then load from database
-        _lapTimes.value = emptyList()
-        _speedHistory.value = emptyList()
-        _heartRateHistory.value = emptyList()
-        _altitudeHistory.value = emptyList()
-        _pressureHistory.value = emptyList()
-        _barometerAltitudeHistory.value = emptyList()
         loadLapTimesFromDatabase()
         loadCurrentEventDataFromDatabase()
 
@@ -539,10 +532,12 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
     }
 
     /**
-     * Clear lap times (for new sessions)
+     * Clear all displayed statistics when replacement content is requested.
      */
-    fun clearLapTimes() {
+    fun clearSessionStatistics() {
         clearWeather()
+        _metrics.value = null
+        _heartRate.value = null
         _lapTimes.value = emptyList()
         _speedHistory.value = emptyList() // Clear speed history as well
         _heartRateHistory.value = emptyList() // Clear heart rate history for consistency
@@ -550,7 +545,12 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
         _pressureHistory.value = emptyList() // Clear pressure history for consistency
         _barometerAltitudeHistory.value = emptyList() // Clear barometric altitude history for consistency
         currentSessionId = ""
-        Log.d(TAG, "Cleared weather, lap times, speed history, heart rate history, altitude history, and barometric histories")
+        currentEventId = -1
+        isTrackingLaps = false
+        speedBuffer.clear()
+        lastMetricsTimestamp = 0L
+        lastMetricsValue = null
+        Log.d(TAG, "Cleared all session statistics")
     }
 
     private fun clearWeather() {
@@ -574,7 +574,7 @@ class WeatherEventBusHandler private constructor(private val context: Context) {
     }
 
     /**
-     * Stop lap tracking (backward compatibility)
+     * Stop live lap tracking while retaining the completed session for display.
      */
     fun stopLapTracking() {
         isTrackingLaps = false
