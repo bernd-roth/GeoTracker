@@ -167,6 +167,7 @@ import java.util.Calendar
 
 private enum class CalendarPermissionAction {
     EXPORT_ALL,
+    EXPORT_SELECTED,
     DELETE_ALL
 }
 
@@ -247,10 +248,12 @@ private fun EventsToolsBar(
     selectedTab: Int,
     showYearlyStats: Boolean,
     isConnectMode: Boolean,
+    isCalendarSelectionMode: Boolean,
     isCalendarExporting: Boolean,
     isCalendarDeleting: Boolean,
     onOpenCalendar: () -> Unit,
     onExportAllToCalendar: () -> Unit,
+    onToggleCalendarSelectionMode: () -> Unit,
     onDeleteCalendarExports: () -> Unit,
     onOpenDetailedStatistics: () -> Unit,
     onToggleYearlyStats: () -> Unit,
@@ -288,6 +291,25 @@ private fun EventsToolsBar(
 
             if (selectedTab == 0) {
                 HorizontalDivider()
+                EventsToolMenuItem(
+                    title = if (isCalendarSelectionMode) {
+                        "Stop selecting recordings"
+                    } else {
+                        "Export selected recordings"
+                    },
+                    description = if (isCalendarSelectionMode) {
+                        "Leave calendar selection mode."
+                    } else {
+                        "Mark one or more recordings to add to Google Calendar."
+                    },
+                    icon = if (isCalendarSelectionMode) Icons.Default.Clear else Icons.Default.CheckCircle,
+                    enabled = !isCalendarBusy,
+                    destructive = isCalendarSelectionMode,
+                    onClick = {
+                        expandedCategory = null
+                        onToggleCalendarSelectionMode()
+                    }
+                )
                 EventsToolMenuItem(
                     title = "Export all recordings",
                     description = "Add every recorded event to a Google Calendar.",
@@ -619,16 +641,25 @@ fun EventsScreen(
     var connectSelectedIds by remember { mutableStateOf<List<Int>>(emptyList()) }
     var showConnectDialog by remember { mutableStateOf(false) }
     var isCombining by remember { mutableStateOf(false) }
+    var isCalendarSelectionMode by remember { mutableStateOf(false) }
+    var calendarSelectedIds by remember { mutableStateOf<Set<Int>>(emptySet()) }
     val isDateFilterActive by eventsViewModel.isDateFilterActive.collectAsState() // Track if date filter is active from ViewModel
     val selectedTab by eventsViewModel.selectedTab.collectAsState()
 
-    // Bulk Google Calendar export state. Single-event export uses the calendar app's
-    // insert screen and therefore does not require calendar permissions.
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != 0) {
+            isCalendarSelectionMode = false
+            calendarSelectedIds = emptySet()
+        }
+    }
+
+    // Google Calendar export state shared by all-events and marked-events exports.
     var googleCalendars by remember { mutableStateOf<List<GoogleCalendar>>(emptyList()) }
     var calendarEventsToExport by remember {
         mutableStateOf<List<CalendarExportEvent>>(emptyList())
     }
     var showCalendarSelectionDialog by remember { mutableStateOf(false) }
+    var calendarExportWasSelection by remember { mutableStateOf(false) }
     var isCalendarExporting by remember { mutableStateOf(false) }
     var calendarEventsToDelete by remember {
         mutableStateOf<List<CalendarExportEvent>>(emptyList())
@@ -639,30 +670,38 @@ fun EventsScreen(
         mutableStateOf<CalendarPermissionAction?>(null)
     }
 
-    val loadBulkCalendarExport: () -> Unit = {
+    val loadCalendarExport: (Set<Int>?) -> Unit = { selectedIds ->
         coroutineScope.launch {
             isCalendarExporting = true
             try {
-                val exportEvents = CalendarExporter.loadRecordedEvents(
-                    FitnessTrackerDatabase.getInstance(context)
+                val exportEvents = CalendarExporter.selectEventsForExport(
+                    CalendarExporter.loadRecordedEvents(
+                        FitnessTrackerDatabase.getInstance(context)
+                    ),
+                    selectedIds
                 )
                 val calendars = withContext(Dispatchers.IO) {
-                    CalendarExporter.getWritableCalendars(context)
+                    CalendarExporter.getWritableGoogleCalendars(context)
                 }
                 when {
                     exportEvents.isEmpty() -> Toast.makeText(
                         context,
-                        "There are no recorded events to export",
+                        if (selectedIds == null) {
+                            "There are no recorded events to export"
+                        } else {
+                            "None of the marked recordings can be exported"
+                        },
                         Toast.LENGTH_SHORT
                     ).show()
                     calendars.isEmpty() -> Toast.makeText(
                         context,
-                        "No writable calendar was found. Enable Calendar sync first.",
+                        "No writable Google calendar was found. Enable Google Calendar sync first.",
                         Toast.LENGTH_LONG
                     ).show()
                     else -> {
                         calendarEventsToExport = exportEvents
                         googleCalendars = calendars
+                        calendarExportWasSelection = selectedIds != null
                         showCalendarSelectionDialog = true
                     }
                 }
@@ -679,6 +718,14 @@ fun EventsScreen(
         }
     }
 
+    val loadBulkCalendarExport: () -> Unit = {
+        loadCalendarExport(null)
+    }
+
+    val loadSelectedCalendarExport: () -> Unit = {
+        loadCalendarExport(calendarSelectedIds)
+    }
+
     val loadBulkCalendarDelete: () -> Unit = {
         coroutineScope.launch {
             isCalendarDeleting = true
@@ -690,11 +737,6 @@ fun EventsScreen(
                     CalendarExporter.getWritableGoogleCalendars(context)
                 }
                 when {
-                    exportEvents.isEmpty() -> Toast.makeText(
-                        context,
-                        "There are no recorded events to delete from Google Calendar",
-                        Toast.LENGTH_SHORT
-                    ).show()
                     calendars.isEmpty() -> Toast.makeText(
                         context,
                         "No writable Google calendar was found. Enable Google Calendar sync first.",
@@ -729,6 +771,7 @@ fun EventsScreen(
         ) {
             when (action) {
                 CalendarPermissionAction.EXPORT_ALL -> loadBulkCalendarExport()
+                CalendarPermissionAction.EXPORT_SELECTED -> loadSelectedCalendarExport()
                 CalendarPermissionAction.DELETE_ALL -> loadBulkCalendarDelete()
                 null -> Unit
             }
@@ -753,6 +796,7 @@ fun EventsScreen(
         if (hasReadPermission && hasWritePermission) {
             when (action) {
                 CalendarPermissionAction.EXPORT_ALL -> loadBulkCalendarExport()
+                CalendarPermissionAction.EXPORT_SELECTED -> loadSelectedCalendarExport()
                 CalendarPermissionAction.DELETE_ALL -> loadBulkCalendarDelete()
             }
         } else {
@@ -770,6 +814,18 @@ fun EventsScreen(
         startBulkCalendarAction(CalendarPermissionAction.EXPORT_ALL)
     }
 
+    val startSelectedCalendarExport: () -> Unit = {
+        if (calendarSelectedIds.isEmpty()) {
+            Toast.makeText(
+                context,
+                "Mark at least one recording to export",
+                Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            startBulkCalendarAction(CalendarPermissionAction.EXPORT_SELECTED)
+        }
+    }
+
     val startBulkCalendarDelete: () -> Unit = {
         startBulkCalendarAction(CalendarPermissionAction.DELETE_ALL)
     }
@@ -777,7 +833,9 @@ fun EventsScreen(
     if (showCalendarSelectionDialog) {
         AlertDialog(
             onDismissRequest = { showCalendarSelectionDialog = false },
-            title = { Text("Export all events") },
+            title = {
+                Text(if (calendarExportWasSelection) "Export marked events" else "Export all events")
+            },
             text = {
                 Column {
                     Text(
@@ -799,21 +857,37 @@ fun EventsScreen(
                                     isCalendarExporting = true
                                     try {
                                         val result = withContext(Dispatchers.IO) {
-                                            CalendarExporter.exportAll(
+                                            CalendarExporter.exportEvents(
                                                 context,
-                                                calendar.id,
+                                                calendar,
                                                 calendarEventsToExport
                                             )
                                         }
                                         val message = buildString {
-                                            append("Exported ${result.exported} event")
-                                            if (result.exported != 1) append("s")
-                                            append(" to ${calendar.displayName}")
+                                            if (result.exported > 0) {
+                                                append("Saved ${result.exported} event")
+                                                if (result.exported != 1) append("s")
+                                                append(" to ${calendar.displayName}")
+                                            } else {
+                                                append("No new events were needed in ${calendar.displayName}")
+                                            }
                                             if (result.skipped > 0) {
                                                 append("; skipped ${result.skipped} already exported")
                                             }
+                                            if (result.failed > 0) {
+                                                append("; ${result.failed} failed verification")
+                                            }
+                                            if (result.syncRequested) {
+                                                append(". Google Calendar sync requested")
+                                            } else {
+                                                append(". Open Google Calendar to sync")
+                                            }
                                         }
                                         Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                                        if (result.failed == 0 && calendarExportWasSelection) {
+                                            isCalendarSelectionMode = false
+                                            calendarSelectedIds = emptySet()
+                                        }
                                     } catch (e: Exception) {
                                         Log.e("EventsScreen", "Calendar export failed", e)
                                         Toast.makeText(
@@ -856,9 +930,7 @@ fun EventsScreen(
             text = {
                 Column {
                     Text(
-                        "Delete exported Google Calendar entries for " +
-                                "${calendarEventsToDelete.size} recorded " +
-                                "event${if (calendarEventsToDelete.size == 1) "" else "s"}?"
+                        "Delete all GeoTracker exports from your writable Google calendars?"
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -878,26 +950,21 @@ fun EventsScreen(
                             isCalendarDeleting = true
                             try {
                                 val result = withContext(Dispatchers.IO) {
-                                    CalendarExporter.deleteFromCalendars(
+                                    CalendarExporter.deleteAllExports(
                                         context,
-                                        googleCalendars.map { it.id },
+                                        googleCalendars,
                                         calendarEventsToDelete
                                     )
                                 }
-                                val message = if (result.remainingEntries > 0) {
-                                    "Calendar entry is still present after delete attempt"
-                                } else if (result.deletedEntries == 0) {
-                                    "No exported Google Calendar entries were found"
-                                } else {
-                                    buildString {
-                                        append("Deleted ${result.deletedEntries} calendar ")
-                                        append(if (result.deletedEntries == 1) "entry" else "entries")
-                                        if (result.missingEvents > 0) {
-                                            append("; ${result.missingEvents} event ")
-                                            append(if (result.missingEvents == 1) "export was" else "exports were")
-                                            append(" not found")
-                                        }
-                                    }
+                                val message = when {
+                                    result.deletedEntries == 0 && result.remainingEntries == 0 ->
+                                        "No GeoTracker exports were found in Google Calendar"
+                                    result.remainingEntries > 0 ->
+                                        "Deleted ${result.deletedEntries} calendar entries; " +
+                                                "${result.remainingEntries} could not be removed"
+                                    else ->
+                                        "Deleted ${result.deletedEntries} Google Calendar " +
+                                                if (result.deletedEntries == 1) "entry" else "entries"
                                 }
                                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             } catch (e: Exception) {
@@ -1347,10 +1414,20 @@ fun EventsScreen(
                     selectedTab = selectedTab,
                     showYearlyStats = showYearlyStats,
                     isConnectMode = isConnectMode,
+                    isCalendarSelectionMode = isCalendarSelectionMode,
                     isCalendarExporting = isCalendarExporting,
                     isCalendarDeleting = isCalendarDeleting,
                     onOpenCalendar = onNavigateToCalendar,
                     onExportAllToCalendar = startBulkCalendarExport,
+                    onToggleCalendarSelectionMode = {
+                        isCalendarSelectionMode = !isCalendarSelectionMode
+                        if (isCalendarSelectionMode) {
+                            isConnectMode = false
+                            connectSelectedIds = emptyList()
+                        } else {
+                            calendarSelectedIds = emptySet()
+                        }
+                    },
                     onDeleteCalendarExports = startBulkCalendarDelete,
                     onOpenDetailedStatistics = {
                         val intent = Intent(context, YearlyStatisticsActivity::class.java)
@@ -1361,6 +1438,10 @@ fun EventsScreen(
                     onDownloadEvents = { showDownloadDialog = true },
                     onToggleConnectMode = {
                         isConnectMode = !isConnectMode
+                        if (isConnectMode) {
+                            isCalendarSelectionMode = false
+                            calendarSelectedIds = emptySet()
+                        }
                         if (!isConnectMode) {
                             connectSelectedIds = emptyList()
                         }
@@ -1388,6 +1469,63 @@ fun EventsScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp)
                 )
+            }
+
+            if (isCalendarSelectionMode) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Google Calendar Export",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Text(
+                                text = "Tap one or more recordings to mark them for export.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "${calendarSelectedIds.size} recording" +
+                                        if (calendarSelectedIds.size == 1) " marked" else "s marked",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = startSelectedCalendarExport,
+                                enabled = calendarSelectedIds.isNotEmpty() && !isCalendarExporting,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (isCalendarExporting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.DateRange,
+                                        contentDescription = null,
+                                        modifier = Modifier.padding(end = 8.dp)
+                                    )
+                                }
+                                Text(
+                                    "Export ${calendarSelectedIds.size} " +
+                                            if (calendarSelectedIds.size == 1) "Recording" else "Recordings"
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // Connect mode banner
@@ -1669,20 +1807,32 @@ fun EventsScreen(
                             Log.d("EventsScreen", "Event ${eventWithDetails.event.eventName} (ID: ${eventWithDetails.event.eventId}): isRecordingThisEvent=$isRecordingThisEvent, activeEventId=$activeEventId, isRecording=$isRecording")
                         }
 
-                        // Connect mode: show selection indicator
-                        if (isConnectMode) {
+                        // Selection modes: show a mark above each selectable recording.
+                        if (isConnectMode || isCalendarSelectionMode) {
                             val eventId = eventWithDetails.event.eventId
-                            val isSelected = connectSelectedIds.contains(eventId)
+                            val isSelected = if (isConnectMode) {
+                                connectSelectedIds.contains(eventId)
+                            } else {
+                                eventId in calendarSelectedIds
+                            }
                             val selectionIndex = connectSelectedIds.indexOf(eventId)
 
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        connectSelectedIds = if (isSelected) {
-                                            connectSelectedIds.filter { it != eventId }
+                                        if (isConnectMode) {
+                                            connectSelectedIds = if (isSelected) {
+                                                connectSelectedIds.filter { it != eventId }
+                                            } else {
+                                                connectSelectedIds + eventId
+                                            }
                                         } else {
-                                            connectSelectedIds + eventId
+                                            calendarSelectedIds = if (isSelected) {
+                                                calendarSelectedIds - eventId
+                                            } else {
+                                                calendarSelectedIds + eventId
+                                            }
                                         }
                                     }
                                     .padding(horizontal = 4.dp),
@@ -1697,11 +1847,14 @@ fun EventsScreen(
                                         Icon(
                                             imageVector = Icons.Default.CheckCircle,
                                             contentDescription = "Selected",
-                                            tint = if (selectionIndex == 0) MaterialTheme.colorScheme.primary
-                                                   else MaterialTheme.colorScheme.secondary,
+                                            tint = if (isConnectMode && selectionIndex > 0) {
+                                                MaterialTheme.colorScheme.secondary
+                                            } else {
+                                                MaterialTheme.colorScheme.primary
+                                            },
                                             modifier = Modifier.size(28.dp)
                                         )
-                                        if (selectionIndex == 0) {
+                                        if (isConnectMode && selectionIndex == 0) {
                                             Text(
                                                 text = "1st",
                                                 fontSize = 8.sp,
@@ -1729,7 +1882,11 @@ fun EventsScreen(
 
                         EventCard(
                             event = eventWithDetails,
-                            selected = if (isConnectMode) false else selectedEventId == eventWithDetails.event.eventId,
+                            selected = if (isConnectMode || isCalendarSelectionMode) {
+                                false
+                            } else {
+                                selectedEventId == eventWithDetails.event.eventId
+                            },
                             onClick = {
                                 if (isConnectMode) {
                                     // In connect mode, toggle selection
@@ -1738,6 +1895,13 @@ fun EventsScreen(
                                         connectSelectedIds.filter { it != eventId }
                                     } else {
                                         connectSelectedIds + eventId
+                                    }
+                                } else if (isCalendarSelectionMode) {
+                                    val eventId = eventWithDetails.event.eventId
+                                    calendarSelectedIds = if (eventId in calendarSelectedIds) {
+                                        calendarSelectedIds - eventId
+                                    } else {
+                                        calendarSelectedIds + eventId
                                     }
                                 } else {
                                     val isCurrentlySelected = selectedEventId == eventWithDetails.event.eventId
@@ -1981,12 +2145,24 @@ fun EventCard(
             isAddingCalendarExport = true
             try {
                 val result = withContext(Dispatchers.IO) {
-                    CalendarExporter.exportAll(context, calendar.id, listOf(exportEvent))
+                    CalendarExporter.exportEvents(context, calendar, listOf(exportEvent))
                 }
-                val message = if (result.exported == 0 && result.skipped > 0) {
-                    "This event is already exported to ${calendar.displayName}"
+                val message = if (result.failed > 0) {
+                    "Calendar export could not be verified"
+                } else if (result.exported == 0 && result.skipped > 0) {
+                    "This event is already in ${calendar.displayName}; " +
+                            if (result.syncRequested) {
+                                "Google Calendar sync requested"
+                            } else {
+                                "open Google Calendar to sync"
+                            }
                 } else {
-                    "Exported event to ${calendar.displayName}"
+                    "Saved event to ${calendar.displayName}; " +
+                            if (result.syncRequested) {
+                                "Google Calendar sync requested"
+                            } else {
+                                "open Google Calendar to sync"
+                            }
                 }
                 Toast.makeText(context, message, Toast.LENGTH_LONG).show()
             } catch (e: Exception) {
@@ -2096,7 +2272,7 @@ fun EventCard(
                         )
                     }
                     val result = withContext(Dispatchers.IO) {
-                        CalendarExporter.deleteFromAllWritableCalendars(
+                        CalendarExporter.deleteFromAllWritableGoogleCalendars(
                             context,
                             listOf(exportEvent)
                         )

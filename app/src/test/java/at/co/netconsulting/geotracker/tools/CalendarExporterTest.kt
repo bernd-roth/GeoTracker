@@ -89,14 +89,105 @@ class CalendarExporterTest {
         )
     }
 
+    @Test
+    fun `marked export includes only selected event ids in recording order`() {
+        val first = CalendarExporter.buildExportEvent(
+            recordedEvent(eventName = "First", eventId = 41),
+            TimeRange(1_700_000_000_000L, 1_700_000_060_000L)
+        )
+        val second = CalendarExporter.buildExportEvent(
+            recordedEvent(eventName = "Second", eventId = 42),
+            TimeRange(1_700_000_120_000L, 1_700_000_180_000L)
+        )
+        val third = CalendarExporter.buildExportEvent(
+            recordedEvent(eventName = "Third", eventId = 43),
+            TimeRange(1_700_000_240_000L, 1_700_000_300_000L)
+        )
+
+        val selected = CalendarExporter.selectEventsForExport(
+            listOf(first, second, third),
+            setOf(41, 43)
+        )
+
+        assertEquals(listOf(41, 43), selected.map { it.sourceEventId })
+    }
+
+    @Test
+    fun `null selection exports all while empty selection exports none`() {
+        val events = listOf(
+            CalendarExporter.buildExportEvent(
+                recordedEvent(eventName = "First", eventId = 41),
+                TimeRange(1_700_000_000_000L, 1_700_000_060_000L)
+            ),
+            CalendarExporter.buildExportEvent(
+                recordedEvent(eventName = "Second", eventId = 42),
+                TimeRange(1_700_000_120_000L, 1_700_000_180_000L)
+            )
+        )
+
+        assertEquals(events, CalendarExporter.selectEventsForExport(events, null))
+        assertTrue(CalendarExporter.selectEventsForExport(events, emptySet()).isEmpty())
+    }
+
+    @Test
+    fun `deleted calendar tombstones do not count as existing exports`() {
+        val selection = CalendarExporter.existingExportSelection()
+
+        assertTrue(selection.contains(CalendarContract.Events.CALENDAR_ID))
+        assertTrue(selection.contains(CalendarContract.Events.UID_2445))
+        assertTrue(selection.contains(CalendarContract.Events.DELETED))
+        assertTrue(selection.contains("!= 1"))
+    }
+
+    @Test
+    fun `bulk delete counts exact removed rows instead of rerunning fallback matching`() {
+        val sourceUids = (1..336).map { "geotracker-7-$it@at.co.netconsulting.geotracker" }.toSet()
+        val matches = (1..334).map { id ->
+            CalendarExporter.CalendarDeleteMatch(
+                calendarEventId = id.toLong(),
+                sourceUid = "geotracker-7-$id@at.co.netconsulting.geotracker"
+            )
+        }
+
+        val result = CalendarExporter.summarizeDeleteResult(
+            sourceUids = sourceUids,
+            matches = matches,
+            remainingEventIds = emptySet()
+        )
+
+        assertEquals(334, result.deletedEntries)
+        assertEquals(334, result.foundEvents)
+        assertEquals(2, result.missingEvents)
+        assertEquals(0, result.remainingEntries)
+    }
+
+    @Test
+    fun `bulk delete reports only exact row ids that remain active`() {
+        val matches = listOf(
+            CalendarExporter.CalendarDeleteMatch(10L, "uid-1"),
+            CalendarExporter.CalendarDeleteMatch(11L, "uid-2"),
+            CalendarExporter.CalendarDeleteMatch(12L, "uid-3")
+        )
+
+        val result = CalendarExporter.summarizeDeleteResult(
+            sourceUids = setOf("uid-1", "uid-2", "uid-3"),
+            matches = matches,
+            remainingEventIds = setOf(11L)
+        )
+
+        assertEquals(2, result.deletedEntries)
+        assertEquals(1, result.remainingEntries)
+    }
+
     private fun recordedEvent(
         eventName: String,
+        eventId: Int = 42,
         eventDate: String = "2026-07-05",
         artOfSport: String = "",
         comment: String = "",
         startAddress: String? = null
     ) = Event(
-        eventId = 42,
+        eventId = eventId,
         userId = 7,
         eventName = eventName,
         eventDate = eventDate,
