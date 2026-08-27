@@ -408,6 +408,95 @@ def create_session():
     )
 
 
+@sessions_bp.route('/sessions/<session_id>/data', methods=['PUT'])
+def replace_session_data(session_id):
+    """Replace a completed session's recorded GPS and lap data atomically.
+
+    The base session row is retained so media and other session-scoped metadata
+    are not removed. Any reset fragments created by interrupted live streaming
+    are folded into the replacement and removed.
+    """
+    data = request.get_json()
+    if not data:
+        raise ValidationError("Request body is required")
+
+    payload_session_id = data.get('session_id')
+    if payload_session_id and payload_session_id != session_id:
+        raise ValidationError("session_id in the request body must match the URL")
+
+    gps_points = data.get('gps_points')
+    if not isinstance(gps_points, list) or not gps_points:
+        raise ValidationError("gps_points must be a non-empty list")
+
+    lap_times = data.get('lap_times', [])
+    if not isinstance(lap_times, list):
+        raise ValidationError("lap_times must be a list")
+
+    base_session_id = _base_session_id(session_id)
+    session = TrackingSession.query.get(base_session_id)
+    if not session:
+        raise NotFoundError(f"Session '{session_id}' not found")
+
+    family_sessions = _session_family_query(base_session_id).all()
+    family_session_ids = [item.session_id for item in family_sessions]
+
+    try:
+        # Delete only replaceable recorded data from the base session. Keeping
+        # the row itself preserves media and session-scoped references.
+        GPSTrackingPoint.query.filter(
+            GPSTrackingPoint.session_id.in_(family_session_ids)
+        ).delete(synchronize_session=False)
+        LapTime.query.filter(
+            LapTime.session_id.in_(family_session_ids)
+        ).delete(synchronize_session=False)
+
+        # Reset fragments represent partial continuations of the same route.
+        # The complete local upload is stored under the single base ID.
+        for fragment in family_sessions:
+            if fragment.session_id != base_session_id:
+                db.session.delete(fragment)
+
+        allowed_fields = [
+            'event_name', 'sport_type', 'comment', 'clothing',
+            'start_city', 'start_country', 'start_address',
+            'end_city', 'end_country', 'end_address'
+        ]
+        for field in allowed_fields:
+            if field in data:
+                setattr(session, field, data[field])
+
+        if data.get('start_date_time'):
+            try:
+                session.start_date_time = date_parser.parse(data['start_date_time'])
+            except (ValueError, TypeError) as e:
+                raise ValidationError(f"Invalid start_date_time: {str(e)}")
+
+        session.updated_at = datetime.utcnow()
+
+        for point_data in gps_points:
+            db.session.add(create_gps_point(base_session_id, point_data))
+
+        for lap_data in lap_times:
+            db.session.add(create_lap_time(base_session_id, session.user_id, lap_data))
+
+        db.session.commit()
+    except ValidationError:
+        db.session.rollback()
+        raise
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error replacing session data: {e}")
+        raise ValidationError(f"Failed to replace session data: {str(e)}")
+
+    return success_response(
+        data=session.to_dict(include_stats=True),
+        message=(
+            f"Session data replaced successfully with {len(gps_points)} GPS "
+            f"point(s) and {len(lap_times)} lap(s)"
+        )
+    )
+
+
 @sessions_bp.route('/sessions/<session_id>', methods=['PUT'])
 def update_session(session_id):
     """Update session metadata."""

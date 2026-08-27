@@ -49,6 +49,21 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
 
     companion object {
         private const val TAG = "UploadEventsViewModel"
+
+        internal fun replacementTargets(
+            events: List<Event>,
+            selectedEventIds: Set<Int>,
+            uploadProgress: Map<Int, UploadState>
+        ): List<Pair<Event, String>> {
+            return events.mapNotNull { event ->
+                val state = uploadProgress[event.eventId]
+                if (event.eventId in selectedEventIds && state is UploadState.AlreadyExists) {
+                    event to state.sessionId
+                } else {
+                    null
+                }
+            }
+        }
     }
 
     init {
@@ -119,6 +134,19 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
         _selectedEvents.value = _unuploadedEvents.value.map { it.eventId }.toSet()
     }
 
+    fun selectAllExcept(excludedEventId: Int?) {
+        _selectedEvents.value = _unuploadedEvents.value
+            .map { it.eventId }
+            .filterNot { it == excludedEventId }
+            .toSet()
+    }
+
+    fun deselectEvent(eventId: Int?) {
+        if (eventId != null) {
+            _selectedEvents.value = _selectedEvents.value - eventId
+        }
+    }
+
     fun deselectAll() {
         _selectedEvents.value = emptySet()
     }
@@ -171,6 +199,28 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
     ) {
         Log.d(TAG, "Checking event: ${event.eventName} (ID: ${event.eventId})")
         updateProgress(event.eventId, UploadState.Checking)
+
+        // A live-recorded event already carries its exact server session ID.
+        // Prefer it over metadata matching so two similar activities recorded
+        // on the same day can never cause the wrong session to be replaced.
+        event.sessionId?.takeIf { it.isNotBlank() }?.let { sessionId ->
+            val existsResult = withContext(Dispatchers.IO) {
+                apiClient.sessionExists(sessionId)
+            }
+            existsResult.fold(
+                onSuccess = { exists ->
+                    updateProgress(
+                        event.eventId,
+                        if (exists) UploadState.AlreadyExists(sessionId) else UploadState.NeedsUpload
+                    )
+                },
+                onFailure = { error ->
+                    Log.e(TAG, "Error checking exact session ID: ${error.message}")
+                    updateProgress(event.eventId, UploadState.Error("Check failed: ${error.message}"))
+                }
+            )
+            return
+        }
 
         val findResult = withContext(Dispatchers.IO) {
             apiClient.findSessionByDateAndUser(
@@ -236,6 +286,34 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
 
                 // Reload the list after all uploads complete
                 loadUnuploadedEvents()
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /**
+     * Replace server-side GPS and lap rows for selected sessions with their
+     * complete local copies. Events must first be matched to a remote session.
+     */
+    fun replaceSelectedEvents() {
+        val eventsToReplace = replacementTargets(
+            events = _unuploadedEvents.value,
+            selectedEventIds = _selectedEvents.value,
+            uploadProgress = _uploadProgress.value
+        )
+
+        if (eventsToReplace.isEmpty()) {
+            Log.w(TAG, "No existing remote events selected for replacement")
+            return
+        }
+
+        viewModelScope.launch {
+            try {
+                _isLoading.value = true
+                eventsToReplace.forEach { (event, remoteSessionId) ->
+                    performReplacement(event, remoteSessionId)
+                }
             } finally {
                 _isLoading.value = false
             }
@@ -335,6 +413,33 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
             onFailure = { error ->
                 Log.e(TAG, "Upload failed: ${error.message}")
                 updateProgress(event.eventId, UploadState.Error(error.message ?: "Upload failed"))
+            }
+        )
+    }
+
+    private suspend fun performReplacement(event: Event, remoteSessionId: String) {
+        updateProgress(event.eventId, UploadState.Uploading)
+
+        val result = withContext(Dispatchers.IO) {
+            apiClient.replaceSession(event, remoteSessionId)
+        }
+
+        result.fold(
+            onSuccess = { response ->
+                Log.d(TAG, "Remote data replaced: ${event.eventName}")
+
+                uploadPendingMediaForEvent(event.eventId, remoteSessionId)
+                updateProgress(
+                    event.eventId,
+                    UploadState.Success(response.message ?: "Remote data replaced successfully")
+                )
+            },
+            onFailure = { error ->
+                Log.e(TAG, "Replacement failed: ${error.message}")
+                updateProgress(
+                    event.eventId,
+                    UploadState.Error(error.message ?: "Replacement failed")
+                )
             }
         )
     }

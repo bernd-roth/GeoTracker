@@ -289,7 +289,23 @@ class GeoTrackerApiClient(private val context: Context) {
     /**
      * Create a new session on the remote server (upload full session with GPS data)
      */
-    suspend fun createSession(event: Event): Result<ApiResponse> = withContext(Dispatchers.IO) {
+    suspend fun createSession(event: Event): Result<ApiResponse> {
+        val sessionId = event.sessionId ?: generateSessionId(event)
+        return uploadSession(event, sessionId, replaceExisting = false)
+    }
+
+    /**
+     * Replace all remotely recorded GPS and lap data with the complete local copy.
+     */
+    suspend fun replaceSession(event: Event, sessionId: String): Result<ApiResponse> {
+        return uploadSession(event, sessionId, replaceExisting = true)
+    }
+
+    private suspend fun uploadSession(
+        event: Event,
+        sessionId: String,
+        replaceExisting: Boolean
+    ): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
             val baseUrl = getApiBaseUrl()
                 ?: return@withContext Result.failure(Exception("Server URL not configured"))
@@ -303,10 +319,10 @@ class GeoTrackerApiClient(private val context: Context) {
                 return@withContext Result.failure(Exception("Event has no location or metrics data to upload"))
             }
 
-            Log.d(TAG, "Creating session with ${locations.size} GPS points")
-
-            // Generate sessionId if not present
-            val sessionId = event.sessionId ?: generateSessionId(event)
+            Log.d(
+                TAG,
+                "${if (replaceExisting) "Replacing" else "Creating"} session with ${locations.size} GPS points"
+            )
 
             // Get user preferences
             val (firstname, lastname, birthdate) = getUserPreferences()
@@ -338,6 +354,7 @@ class GeoTrackerApiClient(private val context: Context) {
                         put("covered_distance", metric.distance)
                         put("cumulative_elevation_gain", metric.elevationGain)
                         put("heart_rate", metric.heartRate)
+                        metric.cadence?.let { put("cadence", it.coerceIn(0, 254)) }
                         put("lap", metric.lap)
                         metric.pressure?.takeIf { it > 0f }
                             ?.let { put("pressure", it) }
@@ -397,20 +414,33 @@ class GeoTrackerApiClient(private val context: Context) {
             val requestBody = jsonBody.toString()
                 .toRequestBody("application/json".toMediaType())
 
-            val request = Request.Builder()
-                .url("$baseUrl/sessions")
-                .post(requestBody)
-                .build()
+            val requestBuilder = Request.Builder().url(
+                if (replaceExisting) {
+                    "$baseUrl/sessions/$sessionId/data"
+                } else {
+                    "$baseUrl/sessions"
+                }
+            )
+            val request = if (replaceExisting) {
+                requestBuilder.put(requestBody).build()
+            } else {
+                requestBuilder.post(requestBody).build()
+            }
 
-            Log.d(TAG, "Creating session: $sessionId with ${gpsPointsArray.length()} GPS points")
+            Log.d(
+                TAG,
+                "${if (replaceExisting) "Replacing" else "Creating"} session: " +
+                    "$sessionId with ${gpsPointsArray.length()} GPS points"
+            )
 
             val response = okHttpClient.newCall(request).execute()
 
             if (response.isSuccessful) {
                 val json = JSONObject(response.body?.string() ?: "{}")
                 val success = json.optBoolean("success", false)
-                val message = json.optString("message", "Session created")
-                Log.d(TAG, "Session created successfully: $message")
+                val defaultMessage = if (replaceExisting) "Session data replaced" else "Session created"
+                val message = json.optString("message", defaultMessage)
+                Log.d(TAG, "Session upload successful: $message")
 
                 // Update local event with sessionId
                 database.eventDao().updateEventUploadStatus(
@@ -423,13 +453,14 @@ class GeoTrackerApiClient(private val context: Context) {
                 Result.success(ApiResponse(success = success, message = message, data = json.optJSONObject("data"), sessionId = sessionId))
             } else {
                 val errorBody = response.body?.string() ?: "Unknown error"
-                Log.e(TAG, "Session create failed: ${response.code} - $errorBody")
+                Log.e(TAG, "Session upload failed: ${response.code} - $errorBody")
                 val errorJson = try { JSONObject(errorBody) } catch (e: Exception) { JSONObject() }
-                val errorMessage = errorJson.optString("error", "Create failed: ${response.code}")
+                val operation = if (replaceExisting) "Replace" else "Create"
+                val errorMessage = errorJson.optString("error", "$operation failed: ${response.code}")
                 Result.failure(Exception(errorMessage))
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error creating session", e)
+            Log.e(TAG, "Error uploading session", e)
             Result.failure(e)
         }
     }

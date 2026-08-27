@@ -1224,7 +1224,8 @@ fun EventsScreen(
     // Upload dialog
     if (showUploadDialog) {
         UploadEventsDialog(
-            onDismiss = { showUploadDialog = false }
+            onDismiss = { showUploadDialog = false },
+            activeEventId = activeEventId.takeIf { isRecording }
         )
     }
 

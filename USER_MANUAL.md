@@ -251,6 +251,20 @@ GeoTracker supports multiple export formats:
 4. Review and confirm import
 5. Customize event details if needed
 
+### Repair an Incomplete Server Upload
+
+If live WebSocket transfer stored only part of a completed recording, the full
+local GPS and lap data can replace that session without clearing PostgreSQL:
+
+1. Navigate to the Events Screen and open **Upload Events to Server**.
+2. Enable **Show all events (including uploaded)**.
+3. Select the completed event and tap **Check**.
+4. When it is shown as ready to replace, tap **Replace server data**.
+5. Confirm the replacement.
+
+The server performs the replacement atomically and keeps existing remote media.
+An event that is still being recorded cannot be replaced.
+
 ### Third-Party Integration
 
 **Strava Integration**

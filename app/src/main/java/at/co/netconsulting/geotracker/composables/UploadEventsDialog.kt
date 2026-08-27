@@ -30,6 +30,7 @@ import at.co.netconsulting.geotracker.viewmodel.UploadEventsViewModel
 @Composable
 fun UploadEventsDialog(
     onDismiss: () -> Unit,
+    activeEventId: Int? = null,
     viewModel: UploadEventsViewModel = viewModel()
 ) {
     val unuploadedEvents by viewModel.unuploadedEvents.collectAsState()
@@ -37,6 +38,15 @@ fun UploadEventsDialog(
     val uploadProgress by viewModel.uploadProgress.collectAsState()
     val selectedEvents by viewModel.selectedEvents.collectAsState()
     val showAllEvents by viewModel.showAllEvents.collectAsState()
+    var showReplaceConfirmation by remember { mutableStateOf(false) }
+
+    val replacementCount = uploadProgress.count { (eventId, state) ->
+        eventId in selectedEvents && state is UploadEventsViewModel.UploadState.AlreadyExists
+    }
+
+    LaunchedEffect(activeEventId) {
+        viewModel.deselectEvent(activeEventId)
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -118,12 +128,16 @@ fun UploadEventsDialog(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${unuploadedEvents.size} events not uploaded",
+                            text = if (showAllEvents) {
+                                "${unuploadedEvents.size} events"
+                            } else {
+                                "${unuploadedEvents.size} events not uploaded"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Row {
-                            TextButton(onClick = { viewModel.selectAll() }) {
+                            TextButton(onClick = { viewModel.selectAllExcept(activeEventId) }) {
                                 Text("Select All")
                             }
                             TextButton(onClick = { viewModel.deselectAll() }) {
@@ -145,6 +159,7 @@ fun UploadEventsDialog(
                             EventUploadItem(
                                 event = event,
                                 isSelected = selectedEvents.contains(event.eventId),
+                                isActiveRecording = event.eventId == activeEventId,
                                 uploadState = uploadProgress[event.eventId] ?: UploadEventsViewModel.UploadState.Idle,
                                 onSelectionChange = { viewModel.toggleEventSelection(event.eventId) },
                                 onClearError = { viewModel.clearUploadState(event.eventId) },
@@ -229,9 +244,63 @@ fun UploadEventsDialog(
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    OutlinedButton(
+                        onClick = { showReplaceConfirmation = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp),
+                        enabled = replacementCount > 0 && !isLoading
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            if (replacementCount == 0) {
+                                "Check existing events to replace"
+                            } else {
+                                "Replace server data for $replacementCount event${if (replacementCount > 1) "s" else ""}"
+                            }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    if (showReplaceConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showReplaceConfirmation = false },
+            title = { Text("Replace server data?") },
+            text = {
+                Text(
+                    "Every local GPS point and lap for the selected event" +
+                        (if (replacementCount > 1) "s" else "") +
+                        " will be uploaded again. Existing remote GPS and lap data will " +
+                        "be replaced atomically; remote media will be kept."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showReplaceConfirmation = false
+                        viewModel.replaceSelectedEvents()
+                    }
+                ) {
+                    Text("Replace")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReplaceConfirmation = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
 
@@ -240,6 +309,7 @@ fun UploadEventsDialog(
 fun EventUploadItem(
     event: Event,
     isSelected: Boolean,
+    isActiveRecording: Boolean,
     uploadState: UploadEventsViewModel.UploadState,
     onSelectionChange: () -> Unit,
     onClearError: () -> Unit,
@@ -249,7 +319,7 @@ fun EventUploadItem(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                enabled = uploadState !is UploadEventsViewModel.UploadState.Uploading,
+                enabled = !isActiveRecording && uploadState !is UploadEventsViewModel.UploadState.Uploading,
                 onClick = { onSelectionChange() },
                 onLongClick = {
                     if (event.isUploaded) {
@@ -284,7 +354,7 @@ fun EventUploadItem(
             Checkbox(
                 checked = isSelected,
                 onCheckedChange = { onSelectionChange() },
-                enabled = uploadState !is UploadEventsViewModel.UploadState.Uploading
+                enabled = !isActiveRecording && uploadState !is UploadEventsViewModel.UploadState.Uploading
             )
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -314,6 +384,15 @@ fun EventUploadItem(
                     )
                 }
 
+                if (isActiveRecording) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Finish this recording before uploading it again",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
                 // Show upload status
                 when (uploadState) {
                     is UploadEventsViewModel.UploadState.Success -> {
@@ -327,7 +406,7 @@ fun EventUploadItem(
                     is UploadEventsViewModel.UploadState.AlreadyExists -> {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "✓ Already on server (skipped)",
+                            text = "Already on server - ready to replace",
                             style = MaterialTheme.typography.bodySmall,
                             color = Color(0xFF1565C0)
                         )
@@ -391,6 +470,7 @@ fun EventUploadItem(
                 if (event.isUploaded && uploadState is UploadEventsViewModel.UploadState.Idle) {
                     IconButton(
                         onClick = onResetUploadStatus,
+                        enabled = !isActiveRecording,
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(

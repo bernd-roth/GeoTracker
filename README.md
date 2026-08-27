@@ -34,7 +34,7 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **Recording State** - Corrected notification time drift, stale metrics during stop, live-track gaps after resets/restarts, and visibility of recording controls while following users.
 - **Live Web Sessions** - Reset fragments are merged into one logical route, live sessions reload after WebSocket restarts, cadence survives partial messages, and chart/map state remains consistent.
 - **Events and Statistics** - Event search remains correct while data loads asynchronously, Statistics graphs load the full event history, and downloaded sessions are filtered per user.
-- **Server Synchronization** - Re-upload detection works after server-side deletion, live-streamed session media uploads correctly, planned-event deletes no longer leave stale remote rows, and failures are surfaced to the user.
+- **Server Synchronization** - Re-upload detection works after server-side deletion, incomplete live sessions can be atomically replaced from the complete local recording without wiping PostgreSQL, live-streamed session media uploads correctly, planned-event deletes no longer leave stale remote rows, and failures are surfaced to the user.
 - **Map and GPX Handling** - Fixed route-preview arrow cleanup, added a covered-path speed legend, and hardened GPX validation and import behavior.
 
 ### Previously in v9.x (April 2026)

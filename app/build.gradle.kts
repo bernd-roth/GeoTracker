@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin.android)
     // id("kotlin-kapt")
-    id("com.google.devtools.ksp") version "2.3.5"
+    id("com.google.devtools.ksp") version "2.3.6"
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.15 (23-08-2026: Reliable Google Calendar sync and selected event export)"
+        versionName = "10.16 (27-08-2026: Local recordings overwrite remote recordings, if they are incomplete)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
