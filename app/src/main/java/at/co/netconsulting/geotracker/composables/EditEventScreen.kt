@@ -223,11 +223,30 @@ fun EditEventScreen(
                                 readOnly = true // Make field read-only since we use the date picker
                             )
 
-                            // Sport Type
+                            // Structured sport metadata
                             OutlinedTextField(
-                                value = eventState.artOfSport,
-                                onValueChange = { editEventViewModel.updateEventField("sport", it) },
-                                label = { Text("Sport Type") },
+                                value = eventState.sportFamily,
+                                onValueChange = { editEventViewModel.updateEventField("sportFamily", it) },
+                                label = { Text("Sport family") },
+                                supportingText = { Text("For example: Running, Cycling, Hiking") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = eventState.discipline,
+                                onValueChange = { editEventViewModel.updateEventField("discipline", it) },
+                                label = { Text("Discipline (optional)") },
+                                supportingText = { Text("For example: Road Running or Trail Running") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = eventState.eventFormat,
+                                onValueChange = { editEventViewModel.updateEventField("eventFormat", it) },
+                                label = { Text("Event format (optional)") },
+                                supportingText = { Text("For example: Half marathon, 24 h, or 6 days") },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true
                             )

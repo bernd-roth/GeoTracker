@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.Event
+import at.co.netconsulting.geotracker.data.SportCatalog
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.domain.Location
@@ -308,12 +309,19 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
             }
         } ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(System.currentTimeMillis())
 
+        val metadata = SportCatalog.resolve(
+            legacySport = data.sportType ?: "Unknown",
+            family = data.sportFamily,
+            discipline = data.discipline,
+            eventFormat = data.eventFormat
+        )
+
         // Create Event
         val event = Event(
             userId = userId,
             eventName = data.eventName ?: "Imported Event",
             eventDate = eventDate,
-            artOfSport = data.sportType ?: "Unknown",
+            artOfSport = data.sportType ?: metadata.legacySportType(),
             comment = data.comment ?: "",
             sessionId = data.sessionId,
             isUploaded = true,
@@ -323,7 +331,10 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
             startAddress = data.startAddress,
             endCity = data.endCity,
             endCountry = data.endCountry,
-            endAddress = data.endAddress
+            endAddress = data.endAddress,
+            sportFamily = metadata.family,
+            discipline = metadata.discipline,
+            eventFormat = metadata.eventFormat
         )
 
         val eventId = database.eventDao().insertEvent(event).toInt()

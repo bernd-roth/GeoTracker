@@ -3,6 +3,7 @@ package at.co.netconsulting.geotracker.tools
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import at.co.netconsulting.geotracker.data.SportCatalog
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Location
@@ -59,6 +60,32 @@ internal fun isValidGpxContent(content: ByteArray): Boolean {
     } catch (_: Exception) {
         false
     }
+}
+
+internal fun parseGpxTimestamp(timeString: String): Long? {
+    val cleanTimeString = timeString.trim()
+    if (cleanTimeString.isEmpty()) return null
+
+    runCatching { Instant.parse(cleanTimeString).toEpochMilli() }
+        .getOrNull()
+        ?.takeIf { it > 0L }
+        ?.let { return it }
+
+    val patterns = arrayOf(
+        "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+        "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+        "yyyy-MM-dd'T'HH:mm:ss'Z'",
+        "yyyy-MM-dd'T'HH:mm:ssX",
+        "yyyy-MM-dd'T'HH:mm:ss"
+    )
+    patterns.forEach { pattern ->
+        runCatching {
+            SimpleDateFormat(pattern, Locale.US).apply { isLenient = false }
+                .parse(cleanTimeString)
+                ?.time
+        }.getOrNull()?.takeIf { it > 0L }?.let { return it }
+    }
+    return null
 }
 
 /**
@@ -211,7 +238,7 @@ class GpxImporter(private val context: Context) {
                                 if (inTrackPoint) {
                                     parser.next()
                                     if (parser.eventType == XmlPullParser.TEXT) {
-                                        currentPoint.time = parseTime(parser.text)
+                                        currentPoint.time = parseGpxTimestamp(parser.text) ?: 0L
                                         if (currentPoint.time == 0L) {
                                             Log.w(TAG, "Failed to parse time: ${parser.text}")
                                         }
@@ -331,52 +358,6 @@ class GpxImporter(private val context: Context) {
         return filtered
     }
 
-    private fun parseTime(timeString: String): Long {
-        return try {
-            // Handle ISO 8601 timestamps with various formats
-            val cleanTimeString = timeString.trim()
-            Log.d(TAG, "Parsing time: $cleanTimeString")
-
-            // Try modern Java time API first (handles milliseconds)
-            try {
-                val instant = Instant.parse(cleanTimeString)
-                val result = instant.toEpochMilli()
-                Log.d(TAG, "Successfully parsed time using Instant.parse: $result")
-                return result
-            } catch (e: Exception) {
-                Log.d(TAG, "Instant.parse failed, trying SimpleDateFormat")
-            }
-
-            // Fallback to SimpleDateFormat with multiple patterns
-            val patterns = arrayOf(
-                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",    // With milliseconds and Z
-                "yyyy-MM-dd'T'HH:mm:ss.SSSX",      // With milliseconds and timezone
-                "yyyy-MM-dd'T'HH:mm:ss'Z'",        // Without milliseconds, with Z
-                "yyyy-MM-dd'T'HH:mm:ssX",          // Without milliseconds, with timezone
-                "yyyy-MM-dd'T'HH:mm:ss",           // Without timezone
-            )
-
-            for (pattern in patterns) {
-                try {
-                    val format = SimpleDateFormat(pattern, Locale.US)
-                    val result = format.parse(cleanTimeString)?.time ?: 0L
-                    if (result > 0) {
-                        Log.d(TAG, "Successfully parsed time using pattern $pattern: $result")
-                        return result
-                    }
-                } catch (e: Exception) {
-                    // Continue to next pattern
-                }
-            }
-
-            Log.w(TAG, "All time parsing attempts failed for: $cleanTimeString")
-            System.currentTimeMillis()
-        } catch (e: Exception) {
-            Log.e(TAG, "Exception parsing time: $timeString", e)
-            System.currentTimeMillis()
-        }
-    }
-
     private suspend fun createEventFromTrackPoints(
         trackPoints: List<GpxTrackPoint>,
         waypoints: List<GpxWaypoint>,
@@ -409,8 +390,9 @@ class GpxImporter(private val context: Context) {
             }
 
             // Get the event date from the first track point time
-            val eventDate = if (trackPoints.isNotEmpty() && trackPoints[0].time > 0) {
-                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(trackPoints[0].time))
+            val firstValidTimestamp = trackPoints.firstOrNull { it.time > 0L }?.time
+            val eventDate = if (firstValidTimestamp != null) {
+                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(firstValidTimestamp))
             } else {
                 SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             }
@@ -461,6 +443,7 @@ class GpxImporter(private val context: Context) {
                 "" -> "Unknown"
                 else -> activityType.replaceFirstChar { it.uppercase() }
             }
+            val sportMetadata = SportCatalog.fromLegacy(normalizedSportType)
 
             Log.d(TAG, "Creating event: name='$truncatedEventName', date='$eventDate', sport='$normalizedSportType', userId=$defaultUserId")
 
@@ -469,9 +452,12 @@ class GpxImporter(private val context: Context) {
                 userId = defaultUserId,
                 eventName = truncatedEventName,
                 eventDate = eventDate,
-                artOfSport = normalizedSportType,
+                artOfSport = sportMetadata.legacySportType(),
                 comment = "Imported from GPX file",
-                eventSource = eventSource
+                eventSource = eventSource,
+                sportFamily = sportMetadata.family,
+                discipline = sportMetadata.discipline,
+                eventFormat = sportMetadata.eventFormat
             )
 
             val eventId = database.eventDao().insertEvent(event).toInt()
@@ -627,8 +613,12 @@ class GpxImporter(private val context: Context) {
 
                 // Calculate time difference in milliseconds
                 val timeDiffMs = currentPoint.time - prevPoint.time
-                if (timeDiffMs <= 0) {
+                if (prevPoint.time <= 0L || currentPoint.time <= 0L || timeDiffMs <= 0L) {
                     Log.w(TAG, "Invalid time difference at point $i: $timeDiffMs ms, skipping")
+                    continue
+                }
+                if (timeDiffMs > 24L * 60 * 60 * 1_000) {
+                    Log.w(TAG, "Implausible timestamp gap at point $i: $timeDiffMs ms, skipping")
                     continue
                 }
 

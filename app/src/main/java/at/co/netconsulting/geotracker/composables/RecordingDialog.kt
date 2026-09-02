@@ -98,6 +98,8 @@ import at.co.netconsulting.geotracker.data.GpxWaypoint
 import at.co.netconsulting.geotracker.data.HeartRateSensorDevice
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.data.RouteWeatherData
+import at.co.netconsulting.geotracker.data.SportCatalog
+import at.co.netconsulting.geotracker.data.SportMetadata
 import at.co.netconsulting.geotracker.service.WeatherForecastService
 import at.co.netconsulting.geotracker.enums.GpsFixStatus
 import at.co.netconsulting.geotracker.tools.GpsStatusEvaluator
@@ -359,14 +361,16 @@ private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Do
 @Composable
 fun RecordingDialog(
     gpsStatus: GpsStatus,
-    onSave: (String, String, String, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?, Boolean) -> Unit,
+    onSave: (String, String, SportMetadata, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?, Boolean) -> Unit,
     onDismiss: () -> Unit,
     onWeatherOverlayChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var eventName by remember { mutableStateOf("") }
     var eventDate by remember { mutableStateOf(getCurrentFormattedDate()) }
-    var artOfSport by remember { mutableStateOf("Running") }
+    var sportFamily by remember { mutableStateOf(SportCatalog.RUNNING) }
+    var sportDiscipline by remember { mutableStateOf<String?>(null) }
+    var eventFormat by remember { mutableStateOf<String?>(null) }
     var comment by remember { mutableStateOf("") }
     var clothing by remember { mutableStateOf("") }
     var showPath by remember { mutableStateOf(true) }
@@ -472,21 +476,7 @@ fun RecordingDialog(
         }
     }
 
-    // Hierarchical sport types structure
-    data class SportType(val name: String, val subcategories: List<String> = emptyList())
-    
-    val sportTypes = listOf(
-        SportType("Running", listOf("Trail Running", "Ultramarathon", "Marathon", "Halfmarathon", "Road Running", "Orienteering", "Backyard Ultra", "Wings for Life Run")),
-        SportType("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
-        SportType("Water Sports", listOf("Swimming - Open Water", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
-        SportType("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Biathlon", "Sledding", "Snowshoeing", "Ice Hockey")),
-        SportType("Skating", listOf("Inline Skating")),
-        SportType("Walking", listOf("Nordic Walking", "Urban Walking")),
-        SportType("Hiking", listOf("Mountain Hiking", "Forest Hiking")),
-        SportType("Motorsport", listOf("Car", "Motorcycle")),
-        SportType("Multisport Race", listOf("Duathlon", "Triathlon", "Ultratriathlon")),
-        SportType("Fitness Test", listOf("Lactate Threshold (30min TT)"))
-    )
+    val sportTypes = SportCatalog.families
 
     // Function to get appropriate icon for sport type with specific subcategory icons
     fun getSportIcon(sportName: String) = when (sportName) {
@@ -560,8 +550,10 @@ fun RecordingDialog(
     }
     
     // Track expanded categories and selected sport
-    var expandedCategories by remember { mutableStateOf(setOf<String>()) }
-    var selectedSport by remember { mutableStateOf(artOfSport) }
+    var expandedCategories by remember { mutableStateOf(setOf(SportCatalog.RUNNING)) }
+    val sportMetadata = SportMetadata(sportFamily, sportDiscipline, eventFormat)
+    val artOfSport = sportMetadata.legacySportType()
+    val selectedSport = listOfNotNull(sportFamily, sportDiscipline, eventFormat).joinToString(" · ")
 
     // Date picker dialog
     val calendar = Calendar.getInstance()
@@ -900,7 +892,7 @@ fun RecordingDialog(
                             .padding(16.dp)
                     ) {
                         Text(
-                            text = "Sport Type",
+                            text = "Sport family, discipline, and event format",
                             fontSize = 12.sp,
                             color = Color(0xFF49454F),
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -910,7 +902,7 @@ fun RecordingDialog(
                             modifier = Modifier.padding(bottom = 12.dp)
                         ) {
                             Icon(
-                                imageVector = getSportIcon(selectedSport),
+                                imageVector = getSportIcon(sportDiscipline ?: sportFamily),
                                 contentDescription = "$selectedSport icon",
                                 modifier = Modifier.size(20.dp),
                                 tint = Color(0xFF1976D2)
@@ -929,7 +921,7 @@ fun RecordingDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { 
+                                    .clickable {
                                         expandedCategories = if (expandedCategories.contains(sportType.name)) {
                                             expandedCategories - sportType.name
                                         } else {
@@ -952,17 +944,18 @@ fun RecordingDialog(
                                     imageVector = getSportIcon(sportType.name),
                                     contentDescription = "${sportType.name} icon",
                                     modifier = Modifier.size(20.dp),
-                                    tint = if (selectedSport == sportType.name) Color(0xFF1976D2) else Color(0xFF616161)
+                                    tint = if (sportFamily == sportType.name) Color(0xFF1976D2) else Color(0xFF616161)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = sportType.name,
                                     fontWeight = FontWeight.Medium,
-                                    color = if (selectedSport == sportType.name) Color(0xFF1976D2) else Color.Black,
+                                    color = if (sportFamily == sportType.name && sportDiscipline == null) Color(0xFF1976D2) else Color.Black,
                                     modifier = Modifier
-                                        .clickable { 
-                                            selectedSport = sportType.name
-                                            artOfSport = sportType.name
+                                        .clickable {
+                                            sportFamily = sportType.name
+                                            sportDiscipline = null
+                                            if (sportType.name != SportCatalog.RUNNING) eventFormat = null
                                         }
                                         .weight(1f)
                                 )
@@ -970,13 +963,14 @@ fun RecordingDialog(
                             
                             // Subcategories (show when expanded)
                             if (expandedCategories.contains(sportType.name)) {
-                                sportType.subcategories.forEach { subcat ->
+                                sportType.disciplines.forEach { subcat ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clickable { 
-                                                selectedSport = subcat
-                                                artOfSport = subcat
+                                            .clickable {
+                                                sportFamily = sportType.name
+                                                sportDiscipline = subcat
+                                                if (sportType.name != SportCatalog.RUNNING) eventFormat = null
                                             }
                                             .padding(top = 2.dp, bottom = 2.dp)
                                             .padding(start = 28.dp),
@@ -987,15 +981,51 @@ fun RecordingDialog(
                                             imageVector = getSportIcon(subcat),
                                             contentDescription = "$subcat icon",
                                             modifier = Modifier.size(16.dp),
-                                            tint = if (selectedSport == subcat) Color(0xFF1976D2) else Color(0xFF9E9E9E)
+                                            tint = if (sportDiscipline == subcat) Color(0xFF1976D2) else Color(0xFF9E9E9E)
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
                                             text = subcat,
                                             fontSize = 14.sp,
-                                            color = if (selectedSport == subcat) Color(0xFF1976D2) else Color.Gray,
-                                            fontWeight = if (selectedSport == subcat) FontWeight.Medium else FontWeight.Normal
+                                            color = if (sportDiscipline == subcat) Color(0xFF1976D2) else Color.Gray,
+                                            fontWeight = if (sportDiscipline == subcat) FontWeight.Medium else FontWeight.Normal
                                         )
+                                    }
+                                }
+
+                                if (sportType.name == SportCatalog.RUNNING) {
+                                    Text(
+                                        text = "Event format",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color(0xFF49454F),
+                                        modifier = Modifier.padding(start = 44.dp, top = 8.dp, bottom = 4.dp)
+                                    )
+                                    SportCatalog.runningEventFormats.forEach { format ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    sportFamily = SportCatalog.RUNNING
+                                                    eventFormat = if (eventFormat == format) null else format
+                                                }
+                                                .padding(start = 44.dp, top = 3.dp, bottom = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Timer,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = if (eventFormat == format) Color(0xFF1976D2) else Color(0xFF9E9E9E)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = format,
+                                                fontSize = 14.sp,
+                                                color = if (eventFormat == format) Color(0xFF1976D2) else Color.Gray,
+                                                fontWeight = if (eventFormat == format) FontWeight.Medium else FontWeight.Normal
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1347,7 +1377,7 @@ fun RecordingDialog(
                     onSave(
                         finalEventName,
                         eventDate,
-                        artOfSport,
+                        sportMetadata,
                         comment.trim(),
                         clothing.trim(),
                         showPath,

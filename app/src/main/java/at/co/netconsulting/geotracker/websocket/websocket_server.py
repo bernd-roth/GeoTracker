@@ -716,6 +716,9 @@ class TrackingServer:
                     user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
                     event_name VARCHAR(255),
                     sport_type VARCHAR(100),
+                    sport_family VARCHAR(100),
+                    discipline VARCHAR(100),
+                    event_format VARCHAR(100),
                     comment TEXT,
                     clothing VARCHAR(255),
                     start_date_time TIMESTAMPTZ,
@@ -728,6 +731,12 @@ class TrackingServer:
             # Migration: add app_version to existing deployments
             await conn.execute("""
                 ALTER TABLE tracking_sessions ADD COLUMN IF NOT EXISTS app_version VARCHAR(255)
+            """)
+            await conn.execute("""
+                ALTER TABLE tracking_sessions
+                ADD COLUMN IF NOT EXISTS sport_family VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS discipline VARCHAR(100),
+                ADD COLUMN IF NOT EXISTS event_format VARCHAR(100)
             """)
             await conn.execute("""
                 ALTER TABLE tracking_sessions
@@ -1022,14 +1031,17 @@ class TrackingServer:
 
         await conn.execute("""
             INSERT INTO tracking_sessions (
-                session_id, user_id, event_name, sport_type, comment, clothing,
-                start_date_time, app_version
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                session_id, user_id, event_name, sport_type, sport_family,
+                discipline, event_format, comment, clothing, start_date_time, app_version
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (session_id) DO NOTHING
         """,
                            session_id, user_id,
                            message_data.get('eventName', ''),
                            message_data.get('sportType', ''),
+                           message_data.get('sportFamily'),
+                           message_data.get('discipline'),
+                           message_data.get('eventFormat'),
                            message_data.get('comment', ''),
                            message_data.get('clothing', ''),
                            start_date_time,

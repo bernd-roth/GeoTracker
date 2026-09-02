@@ -8,6 +8,12 @@ def ensure_database_schema(app):
     with app.app_context():
         db.session.execute(text("""
             ALTER TABLE IF EXISTS tracking_sessions
+            ADD COLUMN IF NOT EXISTS sport_family VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS discipline VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS event_format VARCHAR(100)
+        """))
+        db.session.execute(text("""
+            ALTER TABLE IF EXISTS tracking_sessions
             DROP COLUMN IF EXISTS min_distance_meters,
             DROP COLUMN IF EXISTS min_time_seconds,
             DROP COLUMN IF EXISTS voice_announcement_interval

@@ -26,6 +26,8 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 - **🆕 Web Chart Controls** - Live and analysis charts support wheel/pinch zoom, Ctrl+drag pan, double-click reset, collapsible chart panels, compact navigation between Live, Analysis, Heatmap, and Rerun, and recorder names in session lists.
 - **🆕 Following Mini-Map** - A picture-in-picture map follows the selected athlete and shows their current position and recent trail.
 - **🆕 Organized Event Actions** - The Events toolbar now groups commands under Calendar, Statistics, Server, and Tools, adds concise descriptions, and clearly marks destructive actions. The obsolete invalid-event cleanup flow and duplicate Events-tab slope legend were removed.
+- **🆕 Achievements Overview** - Personal bests grouped by sport family, with official Running distances (1/5/10 km, half marathon, marathon, 50/100 km) and 6/12/24/48/72-hour/6-day efforts. The activity summary now lives in the same screen, and implausible GPX timestamp gaps cannot create false timed records.
+- **🆕 Structured Sport Classification** - Activities now store sport family, optional discipline, and optional event format separately. Running formats include standard distances, timed ultras, Backyard Ultra, Wings for Life Run, and other ultramarathons.
 - **🆕 Redis Live-History Cache** - The WebSocket service uses Redis for the rolling 48-hour live-tracking history while PostgreSQL remains the durable source for analysis and historical sessions. Cache cleanup and session deletion stay synchronized.
 
 #### Reliability and Correctness
@@ -416,7 +418,7 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 
 #### Database Entities (16 Tables)
 - **User Table** - Profile data (height, weight, birth date, max HR, BMI)
-- **Event Table** - Activity records with sport type, name, date, comments, geocoding fields
+- **Event Table** - Activity records with sport family, discipline, event format, legacy sport type, name, date, comments, and geocoding fields
 - **Metric Table** - Time-series data (HR, speed, distance, cadence, elevation, pressure, etc.)
 - **Location Table** - GPS coordinates linked to events with backyard lap support
 - **Weather Table** - Weather API data with temperature, wind, humidity

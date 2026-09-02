@@ -55,6 +55,9 @@ data class Metrics(
     // Event/Session information fields
     val eventName: String = "",
     val sportType: String = "",
+    val sportFamily: String? = null,
+    val discipline: String? = null,
+    val eventFormat: String? = null,
     val comment: String = "",
     val clothing: String = "",
 

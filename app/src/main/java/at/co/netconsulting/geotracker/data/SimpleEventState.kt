@@ -7,6 +7,9 @@ data class SimpleEventState(
     val eventName: String = "",
     val eventDate: String = "",
     val artOfSport: String = "",
+    val sportFamily: String = "",
+    val discipline: String = "",
+    val eventFormat: String = "",
     val comment: String = "",
     val clothing: String = "",
 

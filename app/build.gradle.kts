@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.16 (27-08-2026: Local recordings overwrite remote recordings, if they are incomplete)"
+        versionName = "10.17 (02-09-2026: add sport-based achievements and structured event formats)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

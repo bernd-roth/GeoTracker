@@ -1,6 +1,8 @@
 package at.co.netconsulting.geotracker.tools
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -10,6 +12,16 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class GpxImporterTest {
+    @Test
+    fun `invalid timestamp is rejected instead of replaced with current time`() {
+        assertNull(parseGpxTimestamp("not-a-timestamp"))
+    }
+
+    @Test
+    fun `valid ISO timestamp is parsed`() {
+        assertEquals(1_704_067_200_000L, parseGpxTimestamp("2024-01-01T00:00:00Z"))
+    }
+
     @Test
     fun `accepts GPX without an XML declaration`() {
         val content = """

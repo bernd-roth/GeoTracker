@@ -70,6 +70,13 @@
             android:parentActivityName=".MainActivity">
         </activity>
         <activity
+            android:name=".AchievementsActivity"
+            android:exported="false"
+            android:label="@string/achievements"
+            android:theme="@style/Theme.GeoTracker"
+            android:parentActivityName=".MainActivity">
+        </activity>
+        <activity
             android:name=".LapAnalysisActivity"
             android:exported="false"
             android:label="Lap Analysis"

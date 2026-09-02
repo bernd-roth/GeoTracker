@@ -3753,7 +3753,8 @@ fun MapScreen(
                 weatherOverlayTrigger++
                 android.util.Log.d("MapScreen", "Weather overlay changed, triggering reload: $weatherOverlayTrigger")
             },
-            onSave = { eventName, eventDate, artOfSport, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx, enableGhostRacer ->
+            onSave = { eventName, eventDate, sportMetadata, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx, enableGhostRacer ->
+                val artOfSport = sportMetadata.legacySportType()
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
                 val recordingStartMillis = System.currentTimeMillis()
@@ -3836,6 +3837,9 @@ fun MapScreen(
                     putExtra("eventName", eventName)
                     putExtra("eventDate", eventDate)
                     putExtra("artOfSport", artOfSport)
+                    putExtra("sportFamily", sportMetadata.family)
+                    putExtra("discipline", sportMetadata.discipline)
+                    putExtra("eventFormat", sportMetadata.eventFormat)
                     putExtra("comment", comment)
                     putExtra("clothing", clothing)
                     putExtra("start_recording", true)

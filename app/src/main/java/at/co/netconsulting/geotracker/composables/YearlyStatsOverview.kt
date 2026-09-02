@@ -8,11 +8,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -38,9 +35,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import at.co.netconsulting.geotracker.data.EventWithTotalDistance
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
-import at.co.netconsulting.geotracker.domain.Metric
-import at.co.netconsulting.geotracker.repository.MetricDao
-import at.co.netconsulting.geotracker.viewmodel.EventsViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -49,10 +43,7 @@ import java.util.Calendar
 
 @Composable
 fun YearlyStatsOverview(
-    modifier: Modifier = Modifier,
-    eventsViewModel: EventsViewModel,
-    onWeekSelected: (Int, Int) -> Unit = { _, _ -> },
-    onSportSelected: (Int, Int, String) -> Unit = { _, _, _ -> }
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var yearlyStats by remember { mutableStateOf<Map<Int, Double>>(emptyMap()) }
@@ -154,7 +145,7 @@ fun YearlyStatsOverview(
             .padding(horizontal = 16.dp)
     ) {
         Text(
-            text = "Distance Statistics",
+            text = "Activity summary",
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.padding(vertical = 8.dp)
         )
@@ -207,9 +198,7 @@ fun YearlyStatsOverview(
                             } else {
                                 expandedWeeks + yearWeek
                             }
-                        },
-                        onWeekSelected = onWeekSelected,
-                        onSportSelected = onSportSelected
+                        }
                     )
                 }
             }
@@ -307,9 +296,7 @@ fun WeeklyBreakdown(
     weeklySportBreakdown: Map<Pair<Int, Int>, Map<String, Double>>,
     weeklyDisciplineBreakdown: Map<Triple<Int, Int, String>, Map<String, Double>>,
     expandedWeeks: Set<Pair<Int, Int>>,
-    onWeekToggle: (Pair<Int, Int>) -> Unit,
-    onWeekSelected: (Int, Int) -> Unit,
-    onSportSelected: (Int, Int, String) -> Unit = { _, _, _ -> }
+    onWeekToggle: (Pair<Int, Int>) -> Unit
 ) {
     val disciplineDisplayNames = mapOf(
         "Swim" to "Swimming",
@@ -429,23 +416,21 @@ fun WeeklyBreakdown(
                             }
                         }
 
-                        // Expanded content: sport breakdown + filter link
+                        // Expanded content: sport breakdown
                         if (isWeekExpanded) {
                             val sportMap = weeklySportBreakdown[yearWeek] ?: emptyMap()
 
                             sportMap.entries.sortedByDescending { it.value }.forEach { (sport, sportKm) ->
-                                // Sport row - clickable to filter by sport in this week
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onSportSelected(year, week, sport) }
                                         .padding(start = 24.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
                                         text = sport,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                     Text(
                                         text = String.format("%.1f km", sportKm),
@@ -486,15 +471,6 @@ fun WeeklyBreakdown(
                                 }
                             }
 
-                            // Filter link
-                            Text(
-                                text = "Filter events for this week",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier
-                                    .padding(start = 24.dp, top = 6.dp, bottom = 4.dp)
-                                    .clickable { onWeekSelected(year, week) }
-                            )
                         }
 
                         Divider(
@@ -507,36 +483,6 @@ fun WeeklyBreakdown(
                 }
             }
         }
-    }
-}
-
-// Fast loading: Get basic events with minimal distance calculation
-private suspend fun getAllEventsBasic(database: FitnessTrackerDatabase): List<EventWithTotalDistance> {
-    return withContext(Dispatchers.IO) {
-        val result = mutableListOf<EventWithTotalDistance>()
-
-        try {
-            val eventsFlow = database.eventDao().getRecordedEvents()
-            val events = eventsFlow.first()
-
-            // Process events with basic distance calculation
-            events.forEach { event ->
-                // For basic loading, add events without distance calculation
-                // Distance will be loaded later when statistics are actually needed
-                result.add(
-                    EventWithTotalDistance(
-                        eventId = event.eventId,
-                        eventName = event.eventName,
-                        artOfSport = event.artOfSport,
-                        eventDate = event.eventDate,
-                        totalDistance = 0.0 // Will be calculated when needed
-                    )
-                )
-            }
-        } catch (e: Exception) {
-            Log.e("YearlyStatsOverview", "Error getting basic events: ${e.message}", e)
-        }
-        result
     }
 }
 

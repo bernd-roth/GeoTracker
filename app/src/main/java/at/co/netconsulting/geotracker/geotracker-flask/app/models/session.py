@@ -11,6 +11,9 @@ class TrackingSession(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.user_id', ondelete='CASCADE'), nullable=True)
     event_name = db.Column(db.String(255), nullable=True)
     sport_type = db.Column(db.String(100), nullable=True)
+    sport_family = db.Column(db.String(100), nullable=True)
+    discipline = db.Column(db.String(100), nullable=True)
+    event_format = db.Column(db.String(100), nullable=True)
     comment = db.Column(db.Text, nullable=True)
     clothing = db.Column(db.String(255), nullable=True)
     start_date_time = db.Column(db.DateTime(timezone=True), nullable=True)
@@ -36,6 +39,9 @@ class TrackingSession(db.Model):
             'user_id': self.user_id,
             'event_name': self.event_name,
             'sport_type': self.sport_type,
+            'sport_family': self.sport_family,
+            'discipline': self.discipline,
+            'event_format': self.event_format,
             'comment': self.comment,
             'clothing': self.clothing,
             'start_date_time': self.start_date_time.isoformat() if self.start_date_time else None,

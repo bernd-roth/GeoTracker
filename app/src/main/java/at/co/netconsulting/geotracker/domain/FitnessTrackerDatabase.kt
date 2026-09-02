@@ -28,7 +28,7 @@ import android.util.Log
         DisciplineTransition::class,
         WaypointPhoto::class
     ],
-    version = 28, // INCREMENTED FROM 27 TO 28 to add plannedEventEndDate column to planned_events table
+    version = 29,
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -809,6 +809,63 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                Log.d(TAG, "Starting migration 28->29 - adding structured sport metadata")
+                database.execSQL("ALTER TABLE events ADD COLUMN sportFamily TEXT")
+                database.execSQL("ALTER TABLE events ADD COLUMN discipline TEXT")
+                database.execSQL("ALTER TABLE events ADD COLUMN eventFormat TEXT")
+
+                database.execSQL(
+                    """
+                    UPDATE events SET sportFamily = CASE
+                        WHEN LOWER(REPLACE(artOfSport, '-', ' ')) IN
+                            ('running', 'run', 'road running', 'trail running', 'orienteering',
+                             'halfmarathon', 'half marathon', 'marathon', 'ultramarathon',
+                             'ultra marathon', 'ultra', 'backyard ultra', 'wings for life run')
+                            THEN 'Running'
+                        WHEN artOfSport IN ('Gravel Bike', 'E-Bike', 'Racing Bicycle', 'Mountain Bike') THEN 'Cycling'
+                        WHEN artOfSport IN ('Swimming - Open Water', 'Kayaking', 'Canoeing', 'Stand Up Paddleboarding') THEN 'Water Sports'
+                        WHEN artOfSport IN ('Ski', 'Snowboard', 'Cross Country Skiing', 'Ski Touring', 'Biathlon', 'Sledding', 'Snowshoeing', 'Ice Hockey') THEN 'Winter Sport'
+                        WHEN artOfSport = 'Inline Skating' THEN 'Skating'
+                        WHEN artOfSport IN ('Nordic Walking', 'Urban Walking') THEN 'Walking'
+                        WHEN artOfSport IN ('Mountain Hiking', 'Forest Hiking') THEN 'Hiking'
+                        WHEN artOfSport IN ('Car', 'Motorcycle') THEN 'Motorsport'
+                        WHEN artOfSport IN ('Triathlon', 'Duathlon', 'Ultratriathlon') THEN 'Multisport Race'
+                        WHEN artOfSport = 'Lactate Threshold (30min TT)' THEN 'Fitness Test'
+                        ELSE artOfSport
+                    END
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    UPDATE events SET discipline = CASE
+                        WHEN LOWER(REPLACE(artOfSport, '-', ' ')) IN ('halfmarathon', 'half marathon', 'marathon', 'road running') THEN 'Road Running'
+                        WHEN LOWER(REPLACE(artOfSport, '-', ' ')) = 'trail running' THEN 'Trail Running'
+                        WHEN LOWER(artOfSport) = 'orienteering' THEN 'Orienteering'
+                        WHEN sportFamily != artOfSport AND LOWER(REPLACE(artOfSport, '-', ' ')) NOT IN
+                            ('halfmarathon', 'half marathon', 'marathon', 'ultramarathon', 'ultra marathon',
+                             'ultra', 'backyard ultra', 'wings for life run') THEN artOfSport
+                        ELSE NULL
+                    END
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    """
+                    UPDATE events SET eventFormat = CASE
+                        WHEN LOWER(REPLACE(artOfSport, '-', ' ')) IN ('halfmarathon', 'half marathon') THEN 'Half marathon'
+                        WHEN LOWER(artOfSport) = 'marathon' THEN 'Marathon'
+                        WHEN LOWER(REPLACE(artOfSport, '-', ' ')) IN ('ultramarathon', 'ultra marathon', 'ultra') THEN 'Ultramarathon (other)'
+                        WHEN LOWER(artOfSport) = 'backyard ultra' THEN 'Backyard Ultra'
+                        WHEN LOWER(artOfSport) = 'wings for life run' THEN 'Wings for Life Run'
+                        ELSE NULL
+                    END
+                    """.trimIndent()
+                )
+                Log.d(TAG, "Migration 28->29 completed")
+            }
+        }
+
         fun getInstance(context: Context): FitnessTrackerDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: try {
@@ -844,7 +901,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_24_25,
                             MIGRATION_25_26,
                             MIGRATION_26_27,
-                            MIGRATION_27_28
+                            MIGRATION_27_28,
+                            MIGRATION_28_29
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

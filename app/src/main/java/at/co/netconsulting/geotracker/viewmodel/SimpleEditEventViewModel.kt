@@ -5,6 +5,8 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import at.co.netconsulting.geotracker.data.SimpleEventState
+import at.co.netconsulting.geotracker.data.SportCatalog
+import at.co.netconsulting.geotracker.data.SportMetadata
 import at.co.netconsulting.geotracker.domain.Clothing
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
@@ -53,6 +55,12 @@ class SimpleEditEventViewModel(
                 val event = database.eventDao().getEventById(eventId)
 
                 if (event != null) {
+                    val metadata = SportCatalog.resolve(
+                        event.artOfSport,
+                        event.sportFamily,
+                        event.discipline,
+                        event.eventFormat
+                    )
                     val clothingList = database.clothingDao().getClothingForEvent(event.eventId)
                     val clothingText = clothingList.firstOrNull()?.clothing ?: ""
                     _eventState.value = SimpleEventState(
@@ -60,6 +68,9 @@ class SimpleEditEventViewModel(
                         eventName = event.eventName,
                         eventDate = event.eventDate,
                         artOfSport = event.artOfSport,
+                        sportFamily = metadata.family,
+                        discipline = metadata.discipline.orEmpty(),
+                        eventFormat = metadata.eventFormat.orEmpty(),
                         comment = event.comment,
                         clothing = clothingText,
                         originalEvent = event
@@ -81,6 +92,9 @@ class SimpleEditEventViewModel(
             "name" -> currentState.copy(eventName = value)
             "date" -> currentState.copy(eventDate = value)
             "sport" -> currentState.copy(artOfSport = value)
+            "sportFamily" -> currentState.copy(sportFamily = value)
+            "discipline" -> currentState.copy(discipline = value)
+            "eventFormat" -> currentState.copy(eventFormat = value)
             "comment" -> currentState.copy(comment = value)
             "clothing" -> currentState.copy(clothing = value)
             else -> currentState
@@ -98,11 +112,19 @@ class SimpleEditEventViewModel(
                 val originalEvent = currentState.originalEvent
 
                 if (originalEvent != null) {
+                    val metadata = SportMetadata(
+                        family = currentState.sportFamily.trim().ifEmpty { "Other" },
+                        discipline = currentState.discipline.trim().takeIf(String::isNotEmpty),
+                        eventFormat = currentState.eventFormat.trim().takeIf(String::isNotEmpty)
+                    )
                     // Update only the basic fields in the event
                     val updatedEvent = originalEvent.copy(
                         eventName = currentState.eventName,
                         eventDate = currentState.eventDate,
-                        artOfSport = currentState.artOfSport,
+                        artOfSport = metadata.legacySportType(),
+                        sportFamily = metadata.family,
+                        discipline = metadata.discipline,
+                        eventFormat = metadata.eventFormat,
                         comment = currentState.comment
                     )
 
@@ -200,6 +222,9 @@ class SimpleEditEventViewModel(
             sessionId = sessionId,
             eventName = event.eventName,
             sportType = event.artOfSport,
+            sportFamily = event.sportFamily,
+            discipline = event.discipline,
+            eventFormat = event.eventFormat,
             comment = event.comment
         )
 

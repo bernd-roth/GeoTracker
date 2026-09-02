@@ -368,6 +368,9 @@ def create_session():
         user_id=user_id,
         event_name=data.get('event_name'),
         sport_type=data.get('sport_type'),
+        sport_family=data.get('sport_family'),
+        discipline=data.get('discipline'),
+        event_format=data.get('event_format'),
         comment=data.get('comment'),
         clothing=data.get('clothing'),
         start_date_time=start_date_time,
@@ -457,7 +460,7 @@ def replace_session_data(session_id):
                 db.session.delete(fragment)
 
         allowed_fields = [
-            'event_name', 'sport_type', 'comment', 'clothing',
+            'event_name', 'sport_type', 'sport_family', 'discipline', 'event_format', 'comment', 'clothing',
             'start_city', 'start_country', 'start_address',
             'end_city', 'end_country', 'end_address'
         ]
@@ -511,7 +514,7 @@ def update_session(session_id):
 
     # Update allowed fields
     allowed_fields = [
-        'event_name', 'sport_type', 'comment', 'clothing',
+        'event_name', 'sport_type', 'sport_family', 'discipline', 'event_format', 'comment', 'clothing',
         'start_city', 'start_country', 'start_address',
         'end_city', 'end_country', 'end_address'
     ]

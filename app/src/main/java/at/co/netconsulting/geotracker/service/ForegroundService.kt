@@ -37,6 +37,7 @@ import at.co.netconsulting.geotracker.domain.CurrentRecording
 import at.co.netconsulting.geotracker.domain.DeviceStatus
 import at.co.netconsulting.geotracker.domain.DisciplineTransition
 import at.co.netconsulting.geotracker.domain.Event
+import at.co.netconsulting.geotracker.data.SportCatalog
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.LapTime
 import at.co.netconsulting.geotracker.domain.Location
@@ -95,6 +96,9 @@ class ForegroundService : Service() {
     private lateinit var eventname: String
     private lateinit var eventdate: String
     private lateinit var artofsport: String
+    private var sportFamily: String? = null
+    private var sportDiscipline: String? = null
+    private var eventFormat: String? = null
     private lateinit var comment: String
     private lateinit var clothing: String
     @Volatile private var speed: Float = 0.0f
@@ -246,6 +250,9 @@ class ForegroundService : Service() {
                 putString("current_event_name", eventName)
                 putString("current_event_date", eventDate)
                 putString("current_sport_type", sportType)
+                putString("current_sport_family", sportFamily)
+                putString("current_sport_discipline", sportDiscipline)
+                putString("current_event_format", eventFormat)
                 putString("current_comment", comment)
                 putString("current_clothing", clothing)
                 putString("current_session_id", sessionId)
@@ -273,6 +280,9 @@ class ForegroundService : Service() {
                 remove("current_event_name")
                 remove("current_event_date")
                 remove("current_sport_type")
+                remove("current_sport_family")
+                remove("current_sport_discipline")
+                remove("current_event_format")
                 remove("current_comment")
                 remove("current_clothing")
                 if (completedSessionId.isNotEmpty()) {
@@ -1018,6 +1028,9 @@ class ForegroundService : Service() {
                 .putString("eventName", eventname)
                 .putString("eventDate", eventdate)
                 .putString("artOfSport", artofsport)
+                .putString("sportFamily", sportFamily)
+                .putString("sportDiscipline", sportDiscipline)
+                .putString("eventFormat", eventFormat)
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
@@ -1653,7 +1666,10 @@ class ForegroundService : Service() {
             eventName = eventname,
             eventDate = Tools().provideDateTimeFormat(),
             artOfSport = artofsport,
-            comment = comment
+            comment = comment,
+            sportFamily = sportFamily,
+            discipline = sportDiscipline,
+            eventFormat = eventFormat
         )
 
         val eventId = database.eventDao().insertEvent(newEvent).toInt()
@@ -2205,6 +2221,16 @@ class ForegroundService : Service() {
                 artofsport = intent?.getStringExtra("artOfSport")
                     ?: prefs.getString("artOfSport", "Running")
                             ?: "Running"
+                val restoredMetadata = SportCatalog.fromLegacy(artofsport)
+                sportFamily = intent?.getStringExtra("sportFamily")
+                    ?: prefs.getString("sportFamily", null)
+                    ?: restoredMetadata.family
+                sportDiscipline = intent?.getStringExtra("discipline")
+                    ?: prefs.getString("sportDiscipline", null)
+                    ?: restoredMetadata.discipline
+                eventFormat = intent?.getStringExtra("eventFormat")
+                    ?: prefs.getString("eventFormat", null)
+                    ?: restoredMetadata.eventFormat
 
                 comment = intent?.getStringExtra("comment")
                     ?: prefs.getString("comment", "Recovered after crash")
@@ -2238,6 +2264,10 @@ class ForegroundService : Service() {
                 eventname = intent?.getStringExtra("eventName") ?: "Unknown Event"
                 eventdate = intent?.getStringExtra("eventDate") ?: "Unknown Date"
                 artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
+                val newMetadata = SportCatalog.fromLegacy(artofsport)
+                sportFamily = intent?.getStringExtra("sportFamily") ?: newMetadata.family
+                sportDiscipline = intent?.getStringExtra("discipline") ?: newMetadata.discipline
+                eventFormat = intent?.getStringExtra("eventFormat") ?: newMetadata.eventFormat
                 comment = intent?.getStringExtra("comment") ?: "No Comment"
                 clothing = intent?.getStringExtra("clothing") ?: "No Clothing Info"
                 enableWebSocketTransfer = intent?.getBooleanExtra("enableWebSocketTransfer", true) ?: true
@@ -2717,6 +2747,9 @@ class ForegroundService : Service() {
                 .putString("eventName", eventname)
                 .putString("eventDate", eventdate)
                 .putString("artOfSport", artofsport)
+                .putString("sportFamily", sportFamily)
+                .putString("sportDiscipline", sportDiscipline)
+                .putString("eventFormat", eventFormat)
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
@@ -2741,6 +2774,9 @@ class ForegroundService : Service() {
                 putExtra("eventName", eventname)
                 putExtra("eventDate", eventdate)
                 putExtra("artOfSport", artofsport)
+                putExtra("sportFamily", sportFamily)
+                putExtra("discipline", sportDiscipline)
+                putExtra("eventFormat", eventFormat)
                 putExtra("comment", comment)
                 putExtra("clothing", clothing)
                 putExtra("is_restored_session", true)

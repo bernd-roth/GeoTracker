@@ -56,13 +56,12 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Flag
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
@@ -71,6 +70,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Waves
+import at.co.netconsulting.geotracker.AchievementsActivity
 import at.co.netconsulting.geotracker.YearlyStatisticsActivity
 import at.co.netconsulting.geotracker.LapAnalysisActivity
 import androidx.compose.material3.AlertDialog
@@ -125,6 +125,8 @@ import at.co.netconsulting.geotracker.data.AltitudeSpeedInfo
 import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.data.RouteRerunData
+import at.co.netconsulting.geotracker.data.SportCatalog
+import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.EventMedia
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.Metric
@@ -246,7 +248,6 @@ private fun EventsToolMenuItem(
 @Composable
 private fun EventsToolsBar(
     selectedTab: Int,
-    showYearlyStats: Boolean,
     isConnectMode: Boolean,
     isCalendarSelectionMode: Boolean,
     isCalendarExporting: Boolean,
@@ -255,8 +256,8 @@ private fun EventsToolsBar(
     onExportAllToCalendar: () -> Unit,
     onToggleCalendarSelectionMode: () -> Unit,
     onDeleteCalendarExports: () -> Unit,
+    onOpenAchievements: () -> Unit,
     onOpenDetailedStatistics: () -> Unit,
-    onToggleYearlyStats: () -> Unit,
     onUploadEvents: () -> Unit,
     onDownloadEvents: () -> Unit,
     onToggleConnectMode: () -> Unit
@@ -345,29 +346,21 @@ private fun EventsToolsBar(
             }
         ) {
             EventsToolMenuItem(
+                title = "Achievements",
+                description = "Open personal bests by sport and your activity summary.",
+                icon = Icons.Default.EmojiEvents,
+                onClick = {
+                    expandedCategory = null
+                    onOpenAchievements()
+                }
+            )
+            EventsToolMenuItem(
                 title = "Detailed statistics",
                 description = "Open the full yearly statistics screen.",
                 icon = Icons.Default.TrendingUp,
                 onClick = {
                     expandedCategory = null
                     onOpenDetailedStatistics()
-                }
-            )
-            EventsToolMenuItem(
-                title = if (showYearlyStats) "Hide activity summary" else "Show activity summary",
-                description = if (showYearlyStats) {
-                    "Hide the year and week overview above the event list."
-                } else {
-                    "Show a year and week overview above the event list."
-                },
-                icon = if (showYearlyStats) {
-                    Icons.Default.KeyboardArrowUp
-                } else {
-                    Icons.Default.KeyboardArrowDown
-                },
-                onClick = {
-                    expandedCategory = null
-                    onToggleYearlyStats()
                 }
             )
         }
@@ -634,8 +627,6 @@ fun EventsScreen(
 
     var showSyncDialog by remember { mutableStateOf(false) }
     var eventToSync by remember { mutableStateOf<EventWithDetails?>(null) }
-    var showYearlyStats by remember { mutableStateOf(false) } // State to toggle stats visibility
-
     // Connect events mode
     var isConnectMode by remember { mutableStateOf(false) }
     var connectSelectedIds by remember { mutableStateOf<List<Int>>(emptyList()) }
@@ -1285,7 +1276,7 @@ fun EventsScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
-                                    text = "${eventWithDetails.event.eventDate} - ${eventWithDetails.event.artOfSport}",
+                                    text = "${eventWithDetails.event.eventDate} - ${eventWithDetails.event.sportClassificationLabel()}",
                                     fontSize = 12.sp,
                                     color = Color.Gray
                                 )
@@ -1413,7 +1404,6 @@ fun EventsScreen(
             item {
                 EventsToolsBar(
                     selectedTab = selectedTab,
-                    showYearlyStats = showYearlyStats,
                     isConnectMode = isConnectMode,
                     isCalendarSelectionMode = isCalendarSelectionMode,
                     isCalendarExporting = isCalendarExporting,
@@ -1430,11 +1420,14 @@ fun EventsScreen(
                         }
                     },
                     onDeleteCalendarExports = startBulkCalendarDelete,
+                    onOpenAchievements = {
+                        val intent = Intent(context, AchievementsActivity::class.java)
+                        context.startActivity(intent)
+                    },
                     onOpenDetailedStatistics = {
                         val intent = Intent(context, YearlyStatisticsActivity::class.java)
                         context.startActivity(intent)
                     },
-                    onToggleYearlyStats = { showYearlyStats = !showYearlyStats },
                     onUploadEvents = { showUploadDialog = true },
                     onDownloadEvents = { showDownloadDialog = true },
                     onToggleConnectMode = {
@@ -1588,79 +1581,6 @@ fun EventsScreen(
                             }
                         }
                     }
-                }
-            }
-
-            // Yearly Stats Overview (conditionally shown)
-            if (showYearlyStats) {
-                item {
-                    YearlyStatsOverview(
-                        modifier = Modifier.padding(top = 8.dp, bottom = 8.dp),
-                        eventsViewModel = eventsViewModel,
-                        onWeekSelected = { year, week ->
-                            // Filter events for the selected week
-                            coroutineScope.launch {
-                                // Calculate date range for the selected week
-                                val calendar = Calendar.getInstance().apply {
-                                    firstDayOfWeek = Calendar.MONDAY
-                                    minimalDaysInFirstWeek = 4
-                                    set(Calendar.YEAR, year)
-                                    set(Calendar.WEEK_OF_YEAR, week)
-                                    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-                                }
-
-                                // Format start date (Monday)
-                                val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                                // Move to end of week (Sunday)
-                                calendar.add(Calendar.DAY_OF_MONTH, 6)
-
-                                // Format end date (Sunday)
-                                val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                                Log.d("EventsScreen", "Week selected: Year=$year, Week=$week, " +
-                                        "DateRange: $startDateStr to $endDateStr")
-
-                                // Set filter in the ViewModel (also updates isDateFilterActive state)
-                                eventsViewModel.filterByDateRange(startDate = startDateStr, endDate = endDateStr)
-                            }
-                        },
-                        onSportSelected = { year, week, sport ->
-                            // Filter events for the selected sport in the selected week
-                            coroutineScope.launch {
-                                val calendar = Calendar.getInstance().apply {
-                                    firstDayOfWeek = Calendar.MONDAY
-                                    minimalDaysInFirstWeek = 4
-                                    set(Calendar.YEAR, year)
-                                    set(Calendar.WEEK_OF_YEAR, week)
-                                    set(Calendar.DAY_OF_WEEK, Calendar.MONDAY)
-                                }
-
-                                val startDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                                calendar.add(Calendar.DAY_OF_MONTH, 6)
-
-                                val endDateStr = "${calendar.get(Calendar.YEAR)}-" +
-                                        String.format("%02d", calendar.get(Calendar.MONTH) + 1) + "-" +
-                                        String.format("%02d", calendar.get(Calendar.DAY_OF_MONTH))
-
-                                Log.d("EventsScreen", "Sport selected: Year=$year, Week=$week, " +
-                                        "Sport=$sport, DateRange: $startDateStr to $endDateStr")
-
-                                eventsViewModel.filterByDateRangeAndSport(
-                                    startDate = startDateStr,
-                                    endDate = endDateStr,
-                                    sportType = sport
-                                )
-                            }
-                        }
-                    )
                 }
             }
 
@@ -2714,7 +2634,7 @@ fun EventCard(
                         color = Color.Gray
                     )
                     Text(
-                        text = event.event.artOfSport,
+                        text = event.event.sportClassificationLabel(),
                         fontSize = 14.sp,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -5050,4 +4970,10 @@ private fun SyncEventDialog(
             }
         }
     )
+}
+private fun Event.sportClassificationLabel(): String {
+    val metadata = SportCatalog.resolve(artOfSport, sportFamily, discipline, eventFormat)
+    return listOfNotNull(metadata.family, metadata.discipline, metadata.eventFormat)
+        .distinct()
+        .joinToString(" · ")
 }

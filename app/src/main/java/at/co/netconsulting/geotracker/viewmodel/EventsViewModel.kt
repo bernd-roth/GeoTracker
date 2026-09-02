@@ -827,7 +827,10 @@ class EventsViewModel(
                     endCity = lastEvent.endCity,
                     endCountry = lastEvent.endCountry,
                     endAddress = lastEvent.endAddress,
-                    eventSource = "recorded"
+                    eventSource = "recorded",
+                    sportFamily = firstEvent.sportFamily,
+                    discipline = firstEvent.discipline,
+                    eventFormat = firstEvent.eventFormat
                 )
 
                 val newEventId = database.eventDao().insertEvent(combinedEvent).toInt()

@@ -138,6 +138,9 @@ class CustomLocationListener: LocationListener {
     // Event/Session information fields
     private var eventName: String = ""
     private var sportType: String = ""
+    private var sportFamily: String? = null
+    private var sportDiscipline: String? = null
+    private var eventFormat: String? = null
     private var comment: String = ""
     private var clothing: String = ""
 
@@ -394,6 +397,9 @@ class CustomLocationListener: LocationListener {
         val sessionPrefs = context.getSharedPreferences("SessionPrefs", Context.MODE_PRIVATE)
         eventName = sessionPrefs.getString("current_event_name", "") ?: ""
         sportType = sessionPrefs.getString("current_sport_type", "") ?: ""
+        sportFamily = sessionPrefs.getString("current_sport_family", null)
+        sportDiscipline = sessionPrefs.getString("current_sport_discipline", null)
+        eventFormat = sessionPrefs.getString("current_event_format", null)
         isBackyardUltraMode = sportType.equals("Backyard Ultra", ignoreCase = true)
         comment = sessionPrefs.getString("current_comment", "") ?: ""
         clothing = sessionPrefs.getString("current_clothing", "") ?: ""
@@ -1180,6 +1186,9 @@ class CustomLocationListener: LocationListener {
             // Event/Session information
             eventName = eventName,
             sportType = sportType,
+            sportFamily = sportFamily,
+            discipline = sportDiscipline,
+            eventFormat = eventFormat,
             comment = comment,
             clothing = clothing,
 
@@ -1435,6 +1444,9 @@ class CustomLocationListener: LocationListener {
             bmi = bmi,
             eventName = eventName,
             sportType = sportType,
+            sportFamily = sportFamily,
+            discipline = sportDiscipline,
+            eventFormat = eventFormat,
             comment = comment,
             clothing = clothing,
 
@@ -1506,6 +1518,9 @@ class CustomLocationListener: LocationListener {
             bmi = bmi,
             eventName = eventName,
             sportType = sportType,
+            sportFamily = sportFamily,
+            discipline = sportDiscipline,
+            eventFormat = eventFormat,
             comment = comment,
             clothing = clothing,
 

@@ -98,6 +98,9 @@ class GeoTrackerApiClient(private val context: Context) {
         val sessionId: String,
         val eventName: String?,
         val sportType: String?,
+        val sportFamily: String?,
+        val discipline: String?,
+        val eventFormat: String?,
         val comment: String?,
         val startDateTime: String?,
         val startCity: String?,
@@ -243,6 +246,9 @@ class GeoTrackerApiClient(private val context: Context) {
         sessionId: String,
         eventName: String?,
         sportType: String?,
+        sportFamily: String? = null,
+        discipline: String? = null,
+        eventFormat: String? = null,
         comment: String? = null
     ): Result<ApiResponse> = withContext(Dispatchers.IO) {
         try {
@@ -252,6 +258,9 @@ class GeoTrackerApiClient(private val context: Context) {
             val jsonBody = JSONObject().apply {
                 eventName?.let { put("event_name", it) }
                 sportType?.let { put("sport_type", it) }
+                put("sport_family", sportFamily ?: JSONObject.NULL)
+                put("discipline", discipline ?: JSONObject.NULL)
+                put("event_format", eventFormat ?: JSONObject.NULL)
                 comment?.let { put("comment", it) }
             }
 
@@ -396,6 +405,9 @@ class GeoTrackerApiClient(private val context: Context) {
                 put("birthdate", birthdate)
                 put("event_name", event.eventName)
                 put("sport_type", event.artOfSport)
+                event.sportFamily?.let { put("sport_family", it) }
+                event.discipline?.let { put("discipline", it) }
+                event.eventFormat?.let { put("event_format", it) }
                 put("comment", event.comment)
                 put("start_date_time", "${event.eventDate}T00:00:00")
                 put("gps_points", gpsPointsArray)
@@ -1006,6 +1018,9 @@ class GeoTrackerApiClient(private val context: Context) {
                     sessionId = data.optString("session_id", sessionId),
                     eventName = data.optString("event_name")?.takeIf { it.isNotBlank() && it != "null" },
                     sportType = data.optString("sport_type")?.takeIf { it.isNotBlank() && it != "null" },
+                    sportFamily = data.optString("sport_family")?.takeIf { it.isNotBlank() && it != "null" },
+                    discipline = data.optString("discipline")?.takeIf { it.isNotBlank() && it != "null" },
+                    eventFormat = data.optString("event_format")?.takeIf { it.isNotBlank() && it != "null" },
                     comment = data.optString("comment")?.takeIf { it.isNotBlank() && it != "null" },
                     startDateTime = data.optString("start_date_time")?.takeIf { it.isNotBlank() && it != "null" },
                     startCity = data.optString("start_city")?.takeIf { it.isNotBlank() && it != "null" },
