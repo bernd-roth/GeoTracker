@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.18 (04-09-2026: removing cluttered sport types)"
+        versionName = "10.19 (04-09-2026: added 'Track Running' in New Activity)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

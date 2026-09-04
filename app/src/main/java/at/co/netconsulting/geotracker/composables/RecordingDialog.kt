@@ -486,6 +486,7 @@ fun RecordingDialog(
         "Marathon" -> Icons.Default.Speed
         "Halfmarathon" -> Icons.Default.Speed
         "Road Running" -> Icons.Default.Route
+        "Track Running" -> Icons.Default.DirectionsRun
         "Orienteering" -> Icons.Default.MyLocation
         "Backyard Ultra" -> Icons.Default.Replay
         "Wings for Life Run" -> Icons.Default.DirectionsCar

@@ -103,7 +103,7 @@ GeoTracker is a professional-grade Android fitness tracking application designed
 ## 🚀 Core Features
 
 ### 🏃‍♂️ Multi-Sport Activity Support
-- **Running** - Road, trail, ultra, marathon, half-marathon, orienteering, Backyard Ultra, and Wings for Life Run modes with cadence and stride tracking
+- **Running** - Road, trail, track, ultra, marathon, half-marathon, orienteering, Backyard Ultra, and Wings for Life Run modes with cadence and stride tracking
 - **Cycling** - Full bike support with configurable wheel size and sprocket settings
 - **Hiking** - Trail and outdoor activity tracking with elevation profile analysis
 - **Skating & Ice Hockey** - Dedicated skating category with inline skating plus an ice hockey winter-sport preset

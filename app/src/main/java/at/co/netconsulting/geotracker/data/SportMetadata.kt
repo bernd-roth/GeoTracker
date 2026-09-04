@@ -33,7 +33,7 @@ object SportCatalog {
     val legacyModeFormats = runningRecordingModes.toSet()
 
     val families = listOf(
-        SportFamilyDefinition(RUNNING, listOf("Road Running", "Trail Running", "Orienteering")),
+        SportFamilyDefinition(RUNNING, listOf("Road Running", "Trail Running", "Track Running", "Orienteering")),
         SportFamilyDefinition("Cycling", listOf("Gravel Bike", "E-Bike", "Racing Bicycle", "Mountain Bike")),
         SportFamilyDefinition("Water Sports", listOf("Swimming - Open Water", "Pool Swimming", "Kayaking", "Canoeing", "Stand Up Paddleboarding")),
         SportFamilyDefinition("Winter Sport", listOf("Ski", "Snowboard", "Cross Country Skiing", "Ski Touring", "Biathlon", "Sledding", "Snowshoeing", "Ice Hockey")),
@@ -73,6 +73,7 @@ object SportCatalog {
             "run", "running" -> SportMetadata(RUNNING)
             "road", "road running" -> SportMetadata(RUNNING, "Road Running")
             "trail", "trail running" -> SportMetadata(RUNNING, "Trail Running")
+            "track", "track running" -> SportMetadata(RUNNING, "Track Running")
             "orienteering" -> SportMetadata(RUNNING, "Orienteering")
             "half marathon", "halfmarathon" -> SportMetadata(RUNNING, "Road Running", "Half marathon")
             "marathon" -> SportMetadata(RUNNING, "Road Running", "Marathon")

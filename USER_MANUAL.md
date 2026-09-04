@@ -52,7 +52,7 @@ GeoTracker is a comprehensive fitness tracking application for Android that prov
 
 1. Open the app and navigate to the Map Screen
 2. Tap the tracking selection button
-3. Choose a sport family and an optional discipline. Running also offers Backyard Ultra and Wings for Life Run as special recording modes.
+3. Choose a sport family and an optional discipline. Running includes Road Running, Trail Running, Track Running, and Orienteering, and also offers Backyard Ultra and Wings for Life Run as special recording modes.
 4. Wait for GPS signal to stabilize
 5. Press Start to begin recording
 

@@ -27,6 +27,10 @@ class SportMetadataTest {
             SportMetadata("Cycling", "E-Bike"),
             SportCatalog.fromLegacy("E-Bike")
         )
+        assertEquals(
+            SportMetadata("Running", "Track Running"),
+            SportCatalog.fromLegacy("track running")
+        )
     }
 
     @Test
