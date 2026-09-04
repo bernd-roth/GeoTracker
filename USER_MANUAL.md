@@ -52,7 +52,7 @@ GeoTracker is a comprehensive fitness tracking application for Android that prov
 
 1. Open the app and navigate to the Map Screen
 2. Tap the tracking selection button
-3. Choose a sport family, an optional discipline, and (for Running) an optional event format
+3. Choose a sport family and an optional discipline. Running also offers Backyard Ultra and Wings for Life Run as special recording modes.
 4. Wait for GPS signal to stabilize
 5. Press Start to begin recording
 
@@ -550,6 +550,7 @@ Open **Events > Statistics > Achievements** to review your all-time personal bes
 - Separate record boards for every sport family in your recorded activities; legacy Halfmarathon, Marathon, and Ultramarathon activities are grouped under Running
 - Fastest elapsed time for 1 km, 5 km, 10 km, the official half-marathon distance (21.0975 km), the official marathon distance (42.195 km), 50 km, and 100 km
 - Greatest distance covered in 6 h, 12 h, 24 h, 48 h, 72 h, and 6 days
+- Milestones are detected automatically from recorded distance and timestamp data; you do not select a race distance or timed format before recording
 - Source activity and date for every personal best
 - Activity summary tab with year, week, sport, and multisport-discipline distance totals
 

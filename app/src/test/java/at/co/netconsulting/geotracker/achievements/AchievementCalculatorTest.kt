@@ -136,6 +136,27 @@ class AchievementCalculatorTest {
         )
     }
 
+    @Test
+    fun `derives milestones from samples instead of the selected event format`() {
+        val activity = AchievementActivity(
+            eventId = 7,
+            eventName = "Unclassified five kilometre run",
+            eventDate = "2026-09-04",
+            sport = "Running",
+            sportFamily = "Running",
+            eventFormat = "1 km",
+            samples = listOf(
+                sample(minutes = 0, distance = 0.0),
+                sample(minutes = 25, distance = 5_000.0)
+            )
+        )
+
+        val result = AchievementCalculator.calculate(listOf(activity)).single()
+        val fiveKilometres = result.distanceDefinitions.first { it.label == "5 km" }
+
+        assertEquals(activity.eventName, result.records.getValue(fiveKilometres).eventName)
+    }
+
     private fun activity(
         sport: String,
         name: String,

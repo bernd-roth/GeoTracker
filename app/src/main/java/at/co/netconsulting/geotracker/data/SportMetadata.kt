@@ -25,26 +25,12 @@ data class SportFamilyDefinition(
 object SportCatalog {
     const val RUNNING = "Running"
 
-    val runningEventFormats = listOf(
-        "1 km",
-        "5 km",
-        "10 km",
-        "Half marathon",
-        "Marathon",
-        "50 km",
-        "100 km",
-        "6 h",
-        "12 h",
-        "24 h",
-        "48 h",
-        "72 h",
-        "6 days",
+    val runningRecordingModes = listOf(
         "Backyard Ultra",
-        "Wings for Life Run",
-        "Ultramarathon (other)"
+        "Wings for Life Run"
     )
 
-    val legacyModeFormats = setOf("Backyard Ultra", "Wings for Life Run")
+    val legacyModeFormats = runningRecordingModes.toSet()
 
     val families = listOf(
         SportFamilyDefinition(RUNNING, listOf("Road Running", "Trail Running", "Orienteering")),

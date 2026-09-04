@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.17 (02-09-2026: add sport-based achievements and structured event formats)"
+        versionName = "10.18 (04-09-2026: removing cluttered sport types)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

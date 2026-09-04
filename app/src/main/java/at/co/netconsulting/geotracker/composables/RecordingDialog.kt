@@ -892,7 +892,7 @@ fun RecordingDialog(
                             .padding(16.dp)
                     ) {
                         Text(
-                            text = "Sport family, discipline, and event format",
+                            text = "Sport and discipline",
                             fontSize = 12.sp,
                             color = Color(0xFF49454F),
                             modifier = Modifier.padding(bottom = 8.dp)
@@ -955,7 +955,7 @@ fun RecordingDialog(
                                         .clickable {
                                             sportFamily = sportType.name
                                             sportDiscipline = null
-                                            if (sportType.name != SportCatalog.RUNNING) eventFormat = null
+                                            eventFormat = null
                                         }
                                         .weight(1f)
                                 )
@@ -970,7 +970,7 @@ fun RecordingDialog(
                                             .clickable {
                                                 sportFamily = sportType.name
                                                 sportDiscipline = subcat
-                                                if (sportType.name != SportCatalog.RUNNING) eventFormat = null
+                                                eventFormat = null
                                             }
                                             .padding(top = 2.dp, bottom = 2.dp)
                                             .padding(start = 28.dp),
@@ -995,13 +995,13 @@ fun RecordingDialog(
 
                                 if (sportType.name == SportCatalog.RUNNING) {
                                     Text(
-                                        text = "Event format",
+                                        text = "Special recording mode",
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = Color(0xFF49454F),
                                         modifier = Modifier.padding(start = 44.dp, top = 8.dp, bottom = 4.dp)
                                     )
-                                    SportCatalog.runningEventFormats.forEach { format ->
+                                    SportCatalog.runningRecordingModes.forEach { format ->
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
