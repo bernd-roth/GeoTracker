@@ -21,9 +21,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -36,6 +34,21 @@ class GeoTrackerApiClient(private val context: Context) {
     companion object {
         private const val TAG = "GeoTrackerApiClient"
         private const val TIMEOUT_SECONDS = 60L
+
+        internal fun formatUploadTimestamp(epochMillis: Long): String =
+            Instant.ofEpochMilli(epochMillis).toString()
+
+        internal fun resolveUploadStartDateTime(
+            eventDate: String,
+            metricTimestamps: Iterable<Long>
+        ): String {
+            val firstRecordedTimestamp = metricTimestamps
+                .filter { it > 0L }
+                .minOrNull()
+
+            return firstRecordedTimestamp?.let(::formatUploadTimestamp)
+                ?: "${eventDate}T00:00:00Z"
+        }
     }
 
     private val okHttpClient: OkHttpClient by lazy {
@@ -338,7 +351,6 @@ class GeoTrackerApiClient(private val context: Context) {
 
             // Build GPS points array
             val gpsPointsArray = JSONArray()
-            val timestampFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
 
             locations.forEachIndexed { index, location ->
                 val metric = metrics.getOrNull(index)
@@ -352,8 +364,7 @@ class GeoTrackerApiClient(private val context: Context) {
                     put("used_number_of_satellites", 0)
 
                     if (metric != null) {
-                        val timestamp = timestampFormat.format(Date(metric.timeInMilliseconds))
-                        put("received_at", timestamp)
+                        put("received_at", formatUploadTimestamp(metric.timeInMilliseconds))
                         put("current_speed", metric.speed)
                         put("average_speed", metric.speed)
                         put("max_speed", metric.speed)
@@ -409,7 +420,13 @@ class GeoTrackerApiClient(private val context: Context) {
                 event.discipline?.let { put("discipline", it) }
                 event.eventFormat?.let { put("event_format", it) }
                 put("comment", event.comment)
-                put("start_date_time", "${event.eventDate}T00:00:00")
+                put(
+                    "start_date_time",
+                    resolveUploadStartDateTime(
+                        eventDate = event.eventDate,
+                        metricTimestamps = metrics.map { it.timeInMilliseconds }
+                    )
+                )
                 put("gps_points", gpsPointsArray)
                 if (lapTimesArray.length() > 0) {
                     put("lap_times", lapTimesArray)

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.19 (04-09-2026: added 'Track Running' in New Activity)"
+        versionName = "10.20 (14-09-2026: fixing timestamp when uploading recorded event)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
