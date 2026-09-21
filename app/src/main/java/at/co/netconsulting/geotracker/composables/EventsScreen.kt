@@ -106,6 +106,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -635,7 +636,13 @@ fun EventsScreen(
     LaunchedEffect(achievementFilterLabel) {
         if (achievementFilterLabel != null) listState.scrollToItem(0)
     }
-    var selectedEventId by remember { mutableStateOf<Int?>(null) }
+    var selectedEventId by rememberSaveable { mutableStateOf<Int?>(null) }
+    val selectedEvent = events.firstOrNull { it.event.eventId == selectedEventId }
+    LaunchedEffect(selectedEventId, selectedEvent?.hasFullDetails, isLoading) {
+        if (!isLoading && selectedEvent?.hasFullDetails == false) {
+            eventsViewModel.loadFullDetailsForEvent(selectedEvent.event.eventId)
+        }
+    }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
     var deleteFromRemote by remember { mutableStateOf(false) }
@@ -1070,7 +1077,10 @@ fun EventsScreen(
         // Launch events loading and stats loading in parallel
         coroutineScope.launch {
             // Load events immediately for quick UI response
-            eventsViewModel.loadEvents()
+            // Keep the expanded event and loaded pages when returning from analysis.
+            if (selectedEventId == null || selectedEvent == null) {
+                eventsViewModel.loadEvents()
+            }
         }
         // Stats will be loaded separately when shown
     }
@@ -1850,12 +1860,7 @@ fun EventsScreen(
                                         // Expanding - select and load full details if needed
                                         selectedEventId = eventWithDetails.event.eventId
 
-                                        // Load full details on-demand if not already loaded
-                                        if (!eventWithDetails.hasFullDetails) {
-                                            coroutineScope.launch {
-                                                eventsViewModel.loadFullDetailsForEvent(eventWithDetails.event.eventId)
-                                            }
-                                        }
+                                        // Full details are loaded by the selection effect above.
 
                                         // Load media for this event (works for both local and uploaded)
                                         eventsViewModel.loadMediaForEvent(

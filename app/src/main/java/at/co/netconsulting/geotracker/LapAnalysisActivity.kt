@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,7 +52,11 @@ class LapAnalysisActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                LapAnalysisScreen(eventId = eventId, database = database)
+                LapAnalysisScreen(
+                    eventId = eventId,
+                    database = database,
+                    onNavigateBack = { finish() }
+                )
             }
         }
     }
@@ -58,7 +64,11 @@ class LapAnalysisActivity : ComponentActivity() {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
+fun LapAnalysisScreen(
+    eventId: Int,
+    database: FitnessTrackerDatabase,
+    onNavigateBack: () -> Unit
+) {
     var event by remember { mutableStateOf<Event?>(null) }
     var allPathPoints by remember { mutableStateOf<List<PathPoint>>(emptyList()) }
     var pathPoints by remember { mutableStateOf<List<PathPoint>>(emptyList()) }
@@ -189,6 +199,14 @@ fun LapAnalysisScreen(eventId: Int, database: FitnessTrackerDatabase) {
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium
                     )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
                 }
             )
         }

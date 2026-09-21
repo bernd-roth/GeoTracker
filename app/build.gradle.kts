@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.22 (21-09-2026: connections and reconnections are skipped when transfer is disabled)"
+        versionName = "10.23 (21-09-2026: Add Lap analysis back button and preserve expanded event on return)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
