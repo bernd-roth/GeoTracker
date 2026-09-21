@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.20 (14-09-2026: fixing timestamp when uploading recorded event)"
+        versionName = "10.21 (21-09-2026: filtering and showing events in main 'Events' when selecting them in 'Active summary')"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

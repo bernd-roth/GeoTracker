@@ -1,6 +1,7 @@
 package at.co.netconsulting.geotracker
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +20,11 @@ import androidx.compose.ui.Modifier
 import at.co.netconsulting.geotracker.composables.AchievementsScreen
 
 class AchievementsActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_EVENT_IDS = "achievement_event_ids"
+        const val EXTRA_FILTER_LABEL = "achievement_filter_label"
+    }
+
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,7 +49,14 @@ class AchievementsActivity : ComponentActivity() {
                     AchievementsScreen(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(paddingValues)
+                            .padding(paddingValues),
+                        onShowEvents = { ids, label ->
+                            setResult(RESULT_OK, Intent().apply {
+                                putExtra(EXTRA_EVENT_IDS, ids.toIntArray())
+                                putExtra(EXTRA_FILTER_LABEL, label)
+                            })
+                            finish()
+                        }
                     )
                 }
             }

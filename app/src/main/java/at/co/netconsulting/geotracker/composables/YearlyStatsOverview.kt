@@ -43,9 +43,11 @@ import java.util.Calendar
 
 @Composable
 fun YearlyStatsOverview(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onShowEvents: (List<Int>, String) -> Unit
 ) {
     val context = LocalContext.current
+    var summaryEvents by remember { mutableStateOf<List<EventWithTotalDistance>>(emptyList()) }
     var yearlyStats by remember { mutableStateOf<Map<Int, Double>>(emptyMap()) }
     var weeklyStats by remember { mutableStateOf<Map<Pair<Int, Int>, Double>>(emptyMap()) } // (Year, WeekNumber) -> Distance
     var weeklySportBreakdown by remember { mutableStateOf<Map<Pair<Int, Int>, Map<String, Double>>>(emptyMap()) } // (Year, Week) -> Sport -> km
@@ -57,7 +59,7 @@ fun YearlyStatsOverview(
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
 
     // Current year for highlighting
-    val currentYear = remember { Calendar.getInstance().get(Calendar.YEAR) }
+    val currentYear = remember { activityWeek(java.time.LocalDate.now().toString()).first }
 
     LaunchedEffect(Unit) {
 
@@ -70,8 +72,8 @@ fun YearlyStatsOverview(
                 // Calculate yearly totals
                 val yearTotals = events
                     .groupBy { event ->
-                        // Extract year from eventDate (format: YYYY-MM-DD)
-                        event.eventDate.split("-")[0].toInt()
+                        // Keep complete ISO weeks together, including weeks crossing New Year.
+                        activityWeek(event.eventDate).first
                     }
                     .mapValues { (_, eventsInYear) ->
                         eventsInYear.sumOf { it.totalDistance / 1000.0 } // Convert to km
@@ -80,19 +82,7 @@ fun YearlyStatsOverview(
                 // Calculate weekly totals
                 val weekTotals = events
                     .groupBy { event ->
-                        val dateParts = event.eventDate.split("-")
-                        val year = dateParts[0].toInt()
-
-                        val calendar = Calendar.getInstance().apply {
-                            firstDayOfWeek = Calendar.MONDAY // Ensure Monday is first day
-                            minimalDaysInFirstWeek = 4 // ISO 8601 standard
-                            set(year, dateParts[1].toInt() - 1, dateParts[2].toInt())
-                        }
-
-                        val week = calendar.get(Calendar.WEEK_OF_YEAR)
-                        Log.d("YearlyStatsOverview", "Event: ${event.eventName}, Date: ${event.eventDate}, " +
-                                "Week: $week, Distance: ${"%.2f".format(event.totalDistance/1000.0)} km")
-                        Pair(year, week)
+                        activityWeek(event.eventDate)
                     }
                     .mapValues { (_, eventsInWeek) ->
                         eventsInWeek.sumOf { it.totalDistance / 1000.0 } // Convert to km
@@ -103,15 +93,8 @@ fun YearlyStatsOverview(
                 val disciplineBreakdown = mutableMapOf<Triple<Int, Int, String>, MutableMap<String, Double>>()
 
                 events.forEach { event ->
-                    val dateParts = event.eventDate.split("-")
-                    val eventYear = dateParts[0].toInt()
-                    val calendar = Calendar.getInstance().apply {
-                        firstDayOfWeek = Calendar.MONDAY
-                        minimalDaysInFirstWeek = 4
-                        set(eventYear, dateParts[1].toInt() - 1, dateParts[2].toInt())
-                    }
-                    val week = calendar.get(Calendar.WEEK_OF_YEAR)
-                    val yearWeek = Pair(eventYear, week)
+                    val yearWeek = activityWeek(event.eventDate)
+                    val (eventYear, week) = yearWeek
 
                     // Aggregate sport distance in km
                     val sportMap = sportBreakdown.getOrPut(yearWeek) { mutableMapOf() }
@@ -127,6 +110,7 @@ fun YearlyStatsOverview(
                     }
                 }
 
+                summaryEvents = events
                 yearlyStats = yearTotals
                 weeklyStats = weekTotals
                 weeklySportBreakdown = sportBreakdown
@@ -192,6 +176,11 @@ fun YearlyStatsOverview(
                         weeklySportBreakdown = weeklySportBreakdown,
                         weeklyDisciplineBreakdown = weeklyDisciplineBreakdown,
                         expandedWeeks = expandedWeeks,
+                        onSportClick = { yearWeek, sport, discipline ->
+                            val ids = weeklyActivities(summaryEvents, yearWeek, sport, discipline).map { it.eventId }
+                            val label = "$sport${discipline?.let { " / $it" } ?: ""} - Week ${yearWeek.second}, ${yearWeek.first}"
+                            onShowEvents(ids, label)
+                        },
                         onWeekToggle = { yearWeek ->
                             expandedWeeks = if (yearWeek in expandedWeeks) {
                                 expandedWeeks - yearWeek
@@ -296,7 +285,8 @@ fun WeeklyBreakdown(
     weeklySportBreakdown: Map<Pair<Int, Int>, Map<String, Double>>,
     weeklyDisciplineBreakdown: Map<Triple<Int, Int, String>, Map<String, Double>>,
     expandedWeeks: Set<Pair<Int, Int>>,
-    onWeekToggle: (Pair<Int, Int>) -> Unit
+    onWeekToggle: (Pair<Int, Int>) -> Unit,
+    onSportClick: (Pair<Int, Int>, String, String?) -> Unit
 ) {
     val disciplineDisplayNames = mapOf(
         "Swim" to "Swimming",
@@ -333,11 +323,8 @@ fun WeeklyBreakdown(
             }
 
             // Current week for highlighting
-            val currentWeek = if (Calendar.getInstance().get(Calendar.YEAR) == year) {
-                Calendar.getInstance().get(Calendar.WEEK_OF_YEAR)
-            } else {
-                -1
-            }
+            val todayWeek = activityWeek(java.time.LocalDate.now().toString())
+            val currentWeek = if (todayWeek.first == year) todayWeek.second else -1
 
             if (weeklyStats.isEmpty()) {
                 Text(
@@ -360,8 +347,8 @@ fun WeeklyBreakdown(
                         val isWeekExpanded = yearWeek in expandedWeeks
 
                         // Set calendar to the week in question
-                        calendar.set(Calendar.WEEK_OF_YEAR, week)
-                        calendar.set(Calendar.DAY_OF_WEEK, Calendar.MONDAY) // Start of week
+                        calendar.clear()
+                        calendar.setWeekDate(year, week, Calendar.MONDAY)
 
                         val startDay = calendar.get(Calendar.DAY_OF_MONTH)
                         val startMonth = calendar.get(Calendar.MONTH) + 1 // Months are 0-indexed
@@ -420,11 +407,19 @@ fun WeeklyBreakdown(
                         if (isWeekExpanded) {
                             val sportMap = weeklySportBreakdown[yearWeek] ?: emptyMap()
 
+                            Text(
+                                text = "Tap a sport to view activities",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 24.dp, top = 8.dp, bottom = 4.dp)
+                            )
+
                             sportMap.entries.sortedByDescending { it.value }.forEach { (sport, sportKm) ->
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(start = 24.dp, end = 8.dp, top = 2.dp, bottom = 2.dp),
+                                        .clickable { onSportClick(yearWeek, sport, null) }
+                                        .padding(start = 24.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
@@ -453,7 +448,8 @@ fun WeeklyBreakdown(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(start = 48.dp, end = 8.dp, top = 1.dp, bottom = 1.dp),
+                                                .clickable { onSportClick(yearWeek, sport, discipline) }
+                                                .padding(start = 48.dp, end = 8.dp, top = 12.dp, bottom = 12.dp),
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
                                             Text(

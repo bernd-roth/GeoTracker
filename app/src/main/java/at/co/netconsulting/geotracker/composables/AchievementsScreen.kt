@@ -60,7 +60,10 @@ private enum class AchievementsTab(val title: String) {
 }
 
 @Composable
-fun AchievementsScreen(modifier: Modifier = Modifier) {
+fun AchievementsScreen(
+    modifier: Modifier = Modifier,
+    onShowEvents: (List<Int>, String) -> Unit
+) {
     val context = LocalContext.current
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -142,7 +145,8 @@ fun AchievementsScreen(modifier: Modifier = Modifier) {
                     .verticalScroll(rememberScrollState())
             ) {
                 YearlyStatsOverview(
-                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp)
+                    modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                    onShowEvents = onShowEvents
                 )
             }
         }

@@ -449,6 +449,20 @@ fun EventsScreen(
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
     val coroutineScope = rememberCoroutineScope()
 
+    val achievementsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            result.data?.getIntArrayExtra(AchievementsActivity.EXTRA_EVENT_IDS)?.let { ids ->
+                eventsViewModel.filterByAchievementEvents(
+                    ids.toSet(),
+                    result.data?.getStringExtra(AchievementsActivity.EXTRA_FILTER_LABEL).orEmpty()
+                )
+            }
+        }
+    }
+    val achievementFilterLabel by eventsViewModel.achievementFilterLabel.collectAsState()
+
     // Apply date filter when navigating from Calendar
     LaunchedEffect(initialFilterDate) {
         if (initialFilterDate != null) {
@@ -618,6 +632,9 @@ fun EventsScreen(
     }
 
     val listState = rememberLazyListState()
+    LaunchedEffect(achievementFilterLabel) {
+        if (achievementFilterLabel != null) listState.scrollToItem(0)
+    }
     var selectedEventId by remember { mutableStateOf<Int?>(null) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var eventToDelete by remember { mutableStateOf<EventWithDetails?>(null) }
@@ -1421,8 +1438,7 @@ fun EventsScreen(
                     },
                     onDeleteCalendarExports = startBulkCalendarDelete,
                     onOpenAchievements = {
-                        val intent = Intent(context, AchievementsActivity::class.java)
-                        context.startActivity(intent)
+                        achievementsLauncher.launch(Intent(context, AchievementsActivity::class.java))
                     },
                     onOpenDetailedStatistics = {
                         val intent = Intent(context, YearlyStatisticsActivity::class.java)
@@ -1615,7 +1631,8 @@ fun EventsScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Showing filtered events by week",
+                                    text = achievementFilterLabel ?: "Showing filtered events by week",
+                                    modifier = Modifier.weight(1f, fill = false),
                                     fontSize = 14.sp,
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                                     fontWeight = FontWeight.Medium

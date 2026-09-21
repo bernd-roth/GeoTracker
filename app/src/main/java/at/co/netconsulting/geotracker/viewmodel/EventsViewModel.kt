@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.GeoPoint
@@ -80,6 +81,28 @@ class EventsViewModel(
     private var isSearchMode = false
     private var searchRequestId = 0
     private var currentListAlreadySearchFiltered = false
+
+    private var achievementEventIds: Set<Int>? = null
+    private val _achievementFilterLabel = MutableStateFlow<String?>(null)
+    val achievementFilterLabel = _achievementFilterLabel.asStateFlow()
+
+    fun filterByAchievementEvents(ids: Set<Int>, label: String) {
+        achievementEventIds = ids
+        _achievementFilterLabel.value = label
+        startDateFilter = null
+        endDateFilter = null
+        sportTypeFilter = null
+        _searchQuery.value = ""
+        _selectedTab.value = 0
+        _isDateFilterActive.value = true
+        val requestId = ++searchRequestId
+        viewModelScope.launch {
+            waitForCurrentLoad(requestId)
+            if (requestId != searchRequestId) return@launch
+            isSearchMode = false
+            loadEvents()
+        }
+    }
 
     // Date range filter
     private var startDateFilter: String? = null
@@ -257,6 +280,8 @@ class EventsViewModel(
     }
 
     fun filterByDateRange(startDate: String? = null, endDate: String? = null) {
+        achievementEventIds = null
+        _achievementFilterLabel.value = null
         startDateFilter = startDate
         endDateFilter = endDate
         sportTypeFilter = null
@@ -297,6 +322,8 @@ class EventsViewModel(
     }
 
     fun filterByDateRangeAndSport(startDate: String, endDate: String, sportType: String) {
+        achievementEventIds = null
+        _achievementFilterLabel.value = null
         startDateFilter = startDate
         endDateFilter = endDate
         sportTypeFilter = sportType
@@ -368,7 +395,8 @@ class EventsViewModel(
             val matchesSportType = sportTypeFilter == null ||
                     event.event.artOfSport.equals(sportTypeFilter, ignoreCase = true)
 
-            matchesSource && matchesSearch && matchesDateRange && matchesSportType
+            val matchesAchievement = achievementEventIds?.contains(event.event.eventId) ?: true
+            matchesSource && matchesSearch && matchesDateRange && matchesSportType && matchesAchievement
         }
 
         _filteredEventsWithDetails.value = filtered
@@ -529,6 +557,12 @@ class EventsViewModel(
             try {
                 val events = if (_selectedTab.value == 1) {
                     database.eventDao().getEventsPagedBySource("imported", limit, offset)
+                } else if (achievementEventIds != null) {
+                    val ids = achievementEventIds.orEmpty()
+                    database.eventDao().getRecordedEvents().first()
+                        .filter { it.eventId in ids }
+                        .sortedWith(compareByDescending<Event> { it.eventDate }.thenByDescending { it.eventId })
+                        .drop(offset).take(limit)
                 } else {
                     database.eventDao().getRecordedEventsPaged(limit, offset)
                 }
