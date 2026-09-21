@@ -388,7 +388,7 @@ class CustomLocationListener: LocationListener {
         height = sharedPreferences.getFloat("height", 0f)
         weight = sharedPreferences.getFloat("weight", 0f)
         bmi = sharedPreferences.getFloat("bmi", 0f)
-        websocketserver = sharedPreferences.getString("websocketserver", "0.0.0.0").toString()
+        websocketserver = sharedPreferences.getString("websocketserver", "").orEmpty().trim()
 
         // Load voice announcement interval
         voiceAnnouncementInterval = sharedPreferences.getInt("voiceAnnouncementInterval", 1)
@@ -472,7 +472,26 @@ class CustomLocationListener: LocationListener {
         locationManager = this.context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
     }
 
+    private fun canConnectWebSocket(): Boolean =
+        enableWebSocketTransfer && websocketserver.isNotBlank() && websocketserver != "0.0.0.0"
+
     private fun connectWebSocket(initialConnect: Boolean = true) {
+        // All startup and reconnection paths must respect local-only recording.
+        if (!canConnectWebSocket()) {
+            isReconnecting = false
+            return
+        }
+
+        val request = try {
+            Request.Builder()
+                .url("wss://$websocketserver/geotracker")
+                .build()
+        } catch (e: IllegalArgumentException) {
+            isReconnecting = false
+            Log.w(TAG_WEBSOCKET, "Invalid WebSocket server address; continuing local recording", e)
+            return
+        }
+
         if (isReconnecting && !initialConnect) {
             reconnectAttempts++
             if (reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
@@ -483,7 +502,7 @@ class CustomLocationListener: LocationListener {
 
         Log.d(
             TAG_WEBSOCKET,
-            "Attempting to connect to WebSocket server: ws://$websocketserver:8011/geotracker"
+            "Attempting to connect to WebSocket server: wss://$websocketserver/geotracker"
         )
 
         val client = OkHttpClient.Builder()
@@ -491,10 +510,6 @@ class CustomLocationListener: LocationListener {
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
             .pingInterval(20, TimeUnit.SECONDS)
-            .build()
-
-        val request = Request.Builder()
-            .url("wss://" + websocketserver + "/geotracker")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
@@ -800,9 +815,9 @@ class CustomLocationListener: LocationListener {
             return
         }
 
-        // Check if WebSocket transfer is disabled
-        if (!enableWebSocketTransfer) {
-            Log.d(TAG_WEBSOCKET, "WebSocket transfer disabled by user - not sending data")
+        // A server is optional, even when the transfer switch retains its default.
+        if (!canConnectWebSocket()) {
+            Log.d(TAG_WEBSOCKET, "WebSocket transfer disabled or server not configured - not sending data")
             return
         }
 
@@ -1004,6 +1019,11 @@ class CustomLocationListener: LocationListener {
     }
 
     private fun reconnectWebSocket() {
+        if (!canConnectWebSocket()) {
+            isReconnecting = false
+            return
+        }
+
         if (job.isActive) {
             // If we've tried too many times in a row, reset the counter but keep trying
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS_BEFORE_RESET) {
@@ -1045,7 +1065,7 @@ class CustomLocationListener: LocationListener {
                         Log.d(TAG_WEBSOCKET, "Network available, checking WebSocket connection")
 
                         // Check if we need to reconnect
-                        if (!isWebSocketConnected) {
+                        if (canConnectWebSocket() && !isWebSocketConnected) {
                             Log.d(TAG_WEBSOCKET, "Network restored, reconnecting WebSocket")
                             reconnectAttempts = 0  // Reset counter on new network
                             isReconnecting = false
@@ -1071,7 +1091,7 @@ class CustomLocationListener: LocationListener {
                             connectivityManager?.activeNetworkInfo?.isConnected == true
                         Log.d(TAG_WEBSOCKET, "Network connectivity changed: connected=$isConnected")
 
-                        if (isConnected && !isWebSocketConnected) {
+                        if (canConnectWebSocket() && isConnected && !isWebSocketConnected) {
                             Log.d(TAG_WEBSOCKET, "Network restored, reconnecting WebSocket")
                             reconnectAttempts = 0
                             isReconnecting = false

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.21 (21-09-2026: filtering and showing events in main 'Events' when selecting them in 'Active summary')"
+        versionName = "10.22 (21-09-2026: connections and reconnections are skipped when transfer is disabled)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
