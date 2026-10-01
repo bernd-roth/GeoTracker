@@ -110,6 +110,45 @@ test('local history enriches only sessions that still exist in the server snapsh
     }]);
 });
 
+test('saved names survive stale historical and live tracking points', () => {
+    const { context, sessionsList } = loadLivePageScript();
+    vm.runInContext(`
+        trackPoints = { retained: [{ eventName: 'Old name' }] };
+        handleSessionList([{ sessionId: 'retained', eventName: 'New name', savedEventName: 'New name' }]);
+        ensureSessionAvailable('retained', { eventName: 'Old name' });
+    `, context);
+    assert.equal(vm.runInContext('availableSessions[0].eventName', context), 'New name');
+    assert.match(sessionsList.innerHTML, /New name/);
+});
+
+test('name refresh updates retained sessions without restoring expired sessions', () => {
+    const { context, sessionsList } = loadLivePageScript();
+    vm.runInContext(`
+        availableSessions = [{ sessionId: 'retained', eventName: 'Old name' }];
+        handleSessionNames({ retained: 'Renamed', expired: 'Should not reappear' });
+        ensureSessionAvailable('retained', { eventName: 'Old name' });
+    `, context);
+    assert.deepEqual(readState(context).availableSessionIds, ['retained']);
+    assert.equal(vm.runInContext('availableSessions[0].eventName', context), 'Renamed');
+    assert.match(sessionsList.innerHTML, /Renamed/);
+    assert.doesNotMatch(sessionsList.innerHTML, /Should not reappear/);
+});
+
+test('blank saved names and reset fragments do not revert to cached names', () => {
+    const { context } = loadLivePageScript();
+    vm.runInContext(`
+        availableSessions = [{ sessionId: 'retained', eventName: 'Old name', savedEventName: 'Old name' }];
+        handleSessionNames({ retained_reset_123: 'Fragment name', retained: '' });
+        ensureSessionAvailable('retained_reset_123', { eventName: 'Old name' });
+    `, context);
+    assert.equal(vm.runInContext('availableSessions[0].eventName', context), '');
+    const name = vm.runInContext(`mergeSessionInfo(
+        { sessionId: 'retained', savedEventName: 'Old name' },
+        { sessionId: 'retained', savedEventName: '', eventName: '' }
+    ).eventName`, context);
+    assert.equal(name, '');
+});
+
 test('pressure normalization treats zero sentinels as missing', () => {
     const { context } = loadLivePageScript();
 

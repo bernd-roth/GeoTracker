@@ -1,11 +1,12 @@
 import importlib.util
+import json
 import logging
 import logging.handlers
 from pathlib import Path
 import sys
 import types
 import unittest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 
 def load_websocket_server_module():
@@ -125,6 +126,87 @@ class LiveSnapshotTest(unittest.TestCase):
         normalized = self.server.normalize_tracking_point_pressure(point)
 
         self.assertEqual(978.57, normalized["pressure"])
+
+
+class SessionNamesTest(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.server = websocket_server.TrackingServer()
+        self.connection = AsyncMock()
+        self.server.db_pool = MagicMock()
+        self.server.db_pool.acquire.return_value.__aenter__.return_value = self.connection
+        self.server.redis_client = AsyncMock()
+        self.server.broadcast_update = AsyncMock()
+
+    async def test_saved_name_overrides_cached_name_by_id_without_changing_points(self):
+        self.connection.fetch.return_value = [
+            {'session_id': 'retained', 'event_name': 'New name'},
+        ]
+        points = [{'sessionId': 'retained', 'eventName': 'Old name'}]
+        sessions = self.server.build_session_info(points)
+        await self.server.apply_saved_event_names(sessions)
+
+        self.assertEqual('New name', sessions[0]['eventName'])
+        self.assertEqual('New name', sessions[0]['savedEventName'])
+        self.assertEqual('Old name', points[0]['eventName'])
+        self.assertEqual([], self.server.redis_client.mock_calls)
+        self.assertEqual(['retained'], self.connection.fetch.await_args.args[1])
+
+    async def test_empty_snapshot_does_not_query_or_restore_database_sessions(self):
+        sessions = self.server.build_session_info([])
+        await self.server.apply_saved_event_names(sessions)
+        self.assertEqual([], sessions)
+        self.connection.fetch.assert_not_awaited()
+
+    async def test_base_name_applies_to_fragments_including_empty_name(self):
+        self.connection.fetch.return_value = [
+            {'session_id': 'retained', 'event_name': ''},
+            {'session_id': 'retained_reset_123', 'event_name': 'Old fragment name'},
+        ]
+        names = await self.server.get_saved_event_names(['retained_reset_123'])
+        self.assertEqual({'retained_reset_123': ''}, names)
+
+    async def test_database_failure_keeps_cached_name(self):
+        self.connection.fetch.side_effect = RuntimeError('database offline')
+        sessions = [{'sessionId': 'retained', 'eventName': 'Cached name'}]
+        with self.assertLogs(level='ERROR'):
+            await self.server.apply_saved_event_names(sessions)
+        self.assertEqual([{'sessionId': 'retained', 'eventName': 'Cached name'}], sessions)
+
+    async def test_refresh_sends_names_only_and_picks_up_subsequent_rename(self):
+        self.server.connected_clients.add(object())
+        self.server.tracking_history['retained'].append({'eventName': 'Old name'})
+        self.connection.fetch.return_value = [{'session_id': 'retained', 'event_name': 'First name'}]
+        await self.server.refresh_session_names()
+        self.server.broadcast_update.assert_awaited_with({
+            'type': 'session_names', 'names': {'retained': 'First name'}
+        })
+        self.connection.fetch.return_value = [{'session_id': 'retained', 'event_name': 'Renamed'}]
+        await self.server.refresh_session_names()
+        self.server.broadcast_update.assert_awaited_with({
+            'type': 'session_names', 'names': {'retained': 'Renamed'}
+        })
+        self.assertEqual([], self.server.redis_client.mock_calls)
+
+    async def test_no_clients_skips_polling(self):
+        await self.server.refresh_session_names()
+        self.connection.fetch.assert_not_awaited()
+        self.server.broadcast_update.assert_not_awaited()
+
+    async def test_history_and_list_broadcast_use_saved_name_for_redis_members_only(self):
+        self.connection.fetch.return_value = [{'session_id': 'retained', 'event_name': 'Renamed'}]
+        self.server.get_tracking_points_from_redis = AsyncMock(return_value=[{
+            'sessionId': 'retained', 'eventName': 'Old name',
+            'timestamp': '01-10-2026 12:00:00'
+        }])
+        client = AsyncMock()
+        await self.server.send_history(client)
+        messages = [json.loads(call.args[0]) for call in client.send.await_args_list]
+        sessions = next(message['sessions'] for message in messages if message['type'] == 'session_list')
+        self.assertEqual(['retained'], [session['sessionId'] for session in sessions])
+        self.assertEqual('Renamed', sessions[0]['eventName'])
+
+        await self.server.broadcast_session_list_update()
+        self.assertEqual(sessions, self.server.broadcast_update.await_args.args[0]['sessions'])
 
 
 class RedisBackfillTest(unittest.IsolatedAsyncioTestCase):

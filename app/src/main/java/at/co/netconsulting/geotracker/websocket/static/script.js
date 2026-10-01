@@ -1609,6 +1609,9 @@ function connectToWebSocket() {
             case 'session_list':
                 handleSessionList(message.sessions);
                 break;
+            case 'session_names':
+                handleSessionNames(message.names);
+                break;
             case 'session_deleted':
                 handleSessionDeleted(message.sessionId);
                 break;
@@ -3851,6 +3854,8 @@ function mergeSessionInfo(existing, incoming) {
 
     return {
         ...merged,
+        savedEventName: normalizedIncoming.savedEventName ?? normalizedExisting.savedEventName,
+        eventName: normalizedIncoming.savedEventName ?? normalizedExisting.savedEventName ?? merged.eventName,
         startDateTime: startSource.startDateTime || normalizedExisting.startDateTime || normalizedIncoming.startDateTime || '',
         startCity: startSource.startCity || normalizedExisting.startCity || normalizedIncoming.startCity || '',
         startCountry: startSource.startCountry || normalizedExisting.startCountry || normalizedIncoming.startCountry || '',
@@ -3978,6 +3983,28 @@ function getSessionDisplayInfo(session) {
         name,
         details: details.join(' - ')
     };
+}
+
+function handleSessionNames(names) {
+    if (!names || typeof names !== 'object' || Array.isArray(names)) return;
+    const savedNames = new Map();
+    Object.entries(names).forEach(([sessionId, name]) => {
+        if (typeof name !== 'string') return;
+        const baseId = getBaseSessionId(sessionId);
+        if (sessionId === baseId || !savedNames.has(baseId)) savedNames.set(baseId, name);
+    });
+    let changed = false;
+    availableSessions.forEach(session => {
+        const baseId = getBaseSessionId(session.sessionId);
+        if (!savedNames.has(baseId)) return;
+        const name = savedNames.get(baseId);
+        if (session.savedEventName !== name || session.eventName !== name) {
+            session.savedEventName = name;
+            session.eventName = name;
+            changed = true;
+        }
+    });
+    if (changed) updateSessionList();
 }
 
 function handleSessionList(sessions) {

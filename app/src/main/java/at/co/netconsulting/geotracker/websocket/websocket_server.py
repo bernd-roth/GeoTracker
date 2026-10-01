@@ -319,6 +319,7 @@ class TrackingServer:
             self.update_active_sessions()
             tracking_points = await self.get_tracking_points_from_redis()
             session_info = self.build_session_info(tracking_points)
+            await self.apply_saved_event_names(session_info)
 
             await self.broadcast_update({
                 'type': 'session_list',
@@ -359,6 +360,57 @@ class TrackingServer:
                 "version": latest_point.get("version", "")
             })
         return session_info
+
+    async def get_saved_event_names(self, session_ids: List[str]) -> Dict[str, str]:
+        """Read names only; never restore history or change its retention."""
+        if not self.db_pool or not session_ids:
+            return {}
+        base_ids = {
+            session_id: re.sub(r'_(?:reset|archived)_\d+$', '', session_id)
+            for session_id in session_ids
+        }
+        try:
+            async with self.db_pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT session_id, event_name FROM tracking_sessions "
+                    "WHERE session_id = ANY($1::text[])",
+                    list(set(session_ids) | set(base_ids.values()))
+                )
+            names = {row['session_id']: row['event_name'] or '' for row in rows}
+            # The page combines reset/archive fragments into their base session.
+            return {
+                session_id: names[base_id] if base_id in names else names[session_id]
+                for session_id, base_id in base_ids.items()
+                if base_id in names or session_id in names
+            }
+        except Exception:
+            logging.exception("Could not read saved event names; keeping displayed names")
+            return {}
+
+    async def apply_saved_event_names(self, sessions: List[Dict[str, Any]]) -> None:
+        names = await self.get_saved_event_names([session['sessionId'] for session in sessions])
+        for session in sessions:
+            if session['sessionId'] in names:
+                session['eventName'] = names[session['sessionId']]
+                session['savedEventName'] = names[session['sessionId']]
+
+    async def refresh_session_names(self) -> None:
+        if not self.connected_clients:
+            return
+        names = await self.get_saved_event_names(list(self.tracking_history))
+        if names:
+            # This message only renames existing browser entries. In particular,
+            # stale memory entries cannot bring expired Redis sessions back.
+            await self.broadcast_update({'type': 'session_names', 'names': names})
+
+    async def periodic_session_names_task(self) -> None:
+        """Pick up committed REST edits, independently of automatic cleanup."""
+        while True:
+            await asyncio.sleep(5)
+            try:
+                await self.refresh_session_names()
+            except Exception:
+                logging.exception("Could not refresh session names")
 
     async def periodic_cleanup_task(self) -> None:
         """Background task that runs periodic memory cleanup."""
@@ -2344,6 +2396,7 @@ class TrackingServer:
             # Build the Session Manager from this exact Redis snapshot so the
             # graph and the list cannot disagree about which sessions exist.
             session_info = self.build_session_info(all_points)
+            await self.apply_saved_event_names(session_info)
 
             await websocket.send(json.dumps({
                 'type': 'session_list',
@@ -2902,6 +2955,7 @@ class TrackingServer:
                         self.update_active_sessions()
                         tracking_points = await self.get_tracking_points_from_redis()
                         session_info = self.build_session_info(tracking_points)
+                        await self.apply_saved_event_names(session_info)
 
                         await websocket.send(json.dumps({
                             'type': 'session_list',
@@ -3113,6 +3167,7 @@ async def main():
     else:
         logging.info("Automatic memory cleanup is disabled")
 
+    session_names_task = asyncio.create_task(server.periodic_session_names_task())
     try:
         async with websockets.serve(server.handle_client, "0.0.0.0", 6789):
             logging.info("server listening on 0.0.0.0:6789")
@@ -3121,6 +3176,12 @@ async def main():
             except asyncio.CancelledError:
                 pass
     finally:
+        session_names_task.cancel()
+        try:
+            await session_names_task
+        except asyncio.CancelledError:
+            pass
+
         # Cancel cleanup task if it was started
         if cleanup_task and not cleanup_task.done():
             cleanup_task.cancel()
