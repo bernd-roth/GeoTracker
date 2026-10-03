@@ -3,9 +3,11 @@ package at.co.netconsulting.geotracker.domain
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
+import androidx.room.Index
 
 @Entity(
     tableName = "events",
+    indices = [Index(value = ["stageGroupId"])],
     foreignKeys = [
         ForeignKey(
             entity = User::class,
@@ -34,5 +36,7 @@ data class Event(
     val eventSource: String? = null, // null/"recorded" = my event, "imported" = ghost racer
     val sportFamily: String? = null,
     val discipline: String? = null,
-    val eventFormat: String? = null
+    val eventFormat: String? = null,
+    val stageGroupId: Long? = null,
+    val stageOrder: Int? = null
 )

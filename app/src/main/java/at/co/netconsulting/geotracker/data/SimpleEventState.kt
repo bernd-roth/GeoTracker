@@ -12,6 +12,8 @@ data class SimpleEventState(
     val eventFormat: String = "",
     val comment: String = "",
     val clothing: String = "",
+    val stageGroupName: String = "",
+    val stageOrder: String = "",
 
     // Original event to detect changes
     val originalEvent: Event? = null

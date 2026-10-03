@@ -361,11 +361,13 @@ private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Do
 @Composable
 fun RecordingDialog(
     gpsStatus: GpsStatus,
-    onSave: (String, String, SportMetadata, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?, Boolean) -> Unit,
+    onSave: (String, String, SportMetadata, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?, Boolean, String, Int?) -> Unit,
     onDismiss: () -> Unit,
     onWeatherOverlayChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    var stageGroupName by remember { mutableStateOf("") }
+    var stageOrder by remember { mutableStateOf("") }
     var eventName by remember { mutableStateOf("") }
     var eventDate by remember { mutableStateOf(getCurrentFormattedDate()) }
     var sportFamily by remember { mutableStateOf(SportCatalog.RUNNING) }
@@ -839,6 +841,8 @@ fun RecordingDialog(
                     )
                 }
 
+                StageGroupFields(stageGroupName, stageOrder,
+                    { stageGroupName = it }, { stageOrder = it })
                 // Event name field
                 OutlinedTextField(
                     value = eventName,
@@ -1385,7 +1389,9 @@ fun RecordingDialog(
                         selectedHeartRateSensor,
                         enableWebSocketTransfer,
                         trackForRecording,
-                        enableGhostRacer
+                        enableGhostRacer,
+                        stageGroupName.trim(),
+                        stageOrder.toIntOrNull()?.takeIf { it > 0 }
                     )
                 }
             ) {

@@ -13,6 +13,7 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -73,6 +74,8 @@ class SimpleEditEventViewModel(
                         eventFormat = metadata.eventFormat.orEmpty(),
                         comment = event.comment,
                         clothing = clothingText,
+                        stageGroupName = database.stageGroupDao().observeGroups().first().find { it.stageGroupId == event.stageGroupId }?.name.orEmpty(),
+                        stageOrder = event.stageOrder?.toString().orEmpty(),
                         originalEvent = event
                     )
                 }
@@ -89,6 +92,8 @@ class SimpleEditEventViewModel(
         val currentState = _eventState.value
 
         _eventState.value = when (field) {
+            "stageGroup" -> currentState.copy(stageGroupName = value)
+            "stageOrder" -> currentState.copy(stageOrder = value.filter(Char::isDigit).take(6))
             "name" -> currentState.copy(eventName = value)
             "date" -> currentState.copy(eventDate = value)
             "sport" -> currentState.copy(artOfSport = value)
@@ -118,7 +123,12 @@ class SimpleEditEventViewModel(
                         eventFormat = currentState.eventFormat.trim().takeIf(String::isNotEmpty)
                     )
                     // Update only the basic fields in the event
+                    val groupId = database.stageGroupDao().resolve(currentState.stageGroupName)
+                    val order = if (groupId == null) null else currentState.stageOrder.toIntOrNull()?.takeIf { it > 0 }
+                        ?: database.stageGroupDao().nextOrder(groupId)
                     val updatedEvent = originalEvent.copy(
+                        stageGroupId = groupId,
+                        stageOrder = order,
                         eventName = currentState.eventName,
                         eventDate = currentState.eventDate,
                         artOfSport = metadata.legacySportType(),

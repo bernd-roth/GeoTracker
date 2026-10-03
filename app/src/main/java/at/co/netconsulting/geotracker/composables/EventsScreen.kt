@@ -77,6 +77,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
+import androidx.compose.material3.Switch
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -445,6 +446,9 @@ fun EventsScreen(
         )
     )
     val events by eventsViewModel.filteredEventsWithDetails.collectAsState()
+    val stageDatabase = remember(context) { FitnessTrackerDatabase.getInstance(context) }
+    val stageSummaries by remember(stageDatabase) { stageDatabase.stageGroupDao().observeStages() }.collectAsState(emptyList())
+    var groupStages by rememberSaveable { mutableStateOf(true) }
     val allEvents by eventsViewModel.eventsWithDetails.collectAsState()
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
@@ -1086,10 +1090,10 @@ fun EventsScreen(
     }
 
     // Load more events when scrolling to the bottom
-    LaunchedEffect(listState) {
+    LaunchedEffect(listState, allEvents.size) {
         snapshotFlow { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index }
             .collectLatest { lastIndex ->
-                if (lastIndex != null && allEvents.isNotEmpty() && lastIndex >= events.size - 5) {
+                if (lastIndex != null && allEvents.isNotEmpty() && lastIndex >= listState.layoutInfo.totalItemsCount - 5) {
                     eventsViewModel.loadMoreEvents()
                 }
             }
@@ -1672,6 +1676,25 @@ fun EventsScreen(
                 }
             }
 
+            val showStageGroups = groupStages && searchQuery.isBlank() && !isDateFilterActive &&
+                achievementFilterLabel == null && !isConnectMode && !isCalendarSelectionMode
+            val tabStages = stageSummaries.filter {
+                if (selectedTab == 1) it.event.eventSource == "imported"
+                else it.event.eventSource == null || it.event.eventSource == "recorded"
+            }
+            if (tabStages.isNotEmpty()) {
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(checked = groupStages, onCheckedChange = { groupStages = it })
+                        Text("Group stage events", Modifier.padding(start = 8.dp))
+                    }
+                }
+                if (showStageGroups) {
+                    items(tabStages.groupBy { it.event.stageGroupId }.values.sortedByDescending { group ->
+                        group.maxOf { it.event.eventDate }
+                    }) { stages -> StageGroupOverviewCard(stages, onEditEvent, if (isRecording) activeEventId else -1) }
+                }
+            }
             // Loading state
             if (events.isEmpty() && isLoading) {
                 item {
@@ -1744,7 +1767,12 @@ fun EventsScreen(
             }
             // Event items
             else {
-                items(events) { eventWithDetails ->
+                items(events.filter { !showStageGroups || it.event.stageGroupId == null ||
+                    tabStages.none { stage -> stage.event.eventId == it.event.eventId } }) { eventWithDetails ->
+                        stageSummaries.find { it.event.eventId == eventWithDetails.event.eventId }?.let { stage ->
+                            Text("Stage ${stage.event.stageOrder ?: "–"} of ${stageSummaries.count { it.event.stageGroupId == stage.event.stageGroupId }} · ${stage.groupName}",
+                                color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(8.dp))
+                        }
                         // Double-check recording status from both values to be extra safe
                         val isRecordingThisEvent = eventWithDetails.event.eventId == activeEventId &&
                                 (isRecording || context.getSharedPreferences("RecordingState", Context.MODE_PRIVATE)
@@ -3816,7 +3844,7 @@ fun EventCard(
                             fontWeight = FontWeight.Bold
                         )
 
-                    if (event.laps.isNotEmpty()) {
+                    if (event.laps.isNotEmpty() || event.event.stageGroupId != null) {
                         TextButton(
                             onClick = {
                                 val intent = Intent(context, LapAnalysisActivity::class.java).apply {

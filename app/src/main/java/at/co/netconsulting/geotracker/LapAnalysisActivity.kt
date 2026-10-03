@@ -52,7 +52,8 @@ class LapAnalysisActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme {
-                LapAnalysisScreen(
+                StageAnalysisHost(
+                    initialAllStages = intent.getBooleanExtra("ALL_STAGES", false),
                     eventId = eventId,
                     database = database,
                     onNavigateBack = { finish() }
@@ -67,7 +68,8 @@ class LapAnalysisActivity : ComponentActivity() {
 fun LapAnalysisScreen(
     eventId: Int,
     database: FitnessTrackerDatabase,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    scopeSelector: @Composable () -> Unit = {}
 ) {
     var event by remember { mutableStateOf<Event?>(null) }
     var allPathPoints by remember { mutableStateOf<List<PathPoint>>(emptyList()) }
@@ -226,6 +228,7 @@ fun LapAnalysisScreen(
                     .fillMaxSize()
                     .padding(paddingValues)
             ) {
+                scopeSelector()
                 // Map section (fixed at top)
                 Card(
                     modifier = Modifier

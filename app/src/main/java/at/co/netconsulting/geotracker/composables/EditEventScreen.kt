@@ -209,6 +209,13 @@ fun EditEventScreen(
                                 singleLine = true
                             )
 
+                            StageGroupFields(
+                                groupName = eventState.stageGroupName,
+                                stageOrder = eventState.stageOrder,
+                                onGroupNameChange = { editEventViewModel.updateEventField("stageGroup", it) },
+                                onStageOrderChange = { editEventViewModel.updateEventField("stageOrder", it) }
+                            )
+
                             // Event Date with picker button
                             OutlinedTextField(
                                 value = eventState.eventDate,

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "10.23 (21-09-2026: Add Lap analysis back button and preserve expanded event on return)"
+        versionName = "11.00 (03-10-2026: add stage event groups and durable background downloads)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

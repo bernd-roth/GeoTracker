@@ -99,6 +99,8 @@ class ForegroundService : Service() {
     private var sportFamily: String? = null
     private var sportDiscipline: String? = null
     private var eventFormat: String? = null
+    private var stageGroupName: String = ""
+    private var stageOrder: Int = 0
     private lateinit var comment: String
     private lateinit var clothing: String
     @Volatile private var speed: Float = 0.0f
@@ -1031,6 +1033,8 @@ class ForegroundService : Service() {
                 .putString("sportFamily", sportFamily)
                 .putString("sportDiscipline", sportDiscipline)
                 .putString("eventFormat", eventFormat)
+                .putString("stageGroupName", stageGroupName)
+                .putInt("stageOrder", stageOrder)
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
@@ -1661,7 +1665,10 @@ class ForegroundService : Service() {
     }
 
     private suspend fun createNewEvent(database: FitnessTrackerDatabase, userId: Long): Int {
+        val groupId = database.stageGroupDao().resolve(stageGroupName)
         val newEvent = Event(
+            stageGroupId = groupId,
+            stageOrder = groupId?.let { stageOrder.takeIf { it > 0 } ?: database.stageGroupDao().nextOrder(it) },
             userId = userId,
             eventName = eventname,
             eventDate = Tools().provideDateTimeFormat(),
@@ -2209,6 +2216,8 @@ class ForegroundService : Service() {
                 heartRateDeviceAddress = prefs.getString("heart_rate_device_address", null)
                 heartRateDeviceName = prefs.getString("heart_rate_device_name", null)
 
+                stageGroupName = intent?.getStringExtra("stageGroupName") ?: prefs.getString("stageGroupName", "").orEmpty()
+                stageOrder = if (intent?.hasExtra("stageOrder") == true) intent.getIntExtra("stageOrder", 0) else prefs.getInt("stageOrder", 0)
                 // Extract event information from previous state or intent
                 eventname = intent?.getStringExtra("eventName")
                     ?: prefs.getString("eventName", "Recovered Event")
@@ -2261,6 +2270,8 @@ class ForegroundService : Service() {
                 isInitialStateRestored = true
             } else {
                 // Normal service start - extract extras from intent
+                stageGroupName = intent?.getStringExtra("stageGroupName").orEmpty()
+                stageOrder = intent?.getIntExtra("stageOrder", 0) ?: 0
                 eventname = intent?.getStringExtra("eventName") ?: "Unknown Event"
                 eventdate = intent?.getStringExtra("eventDate") ?: "Unknown Date"
                 artofsport = intent?.getStringExtra("artOfSport") ?: "Unknown Sport"
@@ -2750,6 +2761,8 @@ class ForegroundService : Service() {
                 .putString("sportFamily", sportFamily)
                 .putString("sportDiscipline", sportDiscipline)
                 .putString("eventFormat", eventFormat)
+                .putString("stageGroupName", stageGroupName)
+                .putInt("stageOrder", stageOrder)
                 .putString("comment", comment)
                 .putString("clothing", clothing)
                 .putBoolean("enable_websocket_transfer", enableWebSocketTransfer)
@@ -2777,6 +2790,8 @@ class ForegroundService : Service() {
                 putExtra("sportFamily", sportFamily)
                 putExtra("discipline", sportDiscipline)
                 putExtra("eventFormat", eventFormat)
+                putExtra("stageGroupName", stageGroupName)
+                putExtra("stageOrder", stageOrder)
                 putExtra("comment", comment)
                 putExtra("clothing", clothing)
                 putExtra("is_restored_session", true)

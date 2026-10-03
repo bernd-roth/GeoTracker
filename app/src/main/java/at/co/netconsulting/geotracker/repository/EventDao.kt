@@ -125,6 +125,7 @@ interface EventDao {
         WHERE (e.eventSource IS NULL OR e.eventSource = 'recorded')
         AND (
             LOWER(e.eventName) LIKE '%' || :query || '%' OR
+            e.stageGroupId IN (SELECT stageGroupId FROM stage_groups WHERE LOWER(name) LIKE '%' || :query || '%') OR
             LOWER(e.artOfSport) LIKE '%' || :query || '%' OR
             LOWER(e.comment) LIKE '%' || :query || '%' OR
             e.eventDate LIKE '%' || :query || '%' OR
@@ -160,6 +161,7 @@ interface EventDao {
         WHERE e.eventSource = 'imported'
         AND (
             LOWER(e.eventName) LIKE '%' || :query || '%' OR
+            e.stageGroupId IN (SELECT stageGroupId FROM stage_groups WHERE LOWER(name) LIKE '%' || :query || '%') OR
             LOWER(e.artOfSport) LIKE '%' || :query || '%' OR
             LOWER(e.comment) LIKE '%' || :query || '%' OR
             e.eventDate LIKE '%' || :query || '%' OR

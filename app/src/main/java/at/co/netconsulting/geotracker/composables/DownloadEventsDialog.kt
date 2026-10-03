@@ -44,6 +44,8 @@ fun DownloadEventsDialog(
     val availableSessions by viewModel.availableSessions.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val downloadProgress by viewModel.downloadProgress.collectAsState()
+    val hasBackgroundDownloads by viewModel.hasBackgroundDownloads.collectAsState()
+    val backgroundDownloadStatus by viewModel.backgroundDownloadStatus.collectAsState()
     val selectedSessions by viewModel.selectedSessions.collectAsState()
 
     // Filter state - hide sessions with few GPS points
@@ -121,6 +123,16 @@ fun DownloadEventsDialog(
                     ) {
                         Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(20.dp))
                     }
+                }
+
+                if (hasBackgroundDownloads) {
+                    Text(
+                        text = "Downloads continue in the background. $backgroundDownloadStatus",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                    )
                 }
 
                 // Compact filter toggle
@@ -379,6 +391,7 @@ fun SessionDownloadItemCompact(
         is DownloadEventsViewModel.DownloadState.ReadyToDownload -> Color(0xFFF3E5F5)
         is DownloadEventsViewModel.DownloadState.ActivelyRecording -> Color(0xFFFFEBEE)
         is DownloadEventsViewModel.DownloadState.Error -> Color(0xFFFFEBEE)
+        is DownloadEventsViewModel.DownloadState.Queued,
         is DownloadEventsViewModel.DownloadState.Downloading,
         is DownloadEventsViewModel.DownloadState.Checking -> Color(0xFFFFF9C4)
         else -> if (isSelected) MaterialTheme.colorScheme.primaryContainer
@@ -389,7 +402,7 @@ fun SessionDownloadItemCompact(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(
-                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading,
+                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading && downloadState !is DownloadEventsViewModel.DownloadState.Queued,
                 onClick = onSelectionChange
             ),
         shape = RoundedCornerShape(8.dp),
@@ -405,7 +418,7 @@ fun SessionDownloadItemCompact(
                 checked = isSelected,
                 onCheckedChange = { onSelectionChange() },
                 modifier = Modifier.size(24.dp),
-                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading
+                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading && downloadState !is DownloadEventsViewModel.DownloadState.Queued
             )
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -440,6 +453,7 @@ fun SessionDownloadItemCompact(
                     Icon(Icons.Default.FiberManualRecord, "Recording", tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
                 is DownloadEventsViewModel.DownloadState.Error ->
                     Icon(Icons.Default.Error, null, tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
+                is DownloadEventsViewModel.DownloadState.Queued,
                 is DownloadEventsViewModel.DownloadState.Downloading,
                 is DownloadEventsViewModel.DownloadState.Checking ->
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -461,7 +475,7 @@ fun SessionDownloadItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(
-                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading,
+                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading && downloadState !is DownloadEventsViewModel.DownloadState.Queued,
                 onClick = { onSelectionChange() }
             ),
         shape = RoundedCornerShape(12.dp),
@@ -492,7 +506,7 @@ fun SessionDownloadItem(
             Checkbox(
                 checked = isSelected,
                 onCheckedChange = { onSelectionChange() },
-                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading
+                enabled = downloadState !is DownloadEventsViewModel.DownloadState.Downloading && downloadState !is DownloadEventsViewModel.DownloadState.Queued
             )
 
             Spacer(modifier = Modifier.width(8.dp))
@@ -592,6 +606,10 @@ fun SessionDownloadItem(
                             color = Color(0xFFC62828)
                         )
                     }
+                    is DownloadEventsViewModel.DownloadState.Queued -> {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Queued; will download in the background when a network is available.", style = MaterialTheme.typography.bodySmall)
+                    }
                     is DownloadEventsViewModel.DownloadState.Downloading -> {
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -674,6 +692,7 @@ fun SessionDownloadItem(
                             )
                         }
                     }
+                    is DownloadEventsViewModel.DownloadState.Queued,
                     is DownloadEventsViewModel.DownloadState.Downloading,
                     is DownloadEventsViewModel.DownloadState.Checking -> {
                         CircularProgressIndicator(

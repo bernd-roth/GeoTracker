@@ -11,6 +11,7 @@ import android.util.Log
 
 @Database(
     entities = [
+        StageGroup::class,
         User::class,
         Event::class,
         Metric::class,
@@ -28,10 +29,11 @@ import android.util.Log
         DisciplineTransition::class,
         WaypointPhoto::class
     ],
-    version = 29,
+    version = 30,
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
+    abstract fun stageGroupDao(): StageGroupDao
     abstract fun userDao(): UserDao
     abstract fun eventDao(): EventDao
     abstract fun metricDao(): MetricDao
@@ -866,14 +868,22 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
-        fun getInstance(context: Context): FitnessTrackerDatabase {
-            return INSTANCE ?: synchronized(this) {
-                INSTANCE ?: try {
-                    Log.d(TAG, "Creating database instance")
+        val MIGRATION_29_30 = object : Migration(29, 30) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS stage_groups (stageGroupId INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, name TEXT NOT NULL)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_stage_groups_name ON stage_groups(name)")
+                database.execSQL("ALTER TABLE events ADD COLUMN stageGroupId INTEGER")
+                database.execSQL("ALTER TABLE events ADD COLUMN stageOrder INTEGER")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_events_stageGroupId ON events(stageGroupId)")
+            }
+        }
+
+        // Unknown upgrade/downgrade paths must fail without deleting saved recordings.
+        internal fun buildDatabase(context: Context, databaseName: String = "fitness_tracker.db"): FitnessTrackerDatabase =
                     Room.databaseBuilder(
                         context.applicationContext,
                         FitnessTrackerDatabase::class.java,
-                        "fitness_tracker.db"
+                        databaseName
                     )
                         .addMigrations(
                             MIGRATION_1_2,
@@ -902,7 +912,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_25_26,
                             MIGRATION_26_27,
                             MIGRATION_27_28,
-                            MIGRATION_28_29
+                            MIGRATION_28_29,
+                            MIGRATION_29_30
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {
@@ -917,8 +928,13 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                                 verifyDatabaseIntegrity(db)
                             }
                         })
-                        .fallbackToDestructiveMigration() // Keep as safety net
                         .build()
+
+        fun getInstance(context: Context): FitnessTrackerDatabase {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: try {
+                    Log.d(TAG, "Creating database instance")
+                    buildDatabase(context)
                         .also {
                             INSTANCE = it
                             Log.d(TAG, "Database instance created and cached")

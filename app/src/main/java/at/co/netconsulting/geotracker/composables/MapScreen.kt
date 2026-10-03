@@ -3753,7 +3753,7 @@ fun MapScreen(
                 weatherOverlayTrigger++
                 android.util.Log.d("MapScreen", "Weather overlay changed, triggering reload: $weatherOverlayTrigger")
             },
-            onSave = { eventName, eventDate, sportMetadata, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx, enableGhostRacer ->
+            onSave = { eventName, eventDate, sportMetadata, comment, clothing, pathOption, heartRateSensor, enableWebSocketTransfer, importedGpx, enableGhostRacer, stageGroupName, stageOrder ->
                 val artOfSport = sportMetadata.legacySportType()
                 val currentZoomLevel = mapViewRef.value?.zoomLevelDouble ?: 15.0
                 val currentCenter = mapViewRef.value?.mapCenter
@@ -3834,6 +3834,8 @@ fun MapScreen(
                 Timber.d("Stopped BackgroundLocationService")
 
                 val intent = Intent(context, ForegroundService::class.java).apply {
+                    putExtra("stageGroupName", stageGroupName)
+                    putExtra("stageOrder", stageOrder ?: 0)
                     putExtra("eventName", eventName)
                     putExtra("eventDate", eventDate)
                     putExtra("artOfSport", artOfSport)

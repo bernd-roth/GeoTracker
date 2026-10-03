@@ -5,23 +5,20 @@ import android.content.Context
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import at.co.netconsulting.geotracker.domain.DeviceStatus
-import at.co.netconsulting.geotracker.domain.Event
-import at.co.netconsulting.geotracker.data.SportCatalog
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import at.co.netconsulting.geotracker.service.SessionDownloadWorker
+import org.json.JSONArray
+import org.json.JSONObject
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
-import at.co.netconsulting.geotracker.domain.LapTime
-import at.co.netconsulting.geotracker.domain.Location
-import at.co.netconsulting.geotracker.domain.Metric
-import at.co.netconsulting.geotracker.domain.Weather
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Locale
 
 class DownloadEventsViewModel(application: Application) : AndroidViewModel(application) {
     private val database = FitnessTrackerDatabase.getInstance(application)
@@ -39,12 +36,19 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     private val _selectedSessions = MutableStateFlow<Set<String>>(emptySet())
     val selectedSessions: StateFlow<Set<String>> = _selectedSessions.asStateFlow()
 
+    private val _hasBackgroundDownloads = MutableStateFlow(false)
+    val hasBackgroundDownloads: StateFlow<Boolean> = _hasBackgroundDownloads.asStateFlow()
+    private val _backgroundDownloadStatus = MutableStateFlow("")
+    val backgroundDownloadStatus: StateFlow<String> = _backgroundDownloadStatus.asStateFlow()
+    private val workManager = WorkManager.getInstance(application)
+
     sealed class DownloadState {
         object Idle : DownloadState()
         object Checking : DownloadState()
         object ReadyToDownload : DownloadState()
         object AlreadyDownloaded : DownloadState()
         object ActivelyRecording : DownloadState()
+        object Queued : DownloadState()
         object Downloading : DownloadState()
         data class Success(val message: String) : DownloadState()
         data class Error(val message: String) : DownloadState()
@@ -56,6 +60,9 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
 
     init {
         Log.d(TAG, "DownloadEventsViewModel initialized")
+        viewModelScope.launch {
+            workManager.getWorkInfosForUniqueWorkFlow(SessionDownloadWorker.UNIQUE_WORK_NAME).collect(::updateBackgroundDownloadState)
+        }
         loadAvailableSessions()
     }
 
@@ -95,8 +102,10 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
                         Log.d(TAG, "SUCCESS: Loaded ${sessions.size} remote sessions")
 
                         // Reset download progress
-                        val progressMap = sessions.associate { it.sessionId to DownloadState.Idle }
-                        _downloadProgress.value = progressMap
+                        val previousProgress = _downloadProgress.value
+                        _downloadProgress.value = sessions.associate { session ->
+                            session.sessionId to (previousProgress[session.sessionId] ?: DownloadState.Idle)
+                        }
                     },
                     onFailure = { error ->
                         Log.e(TAG, "FAILURE: Error loading sessions: ${error.message}", error)
@@ -187,30 +196,9 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    /** Download only the ready sessions for a specific user */
+    /** Schedule this user's ready sessions; WorkManager continues after this screen closes. */
     fun downloadSessionsForUser(sessions: List<GeoTrackerApiClient.RemoteSessionSummary>) {
-        val selectedIds = _selectedSessions.value
-        val sessionsToDownload = sessions.filter { session ->
-            session.sessionId in selectedIds &&
-            _downloadProgress.value[session.sessionId] == DownloadState.ReadyToDownload
-        }
-
-        if (sessionsToDownload.isEmpty()) {
-            Log.w(TAG, "No sessions ready to download for this user")
-            return
-        }
-
-        viewModelScope.launch {
-            try {
-                _isLoading.value = true
-                sessionsToDownload.forEach { session ->
-                    performDownload(session)
-                }
-                loadAvailableSessions()
-            } finally {
-                _isLoading.value = false
-            }
-        }
+        enqueueReadySessions(sessions)
     }
 
     private suspend fun checkSessionStatus(session: GeoTrackerApiClient.RemoteSessionSummary) {
@@ -239,227 +227,84 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun downloadSelectedSessions() {
-        val selectedIds = _selectedSessions.value
-        val sessionsToDownload = _availableSessions.value.filter { session ->
-            session.sessionId in selectedIds &&
+        enqueueReadySessions(_availableSessions.value.filter { it.sessionId in _selectedSessions.value })
+    }
+
+    private fun enqueueReadySessions(sessions: List<GeoTrackerApiClient.RemoteSessionSummary>) {
+        val sessionsToQueue = sessions.distinctBy { it.sessionId }.filter { session ->
             _downloadProgress.value[session.sessionId] == DownloadState.ReadyToDownload
         }
-
-        if (sessionsToDownload.isEmpty()) {
+        if (sessionsToQueue.isEmpty()) {
             Log.w(TAG, "No sessions ready to download (run check first or all already downloaded)")
             return
         }
 
         viewModelScope.launch {
+            _isLoading.value = true
             try {
-                _isLoading.value = true
-
-                sessionsToDownload.forEach { session ->
-                    performDownload(session)
+                withContext(Dispatchers.IO) {
+                    SessionDownloadWorker.enqueue(getApplication<Application>(), sessionsToQueue.map { it.sessionId })
                 }
-
-                // Reload the list after downloads complete
-                loadAvailableSessions()
+                sessionsToQueue.forEach { updateProgress(it.sessionId, DownloadState.Queued) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Could not queue event downloads", e)
+                sessionsToQueue.forEach { updateProgress(it.sessionId, DownloadState.Error("Could not start background download: ${e.message}")) }
             } finally {
                 _isLoading.value = false
             }
         }
     }
 
-    private suspend fun performDownload(session: GeoTrackerApiClient.RemoteSessionSummary) {
-        updateProgress(session.sessionId, DownloadState.Downloading)
-
-        val result = withContext(Dispatchers.IO) {
-            apiClient.downloadSessionWithDetails(session.sessionId)
-        }
-
-        result.fold(
-            onSuccess = { fullData ->
-                try {
-                    // Insert into local database
-                    withContext(Dispatchers.IO) {
-                        insertSessionToDatabase(fullData)
+    private fun updateBackgroundDownloadState(workInfos: List<WorkInfo>) {
+        val next = _downloadProgress.value.toMutableMap()
+        var outstanding = 0
+        var completed = 0
+        workInfos.forEach { info ->
+            val inputIds = info.tags.filter { it.startsWith(SessionDownloadWorker.SESSION_TAG_PREFIX) }.map { it.removePrefix(SessionDownloadWorker.SESSION_TAG_PREFIX) }
+            val pending = info.state == WorkInfo.State.ENQUEUED || info.state == WorkInfo.State.BLOCKED || info.state == WorkInfo.State.RUNNING
+            if (pending) outstanding += inputIds.size
+            val progress = if (info.state == WorkInfo.State.RUNNING) info.progress else info.outputData
+            val completedIds = stringArray(progress.getString(SessionDownloadWorker.KEY_COMPLETED_IDS))
+            val failedMessages = runCatching {
+                JSONObject(progress.getString(SessionDownloadWorker.KEY_FAILED_MESSAGES).orEmpty())
+            }.getOrDefault(JSONObject())
+            completed += completedIds.size
+            completedIds.forEach { next[it] = DownloadState.Success("Downloaded") }
+            failedMessages.keys().forEach { id ->
+                next[id] = DownloadState.Error(failedMessages.optString(id, "Download failed"))
+            }
+            when (info.state) {
+                WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> inputIds.forEach { id ->
+                    if (next[id] !is DownloadState.Success && next[id] !is DownloadState.Error) next[id] = DownloadState.Queued
+                }
+                WorkInfo.State.RUNNING -> {
+                    inputIds.forEach { id ->
+                        if (next[id] !is DownloadState.Success && next[id] !is DownloadState.Error) next[id] = DownloadState.Queued
                     }
-                    Log.d(TAG, "Download successful: ${session.eventName}")
-                    updateProgress(session.sessionId, DownloadState.Success("Downloaded ${fullData.gpsPoints.size} points"))
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error saving to database", e)
-                    updateProgress(session.sessionId, DownloadState.Error("Save failed: ${e.message}"))
+                    info.progress.getString(SessionDownloadWorker.KEY_ACTIVE_SESSION_ID)?.let { next[it] = DownloadState.Downloading }
                 }
-            },
-            onFailure = { error ->
-                Log.e(TAG, "Download failed: ${error.message}")
-                updateProgress(session.sessionId, DownloadState.Error(error.message ?: "Download failed"))
+                WorkInfo.State.FAILED -> inputIds.forEach { id ->
+                    if (next[id] !is DownloadState.Success && next[id] !is DownloadState.Error) {
+                        next[id] = DownloadState.Error("Background download stopped. Check the connection and retry.")
+                    }
+                }
+                WorkInfo.State.CANCELLED -> inputIds.forEach { id ->
+                    if (next[id] == DownloadState.Queued || next[id] == DownloadState.Downloading) next[id] = DownloadState.Idle
+                }
+                else -> Unit
             }
-        )
+        }
+        _downloadProgress.value = next
+        _hasBackgroundDownloads.value = outstanding > 0
+        _backgroundDownloadStatus.value = if (outstanding > 0) {
+            "$completed downloaded; $outstanding waiting or in progress"
+        } else ""
     }
 
-    private suspend fun insertSessionToDatabase(data: GeoTrackerApiClient.FullSessionData) {
-        // Get default user ID
-        val sharedPreferences = getApplication<Application>()
-            .getSharedPreferences("UserSettings", Context.MODE_PRIVATE)
-        val userId = sharedPreferences.getLong("userId", 1L)
-
-        // Parse event date from startDateTime
-        val eventDate = data.startDateTime?.let {
-            try {
-                it.substring(0, 10) // Extract YYYY-MM-DD
-            } catch (e: Exception) {
-                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(System.currentTimeMillis())
-            }
-        } ?: SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(System.currentTimeMillis())
-
-        val metadata = SportCatalog.resolve(
-            legacySport = data.sportType ?: "Unknown",
-            family = data.sportFamily,
-            discipline = data.discipline,
-            eventFormat = data.eventFormat
-        )
-
-        // Create Event
-        val event = Event(
-            userId = userId,
-            eventName = data.eventName ?: "Imported Event",
-            eventDate = eventDate,
-            artOfSport = data.sportType ?: metadata.legacySportType(),
-            comment = data.comment ?: "",
-            sessionId = data.sessionId,
-            isUploaded = true,
-            uploadedAt = System.currentTimeMillis(),
-            startCity = data.startCity,
-            startCountry = data.startCountry,
-            startAddress = data.startAddress,
-            endCity = data.endCity,
-            endCountry = data.endCountry,
-            endAddress = data.endAddress,
-            sportFamily = metadata.family,
-            discipline = metadata.discipline,
-            eventFormat = metadata.eventFormat
-        )
-
-        val eventId = database.eventDao().insertEvent(event).toInt()
-        Log.d(TAG, "Inserted event with ID: $eventId")
-
-        // Create Locations
-        val locations = data.gpsPoints.map { point ->
-            Location(
-                eventId = eventId,
-                latitude = point.latitude,
-                longitude = point.longitude,
-                altitude = point.altitude ?: 0.0
-            )
-        }
-
-        if (locations.isNotEmpty()) {
-            database.locationDao().insertLocations(locations)
-            Log.d(TAG, "Inserted ${locations.size} locations")
-        }
-
-        // Create Metrics
-        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-        val metrics = data.gpsPoints.mapIndexed { index, point ->
-            val timeInMillis = point.receivedAt?.let {
-                try {
-                    isoFormat.parse(it.replace("Z", "").split("+")[0])?.time ?: System.currentTimeMillis()
-                } catch (e: Exception) {
-                    System.currentTimeMillis() + (index * 1000L)
-                }
-            } ?: (System.currentTimeMillis() + (index * 1000L))
-
-            Metric(
-                eventId = eventId,
-                heartRate = point.heartRate ?: 0,
-                heartRateDevice = "",
-                speed = point.currentSpeed ?: 0f,
-                distance = point.distance ?: 0.0,
-                cadence = null,
-                lap = point.lap,
-                timeInMilliseconds = timeInMillis,
-                unity = "km/h",
-                elevation = point.altitude?.toFloat() ?: 0f,
-                elevationGain = point.cumulativeElevationGain ?: 0f,
-                elevationLoss = 0f,
-                slope = point.slope ?: 0.0,
-                steps = null,
-                strideLength = null,
-                temperature = point.temperature,
-                accuracy = point.horizontalAccuracy,
-                pressure = point.pressure,
-                pressureAccuracy = point.pressureAccuracy,
-                altitudeFromPressure = point.altitudeFromPressure,
-                seaLevelPressure = point.seaLevelPressure
-            )
-        }
-
-        if (metrics.isNotEmpty()) {
-            database.metricDao().insertMetrics(metrics)
-            Log.d(TAG, "Inserted ${metrics.size} metrics")
-        }
-
-        // Create LapTimes
-        val lapTimes = data.lapTimes.map { lap ->
-            LapTime(
-                sessionId = data.sessionId,
-                eventId = eventId,
-                lapNumber = lap.lapNumber,
-                startTime = lap.startTime,
-                endTime = lap.endTime,
-                distance = lap.distance
-            )
-        }
-
-        if (lapTimes.isNotEmpty()) {
-            database.lapTimeDao().insertLapTimes(lapTimes)
-            Log.d(TAG, "Inserted ${lapTimes.size} lap times")
-        }
-
-        // Create Weather records from GPS points that have weather data
-        val weatherRecords = data.gpsPoints.filter { point ->
-            point.temperature != null || point.windSpeed != null || point.humidity != null
-        }.map { point ->
-            Weather(
-                eventId = eventId,
-                weatherRestApi = "remote_import",
-                temperature = point.temperature ?: 0f,
-                windSpeed = point.windSpeed ?: 0f,
-                windDirection = point.windDirection?.toString() ?: "0",
-                relativeHumidity = point.humidity ?: 0
-            )
-        }.distinctBy { "${it.temperature}_${it.windSpeed}_${it.windDirection}_${it.relativeHumidity}" }
-
-        if (weatherRecords.isNotEmpty()) {
-            weatherRecords.forEach { weather ->
-                database.weatherDao().insertWeather(weather)
-            }
-            Log.d(TAG, "Inserted ${weatherRecords.size} weather records")
-        }
-
-        // Create DeviceStatus records from GPS points that have signal quality data
-        // Use usedNumberOfSatellites (satellites used for fix) if available, otherwise numberOfSatellites
-        val deviceStatusRecords = data.gpsPoints.filter { point ->
-            point.numberOfSatellites != null || point.usedNumberOfSatellites != null ||
-            point.horizontalAccuracy != null || point.verticalAccuracyMeters != null
-        }.map { point ->
-            // Store just the satellite count as a plain number string (matching local recording format)
-            val satelliteCount = (point.usedNumberOfSatellites ?: point.numberOfSatellites ?: 0).toString()
-            DeviceStatus(
-                eventId = eventId,
-                numberOfSatellites = satelliteCount,
-                sensorAccuracy = point.horizontalAccuracy?.let { "%.2f m".format(it) } ?: "N/A",
-                signalStrength = point.verticalAccuracyMeters?.let { "%.2f m".format(it) } ?: "N/A",
-                batteryLevel = "N/A",
-                connectionStatus = "imported",
-                sessionId = data.sessionId
-            )
-        }.distinctBy { "${it.numberOfSatellites}_${it.sensorAccuracy}_${it.signalStrength}" }
-
-        if (deviceStatusRecords.isNotEmpty()) {
-            deviceStatusRecords.forEach { status ->
-                database.deviceStatusDao().insertDeviceStatus(status)
-            }
-            Log.d(TAG, "Inserted ${deviceStatusRecords.size} device status records")
-        }
-    }
+    private fun stringArray(value: String?): List<String> = runCatching {
+        val array = JSONArray(value.orEmpty())
+        (0 until array.length()).map { array.getString(it) }
+    }.getOrDefault(emptyList())
 
     private fun updateProgress(sessionId: String, state: DownloadState) {
         val currentProgress = _downloadProgress.value.toMutableMap()
