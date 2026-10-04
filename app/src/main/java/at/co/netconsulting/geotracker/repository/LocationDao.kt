@@ -10,6 +10,14 @@ import at.co.netconsulting.geotracker.domain.Location
 
 @Dao
 interface LocationDao {
+    @Query("""
+        SELECT * FROM locations WHERE eventId = :eventId AND locationId IN (
+            SELECT MIN(locationId) FROM locations WHERE eventId = :eventId
+            UNION SELECT MAX(locationId) FROM locations WHERE eventId = :eventId
+        ) ORDER BY locationId ASC
+    """)
+    fun observeRecordingEndpoints(eventId: Int): kotlinx.coroutines.flow.Flow<List<Location>>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLocation(location: Location): Long
 

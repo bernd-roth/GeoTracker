@@ -77,12 +77,34 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
     var backyardUltraMode = false
     private var backyardLapPolylines = mutableListOf<Polyline>()
     private var currentMapView: MapView? = null
+    private var recordingFlags: RecordingFlags? = null
+    private var endpointJob: Job? = null
+    private var firstRecordedPoint: GeoPoint? = null
+    private var lastRecordedPoint: GeoPoint? = null
+
+    private fun observeEndpoints(mapView: MapView) {
+        if (currentEventId <= 0 || endpointJob?.isActive == true) return
+        val eventId = currentEventId
+        recordingFlags = recordingFlags ?: RecordingFlags(mapView)
+        endpointJob = trackerScope.launch {
+            database.locationDao().observeRecordingEndpoints(eventId).collect { locations ->
+                withContext(Dispatchers.Main) {
+                    if (eventId == currentEventId) {
+                        firstRecordedPoint = locations.firstOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
+                        lastRecordedPoint = locations.lastOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
+                        recordingFlags?.update(firstRecordedPoint, lastRecordedPoint, isRecording.value)
+                    }
+                }
+            }
+        }
+    }
 
     /**
      * Initialize the path tracker with a MapView
      */
     fun initialize(mapView: MapView) {
         currentMapView = mapView
+        observeEndpoints(mapView)
         if (pathPolyline == null) {
             pathPolyline = Polyline().apply {
                 outlinePaint.color = pathColor
@@ -99,12 +121,18 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
     fun setCurrentEventId(eventId: Int, mapView: MapView?) {
         // Only update if needed
         if (currentEventId != eventId) {
+            endpointJob?.cancel()
+            endpointJob = null
+            recordingFlags?.clear()
+            firstRecordedPoint = null
+            lastRecordedPoint = null
             currentEventId = eventId
             pointCache.clear()
 
             // If we have a mapView, update the display
             mapView?.let {
                 currentMapView = it
+                observeEndpoints(it)
                 updatePathForViewport(it, forceUpdate = true)
             }
         }
@@ -115,6 +143,7 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
      */
     fun setRecording(recording: Boolean) {
         isRecording.value = recording
+        recordingFlags?.update(firstRecordedPoint, lastRecordedPoint, recording)
         // Always set zoomToPathEnabled to false regardless of recording state
         // This prevents any auto-zooming behavior
         zoomToPathEnabled = false
@@ -125,6 +154,12 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
      * Clear the path display
      */
     fun clearPath(mapView: MapView) {
+        viewportUpdateJob?.cancel()
+        endpointJob?.cancel()
+        endpointJob = null
+        recordingFlags?.clear()
+        firstRecordedPoint = null
+        lastRecordedPoint = null
         pointCache.clear()
         pathPolyline?.setPoints(emptyList())
         // Clear backyard lap polylines
@@ -343,6 +378,7 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
      * Clean up resources
      */
     fun cleanup() {
+        recordingFlags?.clear()
         trackerScope.cancel()
         viewportUpdateJob?.cancel()
         pointCache.clear()

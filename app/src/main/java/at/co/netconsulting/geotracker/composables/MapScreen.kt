@@ -86,6 +86,7 @@ import at.co.netconsulting.geotracker.domain.Waypoint
 import at.co.netconsulting.geotracker.location.CurrentLocationInfoOverlay
 import at.co.netconsulting.geotracker.location.FollowedUsersOverlay
 import at.co.netconsulting.geotracker.location.ViewportPathTracker
+import at.co.netconsulting.geotracker.location.RecordingFlags
 import at.co.netconsulting.geotracker.location.WaypointOverlay
 import at.co.netconsulting.geotracker.location.WeatherOverlay
 import at.co.netconsulting.geotracker.location.WeatherIconsOverlay
@@ -573,6 +574,7 @@ fun MapScreen(
     val routeOverlayRef = remember { mutableStateOf<Polyline?>(null) }
     val routePolylineOverlaysRef = remember { mutableStateOf<List<Polyline>>(emptyList()) }
     val routeDirectionArrowMarkersRef = remember { mutableStateOf<List<Marker>>(emptyList()) }
+    val routeFlagsRef = remember { mutableStateOf<RecordingFlags?>(null) }
 
     // Route rerun animation state
     var isRunningRerun by remember { mutableStateOf(false) }
@@ -1014,6 +1016,8 @@ fun MapScreen(
     }
 
     fun clearDisplayedRouteOverlays(mapView: MapView, clearWaypoints: Boolean = true) {
+        routeFlagsRef.value?.clear()
+        routeFlagsRef.value = null
         val routePolylines = routePolylineOverlaysRef.value
         val routeArrows = routeDirectionArrowMarkersRef.value
 
@@ -1296,6 +1300,9 @@ fun MapScreen(
 
                 // Add directional arrows along the route
                 routeDirectionArrowMarkersRef.value = DirectionArrowHelper.addDirectionArrows(mapView, routeToDisplay.points)
+                routeFlagsRef.value = RecordingFlags(mapView).apply {
+                    update(routeToDisplay.points.first(), routeToDisplay.points.last(), recording = false)
+                }
 
                 // Load waypoints for the route if we have an event ID
                 Timber.d("RouteDisplayData eventId: ${routeToDisplay.eventId}")
