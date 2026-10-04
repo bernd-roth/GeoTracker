@@ -108,15 +108,9 @@ class RemoteSessionImporter(
         }
 
         // Create Metrics
-        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault())
-        val metrics = data.gpsPoints.mapIndexed { index, point ->
-            val timeInMillis = point.receivedAt?.let {
-                try {
-                    isoFormat.parse(it.replace("Z", "").split("+")[0])?.time ?: System.currentTimeMillis()
-                } catch (e: Exception) {
-                    System.currentTimeMillis() + (index * 1000L)
-                }
-            } ?: (System.currentTimeMillis() + (index * 1000L))
+        val metrics = data.gpsPoints.map { point ->
+            // Zero means unknown. Download time must never become recording time.
+            val timeInMillis = parseRecordingTimestamp(point.receivedAt) ?: 0L
 
             Metric(
                 eventId = eventId,

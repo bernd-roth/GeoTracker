@@ -94,7 +94,7 @@ fun AchievementsScreen(
                     sportFamily = event.sportFamily,
                     discipline = event.discipline,
                     eventFormat = event.eventFormat,
-                    samples = metrics.map { metric ->
+                    samples = metrics.filter { it.timeInMilliseconds > 0L }.map { metric ->
                         AchievementSample(
                             timeMillis = metric.timeInMilliseconds,
                             distanceMeters = metric.distance

@@ -7,6 +7,32 @@ import kotlin.test.assertSame
 
 class AchievementCalculatorTest {
     @Test
+    fun `compressed imported marathon does not become a personal best`() {
+        val samples = (0..17).map {
+            AchievementSample(it * 1_000L, it * 42_195.0 / 17)
+        }
+        assertNull(AchievementCalculator.bestElapsedTimeMillis(samples, 42_195.0))
+        assertNull(AchievementCalculator.bestElapsedTimeMillis(samples, 1_000.0))
+    }
+
+    @Test
+    fun `valid segment after a corrupt distance jump still qualifies`() {
+        val samples = listOf(
+            AchievementSample(0, 0.0),
+            AchievementSample(1_000, 42_195.0),
+            AchievementSample(301_000, 43_195.0)
+        )
+        assertEquals(300_000L, AchievementCalculator.bestElapsedTimeMillis(samples, 1_000.0))
+        assertNull(AchievementCalculator.bestElapsedTimeMillis(samples, 42_195.0))
+    }
+
+    @Test
+    fun `identical timestamps do not qualify for records`() {
+        val samples = listOf(AchievementSample(1_000, 0.0), AchievementSample(1_000, 42_195.0))
+        assertNull(AchievementCalculator.bestElapsedTimeMillis(samples, 42_195.0))
+    }
+
+    @Test
     fun `finds fastest distance segment with interpolated finish`() {
         val samples = listOf(
             sample(minutes = 0, distance = 0.0),

@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.01 (04-10-2026: implemented starting and checkered flag)"
+        versionName = "11.02 (04-10-2026: Fix imported event timestamps and unrealistic achievements)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

@@ -33,6 +33,22 @@ class RemoteSessionImporterTest {
     }
     @After fun close() { database.close() }
 
+    @Test fun `missing times are not replaced with download times and laps are optional`() = runBlocking {
+        val source = session()
+        val eventId = importer.importSession(source.copy(
+            gpsPoints = listOf(
+                source.gpsPoints.single().copy(receivedAt = null),
+                source.gpsPoints.single().copy(receivedAt = "invalid"),
+                source.gpsPoints.single().copy(receivedAt = "2026-10-01T10:00:00.123+02:00")
+            ),
+            lapTimes = emptyList()
+        ))
+        val expected = java.time.Instant.parse("2026-10-01T08:00:00.123Z").toEpochMilli()
+        assertEquals(listOf(0L, 0L, expected), database.metricDao().getMetricsByEventId(eventId).map { it.timeInMilliseconds })
+        assertEquals(expected, database.metricDao().getEventTimeRange(eventId)!!.minTime)
+        assertTrue(database.lapTimeDao().getLapTimesByEvent(eventId).isEmpty())
+    }
+
     @Test fun `empty database and stale preference recreate owner and save all data`() = runBlocking {
         val eventId = importer.importSession(session())
         val event = database.eventDao().getEventById(eventId)!!

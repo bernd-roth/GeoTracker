@@ -53,6 +53,9 @@ data class SportAchievements(
 
 object AchievementCalculator {
     private const val MAX_CONTINUOUS_SAMPLE_GAP_MILLIS = 60L * 60 * 1_000
+    // A deliberately generous bound across sports; catches compressed import times
+    // and distance jumps without treating missing laps as missing evidence.
+    private const val MAX_SAMPLE_SPEED_METERS_PER_SECOND = 100.0
 
     val distanceDefinitions = listOf(
         AchievementDefinition("1 km", AchievementKind.DISTANCE, 1_000.0),
@@ -297,7 +300,10 @@ object AchievementCalculator {
         for (index in 1 until points.size) {
             val point = points[index]
             val gap = point.timeMillis - points[index - 1].timeMillis
-            if (gap > MAX_CONTINUOUS_SAMPLE_GAP_MILLIS) {
+            val distanceDelta = point.distanceMeters - points[index - 1].distanceMeters
+            if (gap > MAX_CONTINUOUS_SAMPLE_GAP_MILLIS ||
+                distanceDelta > gap / 1_000.0 * MAX_SAMPLE_SPEED_METERS_PER_SECOND
+            ) {
                 segments.add(current)
                 current = mutableListOf(point)
             } else {

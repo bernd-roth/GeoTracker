@@ -36,13 +36,14 @@ interface MetricDao {
     @Query("SELECT MAX(speed) FROM metrics WHERE eventId = :eventId")
     suspend fun getMaxSpeedForEvent(eventId: Int): Float?
 
-    @Query("SELECT MIN(timeInMilliseconds) as minTime, MAX(timeInMilliseconds) as maxTime FROM metrics WHERE eventId = :eventId")
+    @Query("SELECT MIN(timeInMilliseconds) as minTime, MAX(timeInMilliseconds) as maxTime FROM metrics WHERE eventId = :eventId AND timeInMilliseconds > 0")
     suspend fun getEventTimeRange(eventId: Int): TimeRange?
 
     @Query("""
         SELECT eventId, MIN(timeInMilliseconds) AS minTime,
                MAX(timeInMilliseconds) AS maxTime
         FROM metrics
+        WHERE timeInMilliseconds > 0
         GROUP BY eventId
     """)
     suspend fun getAllEventTimeRanges(): List<EventTimeRange>
