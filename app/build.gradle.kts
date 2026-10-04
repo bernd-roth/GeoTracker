@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.02 (04-10-2026: Fix imported event timestamps and unrealistic achievements)"
+        versionName = "11.03 (04-10-2026: Fix permission SCHEDULE_EXACT_ALARM in manifest)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
