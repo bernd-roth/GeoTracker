@@ -4,12 +4,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import at.co.netconsulting.geotracker.composables.stageDistance
 import at.co.netconsulting.geotracker.composables.stageDuration
@@ -30,6 +36,7 @@ private val stageColors = listOf(0xFF1565C0.toInt(), 0xFFC62828.toInt(), 0xFF2E7
 private data class AnalysedStage(val event: Event, val metrics: List<Metric>, val route: List<GeoPoint>, val totals: StageTotals)
 private fun speedLabel(speed: Double?) = speed?.let { String.format(Locale.getDefault(), "%.1f km/h", it) } ?: "—"
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StageAnalysisHost(eventId: Int, database: FitnessTrackerDatabase, onNavigateBack: () -> Unit, initialAllStages: Boolean = false) {
     var selectedId by rememberSaveable(eventId) { mutableStateOf(eventId) }
@@ -46,10 +53,22 @@ fun StageAnalysisHost(eventId: Int, database: FitnessTrackerDatabase, onNavigate
         }
     }
     if (showAll && selected != null) {
-        Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-            TextButton(onClick = onNavigateBack) { Text("Back to events") }
-            selector()
-            StageGroupAnalysis(database, selected.event.stageGroupId!!) { selectedId = it; showAll = false }
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(selected.groupName, fontSize = 18.sp, fontWeight = FontWeight.Medium) },
+                    navigationIcon = {
+                        IconButton(onClick = onNavigateBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                )
+            }
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                selector()
+                StageGroupAnalysis(database, selected.event.stageGroupId!!) { selectedId = it; showAll = false }
+            }
         }
     } else {
         key(selectedId) {
@@ -90,45 +109,95 @@ private fun StageGroupAnalysis(database: FitnessTrackerDatabase, groupId: Long, 
     }
     val loaded = stages ?: run { CircularProgressIndicator(Modifier.padding(16.dp)); return }
     val totals = remember(loaded) { combineStageTotals(loaded.map { it.totals }) }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item {
-            Text("${loaded.size} stages · ${stageDistance(totals.distanceMeters)}", style = MaterialTheme.typography.headlineSmall)
-            Text("Recorded time: ${stageDuration(totals.durationMillis)}")
-            Text("Average speed: ${speedLabel(totals.averageSpeedKmh)} · Maximum: ${speedLabel(totals.maxSpeedKmh)}")
-            Text("Ascent: ${totals.ascentMeters.toInt()} m · Descent: ${totals.descentMeters.toInt()} m")
-            Text("Recorded time includes stops within a stage and excludes gaps between stages.", style = MaterialTheme.typography.bodySmall)
+    Column(Modifier.fillMaxSize()) {
+        Card(
+            modifier = Modifier.fillMaxWidth().height(300.dp).padding(8.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        ) {
+            StageRoutesMap(loaded)
         }
-        item { StageRoutesMap(loaded) }
-        item { Text("Stage comparison", style = MaterialTheme.typography.titleMedium) }
-        item {
-            Row(Modifier.fillMaxWidth()) {
-                Text("Stage", Modifier.weight(1.4f))
-                Text("Distance / time", Modifier.weight(1.2f))
-                Text("Avg speed", Modifier.weight(1f))
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f).clipToBounds(),
+            contentPadding = PaddingValues(8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item {
+                StageAnalysisCard {
+                    Text("Speed across stages (km/h)", fontWeight = FontWeight.Bold)
+                    StageChart(loaded, altitude = false)
+                }
+            }
+            item {
+                StageAnalysisCard {
+                    Text("Altitude across stages (m)", fontWeight = FontWeight.Bold)
+                    StageChart(loaded, altitude = true)
+                    Text("Charts use cumulative distance (km). Each coloured line is one stage; gaps are not connected.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                StageAnalysisCard {
+                    Text("${loaded.size} stages · ${stageDistance(totals.distanceMeters)}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                    Text("Recorded time: ${stageDuration(totals.durationMillis)}")
+                    Text("Average speed: ${speedLabel(totals.averageSpeedKmh)} · Maximum: ${speedLabel(totals.maxSpeedKmh)}")
+                    Text("Ascent: ${totals.ascentMeters.toInt()} m · Descent: ${totals.descentMeters.toInt()} m")
+                    Text("Recorded time includes stops within a stage and excludes gaps between stages.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().height(434.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Stage comparison", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                        LazyColumn(Modifier.weight(1f)) {
+                            item {
+                                Column {
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                        Text("Stage", Modifier.weight(1.4f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("Distance / time", Modifier.weight(1.2f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Text("Avg speed", Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    HorizontalDivider()
+                                }
+                            }
+                            itemsIndexed(loaded, key = { _, stage -> stage.event.eventId }) { index, stage ->
+                                Row(Modifier.fillMaxWidth().clickable { onStageClick(stage.event.eventId) }.padding(vertical = 8.dp, horizontal = 4.dp)) {
+                                    Text("${stage.event.stageOrder ?: index + 1} · ${stage.event.eventName}", Modifier.weight(1.4f), fontSize = 13.sp, color = Color(stageColors[index % stageColors.size]))
+                                    Text("${stageDistance(stage.totals.distanceMeters)}\n${stageDuration(stage.totals.durationMillis)}", Modifier.weight(1.2f), fontSize = 13.sp)
+                                    Text(speedLabel(stage.totals.averageSpeedKmh), Modifier.weight(1f), fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
-        itemsIndexed(loaded, key = { _, stage -> stage.event.eventId }) { index, stage ->
-            Row(Modifier.fillMaxWidth().clickable { onStageClick(stage.event.eventId) }.padding(vertical = 8.dp)) {
-                Text("${stage.event.stageOrder ?: index + 1} · ${stage.event.eventName}", Modifier.weight(1.4f), color = Color(stageColors[index % stageColors.size]))
-                Text("${stageDistance(stage.totals.distanceMeters)}\n${stageDuration(stage.totals.durationMillis)}", Modifier.weight(1.2f))
-                Text(speedLabel(stage.totals.averageSpeedKmh), Modifier.weight(1f))
-            }
-        }
-        item { Text("Speed across stages (km/h)", style = MaterialTheme.typography.titleMedium) }
-        item { StageChart(loaded, altitude = false) }
-        item { Text("Altitude across stages (m)", style = MaterialTheme.typography.titleMedium) }
-        item { StageChart(loaded, altitude = true) }
-        item { Text("Charts use cumulative distance (km). Each coloured line is one stage; gaps are not connected.", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+private fun StageAnalysisCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
 }
 
 @Composable
 private fun StageRoutesMap(stages: List<AnalysedStage>) {
     val allPoints = remember(stages) { stages.flatMap { it.route } }
-    if (allPoints.isEmpty()) { Text("No route data available"); return }
+    if (allPoints.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No route data available")
+        }
+        return
+    }
     var map by remember { mutableStateOf<MapView?>(null) }
     DisposableEffect(Unit) { onDispose { map?.onDetach() } }
-    AndroidView(modifier = Modifier.fillMaxWidth().height(280.dp), factory = { context ->
+    AndroidView(modifier = Modifier.fillMaxSize().clipToBounds(), factory = { context ->
         org.osmdroid.config.Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
         MapView(context).apply {
             setTileSource(TileSourceFactory.MAPNIK)
@@ -174,7 +243,7 @@ private fun StageChart(stages: List<AnalysedStage>, altitude: Boolean) {
         }
         LineData(datasets)
     }
-    AndroidView(modifier = Modifier.fillMaxWidth().height(230.dp), factory = { context ->
+    AndroidView(modifier = Modifier.fillMaxWidth().height(160.dp).clipToBounds(), factory = { context ->
         LineChart(context).apply {
             description.isEnabled = false
             axisRight.isEnabled = false

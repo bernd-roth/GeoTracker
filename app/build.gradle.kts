@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.04 (07-10-2026: uploaded media appears alongside the route, if GPS metadata is available)"
+        versionName = "11.05 (14-10-2026: 'All stages' looking fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
