@@ -15,6 +15,8 @@ class SessionMedia(db.Model):
     original_filename = db.Column(db.String(255), nullable=True)
     file_size_bytes = db.Column(db.BigInteger, nullable=True)
     thumbnail_generated = db.Column(db.Boolean, default=False)
+    latitude = db.Column(db.Float, nullable=True)
+    longitude = db.Column(db.Float, nullable=True)
     caption = db.Column(db.Text, nullable=True)
     sort_order = db.Column(db.Integer, default=0)
     created_at = db.Column(db.DateTime(timezone=True), default=datetime.utcnow)
@@ -33,6 +35,8 @@ class SessionMedia(db.Model):
             'file_size_bytes': self.file_size_bytes,
             'thumbnail_generated': self.thumbnail_generated,
             'caption': self.caption,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
             'sort_order': self.sort_order,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'thumbnail_url': f'/api/media/{self.media_uuid}/thumbnail' if self.thumbnail_generated else None,

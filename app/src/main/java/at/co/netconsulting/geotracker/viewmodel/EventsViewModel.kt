@@ -1291,10 +1291,15 @@ class EventsViewModel(
                                         caption = serverMedia.caption,
                                         sortOrder = serverMedia.sortOrder,
                                         isUploaded = true,
-                                        fileSizeBytes = serverMedia.fileSizeBytes
+                                        fileSizeBytes = serverMedia.fileSizeBytes,
+                                        latitude = serverMedia.latitude,
+                                        longitude = serverMedia.longitude
                                     )
                                     database.eventMediaDao().insertMedia(newMedia)
                                 } else {
+                                    if (at.co.netconsulting.geotracker.tools.MediaLocation.from(serverMedia.latitude, serverMedia.longitude) != null) {
+                                        database.eventMediaDao().updateLocation(existingMedia.mediaId, serverMedia.latitude!!, serverMedia.longitude!!)
+                                    }
                                     // Update existing media with server URLs
                                     database.eventMediaDao().updateMediaUploadStatus(
                                         existingMedia.mediaId,
@@ -1421,7 +1426,8 @@ class EventsViewModel(
                         val mediaUuid = UUID.randomUUID().toString()
                         val localFile = File(mediaDir, "$mediaUuid.$extension")
 
-                        contentResolver.openInputStream(uri)?.use { input ->
+                        (at.co.netconsulting.geotracker.tools.MediaLocationExtractor.openOriginal(context, uri)
+                            ?: throw java.io.IOException("Cannot open selected media")).use { input ->
                             FileOutputStream(localFile).use { output ->
                                 input.copyTo(output)
                             }
@@ -1433,6 +1439,8 @@ class EventsViewModel(
                             localThumbnailPath = generateLocalThumbnail(localFile, mediaUuid)
                         }
 
+                        val mediaLocation = at.co.netconsulting.geotracker.tools.MediaLocationExtractor.extract(localFile, mediaType)
+
                         // Create local media record
                         val localMedia = EventMedia(
                             eventId = eventId,
@@ -1442,7 +1450,9 @@ class EventsViewModel(
                             localFilePath = localFile.absolutePath,
                             localThumbnailPath = localThumbnailPath,
                             isUploaded = false,
-                            fileSizeBytes = localFile.length()
+                            fileSizeBytes = localFile.length(),
+                            latitude = mediaLocation?.latitude,
+                            longitude = mediaLocation?.longitude
                         )
                         val mediaId = database.eventMediaDao().insertMedia(localMedia).toInt()
 
@@ -1470,7 +1480,9 @@ class EventsViewModel(
                                     mediaId,
                                     true,
                                     uploadResult.thumbnailUrl,
-                                    uploadResult.fullUrl
+                                    uploadResult.fullUrl,
+                                    uploadResult.latitude,
+                                    uploadResult.longitude
                                 )
 
                                 // Update the UUID to match server
@@ -1566,10 +1578,12 @@ class EventsViewModel(
                                 media.mediaId,
                                 true,
                                 uploadResult.thumbnailUrl,
-                                uploadResult.fullUrl
+                                uploadResult.fullUrl,
+                                uploadResult.latitude,
+                                uploadResult.longitude
                             )
                             database.eventMediaDao().updateMedia(
-                                media.copy(mediaUuid = uploadResult.mediaUuid, isUploaded = true)
+                                (database.eventMediaDao().getMediaById(media.mediaId) ?: media).copy(mediaUuid = uploadResult.mediaUuid, isUploaded = true)
                             )
                             Log.d("EventsViewModel", "Pending media uploaded: ${uploadResult.mediaUuid}")
                         }.onFailure { error ->

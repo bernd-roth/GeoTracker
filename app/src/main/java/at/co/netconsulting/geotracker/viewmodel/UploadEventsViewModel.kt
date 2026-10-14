@@ -467,10 +467,12 @@ class UploadEventsViewModel(application: Application) : AndroidViewModel(applica
                                 media.mediaId,
                                 true,
                                 result.thumbnailUrl,
-                                result.fullUrl
+                                result.fullUrl,
+                                result.latitude,
+                                result.longitude
                             )
                             database.eventMediaDao().updateMedia(
-                                media.copy(mediaUuid = result.mediaUuid, isUploaded = true)
+                                (database.eventMediaDao().getMediaById(media.mediaId) ?: media).copy(mediaUuid = result.mediaUuid, isUploaded = true)
                             )
                             Log.d(TAG, "Pending media uploaded: ${result.mediaUuid}")
                         }.onFailure { error ->

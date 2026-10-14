@@ -251,6 +251,17 @@ GeoTracker supports multiple export formats:
 4. Review and confirm import
 5. Customize event details if needed
 
+### Photos and Videos on a Route
+
+Attach photos or videos to an event using its media upload button. If Android asks
+for access to media location metadata, allow it to read embedded GPS coordinates.
+Files without available GPS metadata still appear in the event's media gallery.
+
+Located media appear as photo or video markers in **Route Preview** and **View on
+Map**. Tap a marker to open the photo or play the video. Use the photo-library
+button on the right to show or hide media markers; they are shown by default.
+Coordinates use the media's recorded location and are not guessed from the route.
+
 ### Repair an Incomplete Server Upload
 
 If live WebSocket transfer stored only part of a completed recording, the full

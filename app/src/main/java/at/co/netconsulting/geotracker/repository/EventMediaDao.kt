@@ -58,18 +58,25 @@ interface EventMediaDao {
         UPDATE event_media
         SET isUploaded = :isUploaded,
             thumbnailUrl = :thumbnailUrl,
-            fullUrl = :fullUrl
+            fullUrl = :fullUrl,
+            latitude = COALESCE(:latitude, latitude),
+            longitude = COALESCE(:longitude, longitude)
         WHERE mediaId = :mediaId
     """)
     suspend fun updateMediaUploadStatus(
         mediaId: Int,
         isUploaded: Boolean,
         thumbnailUrl: String?,
-        fullUrl: String?
+        fullUrl: String?,
+        latitude: Double? = null,
+        longitude: Double? = null
     )
 
     @Query("UPDATE event_media SET localThumbnailPath = :localPath WHERE mediaId = :mediaId")
     suspend fun updateLocalThumbnailPath(mediaId: Int, localPath: String?)
+
+    @Query("UPDATE event_media SET latitude = :latitude, longitude = :longitude WHERE mediaId = :mediaId")
+    suspend fun updateLocation(mediaId: Int, latitude: Double, longitude: Double)
 
     @Query("UPDATE event_media SET caption = :caption WHERE mediaId = :mediaId")
     suspend fun updateCaption(mediaId: Int, caption: String?)

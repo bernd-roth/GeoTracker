@@ -29,6 +29,7 @@ class DatabaseUpgradeSafetyTest {
                     db.execSQL("INSERT INTO locations (eventId, latitude, longitude, altitude, backyardLap) VALUES (7, 48.0, 16.0, 100, 0)")
                     db.execSQL("INSERT INTO metrics (eventId, heartRate, heartRateDevice, speed, distance, lap, timeInMilliseconds, unity, elevation, elevationGain, elevationLoss, slope) VALUES (7, 120, 'sensor', 3, 1000, 1, 123456, 'km/h', 100, 5, 0, 0)")
                     db.execSQL("INSERT INTO weather (eventId, weatherRestApi, temperature, windSpeed, windDirection, relativeHumidity) VALUES (7, 'saved', 20, 2, 'N', 50)")
+                    db.execSQL("INSERT INTO event_media (eventId, mediaUuid, mediaType, fileExtension, sortOrder, isUploaded, fileSizeBytes, createdAt) VALUES (7, 'saved-photo', 'image', 'jpg', 0, 0, 1234, 1000)")
                     db.execSQL("INSERT INTO lap_times (sessionId, eventId, lapNumber, startTime, endTime, distance) VALUES ('saved-session', 7, 1, 1000, 301000, 1000)")
                 }
                 override fun onUpgrade(db: SupportSQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
@@ -51,13 +52,21 @@ class DatabaseUpgradeSafetyTest {
             assertEquals(1, database.lapTimeDao().getLapTimesByEvent(7).size)
             assertNull(database.eventDao().getEventById(7)!!.stageGroupId)
             database.openHelper.writableDatabase.query("PRAGMA foreign_key_check").use { assertFalse(it.moveToFirst()) }
-            assertEquals(30, database.openHelper.writableDatabase.version)
+            val media = database.eventMediaDao().getMediaForEvent(7).single()
+            assertEquals("saved-photo", media.mediaUuid)
+            assertNull(media.latitude)
+            assertNull(media.longitude)
+            database.eventMediaDao().updateLocation(media.mediaId, 48.2, 16.3)
+            // Older servers omit coordinates; uploading must retain locally extracted GPS.
+            database.eventMediaDao().updateMediaUploadStatus(media.mediaId, true, "/thumb", "/full")
+            assertEquals(48.2, database.eventMediaDao().getMediaById(media.mediaId)!!.latitude!!, 0.0)
+            assertEquals(31, database.openHelper.writableDatabase.version)
         } finally { database.close(); context.deleteDatabase(name) }
     }
 
     @Test fun `missing upgrade and downgrade paths fail without deleting saved rows`() {
         val context = RuntimeEnvironment.getApplication()
-        for (version in listOf(2, 31)) {
+        for (version in listOf(2, 32)) {
             val name = "unsupported-$version.db"
             createSavedDatabase(name, version)
             val database = FitnessTrackerDatabase.buildDatabase(context, name)

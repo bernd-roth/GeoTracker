@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.03 (04-10-2026: Fix permission SCHEDULE_EXACT_ALARM in manifest)"
+        versionName = "11.04 (07-10-2026: uploaded media appears alongside the route, if GPS metadata is available)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

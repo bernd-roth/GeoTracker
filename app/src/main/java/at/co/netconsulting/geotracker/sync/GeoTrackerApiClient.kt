@@ -583,7 +583,9 @@ class GeoTrackerApiClient(private val context: Context) {
         val thumbnailUrl: String?,
         val fullUrl: String?,
         val mediaType: String,
-        val fileExtension: String
+        val fileExtension: String,
+        val latitude: Double? = null,
+        val longitude: Double? = null
     )
 
     /**
@@ -599,7 +601,9 @@ class GeoTrackerApiClient(private val context: Context) {
         val caption: String?,
         val sortOrder: Int,
         val fileSizeBytes: Long,
-        val createdAt: String?
+        val createdAt: String?,
+        val latitude: Double? = null,
+        val longitude: Double? = null
     )
 
     /**
@@ -654,6 +658,7 @@ class GeoTrackerApiClient(private val context: Context) {
                 else -> "application/octet-stream"
             }
 
+            val mediaLocation = at.co.netconsulting.geotracker.tools.MediaLocationExtractor.extract(file, mediaType)
             val fileBody: RequestBody = file.asRequestBody(mimeType.toMediaType())
             val wrappedFileBody = if (onProgress != null) {
                 CountingRequestBody(fileBody, onProgress)
@@ -671,6 +676,10 @@ class GeoTrackerApiClient(private val context: Context) {
                 .addFormDataPart("media_type", mediaType)
                 .apply {
                     caption?.let { addFormDataPart("caption", it) }
+                    mediaLocation?.let {
+                        addFormDataPart("latitude", it.latitude.toString())
+                        addFormDataPart("longitude", it.longitude.toString())
+                    }
                 }
                 .build()
 
@@ -693,7 +702,9 @@ class GeoTrackerApiClient(private val context: Context) {
                         thumbnailUrl = data.optString("thumbnail_url")?.takeIf { it.isNotBlank() && it != "null" },
                         fullUrl = data.optString("full_url")?.takeIf { it.isNotBlank() && it != "null" },
                         mediaType = data.optString("media_type", mediaType),
-                        fileExtension = data.optString("file_extension", file.extension)
+                        fileExtension = data.optString("file_extension", file.extension),
+                        latitude = data.optDouble("latitude").takeIf { it.isFinite() && it in -90.0..90.0 },
+                        longitude = data.optDouble("longitude").takeIf { it.isFinite() && it in -180.0..180.0 }
                     )
                     Log.d(TAG, "Media uploaded successfully: ${result.mediaUuid}")
                     Result.success(result)
@@ -747,7 +758,9 @@ class GeoTrackerApiClient(private val context: Context) {
                             caption = mediaJson.optString("caption")?.takeIf { it.isNotBlank() && it != "null" },
                             sortOrder = mediaJson.optInt("sort_order", 0),
                             fileSizeBytes = mediaJson.optLong("file_size_bytes", 0),
-                            createdAt = mediaJson.optString("created_at")?.takeIf { it.isNotBlank() && it != "null" }
+                            createdAt = mediaJson.optString("created_at")?.takeIf { it.isNotBlank() && it != "null" },
+                            latitude = mediaJson.optDouble("latitude").takeIf { it.isFinite() && it in -90.0..90.0 },
+                            longitude = mediaJson.optDouble("longitude").takeIf { it.isFinite() && it in -180.0..180.0 }
                         )
                     )
                 }

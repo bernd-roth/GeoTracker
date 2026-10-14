@@ -37,5 +37,7 @@ data class EventMedia(
     val isUploaded: Boolean = false,  // Whether media has been uploaded to server
     val localFilePath: String? = null,  // Local file path before upload
     val fileSizeBytes: Long = 0,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )

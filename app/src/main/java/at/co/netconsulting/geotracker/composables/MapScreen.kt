@@ -569,6 +569,22 @@ fun MapScreen(
     // New state for route display
     var displayedRoute by remember { mutableStateOf<RouteDisplayData?>(null) }
     var showRouteDisplayIndicator by remember { mutableStateOf(false) }
+    val mediaEventId = displayedRoute?.eventId
+    var showRouteMedia by androidx.compose.runtime.saveable.rememberSaveable(mediaEventId) { mutableStateOf(true) }
+    var selectedRouteMedia by remember(mediaEventId) { mutableStateOf<at.co.netconsulting.geotracker.domain.EventMedia?>(null) }
+    val displayedMedia = routeMedia(database, mediaEventId)
+    RouteMediaViewer(selectedRouteMedia) { selectedRouteMedia = null }
+    DisposableEffect(mapViewRef.value, displayedRoute, displayedMedia, showRouteMedia) {
+        val map = mapViewRef.value
+        val markers = if (map != null && displayedRoute != null && showRouteMedia) {
+            addRouteMediaMarkers(map, displayedMedia) { selectedRouteMedia = it }
+        } else emptyList()
+        map?.invalidate()
+        onDispose {
+            markers.forEach { marker -> map?.overlays?.remove(marker); marker.onDetach(map) }
+            map?.invalidate()
+        }
+    }
 
     // Create a reference to hold the route overlay
     val routeOverlayRef = remember { mutableStateOf<Polyline?>(null) }
@@ -2834,6 +2850,10 @@ fun MapScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.End
         ) {
+            if (displayedRoute != null && displayedMedia.isNotEmpty()) {
+                RouteMediaToggle(showRouteMedia, { showRouteMedia = it }, Modifier.size(56.dp))
+                Spacer(modifier = Modifier.height(8.dp))
+            }
             // Auto-follow indicator above My Location button (hidden during route rerun, when viewing route, or in rerun mode)
             if ((isFollowingLocation || isAutoFollowingUsers) && hasInitializedMapCenter && !isRunningRerun && !showRouteDisplayIndicator && !isRerunModeEnabled) {
                 Surface(

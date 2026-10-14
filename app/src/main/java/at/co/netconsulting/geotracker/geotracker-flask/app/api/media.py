@@ -4,6 +4,7 @@ import subprocess
 from flask import Blueprint, request, jsonify, send_file, current_app, Response
 from werkzeug.utils import secure_filename
 from ..extensions import db
+from ..utils.media_location import extract_media_location, valid_coordinates
 from ..models import SessionMedia, TrackingSession
 
 media_bp = Blueprint('media', __name__)
@@ -196,6 +197,10 @@ def upload_media(session_id):
         caption = request.form.get('caption', '')
         sort_order = request.form.get('sort_order', 0, type=int)
 
+        location = extract_media_location(original_path, media_type)
+        if location is None:
+            location = valid_coordinates(request.form.get('latitude'), request.form.get('longitude'))
+
         # Create database record
         media = SessionMedia(
             session_id=session_id,
@@ -206,7 +211,9 @@ def upload_media(session_id):
             file_size_bytes=file_size,
             thumbnail_generated=thumbnail_generated,
             caption=caption,
-            sort_order=sort_order
+            sort_order=sort_order,
+            latitude=location[0] if location else None,
+            longitude=location[1] if location else None
         )
 
         db.session.add(media)

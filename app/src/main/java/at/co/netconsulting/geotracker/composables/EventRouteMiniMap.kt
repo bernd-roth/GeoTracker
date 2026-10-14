@@ -12,6 +12,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.padding
+import androidx.compose.runtime.saveable.rememberSaveable
+import at.co.netconsulting.geotracker.domain.EventMedia
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -48,6 +51,10 @@ fun EventRouteMiniMap(
     eventId: Int,
     modifier: Modifier = Modifier
 ) {
+    var showMedia by rememberSaveable(eventId) { mutableStateOf(true) }
+    var selectedMedia by remember(eventId) { mutableStateOf<EventMedia?>(null) }
+    val media = routeMedia(database, eventId)
+    RouteMediaViewer(selectedMedia) { selectedMedia = null }
     var points by remember(eventId) { mutableStateOf<List<GeoPoint>?>(null) }
     val mapViewRef = remember { mutableListOf<MapView?>().also { it.add(null) } }
 
@@ -111,8 +118,18 @@ fun EventRouteMiniMap(
                             isHorizontalMapRepetitionEnabled = false
                             isVerticalMapRepetitionEnabled = false
                             setLayerType(View.LAYER_TYPE_HARDWARE, null)
-                            // Read-only preview: swallow all touch events
-                            setOnTouchListener { _, _ -> true }
+                            // Detect taps without enabling map pan/zoom or turning a scroll into a tap.
+                            val tapDetector = android.view.GestureDetector(ctx,
+                                object : android.view.GestureDetector.SimpleOnGestureListener() {
+                                    override fun onDown(event: android.view.MotionEvent) = true
+                                    override fun onSingleTapUp(event: android.view.MotionEvent): Boolean =
+                                        overlays.asReversed().filterIsInstance<Marker>()
+                                            .any { it.onSingleTapConfirmed(event, this@apply) }
+                                })
+                            setOnTouchListener { _, event ->
+                                tapDetector.onTouchEvent(event)
+                                true
+                            }
                             mapViewRef[0] = this
                         }
                     },
@@ -139,6 +156,8 @@ fun EventRouteMiniMap(
                             )
                         }
 
+                        if (showMedia) addRouteMediaMarkers(mapView, media) { selectedMedia = it }
+
                         mapView.post {
                             val box = BoundingBox.fromGeoPoints(loadedPoints)
                             mapView.zoomToBoundingBox(box, false, 40)
@@ -147,6 +166,9 @@ fun EventRouteMiniMap(
                     },
                     modifier = Modifier.fillMaxSize()
                 )
+                if (media.isNotEmpty()) {
+                    RouteMediaToggle(showMedia, { showMedia = it }, Modifier.align(Alignment.TopEnd).padding(8.dp))
+                }
             }
         }
     }

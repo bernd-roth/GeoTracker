@@ -112,10 +112,12 @@ class MediaSyncWorker(
                     media.mediaId,
                     true,
                     uploadResult.thumbnailUrl,
-                    uploadResult.fullUrl
+                    uploadResult.fullUrl,
+                    uploadResult.latitude,
+                    uploadResult.longitude
                 )
                 database.eventMediaDao().updateMedia(
-                    media.copy(mediaUuid = uploadResult.mediaUuid, isUploaded = true)
+                    (database.eventMediaDao().getMediaById(media.mediaId) ?: media).copy(mediaUuid = uploadResult.mediaUuid, isUploaded = true)
                 )
                 Log.d(TAG, "Synced pending media: ${uploadResult.mediaUuid}")
             }.onFailure { error ->

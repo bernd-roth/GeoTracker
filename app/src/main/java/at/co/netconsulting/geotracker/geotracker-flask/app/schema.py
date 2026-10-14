@@ -35,5 +35,10 @@ def ensure_database_schema(app):
             ALTER TABLE IF EXISTS gps_tracking_points
             ADD COLUMN IF NOT EXISTS cadence INTEGER
         """))
+        db.session.execute(text("""
+            ALTER TABLE IF EXISTS session_media
+            ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION,
+            ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION
+        """))
         db.session.commit()
         app.logger.info("Database schema verified")

@@ -518,6 +518,12 @@ fun EventsScreen(
         mediaPickerEventId = null
     }
 
+    val mediaLocationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        mediaPickerLauncher.launch(arrayOf("image/*", "video/*"))
+    }
+
     // Result launcher for file picking
     val gpxFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -1983,7 +1989,12 @@ fun EventsScreen(
                             onAddMedia = {
                                 // Allow adding media to any event - will be uploaded when event is synced
                                 mediaPickerEventId = eventWithDetails.event.eventId
-                                mediaPickerLauncher.launch(arrayOf("image/*", "video/*"))
+                                if (android.os.Build.VERSION.SDK_INT >= 29 &&
+                                    androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_MEDIA_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                    mediaLocationPermissionLauncher.launch(android.Manifest.permission.ACCESS_MEDIA_LOCATION)
+                                } else {
+                                    mediaPickerLauncher.launch(arrayOf("image/*", "video/*"))
+                                }
                             },
                             onMediaClick = { media ->
                                 mediaToView = media
