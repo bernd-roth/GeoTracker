@@ -87,6 +87,7 @@ import kotlin.coroutines.coroutineContext
 class ForegroundService : Service() {
     private lateinit var notificationManager: NotificationManager
     private lateinit var notificationBuilder: NotificationCompat.Builder
+    private var notificationUpdatesEnabled = true
     private lateinit var firstname: String
     private lateinit var lastname: String
     private lateinit var birthdate: String
@@ -569,7 +570,8 @@ class ForegroundService : Service() {
             .setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .setUsesChronometer(true)
+            .setShowWhen(false)
+            .setUsesChronometer(false)
             .setChronometerCountDown(false)
 
         requestHighPriority()
@@ -1462,8 +1464,8 @@ class ForegroundService : Service() {
         val chronometerBaseMs = currentTimeMillis() - displayedDurationMs.coerceAtLeast(0L)
         notificationBuilder
             .setWhen(chronometerBaseMs)
-            .setShowWhen(true)
-            .setUsesChronometer(true)
+            .setShowWhen(!isPaused)
+            .setUsesChronometer(!isPaused)
             .setChronometerCountDown(false)
     }
 
@@ -1611,7 +1613,6 @@ class ForegroundService : Service() {
         // Match Event Times by using the metric timestamp range that is stored in the DB.
         val effectiveMs = getRecordedDurationMs()
         refreshRecordingDurationLabels(effectiveMs)
-        configureNotificationChronometer(effectiveMs)
         val totalRecordingDuration = Duration.ofMillis(effectiveMs)
 
         val totalHours = totalRecordingDuration.toHours()
@@ -1660,7 +1661,8 @@ class ForegroundService : Service() {
                     lapDisplay +
                     catcherText +
                     heartRateText +
-                    barometerText
+                    barometerText,
+            effectiveMs
         )
     }
 
@@ -1684,8 +1686,12 @@ class ForegroundService : Service() {
         return eventId
     }
 
-    private fun updateNotification(newTitle: String, newContent: String) {
+    private fun updateNotification(newTitle: String, newContent: String, durationMs: Long) {
         runOnUiThread {
+            // A worker may already have queued this update when stop/onDestroy runs.
+            // Check here on the main thread so it cannot recreate a removed notification.
+            if (!notificationUpdatesEnabled) return@runOnUiThread
+            configureNotificationChronometer(durationMs)
             notificationBuilder
                 .setContentTitle(newTitle)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(newContent))
@@ -1694,6 +1700,15 @@ class ForegroundService : Service() {
                 .setOngoing(true)
                 .setAutoCancel(false)
             notificationManager.notify(1, notificationBuilder.build())
+        }
+    }
+
+    private fun removeRecordingNotification() {
+        notificationUpdatesEnabled = false
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        if (::notificationManager.isInitialized) {
+            // Also remove a notification previously reposted after foreground teardown.
+            notificationManager.cancel(1)
         }
     }
 
@@ -1925,6 +1940,8 @@ class ForegroundService : Service() {
                 "stop_recording" -> {
                     Log.d(TAG, "Stop recording action received")
                     isStoppingIntentionally = true
+                    // Remove the timer before potentially slow database/geocoding work.
+                    removeRecordingNotification()
                     isAcceptingLocationUpdates = false
                     customLocationListener?.stopLocationCallbacks("stop_recording")
                     runningCadenceTracker?.stop()
@@ -2489,6 +2506,8 @@ class ForegroundService : Service() {
         super.onDestroy()
         Log.d(TAG, "onDestroy called, isStoppingIntentionally: $isStoppingIntentionally")
 
+        removeRecordingNotification()
+
         // CRITICAL: Set isServiceStarted to false FIRST, before cancelling jobs.
         // This prevents the periodic state saver from writing was_running=true
         // after we clear it below (race condition that caused stale recovery on next start).
@@ -2655,12 +2674,6 @@ class ForegroundService : Service() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error unregistering from EventBus", e)
-        }
-
-        try {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error stopping foreground service", e)
         }
     }
 

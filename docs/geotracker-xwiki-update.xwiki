@@ -1,0 +1,656 @@
+= GeoTracker – Android Fitness Tracking App =
+
+== Current Status ==
+
+GeoTracker is a professional-grade Android fitness tracking application for serious athletes, outdoor users, and multi-sport training. It combines high-precision GPS/GNSS recording, sensor collection, live web sharing, route analysis, event planning, and local-first data management.
+
+Current source version: **11.05**, dated **2026-10-14** in the Android build configuration. The current local database is **Room v31** with **17 entities**.
+
+Documentation updated **2026-10-23**, checked against repository commit **56075cd** and the implementation history from April through October 2026. This describes the checked-in application; the installed phone and server versions may differ.
+
+{{toc start="2" depth="3"/}}
+
+The app targets runners, cyclists, hikers, skaters, winter sport users, swimmers, multi-sport athletes, and people who want detailed performance insight beyond basic distance/time statistics.
+
+== Supported Activity Types and Modes ==
+
+* Running
+** Trail Running
+** Road Running
+** Track Running
+** Orienteering
+** Backyard Ultra
+** Wings for Life Run
+* Cycling with detailed bicycle configuration
+* Hiking
+* Water Sports
+** Swimming - Open Water
+** Kayaking
+** Canoeing
+** Stand Up Paddleboarding
+* Winter Sport
+** Ski
+** Snowboard
+** Cross Country Skiing
+** Ski Touring
+** Biathlon
+** Sledding
+** Snowshoeing
+** Ice Hockey
+* Skating
+** Inline Skating
+* Multisport Race
+** Duathlon
+** Triathlon
+** Ultratriathlon
+* Fitness Test
+** Lactate Threshold (30min TT)
+* Indoor/time-based activities, including Weight Training and other activities where GPS is not required
+
+=== Sport Classification and Recording Modes ===
+
+Activities store a **sport family**, optional **discipline**, and optional **event format** separately. Running includes Road Running, Trail Running, Track Running, and Orienteering. Legacy names such as Half Marathon and Ultramarathon are recognized and migrated to the structured metadata.
+
+Distance and timed milestones are calculated from recorded data. You do not need to select Marathon, Half Marathon, or a timed ultra category before recording. **Backyard Ultra** and **Wings for Life Run** remain special choices because they change recording behavior. Sport metadata is preserved during editing, recovery, REST synchronization, and WebSocket transfer.
+
+== Key Android App Features ==
+
+=== GPS and Location Tracking ===
+
+* High-precision GPS/GNSS tracking with satellite quality monitoring
+* Intelligent GPS signal quality evaluation and GPS anomaly filtering
+* Dual altitude tracking: GPS altitude and barometric pressure altitude
+* Slope percentage calculation and terrain analysis
+* Real-time speed, moving speed, maximum speed, distance, bearing, and accuracy metrics
+* Start and end location reverse geocoding with city, country, and address
+* Configurable recording behavior with battery-conscious background services
+* Crash/session recovery that preserves accumulated distance and reuses the current event after service or app restarts
+* Stable recording after background-service handoff, including fixes for timer/distance freezes and stale foreground metrics
+
+=== Recording Reliability and Completed Activities ===
+
+* GPS startup monitoring detects missing or stalled callbacks and performs bounded recovery attempts. Background-to-foreground service handoff and location-listener races have been corrected.
+* Reverse geocoding runs outside the recording persistence loop, with a timeout, so a stalled address lookup cannot freeze recording.
+* After stopping, the completed route, waypoints, and statistics remain visible and can be restored when returning to the Map tab. Starting a new recording or loading an event updates the displayed activity.
+* A green start flag marks the first recorded GPS point; a checkered finish flag appears after recording stops. Flags are restored for saved events and remain distinguishable when endpoints overlap.
+* Duplicate GPS coordinates and stationary tracks no longer break route-gradient rendering. Route drawing errors are isolated from map fallback behavior.
+* Live weather refreshes every five minutes; the latest weather remains available when opening Statistics later during a recording and is cleared between sessions.
+* Unavailable pressure readings are represented as missing data instead of zero measurements.
+* WebSocket connections and reconnects are skipped when transfer is disabled or the server address is blank or the legacy 0.0.0.0 placeholder. Invalid addresses cannot crash recording startup.
+
+=== Sensor Data Collection ===
+
+* Bluetooth LE heart rate monitor support
+* Heart rate zones, heart rate trends, and HR correlation charts
+* Running cadence from Android step-detector events, displayed in steps per minute (SPM), plus stride length tracking
+* Cadence stored per metric, included in GPX-compatible exports, and transmitted through WebSocket and REST synchronization
+* Cycling-compatible cadence values displayed in cycles per minute when present; this does not imply automatic bicycle cadence measurement from the phone step detector
+* Step counting via device sensors
+* Barometric pressure sensing with QNH-based sea-level calibration
+* Temperature and weather data handling, including true zero-degree values instead of placeholder filtering
+* User profile fields for height, weight, birth date, max heart rate, and automatically calculated BMI
+* BMI persistence in settings, Room user data, metrics payloads, WebSocket messages, and server-side history
+
+=== Real-Time Tracking UI ===
+
+* OpenStreetMap-based live tracking map with dark mode support
+* Satellite/street map toggle
+* Speed-colored routes
+* Slope-colored route visualization
+* Direction arrows along recorded tracks
+* Waypoints and waypoint photo support
+* Bottom-sheet metrics only on the Map tab, keeping other tabs cleaner
+* Recording controls stay available while following other users
+* Session start time and elapsed duration in the live speed panel
+* Home-screen widget with duration, distance, speed, altitude, temperature, barometer, total activity time, and inactivity timer
+* Split/lap table in the live panel
+* Live route continuity after app restart during recording
+
+=== Special Recording Modes ===
+
+* Pause/resume without losing session data
+* Manual and automatic lap timing
+* Backyard Ultra mode with manual lap handling and fixed lap-distance tracking
+* Multisport race support for Duathlon, Triathlon, and Ultratriathlon with discipline transitions
+* Wings for Life Run mode with the virtual catcher-car schedule, live map position, distance/headway comparison, catch announcements, and catch-point details while recording continues
+* Lactate Threshold fitness test:
+** Requires a connected heart rate sensor
+** Runs a 30-minute time trial protocol
+** Uses a settle-in phase and measurement phase
+** Collects HR and speed samples during the last 20 minutes
+** Auto-stops at 30 minutes
+** Calculates average LTHR and LT pace
+** Supports early stop with partial result calculation
+** Shows countdown and result dialogs
+
+== Event Management ==
+
+=== My Events ===
+
+* Searchable event history
+* Events sorted newest-first
+* Event cards with route preview mini-map
+* Read-only OSMDroid mini-map preview with start/end markers and automatic bounds fitting
+* Long route preview downsampling to keep memory usage bounded
+* Start/end location display
+* Event comments and clothing fields
+* Edit event screen with sport type, metadata, comments, clothing, and synchronization fields
+* Connect Events feature to merge multiple recorded events into one event, combining locations, metrics, laps, waypoints, media, discipline transitions, clothing, and network information
+* Fastest lap calculation that ignores incomplete final laps
+* Event source tracking to distinguish recorded events from imported Ghost Racer tracks; Ghost Racers are excluded from yearly activity statistics
+
+=== Stage Groups and All Stages Analysis ===
+
+Separate recordings can belong to a named stage group, for example the days of a multi-day tour or race. This preserves individual recordings; **Connect Events** remains available for creating a single merged event.
+
+To organize stages:
+
+1. Edit an event and set **Stage group (optional)**.
+1. Enter a **Stage number**, or leave it empty for automatic numbering.
+1. Assign the other recordings to the same group; **Choose existing group** selects a saved name. Clear the group field to remove one event from its group.
+1. In Events, use **Group stage events** to switch grouped display on or off. Group cards provide an overview and member-event access. **Ungroup recordings** removes the grouping while keeping the recordings.
+1. Open stage analysis and choose **This stage** or **All stages**. Tap a stage-comparison row to inspect that individual stage.
+
+**All stages** displays colored stage routes on one map, speed and altitude charts across cumulative distance, combined distance and recorded time, average and maximum speed, ascent/descent totals, and a stage comparison table. Each chart line represents one stage; gaps between stages are not joined. Recorded time includes stops within a stage and excludes gaps between stages. The October update improves the combined analysis layout and scrolling.
+
+=== Events Toolbar and Navigation ===
+
+Toolbar actions are grouped under **Calendar**, **Statistics**, **Server**, and **Tools**, with short descriptions and destructive actions highlighted in red. Removing calendar exports keeps the GeoTracker recordings. The obsolete invalid-event cleanup feature and duplicate Events-tab slope legend have been removed. Lap analysis has a back button, and returning from analysis preserves the expanded event and its loaded details.
+
+=== Media and Sharing ===
+
+* Attach image and video media to events
+* Local media storage with thumbnails
+* Full-screen image viewing with pinch-to-zoom
+* Video playback via external player
+* Pending upload indicators and retry-capable media synchronization
+* Server-side session media storage
+* Server-generated thumbnails for images and video
+* Media upload support for live-streamed WebSocket events
+* Workout stats photo overlay:
+** Choose a gallery photo or take a camera photo
+** Overlay distance, duration, elevation, and heart rate statistics
+** EXIF orientation handling
+** Share through the Android share sheet
+** Layout fixes to avoid overlapping overlay text
+
+=== Geotagged Photos and Videos on Routes ===
+
+Attach photos or videos using the event media upload button. Allow Android media-location access when requested to read embedded GPS coordinates. Located media appear as photo/video markers in **Route Preview** and **View on Map**. Tap a marker to open the photo or play the video. The photo-library button on the right shows or hides markers; markers are shown by default.
+
+Coordinates come from the media metadata and are not inferred from the route. Files without available GPS metadata remain in the media gallery. Media coordinates are preserved in local storage and server synchronization; the server model and schema include location fields.
+
+=== Import and Download ===
+
+* GPX import with track parsing, visualization, validation, and event customization; valid files without an XML declaration are accepted
+* Import choice between My Events and Ghost Racers
+* Ghost Racer import for racing against a previous GPX track
+* Reverse Direction toggle to run a reference track from end to start
+* Server download dialog for recorded events
+* Remote sessions grouped by user
+* Per-user All/None, Check, and Download controls
+* Recorded-by information in download, analysis, and rerun session lists
+* Download blocked for actively recording sessions
+* Incomplete-session filtering
+* Broader search and pagination for large event lists
+* Session re-upload detection after server-side deletion
+* Server download filtering by user to avoid cross-user session collisions
+
+=== Durable Background Downloads and Timestamp Accuracy ===
+
+Remote-event downloads use a persistent **WorkManager** queue instead of depending on the download dialog staying open. Work waits for network connectivity, reports progress through a notification, batches large selections, and retries transient network/server errors with backoff. Each imported session is saved atomically to avoid partially stored event data.
+
+Recorded uploads derive the session start from the earliest recorded metric and serialize session/GPS timestamps as UTC instants. Remote imports preserve timestamp precision and timezone offsets. Missing timestamps remain unknown rather than becoming the download time, and are excluded from time ranges and achievements that require them.
+
+=== Repair an Incomplete Server Recording ===
+
+If a completed local event contains more data than the live-streamed server copy:
+
+1. Open **Upload Events to Server** from Events.
+1. Enable **Show all events (including uploaded)**.
+1. Select the completed event and tap **Check**.
+1. When the event is ready to replace, choose **Replace server data** and confirm.
+
+The server replaces the session data atomically and keeps existing remote media. An activity still being recorded cannot be replaced. This repair does not require clearing PostgreSQL.
+
+=== Export, Backup, and Sync ===
+
+* GPX export
+* KML export
+* FIT/export-sync workflows
+* Batch export operations
+* Organized output folders for database backups, GPX, KML, and FIT files
+* Manual and automatic database backups
+* Configurable auto-backup type: database, GPX files, or both
+* Export/sync code for Strava, Garmin Connect, and TrainingPeaks. Platform registration and credentials are required; Garmin authentication is a simplified placeholder and TrainingPeaks manual authorization remains unfinished. Consult EXPORT_SYNC_SETUP.md and the API clients before treating these integrations as production-ready.
+* Stationary/indoor activity sync with Strava
+* Duplicate-upload prevention
+* Batch upload to server with chunking for large sessions
+* Pending media upload after successful event upload
+
+=== Backup Destinations ===
+
+Database backups and GPX backups can use **independent destinations**: Android document-tree folders selected through the system picker or direct **SMB shares**. Settings include connection testing and cleanup support. The local **Downloads fallback** was restored for backups without a usable custom destination. Configure and test the destination for each backup type and verify the resulting files.
+
+== Planning and Calendar ==
+
+* Strava-style training calendar reachable from the Events screen
+* Month grid with Monday-Sunday layout
+* Colored sport-type dots for active days
+* Year selector with previous/next navigation
+* Year summary with activity count, active days, sport types, and competition count
+* Tap a day to expand details
+* Tap a recorded event in calendar details to jump back to Events filtered to that date
+* Planned events/competition management:
+** Add, edit, and delete planned events directly from calendar day details
+** Name, date, optional end date, country, city, type, website, comment, entered, and finished fields
+** Native date pickers for start and end dates
+** Multi-day events painted across every covered day
+** Reminder date/time pickers
+** Recurrence support: daily, weekly, monthly, yearly, interval, days of week, and end date
+** Amber competition markers separate from activity dots
+* Planned event server sync:
+** Upload
+** Download
+** Test connection
+** Owner-scoped delete endpoint for clients without remote IDs
+** Remote delete before local delete
+** Delete failures surfaced instead of silently leaving stale server records
+** Startup schema check for missing planned_event_end_date
+
+=== Google Calendar Export and Removal ===
+
+Export one recording or all recordings to a selected writable Google Calendar. Remove a single export or all GeoTracker calendar exports without deleting the original app activities. Bulk removal locates GeoTracker-tagged calendar rows directly, verifies deletion using exact row IDs, and requests calendar synchronization; it no longer reports misleading missing-export counts. Calendar access is required for these actions.
+
+Reminder support includes the declared **SCHEDULE_EXACT_ALARM** permission and the app's exact-alarm permission request flow.
+
+== Statistics and Analysis ==
+
+=== Native App Analytics ===
+
+* Weekly, monthly, and yearly statistics
+* Per-sport-type yearly distance breakdown
+* Total covered distance summary
+* Route comparison and route similarity scoring
+* Speed-distance chart
+* Pace graph with percentile filtering
+* Heart rate detail charts
+* Heart rate vs distance
+* Heart rate vs altitude
+* Heart rate vs speed
+* Altitude detail charts
+* GPS and barometric altitude comparison
+* Altitude profile for loaded tracks
+* Reference marker on altitude graph
+* Weather detail charts
+* Barometer detail charts
+* Lap analysis with reliable database-backed lap persistence
+
+=== Cadence Analysis and Statistics Loading ===
+
+Expanded event cards include average cadence and a preview graph. Dedicated cadence analysis provides minimum, average, and maximum values with interactive cadence-versus-time, distance, altitude, and speed charts and a map for the selected sample.
+
+The Event Overview statistics screen reports calculation progress through Activities, Trends, Heart Rate, and SPM phases. Running summaries include minimum/average/maximum SPM, monthly cadence trends, and cadence distribution charts. Statistics queries load the full event history.
+
+=== Achievements and Personal Bests ===
+
+The **Achievements** screen combines sport-family personal bests with the activity summary. Running distance records cover **1 km, 5 km, 10 km, half marathon (21.0975 km), marathon (42.195 km), 50 km, and 100 km**. Timed efforts include **6, 12, 24, 48, and 72 hours, and 6 days**.
+
+Milestones are calculated independently from recorded metrics, regardless of the event format selected before recording. Invalid or missing timestamps, discontinuous timed-record windows, and implausible distance jumps are excluded to prevent false records from damaged imports.
+
+Selecting a week in the activity summary opens the main Events screen filtered to that **ISO week**, sport, and multisport discipline where applicable. The active filter is visible; choose **Show All Events** to clear it. ISO-week grouping handles year boundaries correctly.
+
+=== Lap Grouping and Cumulative Time ===
+
+Android and web analysis offer a lap-count selector to combine consecutive laps. Time, distance, and pace are recalculated from actual grouped totals rather than assuming one kilometre per lap. Map and graph filtering follows the grouped selection. Incomplete groups are excluded from fastest/slowest highlighting. Android Lap Times includes a **Total** column for cumulative elapsed lap time, including grouped laps.
+
+=== Route Rerun ===
+
+* Native route rerun data support in the app
+* Current position marker on the route rerun map
+* Altitude graph during route rerun
+* Reverse-direction support for replaying a route from end to start
+* Reference track loading from My Events or Ghost Racers
+
+== Real-Time Sharing and Web Interface ==
+
+GeoTracker includes a companion Python/WebSocket and Flask REST server for live tracking, browser dashboards, historical analysis, media, and synchronization.
+
+=== Live Web Dashboard ===
+
+* Live activity broadcasting to followers
+* Multi-athlete following
+* Responsive browser dashboard
+* Mobile-optimized follower views
+* Live route display with persistent polylines
+* Live speed, altitude, distance, heart rate, cadence, weather, and barometer metrics
+* Split/lap table
+* Mini heart-rate and cadence charts
+* Cadence in chart hover popups with sport-specific units; partial messages preserve the latest cadence
+* Cadence mini-chart restored from the last five minutes of history using recorded timestamps, rolling averages, and missing-data gaps
+* Session start time and duration display
+* Heart rate chart alongside altitude and speed charts
+* Toggleable altitude overlay on the heart rate chart
+* Correct nearest-session chart hover behavior for multi-session display
+* Chart resize handling through ResizeObserver
+* Chart zoom and pan support with Chart.js zoom plugin and Hammer.js
+* Double-click chart zoom reset
+* Panel resizing and compact panel-header navigation
+* Fixed live-session list behavior for reset recording fragments
+* Reset recording fragments merged in live UI
+
+=== Redis Live History and Session Consistency ===
+
+**PostgreSQL** is the durable activity store. **Redis** caches the rolling live-tracking history, with a default **48-hour** retention window controlled by DATA_RETENTION_HOURS. Historical analysis remains backed by PostgreSQL.
+
+* Session Manager and graphs use the same Redis history snapshot.
+* Cleanup broadcasts the updated session list; expired browser routes, charts, map elements, and statistics are removed together.
+* Local browser history and name refreshes do not resurrect expired sessions.
+* After service restart, an empty Redis cache can be backfilled from recent PostgreSQL points with their original timestamps. Existing cache history is preserved.
+* Live sessions reload after WebSocket restart, and reset fragments remain one logical route.
+* Session names use the saved database name matched by session ID. Connected browsers refresh names every five seconds; cached tracking points cannot overwrite renamed events.
+* Docker Compose includes Redis startup/health checks and shared network configuration.
+
+=== Following System ===
+
+* Follow multiple users in real time from the Android app
+* Path display modes: full path or from current position
+* Precision filtering for followed-user trails
+* Followed-user mini-map preview in the bottom-left corner
+* Widget and map updates while following
+* Recording controls remain reachable while following another user
+
+=== Web Analysis Page ===
+
+* Browser-based session manager
+* Searchable session list with broader search and larger page size
+* Recorder name shown in session cards
+* Interactive MapLibre map
+* Altitude, speed, heart rate, and cadence charts, with cadence in hover popups and selected-range summaries
+* Toggleable altitude overlay on heart rate chart
+* Wheel/pinch zoom and Ctrl-drag pan on charts
+* Range selection with aggregate statistics
+* Summary panel with session totals and minimum/average/maximum slope, temperature, pressure, and altitude
+* Missing aggregate statistics are populated from recorded data and combined across reset-session fragments; unavailable values use missing-data placeholders
+* Lap data
+* Weather and barometer overlays
+* Media gallery with thumbnail display and video access
+* Correct handling of reset recording fragments so full activities are analyzed together
+* Toggle Charts button in the panel header
+
+=== Route Rerun Web Page ===
+
+* Dedicated /rerun.html route replay page
+* Pick a past session and animate a runner along the recorded GPS track
+* Full route drawn as a faded line
+* Played-so-far overlay grows during playback
+* Play, pause, stop, seek slider, and speed multiplier controls
+* Speed range from 1x to 250x
+* Space and arrow-key shortcuts
+* Real timestamp-based playback delay with clamping for long pauses
+* Live readout of distance, speed, altitude, and heart rate at the current point
+* Camera modes:
+** Overview
+** Follow
+** Fly-Over with pitched/rotated camera
+* Auto-follow pauses during manual map dragging and resumes on playback
+* Recorder name shown in the route list
+
+=== Heatmap Page ===
+
+* Global activity-density heatmap across all sessions
+* Sport type and year filters
+* Real-time radius and opacity sliders
+* Heatmap layer updates in place while sliders move
+* Navigation moved into the heatmap panel header to save map area
+
+=== REST API and Server Features ===
+
+* Flask REST API for sessions, planned events, analysis, heatmap, media, and health checks
+* PostgreSQL-backed session storage
+* Session upload/download endpoints
+* Full session data including GPS points and lap times
+* Media endpoints for upload, list, download, thumbnail, and delete
+* Planned event CRUD and upload/download endpoints
+* Heatmap coordinate endpoints and filter metadata
+* Analysis endpoints for track, laps, and summaries
+* Reset-fragment aggregation for analysis and live UI
+* BMI column in server users table and history responses
+* Start/end geocoding fields in session storage
+* Active-recording detection from recent GPS points
+* Server-side lap backfill using actual session start time
+* Log rotation for long-running deployments
+* Docker deployment with nginx reverse proxy and larger media upload limits
+
+== Equipment and User Configuration ==
+
+* Bicycle wheel size and sprocket settings
+* Clothing logging for activities
+* Network/device status tracking
+* User profile with normalized birth date, height, weight, max heart rate, and BMI
+* Voice announcements at configurable distance/time intervals
+* Dark mode setting for maps and web dashboard themes
+* Auto-backup schedule and backup type selection
+* WebSocket server address setting
+* Heart rate sensor selection and persistence
+* Alarm permission handling for reminders
+
+== Technical Implementation ==
+
+=== Technology Stack ===
+
+|=Component|=Technology
+|Android language|Kotlin
+|UI framework|Jetpack Compose
+|Architecture pattern|MVVM with ViewModels, repositories/DAOs, services, and EventBus messaging
+|Local database|SQLite with Room ORM, schema v31
+|Android entities|17 entities
+|Build system|Gradle 9.6.0 wrapper, Android Gradle Plugin 9.4.1, Kotlin 2.2.10; Kotlin DSL
+|Maps in app|OpenStreetMap / OSMDroid
+|Web maps|MapLibre / OpenStreetMap tiles
+|Charts|Compose/Canvas and MPAndroidChart in Android; Chart.js on the web
+|Connectivity|Bluetooth LE, WebSocket, REST API
+|Server|Python WebSocket server plus Flask REST API
+|Server database|PostgreSQL durable storage plus Redis live-history cache
+|Deployment|Docker, nginx reverse proxy
+|Minimum Android|Android 10 (API 29)
+|Target Android|Android 14 (API 34)
+|Compile SDK|Android API 36
+|Java bytecode target|11
+
+=== Codebase Overview ===
+
+* Kotlin/Jetpack Compose Android app with ViewModels, DAOs/repositories, sensor services, WorkManager downloads, and media synchronization
+* Python WebSocket service and Flask REST application
+* Flask blueprints for sessions, planned events, media, analysis, heatmap, health, and errors
+* Static Live, Analysis, Heatmap, and Route Rerun web dashboards
+* Unit and regression coverage for recording recovery, timestamps, achievements, sport classification, laps, media location, retention, and synchronization
+
+=== Android Database Schema (17 Entities) ===
+
+StageGroup, User, Event, Metric, Location, Weather, DeviceStatus, CurrentRecording, LapTime, PlannedEvent, Clothing, WheelSprocket, Network, Waypoint, EventMedia, DisciplineTransition, WaypointPhoto.
+
+Schema **v29** added structured sport metadata, **v30** added stage grouping, and **v31** added media coordinates. The database builder no longer uses destructive migration fallback: a missing migration fails instead of silently deleting existing recordings. Back up the database before upgrades.
+
+=== Server Data Model ===
+
+* Users with identity fields, birth date, and BMI
+* Tracking sessions with start/end geocoding and structured sport-family, discipline, and event-format metadata
+* GPS tracking points
+* Lap times
+* Heart rate devices
+* Planned events with optional end date
+* Session media with UUIDs, media type, file extension, thumbnails, caption, sort order, and optional latitude/longitude
+
+== Build and Server Setup ==
+
+=== Android Build ===
+
+Clone [[GeoTracker on GitHub>>https://github.com/bernd-roth/GeoTracker]], open the project in Android Studio, and install Android SDK 36. Use the checked-in Gradle wrapper and a JDK compatible with the configured Android Gradle Plugin. From the project root on Windows:
+
+{{code language="powershell"}}
+.\gradlew.bat assembleDebug
+.\gradlew.bat installDebug
+{{/code}}
+
+The APK output name is **geotracker.apk**. Configure location, notification, Bluetooth/sensor, and relevant media permissions on the phone. Complete the user profile, verify GPS reception, and configure the server address if live transfer is wanted.
+
+=== Companion Services ===
+
+Server files are under **app/src/main/java/at/co/netconsulting/geotracker/**: **websocket/** contains the WebSocket service, Compose configuration, nginx configuration, and web dashboard assets; **geotracker-flask/** contains the REST API.
+
+The stack uses nginx for web pages and proxying, PostgreSQL for durable data, Redis for live history, the Python WebSocket process, and the Flask API. The standalone WebSocket listener uses **port 6789**. The checked-in Compose configuration publishes nginx on **80/443** and maps PostgreSQL **8021** to container port **5432**. These are repository settings, not a verification of the running deployment.
+
+Before deploying, review the Compose file's host-specific volume paths, Flask build context, database configuration, Redis environment file, and external Redis network. The current Flask context refers to a host path and must match the deployed checkout. Configure POSTGRES_* and REDIS_* settings and DATA_RETENTION_HOURS as appropriate. Do not copy example credentials into production documentation.
+
+From the websocket directory:
+
+{{code language="bash"}}
+docker compose up -d --build
+{{/code}}
+
+For a standalone WebSocket process, install **websockets**, **asyncpg**, **python-dateutil**, and **redis**, configure PostgreSQL/Redis connectivity, then run **python websocket_server.py**. Start/deploy the Flask API separately for REST-backed upload/download and historical analysis. Access the Live, Analysis, Heatmap, and Rerun pages through the configured nginx host. Deploy compatible Android, WebSocket, and Flask revisions together when using new metadata or media-location fields.
+
+== System Requirements ==
+
+* Android 10 or newer
+* GPS/GNSS receiver
+* Barometric pressure sensor recommended for improved altitude
+* Bluetooth 4.0+ for heart rate monitors
+* Camera/gallery permissions for media and workout-photo sharing
+* Storage/media permissions for imports, exports, backups, and attachments
+* Notification and exact-alarm permissions for reminders and long-running tracking
+* Network access for WebSocket live sharing, REST API sync, weather forecasts, and third-party platform sync
+* 2 GB RAM minimum, 4 GB+ recommended
+* 100 MB+ free app storage, plus space for media, exports, and backups
+
+== Recent Feature Timeline ==
+
+=== October 2026 ===
+
+* **October 14, v11.05:** All stages analysis layout and scrolling improvements; color-separated route and cumulative-distance charts, combined totals, and stage comparisons.
+* **October 14:** Geotagged photo/video markers on event routes, media-location permission handling, and local/server coordinate persistence (Room v31).
+* **October 4:** Start/finish flags, exact-alarm permission declaration, precise remote timestamp import, and protection against unrealistic achievement records.
+* **October 3:** Named stage groups and individual/combined analysis, durable WorkManager event-download queue, atomic imports, and preservation of recordings when migrations are unavailable.
+* **October 1:** Saved event-name synchronization in the web Session Manager, with five-second refresh and retention safeguards.
+
+=== September 2026 ===
+
+* Sport-family Achievements overview and activity summary; distance/timed records calculated from recorded metrics.
+* Structured sport family, discipline, and event format across recording, editing, recovery, REST, and WebSocket (Room v29).
+* Track Running discipline and legacy sport-name recognition.
+* Weekly summary navigation into Events filtered by ISO week, sport, and multisport discipline.
+* Earliest-metric upload start times and UTC timestamp serialization.
+* Lap-analysis back navigation with expanded-event retention.
+* Disabled/unconfigured live transfer no longer attempts connections or disrupts recording startup.
+
+=== August 2026 ===
+
+* Atomic replacement of incomplete server sessions from a completed local recording, preserving remote media.
+* Completed route, waypoints, and statistics retained after stopping recording.
+* Configurable lap grouping on Android/web and cumulative lap-time totals on Android.
+* Web session aggregate statistics for slope, temperature, pressure, and altitude, including reset-fragment aggregation and missing-value handling.
+* Correct bulk deletion of GeoTracker calendar exports and verification by calendar row ID.
+* Weather updates retained for late Statistics subscribers and refreshed every five minutes.
+* GPS startup watchdog, non-blocking reverse geocoding with timeout, and robust route rendering for repeated coordinates.
+* Redis health checks and recent PostgreSQL backfill when the live cache is empty.
+
+=== July 2026 ===
+
+* Google Calendar export and individual/bulk export removal.
+* Cadence chart hover details, retained live cadence, and five-minute cadence-history mini-chart restoration.
+* Event Overview progress reporting, running SPM summaries, monthly trends, and distributions.
+* Redis live-history cache, consistent graph/session retention, and synchronized cleanup.
+* Calendar/Statistics/Server/Tools menus; obsolete cleanup and duplicate slope legend removed.
+* GPX validation accepts files without XML declarations; GPS callback race fix.
+
+=== June 2026 (Later Updates) ===
+
+* Running cadence capture, storage, export, WebSocket/REST support, and native/web analysis charts.
+* Direct SMB and separate custom-folder backup destinations; restored Downloads fallback.
+* Statistics charts load full event history.
+* WebSocket restart recovery, covered-path speed legend, and route-preview arrow cleanup.
+* Half-marathon recording preset was added in June; September's data-driven achievements superseded distance-format selection.
+
+=== June 2026 (Earlier Updates) ===
+
+* App version 9.37 at the time
+* Recording controls remain visible while following users
+* Reset recording fragments are merged in live-session UI
+* Live session lists correctly handle reset recordings
+* Skating and Ice Hockey sport support
+* Events search works correctly during async loading
+
+=== May 2026 ===
+
+* Event downloads filter sessions per user
+* Session re-upload detection after server deletion
+* Reference marker on altitude graph
+* Altitude profile for loaded tracks
+* Planned event sync schema and remote delete flow fixes
+* Current position marker on route rerun map
+* Reverse Direction toggle for reference tracks
+* Notification recording-time drift fix
+* Foreground metrics stop-state fix
+* GPX import target choice: My Events or Ghost Racers
+* Route Rerun altitude graph
+* Native date pickers and optional end dates for multi-day planned events
+* Wings for Life Run mode with virtual catcher car
+* Panel-header navigation redesign for analysis and heatmap
+* OSM mini-map route preview in event cards
+* Route Rerun web page with playback, speed control, and follow/fly-over camera
+
+=== April 2026 ===
+
+* Chart zoom and pan for live and analysis charts
+* Followed-user mini-map preview
+* Media upload fix for live-streamed WebSocket events
+* Workout stats photo overlay and sharing
+* Connect Events
+* BMI support across app, database, WebSocket, and server
+* Live and analysis heart rate chart with toggleable altitude overlay
+* Server-side lap backfill fix
+* Lap timing reliability fixes
+* Live map session start time and duration display
+* Crash recovery improvements
+
+=== March 2026 ===
+
+* Lactate Threshold 30-minute fitness test
+* Training calendar
+* Calendar competition management with reminders and sync
+* Calendar-to-events navigation
+* Download Events grouped by user
+* Analysis page extended search
+* Heatmap live slider updates
+* Active-recording download blocking
+* Heart rate chart x-axis label fixes
+* Split table visibility fixes
+* Panel resizing and chart sizing fixes
+
+=== January-February 2026 ===
+
+* Flask REST API and Android integration
+* Session upload/download and bulk upload support
+* Event media upload, thumbnails, and video support
+* Home screen widget
+* Start/end geocoding
+* Weather forecast overlays and temperature heatmap
+* Waypoint photos
+* Indoor/stationary activity tracking
+* Organized backup/export folders
+* Global web analysis and heatmap foundations
+* Backyard Ultra and multisport race support
+* Barometer calibration and QNH altitude improvements
+
+== Source Code ==
+
+The full source code is publicly available on GitHub:
+
+[[https://github.com/bernd-roth/GeoTracker]]
+
+Documentation files in the repository:
+
+* **README.md** - Project overview and feature list
+* **USER_MANUAL.md** - End-user guide with step-by-step instructions
+* **EXPORT_SYNC_SETUP.md** - Setup guide for export and synchronization features
