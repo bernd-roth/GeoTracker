@@ -165,15 +165,10 @@ function renderTrackOnMap(points) {
         paint: { 'line-color': '#2196F3', 'line-width': 3 }
     });
 
-    const mkStyle = (color) => {
-        const el = document.createElement('div');
-        el.style.cssText = `width:12px;height:12px;background:${color};border-radius:50%;border:2px solid white;box-shadow:0 2px 4px rgba(0,0,0,0.3)`;
-        return el;
-    };
-    window._startMarker = new maplibregl.Marker({ element: mkStyle('#4CAF50'), anchor: 'center' })
+    window._startMarker = createRecordingFlagMarker(false)
         .setLngLat([points[0].lon, points[0].lat])
         .addTo(map);
-    window._endMarker = new maplibregl.Marker({ element: mkStyle('#F44336'), anchor: 'center' })
+    window._endMarker = createRecordingFlagMarker(true)
         .setLngLat([points[points.length - 1].lon, points[points.length - 1].lat])
         .addTo(map);
 

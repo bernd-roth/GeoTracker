@@ -4,6 +4,16 @@ let websocket;
 let polylines = {};
 let startMarkers = {};
 let endMarkers = {};
+// Retain numbers through redraws and visibility changes for this page visit.
+const eventFlagNumbers = new Map();
+
+function getEventFlagNumber(sessionId) {
+    const eventId = getBaseSessionId(sessionId);
+    if (!eventFlagNumbers.has(eventId)) {
+        eventFlagNumbers.set(eventId, eventFlagNumbers.size + 1);
+    }
+    return eventFlagNumbers.get(eventId);
+}
 let altitudeChart;
 let speedChart;
 let hrChart;
@@ -2327,25 +2337,13 @@ function updateMapTrack(sessionId) {
 
         // Store references for cleanup
         polylines[sessionId] = segmentRefs;
+        const eventNumber = getEventFlagNumber(sessionId);
 
         // Add start marker (use first coordinate of first segment)
         const firstSegment = trackSegments[0];
         const startCoord = firstSegment[0];
         if (isValidCoordinate(startCoord[1], startCoord[0])) {
-            const startElement = document.createElement('div');
-            startElement.style.cssText = `
-                width: 12px;
-                height: 12px;
-                border-radius: 50%;
-                background-color: ${userColor};
-                border: 2px solid white;
-                box-shadow: 0 0 4px rgba(0,0,0,0.3);
-            `;
-
-            startMarkers[sessionId] = new maplibregl.Marker({
-                element: startElement,
-                anchor: 'center'
-            })
+            startMarkers[sessionId] = createRecordingFlagMarker(false, eventNumber)
                 .setLngLat(startCoord)
                 .setPopup(new maplibregl.Popup().setHTML(`Start - ${sessionId}`))
                 .addTo(map);
@@ -2355,20 +2353,7 @@ function updateMapTrack(sessionId) {
         const lastSegment = trackSegments[trackSegments.length - 1];
         const endCoord = lastSegment[lastSegment.length - 1];
         if (isValidCoordinate(endCoord[1], endCoord[0])) {
-            const endElement = document.createElement('div');
-            endElement.style.cssText = `
-                width: 14px;
-                height: 14px;
-                border-radius: 50%;
-                background-color: ${userColor};
-                border: 3px solid white;
-                box-shadow: 0 0 4px rgba(0,0,0,0.3);
-            `;
-
-            endMarkers[sessionId] = new maplibregl.Marker({
-                element: endElement,
-                anchor: 'center'
-            })
+            endMarkers[sessionId] = createRecordingFlagMarker(true, eventNumber)
                 .setLngLat(endCoord)
                 .setPopup(new maplibregl.Popup().setHTML(`Current - ${sessionId}`))
                 .addTo(map);
