@@ -66,6 +66,8 @@ fun AchievementsScreen(
 ) {
     val context = LocalContext.current
     val database = remember { FitnessTrackerDatabase.getInstance(context) }
+    // Keep the summary loader active alongside personal bests, regardless of the selected tab.
+    val activitySummary = rememberActivitySummaryState(database)
     var selectedTab by remember { mutableIntStateOf(0) }
     var sports by remember { mutableStateOf<List<SportAchievements>>(emptyList()) }
     var selectedSport by remember { mutableStateOf<String?>(null) }
@@ -145,6 +147,7 @@ fun AchievementsScreen(
                     .verticalScroll(rememberScrollState())
             ) {
                 YearlyStatsOverview(
+                    state = activitySummary,
                     modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
                     onShowEvents = onShowEvents
                 )

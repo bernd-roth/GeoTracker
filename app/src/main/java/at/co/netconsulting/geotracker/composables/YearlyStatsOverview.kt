@@ -18,6 +18,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Divider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,50 +26,43 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import at.co.netconsulting.geotracker.data.EventWithTotalDistance
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
+internal data class ActivitySummaryState(
+    val summaryEvents: List<EventWithTotalDistance> = emptyList(),
+    val yearlyStats: Map<Int, Double> = emptyMap(),
+    val weeklyStats: Map<Pair<Int, Int>, Double> = emptyMap(),
+    val weeklySportBreakdown: Map<Pair<Int, Int>, Map<String, Double>> = emptyMap(),
+    val weeklyDisciplineBreakdown: Map<Triple<Int, Int, String>, Map<String, Double>> = emptyMap(),
+    val isLoading: Boolean = true,
+    val loadingProgress: Float = 0f
+)
+
 @Composable
-fun YearlyStatsOverview(
-    modifier: Modifier = Modifier,
-    onShowEvents: (List<Int>, String) -> Unit
-) {
-    val context = LocalContext.current
-    var summaryEvents by remember { mutableStateOf<List<EventWithTotalDistance>>(emptyList()) }
-    var yearlyStats by remember { mutableStateOf<Map<Int, Double>>(emptyMap()) }
-    var weeklyStats by remember { mutableStateOf<Map<Pair<Int, Int>, Double>>(emptyMap()) } // (Year, WeekNumber) -> Distance
-    var weeklySportBreakdown by remember { mutableStateOf<Map<Pair<Int, Int>, Map<String, Double>>>(emptyMap()) } // (Year, Week) -> Sport -> km
-    var weeklyDisciplineBreakdown by remember { mutableStateOf<Map<Triple<Int, Int, String>, Map<String, Double>>>(emptyMap()) } // (Year, Week, Sport) -> Discipline -> km
-    var expandedYear by remember { mutableStateOf<Int?>(null) }
-    var expandedWeeks by remember { mutableStateOf<Set<Pair<Int, Int>>>(emptySet()) }
-    var isLoading by remember { mutableStateOf(true) }
-    val coroutineScope = rememberCoroutineScope()
-    val database = remember { FitnessTrackerDatabase.getInstance(context) }
+internal fun rememberActivitySummaryState(database: FitnessTrackerDatabase): ActivitySummaryState {
+    var state by remember(database) { mutableStateOf(ActivitySummaryState()) }
 
-    // Current year for highlighting
-    val currentYear = remember { activityWeek(java.time.LocalDate.now().toString()).first }
+    LaunchedEffect(database) {
+        state = ActivitySummaryState()
+        try {
+            val events = getAllEventsWithMetrics(database) { progress ->
+                // Reserve the last 10% for grouping and calculating totals.
+                state = state.copy(loadingProgress = progress * 0.9f)
+            }
 
-    LaunchedEffect(Unit) {
-
-        isLoading = true
-        coroutineScope.launch {
-            try {
-                // For statistics, we need actual distances, so use the full method
-                val events = getAllEventsWithMetrics(database)
-
+            state = withContext(Dispatchers.Default) {
                 // Calculate yearly totals
                 val yearTotals = events
                     .groupBy { event ->
@@ -110,18 +104,43 @@ fun YearlyStatsOverview(
                     }
                 }
 
-                summaryEvents = events
-                yearlyStats = yearTotals
-                weeklyStats = weekTotals
-                weeklySportBreakdown = sportBreakdown
-                weeklyDisciplineBreakdown = disciplineBreakdown
-                isLoading = false
-            } catch (e: Exception) {
-                Log.e("YearlyStatsOverview", "Error loading stats", e)
-                isLoading = false
+                ActivitySummaryState(
+                    summaryEvents = events,
+                    yearlyStats = yearTotals,
+                    weeklyStats = weekTotals,
+                    weeklySportBreakdown = sportBreakdown,
+                    weeklyDisciplineBreakdown = disciplineBreakdown,
+                    isLoading = false,
+                    loadingProgress = 1f
+                )
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e("YearlyStatsOverview", "Error loading stats", e)
+            state = state.copy(isLoading = false)
         }
     }
+
+    return state
+}
+
+@Composable
+internal fun YearlyStatsOverview(
+    state: ActivitySummaryState,
+    modifier: Modifier = Modifier,
+    onShowEvents: (List<Int>, String) -> Unit
+) {
+    val summaryEvents = state.summaryEvents
+    val yearlyStats = state.yearlyStats
+    val weeklyStats = state.weeklyStats
+    val weeklySportBreakdown = state.weeklySportBreakdown
+    val weeklyDisciplineBreakdown = state.weeklyDisciplineBreakdown
+    val isLoading = state.isLoading
+    val loadingProgress = state.loadingProgress
+    var expandedYear by remember { mutableStateOf<Int?>(null) }
+    var expandedWeeks by remember { mutableStateOf<Set<Pair<Int, Int>>>(emptySet()) }
+    val currentYear = remember { activityWeek(java.time.LocalDate.now().toString()).first }
 
     Column(
         modifier = modifier
@@ -141,6 +160,19 @@ fun YearlyStatsOverview(
                     .align(Alignment.CenterHorizontally),
                 color = MaterialTheme.colorScheme.primary,
                 strokeWidth = 2.dp
+            )
+            Text(
+                text = if (loadingProgress < 0.9f) {
+                    "Scanning recorded activities · ${(loadingProgress * 100).toInt()}%"
+                } else {
+                    "Calculating activity totals · ${(loadingProgress * 100).toInt()}%"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
+            LinearProgressIndicator(
+                progress = { loadingProgress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
             )
         } else if (yearlyStats.isEmpty()) {
             Card(
@@ -483,7 +515,10 @@ fun WeeklyBreakdown(
 }
 
 // Helper function to get events from the database with distance
-private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): List<EventWithTotalDistance> {
+private suspend fun getAllEventsWithMetrics(
+    database: FitnessTrackerDatabase,
+    onProgress: (Float) -> Unit
+): List<EventWithTotalDistance> {
     // Use withContext to move to IO dispatcher for database operations
     return withContext(Dispatchers.IO) {
         val result = mutableListOf<EventWithTotalDistance>()
@@ -496,7 +531,7 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
             val multisportTypes = setOf("Triathlon", "Duathlon", "Ultratriathlon")
 
             // Process each event to get its metrics
-            events.forEach { event ->
+            events.forEachIndexed { index, event ->
                 try {
                     val metrics = database.metricDao().getMetricsByEventId(event.eventId)
 
@@ -523,6 +558,8 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
                             } else {
                                 emptyMap()
                             }
+                        } catch (e: CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             Log.e("YearlyStatsOverview", "Error loading discipline transitions for event ${event.eventId}: ${e.message}", e)
                             emptyMap()
@@ -541,11 +578,18 @@ private suspend fun getAllEventsWithMetrics(database: FitnessTrackerDatabase): L
                             disciplineDistances = disciplineDistances
                         )
                     )
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     Log.e("YearlyStatsOverview", "Error processing event ${event.eventId}: ${e.message}", e)
                     // Continue processing other events
                 }
+                withContext(Dispatchers.Main) {
+                    onProgress((index + 1f) / events.size)
+                }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e("YearlyStatsOverview", "Error getting events: ${e.message}", e)
         }

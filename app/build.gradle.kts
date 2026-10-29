@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.06 (23-10-2026: Notification removed immediately)"
+        versionName = "11.07 (29-10-2026: Load achievement tabs in parallel and add progress bar)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
