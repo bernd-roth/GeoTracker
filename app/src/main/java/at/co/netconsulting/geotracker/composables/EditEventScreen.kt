@@ -3,11 +3,15 @@ package at.co.netconsulting.geotracker.composables
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.ArrowBack
@@ -173,6 +177,8 @@ fun EditEventScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .consumeWindowInsets(paddingValues)
+                .imePadding()
         ) {
             if (isLoading && !isSyncing) {
                 CircularProgressIndicator(
@@ -182,6 +188,7 @@ fun EditEventScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {

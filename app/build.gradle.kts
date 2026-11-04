@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.08 (04-11-2026: Uploading irregular GPS data fixed)"
+        versionName = "11.09 (04-11-2026: Fix scrolling in Edit Event screen)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
