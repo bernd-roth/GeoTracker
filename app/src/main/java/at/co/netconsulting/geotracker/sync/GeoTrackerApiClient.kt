@@ -341,9 +341,15 @@ class GeoTrackerApiClient(private val context: Context) {
                 return@withContext Result.failure(Exception("Event has no location or metrics data to upload"))
             }
 
+            val uploadLocations = locationsForUpload(locations)
+            val skippedLocations = locations.size - uploadLocations.size
+            if (skippedLocations > 0) {
+                Log.w(TAG, "Omitting $skippedLocations missing GPS placeholders from event ${event.eventId}")
+            }
+
             Log.d(
                 TAG,
-                "${if (replaceExisting) "Replacing" else "Creating"} session with ${locations.size} GPS points"
+                "${if (replaceExisting) "Replacing" else "Creating"} session with ${uploadLocations.size} GPS points"
             )
 
             // Get user preferences
@@ -352,7 +358,7 @@ class GeoTrackerApiClient(private val context: Context) {
             // Build GPS points array
             val gpsPointsArray = JSONArray()
 
-            locations.forEachIndexed { index, location ->
+            uploadLocations.forEach { (index, location) ->
                 val metric = metrics.getOrNull(index)
                 val point = JSONObject().apply {
                     put("latitude", location.latitude)

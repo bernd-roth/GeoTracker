@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.07 (29-10-2026: Load achievement tabs in parallel and add progress bar)"
+        versionName = "11.08 (04-11-2026: Uploading irregular GPS data fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
