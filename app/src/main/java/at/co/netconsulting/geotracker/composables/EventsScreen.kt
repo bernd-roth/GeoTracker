@@ -4553,6 +4553,10 @@ fun MediaViewerDialog(
                     val intent = Intent(Intent.ACTION_VIEW).apply {
                         setDataAndType(videoUri, "video/*")
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        // VLC can restore a saved position at the end of a short clip.
+                        // Opening an event attachment should replay it from the beginning.
+                        putExtra("from_start", true)
+                        putExtra("position", 0L)
                     }
                     context.startActivity(intent)
                 } else {

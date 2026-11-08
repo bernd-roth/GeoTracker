@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.09 (04-11-2026: Fix scrolling in Edit Event screen)"
+        versionName = "11.10 (08-11-2026: Media files stopped playing after 1 second fixed)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

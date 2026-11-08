@@ -1,7 +1,7 @@
 import os
 import uuid
 import subprocess
-from flask import Blueprint, request, jsonify, send_file, current_app, Response
+from flask import Blueprint, request, jsonify, send_file, current_app
 from werkzeug.utils import secure_filename
 from ..extensions import db
 from ..utils.media_location import extract_media_location, valid_coordinates
@@ -286,46 +286,15 @@ def get_media(media_uuid):
     if not os.path.exists(original_path):
         return jsonify({'success': False, 'error': 'Media file not found on disk'}), 404
 
-    mimetype  = MIME_TYPES.get(media.file_extension, 'application/octet-stream')
-    file_size = os.path.getsize(original_path)
+    mimetype = MIME_TYPES.get(media.file_extension, 'application/octet-stream')
 
-    range_header = request.headers.get('Range')
-    if range_header:
-        # Parse "bytes=start-end" (end is optional)
-        try:
-            byte_range = range_header.strip().replace('bytes=', '')
-            parts      = byte_range.split('-')
-            start      = int(parts[0])
-            end        = int(parts[1]) if parts[1].strip() else file_size - 1
-        except (IndexError, ValueError):
-            return jsonify({'success': False, 'error': 'Invalid Range header'}), 416
-
-        end    = min(end, file_size - 1)
-        length = end - start + 1
-
-        def _stream():
-            chunk_size = 256 * 1024  # 256 KB
-            with open(original_path, 'rb') as f:
-                f.seek(start)
-                remaining = length
-                while remaining > 0:
-                    chunk = f.read(min(chunk_size, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
-
-        resp = Response(_stream(), status=206, mimetype=mimetype, direct_passthrough=True)
-        resp.headers['Content-Range']  = f'bytes {start}-{end}/{file_size}'
-        resp.headers['Content-Length'] = length
-        resp.headers['Accept-Ranges']  = 'bytes'
-        return resp
-
-    # No Range header — serve the whole file (images, direct downloads)
+    # Let Werkzeug handle ranges, including suffix reads (bytes=-N) used to
+    # inspect video metadata, invalid offsets, HEAD, and If-Range validation.
     resp = send_file(
         original_path,
         mimetype=mimetype,
         as_attachment=False,
+        conditional=True,
         download_name=media.original_filename or f'{media_uuid}.{media.file_extension}'
     )
     resp.headers['Accept-Ranges'] = 'bytes'
