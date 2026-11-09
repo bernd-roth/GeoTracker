@@ -595,7 +595,7 @@ fun MapScreen(
     // Route rerun animation state
     var isRunningRerun by remember { mutableStateOf(false) }
     var rerunProgress by remember { mutableStateOf(0f) }
-    var rerunOverlayRef = remember { mutableStateOf<Polyline?>(null) }
+    val rerunOverlayRef = remember { mutableStateOf<RerunSpeedOverlay?>(null) }
     val rerunPositionMarkerRef = remember { mutableStateOf<Marker?>(null) }
 
     // Track overlay references and state
@@ -1415,6 +1415,16 @@ fun MapScreen(
                 }
                 rerunPositionMarkerRef.value = null
 
+                // Load full speed data even when the event card's details were not expanded.
+                val speeds = withContext(Dispatchers.IO) {
+                    routeRerunData.eventId?.let { eventId ->
+                        database.metricDao().getMetricsForEvent(eventId).map { it.speed }
+                    }.orEmpty()
+                }
+                val rerunOverlay = RerunSpeedOverlay(routeRerunData.points, speeds)
+                mapView.overlays.add(rerunOverlay)
+                rerunOverlayRef.value = rerunOverlay
+
                 // Calculate animation time: 1 second per kilometer, minimum 2 seconds
                 // Use pre-calculated distance if available, otherwise calculate it (for backwards compatibility)
                 val totalDistance = routeRerunData.totalDistance ?: run {
@@ -1444,53 +1454,21 @@ fun MapScreen(
                     val clampedProgress = progress.coerceIn(0f, 1f)
                     rerunProgress = clampedProgress
                     
-                    val scaledIndex = clampedProgress * (routeRerunData.points.size - 1).toFloat()
-                    val currentIndex = scaledIndex.toInt()
-                        .coerceIn(0, routeRerunData.points.size - 1)
                     val currentPosition = rerunPointAtProgress(routeRerunData.points, clampedProgress)
-                    val visiblePoints = routeRerunData.points.subList(0, currentIndex + 1).toMutableList()
-                    if (scaledIndex > currentIndex.toFloat() && currentIndex < routeRerunData.points.lastIndex) {
-                        visiblePoints.add(currentPosition)
-                    }
-                    
-                    if (visiblePoints.isNotEmpty()) {
-                        rerunOverlayRef.value?.let { overlay ->
-                            mapView.overlays.remove(overlay)
-                        }
-                        
-                        val rerunOverlay = Polyline().apply {
-                            setPoints(visiblePoints)
-                            color = android.graphics.Color.RED
-                            width = 8f
-                        }
-                        
-                        mapView.overlays.add(rerunOverlay)
-                        rerunOverlayRef.value = rerunOverlay
-                        rerunPositionMarkerRef.value = showRerunPositionMarker(
-                            mapView,
-                            rerunPositionMarkerRef.value,
-                            currentPosition
-                        )
-                        mapView.controller.setCenter(currentPosition)
-                        mapView.invalidate()
-                    }
+                    rerunOverlay.showProgress(clampedProgress, currentPosition)
+                    rerunPositionMarkerRef.value = showRerunPositionMarker(
+                        mapView,
+                        rerunPositionMarkerRef.value,
+                        currentPosition
+                    )
+                    mapView.controller.setCenter(currentPosition)
+                    mapView.invalidate()
                     delay(50)
                 }
 
                 // Animation completed - show full route
                 if (isRunningRerun && isActive) {
-                    rerunOverlayRef.value?.let { overlay ->
-                        mapView.overlays.remove(overlay)
-                    }
-                    
-                    val finalOverlay = Polyline().apply {
-                        setPoints(routeRerunData.points)
-                        color = android.graphics.Color.RED
-                        width = 8f
-                    }
-                    
-                    mapView.overlays.add(finalOverlay)
-                    rerunOverlayRef.value = finalOverlay
+                    rerunOverlay.showProgress(1f, routeRerunData.points.last())
                     rerunPositionMarkerRef.value = showRerunPositionMarker(
                         mapView,
                         rerunPositionMarkerRef.value,
@@ -3604,12 +3582,21 @@ fun MapScreen(
             }
         }
 
+        // Keep the speed key above the altitude profile during and after replay.
+        if (rerunOverlayRef.value != null) {
+            CompactRerunSpeedLegend(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 16.dp, bottom = if (isAltitudeGraphVisible) 158.dp else 16.dp)
+            )
+        }
+
         // Compact slope legend - bottom left, only when viewing event route with slope colors
         if (showSlopeLegend && showRouteDisplayIndicator && displayedRoute?.showSlopeColors == true) {
             CompactSlopeColorLegend(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(16.dp)
+                    .padding(start = 16.dp, bottom = if (isAltitudeGraphVisible) 158.dp else 16.dp)
             )
         }
 

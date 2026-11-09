@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.10 (08-11-2026: Media files stopped playing after 1 second fixed)"
+        versionName = "11.11 (09-11-2026: Speed-based colours for 'Rerun route on map' implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

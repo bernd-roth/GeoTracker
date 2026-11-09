@@ -138,6 +138,7 @@ fun CompactSlopeColorLegend(
 ) {
     Column(
         modifier = modifier
+            .width(96.dp)
             .background(
                 Color.White.copy(alpha = 0.85f),
                 RoundedCornerShape(6.dp)
@@ -148,8 +149,7 @@ fun CompactSlopeColorLegend(
             text = "Slope",
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(bottom = 4.dp)
+            color = Color.Black
         )
 
         // Steep decline
@@ -202,9 +202,6 @@ private fun CompactLegendItem(
     description: String
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 1.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
@@ -219,7 +216,22 @@ private fun CompactLegendItem(
         Text(
             text = description,
             fontSize = 9.sp,
-            color = MaterialTheme.colorScheme.onSurface
+            color = Color.Black
         )
+    }
+}
+
+@Composable
+internal fun CompactRerunSpeedLegend(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .width(96.dp)
+            .background(Color.White.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
+            .padding(8.dp)
+    ) {
+        Text("Speed (km/h)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+        RerunSpeedBand.entries.forEach { band ->
+            CompactLegendItem(color = Color(band.color), description = band.label)
+        }
     }
 }
