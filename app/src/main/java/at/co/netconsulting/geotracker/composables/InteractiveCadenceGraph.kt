@@ -1,10 +1,20 @@
 package at.co.netconsulting.geotracker.composables
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -33,8 +43,10 @@ fun InteractiveCadenceGraph(
     selectedMetricIndex: Int?,
     onPointSelected: (Int) -> Unit,
     displayMultiplier: Int = 1,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    cadenceUnit: String = "cycles/min"
 ) {
+    var popupMetricIndex by remember(metrics, xAxis) { mutableStateOf<Int?>(null) }
     val minTime = metrics.minOfOrNull { it.timeInMilliseconds } ?: 0L
     val points = metrics.mapIndexedNotNull { index, metric ->
         if ((metric.cadence ?: 0) > 0 && metric.timeInMilliseconds > 0 &&
@@ -65,96 +77,125 @@ fun InteractiveCadenceGraph(
     val cadenceRange = (displayMax - displayMin).coerceAtLeast(1f)
     val averageCadence = cadenceValues.average().toFloat()
 
-    Canvas(
-        modifier = modifier.pointerInput(points, xAxis) {
-            detectTapGestures { tap ->
-                val left = with(density) { 46.dp.toPx() }
-                val right = with(density) { 10.dp.toPx() }
-                val vertical = with(density) { 30.dp.toPx() }
-                val chartWidth = (size.width - left - right).coerceAtLeast(1f)
-                val chartHeight = (size.height - 2 * vertical).coerceAtLeast(1f)
+    Box(modifier = modifier) {
+        Canvas(
+            modifier = Modifier.fillMaxSize().pointerInput(points, xAxis, displayMultiplier) {
+                detectTapGestures { tap ->
+                    val left = with(density) { 46.dp.toPx() }
+                    val right = with(density) { 10.dp.toPx() }
+                    val vertical = with(density) { 30.dp.toPx() }
+                    val chartWidth = (size.width - left - right).coerceAtLeast(1f)
+                    val chartHeight = (size.height - 2 * vertical).coerceAtLeast(1f)
 
-                val closest = points.minByOrNull { point ->
-                    val value = xValue(point.metric, xAxis, minTime)
-                    val x = left + chartWidth * ((value - minX) / xRange).toFloat()
-                    val y = vertical + chartHeight *
-                        (displayMax - point.metric.cadence!!.toFloat() * displayMultiplier) / cadenceRange
-                    hypot((tap.x - x).toDouble(), (tap.y - y).toDouble())
+                    val closest = points.minByOrNull { point ->
+                        val value = xValue(point.metric, xAxis, minTime)
+                        val x = left + chartWidth * ((value - minX) / xRange).toFloat()
+                        val y = vertical + chartHeight *
+                            (displayMax - point.metric.cadence!!.toFloat() * displayMultiplier) / cadenceRange
+                        hypot((tap.x - x).toDouble(), (tap.y - y).toDouble())
+                    }
+                    closest?.let {
+                        popupMetricIndex = it.index
+                        onPointSelected(it.index)
+                    }
                 }
-                closest?.let { onPointSelected(it.index) }
+            }
+        ) {
+            val left = 46.dp.toPx()
+            val right = 10.dp.toPx()
+            val vertical = 30.dp.toPx()
+            val chartWidth = (size.width - left - right).coerceAtLeast(1f)
+            val chartHeight = (size.height - 2 * vertical).coerceAtLeast(1f)
+
+            fun toX(value: Double): Float = left + chartWidth * ((value - minX) / xRange).toFloat()
+            fun toY(value: Float): Float = vertical + chartHeight * (displayMax - value) / cadenceRange
+
+            val gridColor = Color.Gray.copy(alpha = 0.22f)
+            for (index in 0..4) {
+                val y = vertical + chartHeight * index / 4
+                drawLine(gridColor, Offset(left, y), Offset(size.width - right, y), 1.dp.toPx())
+                val x = left + chartWidth * index / 4
+                drawLine(gridColor, Offset(x, vertical), Offset(x, vertical + chartHeight), 1.dp.toPx())
+            }
+
+            drawLine(
+                color = Color(0xFF80CBC4),
+                start = Offset(left, toY(averageCadence)),
+                end = Offset(size.width - right, toY(averageCadence)),
+                strokeWidth = 1.5.dp.toPx(),
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
+            )
+
+            if (xAxis == CadenceRelationXAxis.TIME || xAxis == CadenceRelationXAxis.DISTANCE) {
+                val path = Path()
+                points.forEachIndexed { index, point ->
+                    val x = toX(xValue(point.metric, xAxis, minTime))
+                    val y = toY(point.metric.cadence!!.toFloat() * displayMultiplier)
+                    if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                }
+                drawPath(path, Color(0xFF7E57C2), style = Stroke(2.dp.toPx()))
+            }
+
+            points.forEach { point ->
+                val center = Offset(
+                    toX(xValue(point.metric, xAxis, minTime)),
+                    toY(point.metric.cadence!!.toFloat() * displayMultiplier)
+                )
+                val selected = point.index == selectedMetricIndex
+                if (selected) drawCircle(Color.White, 8.dp.toPx(), center)
+                drawCircle(
+                    color = if (selected) Color(0xFFD81B60) else Color(0xFF7E57C2),
+                    radius = if (selected) 6.dp.toPx() else 2.5.dp.toPx(),
+                    center = center
+                )
+            }
+
+            val yPaint = android.graphics.Paint().apply {
+                color = Color.Gray.toArgb()
+                textSize = 9.sp.toPx()
+                textAlign = android.graphics.Paint.Align.RIGHT
+                isAntiAlias = true
+            }
+            val xPaint = android.graphics.Paint(yPaint).apply {
+                textAlign = android.graphics.Paint.Align.CENTER
+            }
+            for (index in 0..4) {
+                val cadence = displayMax - cadenceRange * index / 4
+                val y = vertical + chartHeight * index / 4
+                drawContext.canvas.nativeCanvas.drawText(
+                    cadence.roundToInt().toString(), left - 4.dp.toPx(), y + 3.dp.toPx(), yPaint
+                )
+
+                val value = minX + xRange * index / 4
+                val x = left + chartWidth * index / 4
+                drawContext.canvas.nativeCanvas.drawText(
+                    formatXAxis(value, xAxis), x, size.height - 4.dp.toPx(), xPaint
+                )
             }
         }
-    ) {
-        val left = 46.dp.toPx()
-        val right = 10.dp.toPx()
-        val vertical = 30.dp.toPx()
-        val chartWidth = (size.width - left - right).coerceAtLeast(1f)
-        val chartHeight = (size.height - 2 * vertical).coerceAtLeast(1f)
-
-        fun toX(value: Double): Float = left + chartWidth * ((value - minX) / xRange).toFloat()
-        fun toY(value: Float): Float = vertical + chartHeight * (displayMax - value) / cadenceRange
-
-        val gridColor = Color.Gray.copy(alpha = 0.22f)
-        for (index in 0..4) {
-            val y = vertical + chartHeight * index / 4
-            drawLine(gridColor, Offset(left, y), Offset(size.width - right, y), 1.dp.toPx())
-            val x = left + chartWidth * index / 4
-            drawLine(gridColor, Offset(x, vertical), Offset(x, vertical + chartHeight), 1.dp.toPx())
-        }
-
-        drawLine(
-            color = Color(0xFF80CBC4),
-            start = Offset(left, toY(averageCadence)),
-            end = Offset(size.width - right, toY(averageCadence)),
-            strokeWidth = 1.5.dp.toPx(),
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f))
-        )
-
-        if (xAxis == CadenceRelationXAxis.TIME || xAxis == CadenceRelationXAxis.DISTANCE) {
-            val path = Path()
-            points.forEachIndexed { index, point ->
-                val x = toX(xValue(point.metric, xAxis, minTime))
-                val y = toY(point.metric.cadence!!.toFloat() * displayMultiplier)
-                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+        points.firstOrNull { it.index == popupMetricIndex && it.index == selectedMetricIndex }?.let { point ->
+            Surface(
+                modifier = Modifier.align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .clickable { popupMetricIndex = null },
+                shape = RoundedCornerShape(8.dp),
+                shadowElevation = 4.dp
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text("Cadence: ${point.metric.cadence!! * displayMultiplier} $cadenceUnit", fontSize = 12.sp)
+                    val value = xValue(point.metric, xAxis, minTime)
+                    val label = when (xAxis) {
+                        CadenceRelationXAxis.TIME -> {
+                            val seconds = (value / 1000).toLong()
+                            "Time: ${seconds / 3600}:${"%02d".format(seconds / 60 % 60)}:${"%02d".format(seconds % 60)}"
+                        }
+                        CadenceRelationXAxis.DISTANCE -> "Distance: ${"%.2f".format(value / 1000)} km"
+                        CadenceRelationXAxis.ALTITUDE -> "Altitude: ${"%.1f".format(value)} m"
+                        CadenceRelationXAxis.SPEED -> "Speed: ${"%.1f".format(value)} km/h"
+                    }
+                    Text(label, fontSize = 12.sp)
+                }
             }
-            drawPath(path, Color(0xFF7E57C2), style = Stroke(2.dp.toPx()))
-        }
-
-        points.forEach { point ->
-            val center = Offset(
-                toX(xValue(point.metric, xAxis, minTime)),
-                toY(point.metric.cadence!!.toFloat() * displayMultiplier)
-            )
-            val selected = point.index == selectedMetricIndex
-            if (selected) drawCircle(Color.White, 8.dp.toPx(), center)
-            drawCircle(
-                color = if (selected) Color(0xFFD81B60) else Color(0xFF7E57C2),
-                radius = if (selected) 6.dp.toPx() else 2.5.dp.toPx(),
-                center = center
-            )
-        }
-
-        val yPaint = android.graphics.Paint().apply {
-            color = Color.Gray.toArgb()
-            textSize = 9.sp.toPx()
-            textAlign = android.graphics.Paint.Align.RIGHT
-            isAntiAlias = true
-        }
-        val xPaint = android.graphics.Paint(yPaint).apply {
-            textAlign = android.graphics.Paint.Align.CENTER
-        }
-        for (index in 0..4) {
-            val cadence = displayMax - cadenceRange * index / 4
-            val y = vertical + chartHeight * index / 4
-            drawContext.canvas.nativeCanvas.drawText(
-                cadence.roundToInt().toString(), left - 4.dp.toPx(), y + 3.dp.toPx(), yPaint
-            )
-
-            val value = minX + xRange * index / 4
-            val x = left + chartWidth * index / 4
-            drawContext.canvas.nativeCanvas.drawText(
-                formatXAxis(value, xAxis), x, size.height - 4.dp.toPx(), xPaint
-            )
         }
     }
 }

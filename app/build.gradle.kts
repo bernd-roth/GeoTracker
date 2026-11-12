@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.11 (09-11-2026: Speed-based colours for 'Rerun route on map' implemented)"
+        versionName = "11.12 (12-11-2026: Cadence analysis graph popups implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

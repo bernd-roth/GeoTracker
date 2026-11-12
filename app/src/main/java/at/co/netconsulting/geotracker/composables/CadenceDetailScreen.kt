@@ -105,6 +105,7 @@ fun CadenceDetailScreen(
                     InteractiveCadenceGraph(
                         metrics = metrics,
                         xAxis = CadenceRelationXAxis.TIME,
+                        cadenceUnit = cadenceDisplay.unit,
                         selectedMetricIndex = selectedMetricIndex,
                         onPointSelected = { selectedMetricIndex = it },
                         displayMultiplier = cadenceDisplay.multiplier,
@@ -118,6 +119,7 @@ fun CadenceDetailScreen(
                     InteractiveCadenceGraph(
                         metrics = metrics,
                         xAxis = CadenceRelationXAxis.DISTANCE,
+                        cadenceUnit = cadenceDisplay.unit,
                         selectedMetricIndex = selectedMetricIndex,
                         onPointSelected = { selectedMetricIndex = it },
                         displayMultiplier = cadenceDisplay.multiplier,
@@ -131,6 +133,7 @@ fun CadenceDetailScreen(
                     InteractiveCadenceGraph(
                         metrics = metrics,
                         xAxis = CadenceRelationXAxis.ALTITUDE,
+                        cadenceUnit = cadenceDisplay.unit,
                         selectedMetricIndex = selectedMetricIndex,
                         onPointSelected = { selectedMetricIndex = it },
                         displayMultiplier = cadenceDisplay.multiplier,
@@ -144,6 +147,7 @@ fun CadenceDetailScreen(
                     InteractiveCadenceGraph(
                         metrics = metrics,
                         xAxis = CadenceRelationXAxis.SPEED,
+                        cadenceUnit = cadenceDisplay.unit,
                         selectedMetricIndex = selectedMetricIndex,
                         onPointSelected = { selectedMetricIndex = it },
                         displayMultiplier = cadenceDisplay.multiplier,
