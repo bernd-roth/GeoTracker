@@ -261,12 +261,23 @@ def list_sessions():
             .filter(point_totals.c.total_count >= min_total_points)
         )
 
-    # Free-text search across event_name, sport_type, comment, start_city
+    # Include participant names as well as session metadata in website searches.
     search = request.args.get('search', '').strip()
     if search:
         like_pat = f'%{search}%'
+        full_name = func.trim(
+            func.coalesce(User.firstname, '') + ' ' + func.coalesce(User.lastname, '')
+        )
+        matching_users = db.session.query(User.user_id).filter(
+            or_(
+                User.firstname.ilike(like_pat),
+                User.lastname.ilike(like_pat),
+                full_name.ilike(f'%{" ".join(search.split())}%'),
+            )
+        )
         query = query.filter(
             or_(
+                TrackingSession.user_id.in_(matching_users),
                 TrackingSession.event_name.ilike(like_pat),
                 TrackingSession.sport_type.ilike(like_pat),
                 TrackingSession.comment.ilike(like_pat),
