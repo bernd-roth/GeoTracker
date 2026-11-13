@@ -41,6 +41,8 @@ const CADENCE_SPARKLINE_WINDOW_MS = 5 * 60 * 1000;
 let hoverMarker = null;
 let infoPopup = null;
 let currentHoverPoint = null;
+let splitStartMarker = null;
+let selectedSplit = null;
 
 // Theme and animation variables
 let currentTheme = localStorage.getItem('theme') || 'light';
@@ -3523,6 +3525,65 @@ function formatPace(durationMs, distanceKm) {
     return formatLapDuration(paceMs) + ' /km';
 }
 
+function updateSplitSelection(sessionId) {
+    const container = document.getElementById(`speed-container-${sessionId}`);
+    if (!container) return;
+    container.querySelectorAll('tr[data-start-distance]').forEach(row => {
+        const active = selectedSplit !== null && selectedSplit.sessionId === sessionId &&
+            selectedSplit.startDistance === Number(row.dataset.startDistance);
+        row.setAttribute('aria-pressed', String(active));
+    });
+}
+
+function clearSplitSelection() {
+    if (splitStartMarker) {
+        splitStartMarker.remove();
+        splitStartMarker = null;
+    }
+    const previousSessionId = selectedSplit?.sessionId;
+    selectedSplit = null;
+    if (previousSessionId) updateSplitSelection(previousSessionId);
+}
+
+function jumpToSplitStart(sessionId, startDistance) {
+    sessionId = getBaseSessionId(sessionId);
+    if (selectedSplit?.sessionId === sessionId && selectedSplit.startDistance === startDistance) {
+        clearSplitSelection();
+        return;
+    }
+    if (!map || !Number.isFinite(startDistance) || startDistance < 0) return;
+
+    const points = trackPoints[sessionId] || [];
+    // Distances in trackPoints and the split table are both in kilometers.
+    const point = points.find(point =>
+        Number.isFinite(point.distance) && point.distance >= startDistance &&
+        Number.isFinite(point.lat) && Number.isFinite(point.lng) &&
+        isValidCoordinate(point.lat, point.lng)
+    );
+    if (!point) return;
+
+    clearSplitSelection();
+    const markerElement = document.createElement('button');
+    markerElement.type = 'button';
+    markerElement.className = 'split-start-marker';
+    markerElement.title = 'Deactivate selected split';
+    markerElement.setAttribute('aria-label', 'Deactivate selected split');
+    markerElement.addEventListener('click', event => {
+        event.stopPropagation();
+        clearSplitSelection();
+    });
+    splitStartMarker = new maplibregl.Marker({ element: markerElement, anchor: 'center' })
+        .setLngLat([point.lng, point.lat])
+        .addTo(map);
+    selectedSplit = { sessionId, startDistance };
+    updateSplitSelection(sessionId);
+
+    map.jumpTo({
+        center: [point.lng, point.lat],
+        zoom: Math.max(map.getZoom(), 15)
+    });
+}
+
 function updateLapTable(sessionId, lapTimes) {
     const speedContainer = document.getElementById(`speed-container-${sessionId}`);
     if (!speedContainer) return;
@@ -3586,6 +3647,7 @@ function updateLapTable(sessionId, lapTimes) {
 
     lapTimes.forEach((lap, i) => {
         const dist = lap.distance || 0;
+        const startDistance = totalDistance;
         totalDuration += lap.duration;
         totalDistance += dist;
 
@@ -3593,7 +3655,7 @@ function updateLapTable(sessionId, lapTimes) {
         if (i === fastestIdx) rowClass = 'fastest-lap';
         else if (i === slowestIdx) rowClass = 'slowest-lap';
 
-        html += `<tr class="${rowClass}">`;
+        html += `<tr class="${rowClass}" data-start-distance="${startDistance}" tabindex="0" role="button" aria-label="Show start of split ${lap.lapNumber} on map">`;
         html += `<td>${lap.lapNumber}</td>`;
         html += `<td>${formatLapDuration(lap.duration)}</td>`;
         html += `<td>${formatPace(lap.duration, dist)}</td>`;
@@ -3614,6 +3676,17 @@ function updateLapTable(sessionId, lapTimes) {
 
     html += '</tbody></table>';
     scrollDiv.innerHTML = html;
+    scrollDiv.querySelectorAll('tr[data-start-distance]').forEach(row => {
+        const selectSplit = () => jumpToSplitStart(sessionId, Number(row.dataset.startDistance));
+        row.addEventListener('click', selectSplit);
+        row.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                selectSplit();
+            }
+        });
+    });
+    updateSplitSelection(sessionId);
 }
 
 function getColorForUser(sessionId) {
@@ -4378,6 +4451,7 @@ function requestSessionList() {
 
 function removeSessionFromDisplays(sessionId, notifyUser = false) {
     sessionId = getBaseSessionId(sessionId);
+    if (selectedSplit?.sessionId === sessionId) clearSplitSelection();
     const familyIds = getSessionFamilyIds(sessionId);
     addDebugMessage(`Removing session ${sessionId} from local displays`, 'system');
 

@@ -22,7 +22,7 @@ function groupLaps(laps, groupSize) {
 }
 
 function renderLaps(laps, groupSize) {
-    const lapTableContainer = { innerHTML: '' };
+    const lapTableContainer = { innerHTML: '', querySelectorAll() { return []; } };
     const context = {
         console: { log() {}, warn() {}, error() {} },
         localStorage: { getItem() { return null; }, setItem() {} },

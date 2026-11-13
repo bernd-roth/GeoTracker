@@ -35,6 +35,8 @@ let searchDebounceTimer = null;   // debounce timer for server-side search
 let isSearchActive      = false;  // true when showing server search results
 let currentLaps         = [];     // recorded laps for the selected session
 let lapGroupSize        = 1;      // number of consecutive laps shown per table row
+let splitStartMarker    = null;
+let selectedSplitDistance = null;
 
 // ── Range selection state ───────────────────────────────────
 let rangeStartIdx     = null;     // first click index into currentTrack
@@ -320,6 +322,7 @@ function renderSessionList(sessions) {
 // SESSION SELECTION
 // ─────────────────────────────────────────────────────────────
 async function selectSession(sessionId) {
+    clearSplitSelection();
     currentSessionId = sessionId;
     // Clear any previous range selection
     rangeStartIdx = null;
@@ -576,9 +579,62 @@ function groupLaps(laps, requestedGroupSize) {
 }
 
 function setLapGroupSize(value) {
+    clearSplitSelection();
     const parsed = Number.parseInt(value, 10);
     lapGroupSize = Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
     renderLaps(currentLaps);
+}
+
+function updateSplitSelection() {
+    const container = document.getElementById('lapTableContainer');
+    if (!container) return;
+    container.querySelectorAll('tr[data-start-distance]').forEach(row => {
+        row.setAttribute('aria-pressed', String(
+            selectedSplitDistance !== null && selectedSplitDistance === Number(row.dataset.startDistance)
+        ));
+    });
+}
+
+function clearSplitSelection() {
+    if (splitStartMarker) {
+        splitStartMarker.remove();
+        splitStartMarker = null;
+    }
+    selectedSplitDistance = null;
+    updateSplitSelection();
+}
+
+function jumpToSplitStart(startDistance) {
+    if (selectedSplitDistance === startDistance) {
+        clearSplitSelection();
+        return;
+    }
+    if (!map || !Number.isFinite(startDistance) || startDistance < 0) return;
+
+    // Track and lap API distances are both in kilometers.
+    const point = currentTrack.find(point =>
+        Number.isFinite(point.distance) && point.distance >= startDistance &&
+        Number.isFinite(point.lat) && point.lat >= -90 && point.lat <= 90 &&
+        Number.isFinite(point.lon) && point.lon >= -180 && point.lon <= 180
+    );
+    if (!point) return;
+
+    clearSplitSelection();
+    const element = document.createElement('button');
+    element.type = 'button';
+    element.className = 'split-start-marker';
+    element.title = 'Deactivate selected split';
+    element.setAttribute('aria-label', 'Deactivate selected split');
+    element.addEventListener('click', event => {
+        event.stopPropagation();
+        clearSplitSelection();
+    });
+    splitStartMarker = new maplibregl.Marker({ element, anchor: 'center' })
+        .setLngLat([point.lon, point.lat])
+        .addTo(map);
+    selectedSplitDistance = startDistance;
+    updateSplitSelection();
+    map.jumpTo({ center: [point.lon, point.lat], zoom: Math.max(map.getZoom(), 15) });
 }
 
 function renderLaps(laps) {
@@ -594,11 +650,14 @@ function renderLaps(laps) {
     const fastestPace  = eligiblePaces.length ? Math.min(...eligiblePaces) : null;
     const slowestPace  = eligiblePaces.length ? Math.max(...eligiblePaces) : null;
 
+    let totalDistance = 0;
     const rows = groupedLaps.map(l => {
+        const startDistance = totalDistance;
+        totalDistance += l.distance_km;
         let cls = '';
         if (!l.is_incomplete && l.pace_min_per_km != null && l.pace_min_per_km === fastestPace) cls = 'fastest-lap';
         else if (!l.is_incomplete && l.pace_min_per_km != null && l.pace_min_per_km === slowestPace) cls = 'slowest-lap';
-        return `<tr class="${cls}">
+        return `<tr class="${cls}" data-start-distance="${startDistance}" tabindex="0" role="button" aria-pressed="${selectedSplitDistance === startDistance}" aria-label="Show start of split ${l.lap_label} on map">
             <td>${l.lap_label}</td>
             <td>${l.distance_km.toFixed(2)}</td>
             <td>${formatDuration(l.duration_ms)}</td>
@@ -630,6 +689,16 @@ function renderLaps(laps) {
                 </table>
             </div>
         </div>`;
+    container.querySelectorAll('tr[data-start-distance]').forEach(row => {
+        const selectSplit = () => jumpToSplitStart(Number(row.dataset.startDistance));
+        row.addEventListener('click', selectSplit);
+        row.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                selectSplit();
+            }
+        });
+    });
 }
 
 // ─────────────────────────────────────────────────────────────
