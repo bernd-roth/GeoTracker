@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.12 (12-11-2026: Cadence analysis graph popups implemented)"
+        versionName = "11.13 (13-11-2026: speed legend button implemented; rerun track button implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

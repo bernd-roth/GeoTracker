@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Satellite
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Terrain
@@ -44,6 +46,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -595,6 +598,8 @@ fun MapScreen(
     // Route rerun animation state
     var isRunningRerun by remember { mutableStateOf(false) }
     var rerunProgress by remember { mutableStateOf(0f) }
+    var rerunRequest by remember(routeRerunData) { mutableLongStateOf(0L) }
+    var showRerunSpeedLegend by remember(routeRerunData) { mutableStateOf(true) }
     val rerunOverlayRef = remember { mutableStateOf<RerunSpeedOverlay?>(null) }
     val rerunPositionMarkerRef = remember { mutableStateOf<Marker?>(null) }
 
@@ -1388,9 +1393,9 @@ fun MapScreen(
         }
     }
 
-    // Handle route rerun animation - simple version
-    LaunchedEffect(routeRerunData) {
-        if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty() && !isRunningRerun) {
+    // A new request replays the selected track without returning to Events.
+    LaunchedEffect(routeRerunData, rerunRequest, mapViewRef.value) {
+        if (routeRerunData != null && routeRerunData.isRerun && routeRerunData.points.isNotEmpty() && mapViewRef.value != null) {
             // Content selected from Events replaces the previously displayed recording.
             clearAllTracksFromMap()
 
@@ -3458,6 +3463,49 @@ fun MapScreen(
                     }
                 }
             }
+            // Replay controls follow the other map buttons on the right.
+            if (rerunOverlayRef.value != null) {
+                val canRerun = !isRunningRerun && routeRerunData?.isRerun == true &&
+                        routeRerunData.points.isNotEmpty()
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = if (canRerun) Color(0xFF2196F3) else Color.Gray,
+                    shadowElevation = 8.dp
+                ) {
+                    IconButton(
+                        onClick = { rerunRequest++ },
+                        enabled = canRerun,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Replay,
+                            contentDescription = "Rerun track",
+                            tint = if (canRerun) Color.White else Color.DarkGray
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = if (showRerunSpeedLegend) Color(0xFF4CAF50) else Color.White,
+                    shadowElevation = 8.dp
+                ) {
+                    IconToggleButton(
+                        checked = showRerunSpeedLegend,
+                        onCheckedChange = { showRerunSpeedLegend = it },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Speed,
+                            contentDescription = if (showRerunSpeedLegend) "Hide speed legend" else "Show speed legend",
+                            tint = if (showRerunSpeedLegend) Color.White else Color.Gray
+                        )
+                    }
+                }
+            }
         }
 
         // Backyard Ultra info overlay
@@ -3582,8 +3630,8 @@ fun MapScreen(
             }
         }
 
-        // Keep the speed key above the altitude profile during and after replay.
-        if (rerunOverlayRef.value != null) {
+        // Keep the optional speed key above the altitude profile.
+        if (rerunOverlayRef.value != null && showRerunSpeedLegend) {
             CompactRerunSpeedLegend(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
