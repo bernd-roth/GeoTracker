@@ -3810,6 +3810,7 @@ fun MapScreen(
     if (showRecordingDialog) {
         RecordingDialog(
             gpsStatus = getCurrentGpsStatus(),
+            currentLocation = lastKnownLocation.value,
             onWeatherOverlayChanged = {
                 // Trigger weather overlay reload
                 weatherOverlayTrigger++
@@ -3823,12 +3824,20 @@ fun MapScreen(
 
                 // A new recording is replacement content, so this is the point at which
                 // the completed recording (or an event route) is removed from the map.
+                val recordingWeather = if (importedGpx != null) {
+                    GpxPersistenceUtil.loadWeatherOverlay(context)
+                } else null
                 clearAllTracksFromMap()
                 currentEventId.value = -1
 
                 // Handle imported track
                 importedGpx?.let { gpxTrack ->
                     GpxPersistenceUtil.saveImportedGpxTrack(context, gpxTrack)
+                    // Keep the forecast selected in New Event when replacing the old map content.
+                    recordingWeather?.let { weather ->
+                        GpxPersistenceUtil.saveWeatherOverlay(context, weather)
+                        weatherOverlayTrigger++
+                    }
                     Timber.d("Recording started with track: ${gpxTrack.filename}")
                 }
 

@@ -363,7 +363,8 @@ fun RecordingDialog(
     gpsStatus: GpsStatus,
     onSave: (String, String, SportMetadata, String, String, Boolean, HeartRateSensorDevice?, Boolean, ImportedGpxTrack?, Boolean, String, Int?) -> Unit,
     onDismiss: () -> Unit,
-    onWeatherOverlayChanged: () -> Unit = {}
+    onWeatherOverlayChanged: () -> Unit = {},
+    currentLocation: GeoPoint? = null
 ) {
     val context = LocalContext.current
     var stageGroupName by remember { mutableStateOf("") }
@@ -421,6 +422,17 @@ fun RecordingDialog(
     }
 
     val canStartRecording = gpsStatus.isReadyToRecord && isGpsStableForStart
+
+    // Forecasts and opponent settings belong to the selected route.
+    LaunchedEffect(importedGpxTrack?.points) {
+        weatherData = null
+        showWeatherOverlay = false
+        weatherErrorMessage = null
+        enableGhostRacer = false
+        reverseDirection = false
+        GpxPersistenceUtil.clearWeatherOverlay(context)
+        onWeatherOverlayChanged()
+    }
 
     // GPX file picker launcher
     val gpxFilePicker = rememberLauncherForActivityResult(
@@ -658,6 +670,14 @@ fun RecordingDialog(
                     .height(800.dp) // Increased height to accommodate track selection
                     .verticalScroll(rememberScrollState())
             ) {
+                RecordingPreviewMap(
+                    track = importedGpxTrack,
+                    weatherData = weatherData.takeIf { showWeatherOverlay },
+                    showOpponent = enableGhostRacer,
+                    reverseDirection = reverseDirection,
+                    currentLocation = currentLocation
+                )
+
                 // GPS Status Card
                 Card(
                     modifier = Modifier
@@ -1635,6 +1655,7 @@ private fun WeatherPreviewCard(
                             onOverlayToggle(false)
                             onErrorChange(null)
                             GpxPersistenceUtil.clearWeatherOverlay(context)
+                            onWeatherOverlayChanged()
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -1660,6 +1681,7 @@ private fun WeatherPreviewCard(
                                         onWeatherDataChange(newData)
                                         if (showWeatherOverlay) {
                                             GpxPersistenceUtil.saveWeatherOverlay(context, newData)
+                                            onWeatherOverlayChanged()
                                         }
                                     } else {
                                         onErrorChange("No weather data available")
@@ -1703,6 +1725,9 @@ private fun WeatherPreviewCard(
                                 val newData = weatherService.fetchRouteWeatherForecast(track.points, targetTime)
                                 if (newData != null) {
                                     onWeatherDataChange(newData)
+                                    onOverlayToggle(true)
+                                    GpxPersistenceUtil.saveWeatherOverlay(context, newData)
+                                    onWeatherOverlayChanged()
                                 } else {
                                     onErrorChange("No weather data available")
                                 }
