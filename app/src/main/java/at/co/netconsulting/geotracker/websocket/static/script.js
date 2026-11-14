@@ -17,8 +17,7 @@ function getEventFlagNumber(sessionId) {
 let altitudeChart;
 let speedChart;
 let hrChart;
-let hrChartVisible = false;
-let hrAltVisible = false;
+let hrAltitudeChart;
 let speedHistory = {};
 let elevationHistory = {};
 let userColors = {};
@@ -207,7 +206,7 @@ function getThemeChartColors() {
 function updateChartThemeColors() {
     const colors = getThemeChartColors();
 
-    [altitudeChart, speedChart, hrChart].forEach(chart => {
+    [altitudeChart, speedChart, hrChart, hrAltitudeChart].forEach(chart => {
         if (!chart) return;
 
         // Update scale colors
@@ -719,19 +718,6 @@ function initCharts() {
 
     const hrChartOptions = {
         ...baseChartOptions,
-        plugins: {
-            ...baseChartOptions.plugins,
-            legend: {
-                ...baseChartOptions.plugins?.legend,
-                onClick: handleLegendClick,
-                labels: {
-                    filter: item => {
-                        const ds = hrChart?.data?.datasets?.[item.datasetIndex];
-                        return !ds || ds.yAxisID !== 'yAlt';
-                    }
-                }
-            }
-        },
         scales: {
             ...baseChartOptions.scales,
             y: {
@@ -741,17 +727,6 @@ function initCharts() {
                     display: true,
                     text: 'Heart Rate (bpm)'
                 }
-            },
-            yAlt: {
-                position: 'right',
-                display: hrAltVisible,
-                grid: { drawOnChartArea: false },
-                title: {
-                    display: true,
-                    text: 'Altitude (m)',
-                    color: 'rgba(160,160,160,0.7)'
-                },
-                min: 0
             }
         },
         onHover: (event, activeElements) => {
@@ -780,13 +755,42 @@ function initCharts() {
         addDebugMessage(`Error creating heart rate chart: ${error.message}`, 'error');
     }
 
+    hrAltitudeChart = new Chart(
+        document.getElementById('hrAltitudeChart').getContext('2d'),
+        {
+            type: 'line',
+            data: { datasets: [] },
+            options: {
+                ...hrChartOptions,
+                plugins: {
+                    ...hrChartOptions.plugins,
+                    legend: {
+                        ...hrChartOptions.plugins.legend,
+                        labels: { filter: item => hrAltitudeChart?.data.datasets[item.datasetIndex]?.yAxisID !== 'yAlt' }
+                    }
+                },
+                scales: {
+                    ...hrChartOptions.scales,
+                    yAlt: {
+                        position: 'right',
+                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: 'Altitude (m)' }
+                    }
+                },
+                onHover: (event, elements) => handleChartHover(event, elements, 'hrAltitude'),
+                onClick: (event, elements) => handleChartClick(event, elements, 'hrAltitude')
+            }
+        }
+    );
+
     createInfoPopup();
 
     // Double-click any chart to reset zoom
     [
         ['altitudeChart', () => altitudeChart],
         ['speedChart',    () => speedChart],
-        ['hrChart',       () => hrChart]
+        ['hrChart',       () => hrChart],
+        ['hrAltitudeChart', () => hrAltitudeChart]
     ].forEach(([canvasId, getter]) => {
         const c = document.getElementById(canvasId);
         if (c) c.addEventListener('dblclick', () => { const ch = getter(); if (ch && ch.resetZoom) ch.resetZoom(); });
@@ -799,6 +803,7 @@ function initCharts() {
             if (altitudeChart) altitudeChart.resize();
             if (speedChart) speedChart.resize();
             if (hrChart) hrChart.resize();
+            if (hrAltitudeChart) hrAltitudeChart.resize();
         }).observe(chartsContainer);
     }
 
@@ -867,7 +872,7 @@ function handleChartHover(event, activeElements, chartType) {
             chartType
         });
 
-        const chart = chartType === 'altitude' ? altitudeChart : chartType === 'heartrate' ? hrChart : speedChart;
+        const chart = chartType === 'altitude' ? altitudeChart : chartType === 'heartrate' ? hrChart : chartType === 'hrAltitude' ? hrAltitudeChart : speedChart;
         const dataset = chart.data.datasets[datasetIndex];
 
         if (!dataset) {
@@ -938,7 +943,7 @@ function handleChartClick(event, activeElements, chartType) {
     const datasetIndex = element.datasetIndex;
     const dataIndex = element.index;
 
-    const chart = chartType === 'altitude' ? altitudeChart : chartType === 'heartrate' ? hrChart : speedChart;
+    const chart = chartType === 'altitude' ? altitudeChart : chartType === 'heartrate' ? hrChart : chartType === 'hrAltitude' ? hrAltitudeChart : speedChart;
     const dataset = chart.data.datasets[datasetIndex];
 
     if (!dataset) return;
@@ -1461,19 +1466,17 @@ function toggleCharts() {
     }
 }
 
-function toggleHrAltitude() {
-    if (!hrChart) return;
-    hrAltVisible = !hrAltVisible;
-    const btn = document.getElementById('hrAltToggle');
-    if (btn) btn.classList.toggle('active', hrAltVisible);
-    // Toggle altitude overlay datasets (those on yAlt axis)
-    hrChart.data.datasets.forEach(ds => {
-        if (ds.yAxisID === 'yAlt') {
-            ds.hidden = !hrAltVisible;
-        }
+function updateHeartRateChartVisibility() {
+    const hasHR = !!hrChart?.data.datasets.some(dataset => dataset.data.length > 0);
+    const chartsContainer = document.querySelector('.charts-container');
+    ['hrChartContainer', 'hrAltitudeChartContainer'].forEach(id => {
+        const container = document.getElementById(id);
+        if (container) container.style.display = hasHR ? '' : 'none';
     });
-    hrChart.options.scales.yAlt.display = hrAltVisible;
-    hrChart.update();
+    if (chartsContainer) {
+        chartsContainer.classList.remove('three-charts');
+        chartsContainer.classList.toggle('four-charts', hasHR);
+    }
 }
 
 function handleLegendClick(e, legendItem, legend) {
@@ -1496,7 +1499,7 @@ function handleLegendClick(e, legendItem, legend) {
     addDebugMessage(`Toggle visibility from legend click: ${clickedLabel} (Session ID: ${sessionId})`, 'ui');
 
     // Toggle visibility for ALL datasets belonging to this session in all charts
-    [altitudeChart, speedChart, hrChart].forEach(chart => {
+    [altitudeChart, speedChart, hrChart, hrAltitudeChart].forEach(chart => {
         if (!chart) return;
         chart.data.datasets.forEach((dataset, i) => {
             // Use stored sessionId if available
@@ -2479,6 +2482,17 @@ function updateCharts(sessionId) {
         }
     }
 
+    // Remove from heart rate chart
+    if (hrAltitudeChart) {
+        for (let i = hrAltitudeChart.data.datasets.length - 1; i >= 0; i--) {
+            const dataset = hrAltitudeChart.data.datasets[i];
+            const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
+            if (datasetSessionId === sessionId) {
+                hrAltitudeChart.data.datasets.splice(i, 1);
+            }
+        }
+    }
+
     // Check if any session has heart rate data
     const hasHR = validPoints.some(p => p.heartRate > 0);
 
@@ -2549,12 +2563,17 @@ function updateCharts(sessionId) {
                     order: 1
                 });
 
+                hrAltitudeChart.data.datasets.push({
+                    ...hrChart.data.datasets[hrChart.data.datasets.length - 1],
+                    data: hrData.map(point => ({ ...point }))
+                });
+
                 // Altitude overlay dataset on secondary axis
                 const altOverlayData = segment.map(point => ({
                     x: point.distance,
                     y: point.altitude
                 }));
-                hrChart.data.datasets.push({
+                hrAltitudeChart.data.datasets.push({
                     label: segmentLabel + ' alt',
                     sessionId: sessionId,
                     borderColor: 'rgba(160,160,160,0.4)',
@@ -2567,28 +2586,20 @@ function updateCharts(sessionId) {
                     tension: 0,
                     yAxisID: 'yAlt',
                     order: 2,
-                    hidden: !hrAltVisible
+                    hidden: false
                 });
             }
         }
     });
 
-    // Show/hide HR chart container based on whether any session has HR data
-    if (hasHR && !hrChartVisible) {
-        const hrContainer = document.getElementById('hrChartContainer');
-        const chartsContainer = document.querySelector('.charts-container');
-        if (hrContainer) {
-            hrContainer.style.display = '';
-            chartsContainer.classList.add('three-charts');
-            hrChartVisible = true;
-        }
-    }
+    updateHeartRateChartVisibility();
 
     // Update all charts
     requestAnimationFrame(() => {
         altitudeChart.update('none');
         speedChart.update('none');
         if (hrChart) hrChart.update('none');
+        if (hrAltitudeChart) hrAltitudeChart.update('none');
     });
 
     addDebugMessage(`Charts updated for session ${sessionId}: ${dataSegments.length} segment(s) with ${validPoints.length} total points${hasHR ? ' (with HR)' : ''}`, 'system');
@@ -4148,6 +4159,20 @@ function toggleSessionVisibility(sessionId) {
         hrChart.update();
     }
 
+    // Apply same logic to heart rate chart
+    if (hrAltitudeChart) {
+        const hrDatasets = hrAltitudeChart.data.datasets;
+        for (let i = 0; i < hrDatasets.length; i++) {
+            const dataset = hrDatasets[i];
+            const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
+
+            if (datasetSessionId === sessionId) {
+                hrAltitudeChart.setDatasetVisibility(i, !currentVisibility);
+            }
+        }
+        hrAltitudeChart.update();
+    }
+
     altitudeChart.update();
     speedChart.update();
 
@@ -4342,6 +4367,13 @@ function updateSessionList() {
         hrChart.update();
     }
 
+    if (hrAltitudeChart) {
+        for (let i = 0; i < hrAltitudeChart.data.datasets.length; i++) {
+            hrAltitudeChart.setDatasetVisibility(i, true);
+        }
+        hrAltitudeChart.update();
+    }
+
     // Reset map elements visibility for all sessions
     filteredSessions.forEach(session => {
         toggleMapElementsVisibility(session.sessionId, true);
@@ -4504,6 +4536,22 @@ function removeSessionFromDisplays(sessionId, notifyUser = false) {
         }
         hrChart.update();
     }
+
+    if (hrAltitudeChart) {
+        const hrDatasets = hrAltitudeChart.data.datasets;
+        for (let i = hrDatasets.length - 1; i >= 0; i--) {
+            const dataset = hrDatasets[i];
+            const datasetSessionId = getBaseSessionId(dataset.sessionId || extractSessionIdFromDisplayId(dataset.label));
+
+            if (datasetSessionId === sessionId) {
+                addDebugMessage(`Removing heart-rate dataset: ${dataset.label}`, 'system');
+                hrDatasets.splice(i, 1);
+            }
+        }
+        hrAltitudeChart.update();
+    }
+
+    updateHeartRateChartVisibility();
 
     familyIds.forEach(familySessionId => {
         const polylineRefs = polylines[familySessionId];

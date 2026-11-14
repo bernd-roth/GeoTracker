@@ -47,6 +47,7 @@ function loadLivePageScript() {
         altitudeChart = { data: { datasets: [] }, update() {}, setDatasetVisibility() {} };
         speedChart = { data: { datasets: [] }, update() {}, setDatasetVisibility() {} };
         hrChart = { data: { datasets: [] }, update() {}, setDatasetVisibility() {} };
+        hrAltitudeChart = { data: { datasets: [] }, update() {}, setDatasetVisibility() {} };
     `, context);
 
     return { context, sessionsList };
@@ -58,7 +59,8 @@ function readState(context) {
         availableSessionIds: availableSessions.map(session => session.sessionId),
         altitudeSessionIds: altitudeChart.data.datasets.map(dataset => dataset.sessionId),
         speedSessionIds: speedChart.data.datasets.map(dataset => dataset.sessionId),
-        heartRateSessionIds: hrChart.data.datasets.map(dataset => dataset.sessionId)
+        heartRateSessionIds: hrChart.data.datasets.map(dataset => dataset.sessionId),
+        heartRateAltitudeSessionIds: hrAltitudeChart.data.datasets.map(dataset => dataset.sessionId)
     })`, context));
 }
 
@@ -72,6 +74,7 @@ test('an empty authoritative session list removes the matching graphs and local 
         altitudeChart.data.datasets = [{ sessionId: 'expired_session', label: 'Altitude' }];
         speedChart.data.datasets = [{ sessionId: 'expired_session', label: 'Speed' }];
         hrChart.data.datasets = [{ sessionId: 'expired_session', label: 'Heart rate' }];
+        hrAltitudeChart.data.datasets = [{ sessionId: 'expired_session', label: 'Heart rate' }, { sessionId: 'expired_session', label: 'Altitude' }];
 
         handleSessionList([]);
     `, context);
@@ -81,7 +84,8 @@ test('an empty authoritative session list removes the matching graphs and local 
         availableSessionIds: [],
         altitudeSessionIds: [],
         speedSessionIds: [],
-        heartRateSessionIds: []
+        heartRateSessionIds: [],
+        heartRateAltitudeSessionIds: []
     });
     assert.match(sessionsList.innerHTML, /No sessions found/);
 });
@@ -210,4 +214,56 @@ test('historical pressure statistics exclude zero sentinels', () => {
         avg: 978.5,
         max: 979
     });
+});
+
+
+test('heart rate and altitude use a fourth graph only when HR samples exist', () => {
+    const { context } = loadLivePageScript();
+    const classes = new Set();
+    const containers = {
+        hrChartContainer: { style: {} },
+        hrAltitudeChartContainer: { style: {} }
+    };
+    context.document.querySelector = () => ({ classList: {
+        remove(name) { classes.delete(name); },
+        toggle(name, enabled) { enabled ? classes.add(name) : classes.delete(name); }
+    } });
+    const originalGetElement = context.document.getElementById;
+    context.document.getElementById = id => containers[id] || originalGetElement(id);
+    vm.runInContext(`
+        shouldDisplaySession = () => true;
+        trackPoints.example = [
+            { lat: 48.2, lng: 16.3, distance: 0, altitude: 200, speed: 8, heartRate: 0 },
+            { lat: 48.201, lng: 16.301, distance: 0.15, altitude: 210, speed: 9, heartRate: 0 },
+            { lat: 48.202, lng: 16.302, distance: 0.3, altitude: 220, speed: 10, heartRate: 0 }
+        ];
+        updateCharts('example');
+    `, context);
+    assert.equal(containers.hrAltitudeChartContainer.style.display, 'none');
+    assert.equal(classes.has('four-charts'), false);
+
+    vm.runInContext(`
+        trackPoints.example[0].heartRate = 110;
+        trackPoints.example[2].heartRate = 130;
+        updateCharts('example');
+        updateCharts('example');
+    `, context);
+    const series = JSON.parse(vm.runInContext(`JSON.stringify({
+        hr: hrChart.data.datasets,
+        combined: hrAltitudeChart.data.datasets
+    })`, context));
+    assert.equal(series.hr.length, 1);
+    assert.equal(series.hr[0].yAxisID, 'y');
+    assert.equal(series.combined.length, 2);
+    assert.deepEqual(series.combined[0].data, [{ x: 0, y: 110 }, { x: 0.3, y: 130 }]);
+    assert.deepEqual(series.combined[1].data, [{ x: 0, y: 200 }, { x: 0.15, y: 210 }, { x: 0.3, y: 220 }]);
+    assert.equal(series.combined[1].yAxisID, 'yAlt');
+    assert.equal(series.combined[1].hidden, false);
+    assert.equal(classes.has('four-charts'), true);
+    assert.equal(containers.hrAltitudeChartContainer.style.display, '');
+
+    vm.runInContext(`removeSessionFromDisplays('example');`, context);
+    assert.equal(vm.runInContext('hrAltitudeChart.data.datasets.length', context), 0);
+    assert.equal(containers.hrAltitudeChartContainer.style.display, 'none');
+    assert.equal(classes.has('four-charts'), false);
 });
