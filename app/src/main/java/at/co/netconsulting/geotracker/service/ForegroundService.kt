@@ -1937,6 +1937,22 @@ class ForegroundService : Service() {
             // Handle pause/resume/stop actions
             val action = intent?.getStringExtra("action")
             when (action) {
+                ACTION_CONNECT_HEART_RATE_SENSOR -> {
+                    // Change the sensor for the active session without reinitializing recording.
+                    if (!isServiceStarted || isStoppingIntentionally) return START_NOT_STICKY
+                    val address = intent?.getStringExtra("heartRateDeviceAddress")
+                        ?.takeIf { it.isNotBlank() } ?: return START_STICKY
+                    heartRateDeviceAddress = address
+                    heartRateDeviceName = intent.getStringExtra("heartRateDeviceName")
+                    getSharedPreferences("ServiceState", Context.MODE_PRIVATE).edit()
+                        .putString("heart_rate_device_address", address)
+                        .putString("heart_rate_device_name", heartRateDeviceName)
+                        .apply()
+                    currentHeartRate = 0
+                    customLocationListener?.updateHeartRateOnly(0, heartRateDeviceName.orEmpty())
+                    heartRateSensorService?.connectToDevice(address)
+                    return START_STICKY
+                }
                 "stop_recording" -> {
                     Log.d(TAG, "Stop recording action received")
                     isStoppingIntentionally = true
@@ -3215,6 +3231,7 @@ class ForegroundService : Service() {
     }
 
     companion object {
+        const val ACTION_CONNECT_HEART_RATE_SENSOR = "connect_heart_rate_sensor"
         private const val CHANNEL_ID = "ForegroundServiceChannel"
         private const val MIN_SPEED_THRESHOLD = 2.5f
         private const val EVENT_TIMEOUT_MS = 2000

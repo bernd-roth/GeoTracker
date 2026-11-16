@@ -15,11 +15,13 @@ import android.os.ParcelUuid
 import android.util.Log
 import androidx.core.app.ActivityCompat
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 import at.co.netconsulting.geotracker.data.HeartRateData
 import org.greenrobot.eventbus.EventBus
 import com.polidea.rxandroidble3.RxBleClient
 import com.polidea.rxandroidble3.RxBleConnection
 import io.reactivex.rxjava3.android.schedulers.AndroidSchedulers
+import io.reactivex.rxjava3.core.Observable
 import io.reactivex.rxjava3.disposables.CompositeDisposable
 import io.reactivex.rxjava3.schedulers.Schedulers
 import kotlinx.coroutines.CoroutineScope
@@ -40,10 +42,12 @@ class HeartRateSensorService(private val context: Context) {
     private var connection: RxBleConnection? = null
     private var isConnected = false
     private var lastHeartRate = 0
+    private var lastBatteryLevel: Int? = null
 
     // Heart Rate Service UUID (standard for BLE heart rate devices)
     private val HEART_RATE_SERVICE_UUID = UUID.fromString("0000180D-0000-1000-8000-00805F9B34FB")
     private val HEART_RATE_MEASUREMENT_UUID = UUID.fromString("00002A37-0000-1000-8000-00805F9B34FB")
+    private val BATTERY_LEVEL_UUID = UUID.fromString("00002A19-0000-1000-8000-00805F9B34FB")
 
     // List to store found devices
     private val discoveredDevices = mutableListOf<BluetoothDevice>()
@@ -170,9 +174,12 @@ class HeartRateSensorService(private val context: Context) {
 
                     // Setup notifications for heart rate characteristic
                     setupHeartRateNotifications()
+                    setupBatteryLevelUpdates(connection)
                 }, { error ->
                     Log.e(TAG, "Error connecting to device", error)
                     isConnected = false
+                    lastBatteryLevel = null
+                    lastHeartRate = 0
 
                     // Notify about connection failure
                     EventBus.getDefault().post(HeartRateData(
@@ -192,6 +199,8 @@ class HeartRateSensorService(private val context: Context) {
         bleDisposables.clear()
         connection = null
         isConnected = false
+        lastBatteryLevel = null
+        lastHeartRate = 0
 
         if (currentDeviceAddress != null) {
             Log.d(TAG, "Disconnected from heart rate sensor")
@@ -228,7 +237,8 @@ class HeartRateSensorService(private val context: Context) {
                             deviceAddress = currentDeviceAddress ?: "",
                             heartRate = heartRate,
                             isConnected = true,
-                            isScanning = false
+                            isScanning = false,
+                            batteryLevel = lastBatteryLevel
                         ))
 
                     }, { error ->
@@ -237,6 +247,33 @@ class HeartRateSensorService(private val context: Context) {
             )
         }
     }
+
+    // Battery support is optional; failure must not interrupt heart rate notifications.
+    private fun setupBatteryLevelUpdates(conn: RxBleConnection) {
+        bleDisposables.add(
+            Observable.interval(0, 60, TimeUnit.SECONDS)
+                .concatMapSingle { conn.readCharacteristic(BATTERY_LEVEL_UUID) }
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe({ bytes ->
+                    val level = bytes.singleOrNull()?.toInt()?.and(0xFF)
+                    if (level != null && level in 0..100) {
+                        lastBatteryLevel = level
+                        EventBus.getDefault().post(HeartRateData(
+                            deviceName = currentDeviceName ?: "Unknown Device",
+                            deviceAddress = currentDeviceAddress ?: "",
+                            heartRate = 0,
+                            isConnected = true,
+                            isScanning = false,
+                            batteryLevel = level
+                        ))
+                    }
+                }, { error ->
+                    Log.d(TAG, "Sensor battery level unavailable", error)
+                })
+        )
+    }
+
+    fun getLastBatteryLevel(): Int? = lastBatteryLevel
 
     // Parse heart rate data according to BLE Heart Rate Service specification
     private fun parseHeartRateData(data: ByteArray): Int {

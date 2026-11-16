@@ -75,6 +75,7 @@ fun HeartRateDetailDialog(
         val eventBusListener = object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
             fun onHeartRateData(data: HeartRateData) {
+                if (data.isScanning || data.deviceAddress.isEmpty()) return
                 if (data.heartRate > 0) {
                     currentHeartRate = data.heartRate
 

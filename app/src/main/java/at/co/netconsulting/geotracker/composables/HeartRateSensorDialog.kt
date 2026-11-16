@@ -57,16 +57,20 @@ import org.greenrobot.eventbus.ThreadMode
 @Composable
 fun HeartRateSensorDialog(
     onSelectDevice: (HeartRateSensorDevice?) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    initialDevice: HeartRateSensorDevice? = null,
+    allowNoSensor: Boolean = true
 ) {
     val context = LocalContext.current
     val heartRateService = remember { HeartRateSensorService.getInstance(context) }
 
     // State for discovered devices
-    val devices = remember { mutableStateListOf<HeartRateSensorDevice>() }
+    val devices = remember {
+        mutableStateListOf<HeartRateSensorDevice>().apply { initialDevice?.let { add(it) } }
+    }
 
     // State for selected device
-    var selectedDevice by remember { mutableStateOf<HeartRateSensorDevice?>(null) }
+    var selectedDevice by remember { mutableStateOf(initialDevice) }
 
     // State for scanning
     var isScanning by remember { mutableStateOf(false) }
@@ -86,7 +90,7 @@ fun HeartRateSensorDialog(
 
     // Check if Bluetooth is enabled
     val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
-    val isBluetoothEnabled = bluetoothAdapter?.isEnabled == true
+    val isBluetoothEnabled = hasBluetoothPermissions && bluetoothAdapter?.isEnabled == true
 
     // Handle EventBus registration for receiving heart rate sensor events
     DisposableEffect(Unit) {
@@ -95,7 +99,9 @@ fun HeartRateSensorDialog(
             @Subscribe(threadMode = ThreadMode.MAIN)
             fun onHeartRateData(data: HeartRateData) {
                 // Update scanning state
-                isScanning = data.isScanning
+                if (data.isScanning || data.deviceAddress.isEmpty()) {
+                    isScanning = data.isScanning
+                }
 
                 // Update error message if any
                 if (data.error != null) {
@@ -178,7 +184,7 @@ fun HeartRateSensorDialog(
                 }
 
                 // Optional: No Heart Rate Sensor option
-                Row(
+                if (allowNoSensor) Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -253,9 +259,10 @@ fun HeartRateSensorDialog(
                 onClick = {
                     onSelectDevice(selectedDevice)
                     onDismiss()
-                }
+                },
+                enabled = allowNoSensor || (selectedDevice != null && isBluetoothEnabled)
             ) {
-                Text("Confirm")
+                Text(if (allowNoSensor) "Confirm" else "Connect")
             }
         },
         dismissButton = {
@@ -265,6 +272,7 @@ fun HeartRateSensorDialog(
                     IconButton(
                         onClick = {
                             devices.clear()
+                            selectedDevice?.let { devices.add(it) }
                             heartRateService.startScan()
                         },
                         enabled = !isScanning

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.foundation.background
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.DirectionsBike
 import androidx.compose.material.icons.filled.DirectionsRun
 import androidx.compose.material.icons.filled.Pool
@@ -73,6 +74,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import at.co.netconsulting.geotracker.data.GpsStatus
+import at.co.netconsulting.geotracker.data.HeartRateSensorDevice
 import at.co.netconsulting.geotracker.data.ImportedGpxTrack
 import at.co.netconsulting.geotracker.data.LocationData
 import at.co.netconsulting.geotracker.data.LtPhaseChanged
@@ -489,6 +491,10 @@ fun MapScreen(
     var showRecordingDialog by remember { mutableStateOf(false) }
     var showUserSelectionDialog by remember { mutableStateOf(false) }
     var showWaypointDialog by remember { mutableStateOf(false) }
+    var showWorkoutHeartRateDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(isRecording) {
+        if (!isRecording) showWorkoutHeartRateDialog = false
+    }
     var selectedWaypoint by remember { mutableStateOf<Waypoint?>(null) }
 
     var showSettingsValidationDialog by remember { mutableStateOf(false) }
@@ -3045,6 +3051,27 @@ fun MapScreen(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
+            if (isRecording) {
+                Surface(
+                    modifier = Modifier.size(56.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    shadowElevation = 8.dp
+                ) {
+                    IconButton(
+                        onClick = { showWorkoutHeartRateDialog = true },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Favorite,
+                            contentDescription = "Connect or reconnect heart rate sensor",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             // Waypoint button - only show during recording
             if (isRecording && !followingState.isFollowing) {
                 Surface(
@@ -3762,6 +3789,30 @@ fun MapScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    if (showWorkoutHeartRateDialog && isRecording) {
+        val previousSensor = remember {
+            val prefs = context.getSharedPreferences("ServiceState", Context.MODE_PRIVATE)
+            prefs.getString("heart_rate_device_address", null)?.takeIf { it.isNotBlank() }?.let {
+                HeartRateSensorDevice(prefs.getString("heart_rate_device_name", null) ?: "Heart rate sensor", it)
+            }
+        }
+        HeartRateSensorDialog(
+            initialDevice = previousSensor,
+            allowNoSensor = false,
+            onSelectDevice = { device ->
+                if (device != null) {
+                    context.startService(Intent(context, ForegroundService::class.java).apply {
+                        putExtra("action", ForegroundService.ACTION_CONNECT_HEART_RATE_SENSOR)
+                        putExtra("heartRateDeviceAddress", device.address)
+                        putExtra("heartRateDeviceName", device.name)
+                    })
+                    Toast.makeText(context, "Connecting to ${device.name}", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onDismiss = { showWorkoutHeartRateDialog = false }
         )
     }
 

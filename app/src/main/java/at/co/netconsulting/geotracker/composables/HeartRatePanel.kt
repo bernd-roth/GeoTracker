@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.BatteryStd
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import at.co.netconsulting.geotracker.data.HeartRateData
+import at.co.netconsulting.geotracker.service.HeartRateSensorService
 import org.greenrobot.eventbus.EventBus
 import org.greenrobot.eventbus.Subscribe
 import org.greenrobot.eventbus.ThreadMode
@@ -55,9 +57,11 @@ fun HeartRatePanel(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var currentHeartRate by remember { mutableIntStateOf(0) }
-    var deviceName by remember { mutableStateOf("") }
-    var isConnected by remember { mutableStateOf(false) }
+    val sensorService = remember { HeartRateSensorService.getInstance(context) }
+    var currentHeartRate by remember { mutableIntStateOf(sensorService.getLastHeartRate()) }
+    var deviceName by remember { mutableStateOf(sensorService.getCurrentDeviceName().orEmpty()) }
+    var isConnected by remember { mutableStateOf(sensorService.isConnected()) }
+    var batteryLevel by remember { mutableStateOf(sensorService.getLastBatteryLevel()) }
     var showDetailDialog by remember { mutableStateOf(false) }
 
     // Animation for heart rate changes
@@ -79,11 +83,16 @@ fun HeartRatePanel(
         val eventBusListener = object : Any() {
             @Subscribe(threadMode = ThreadMode.MAIN)
             fun onHeartRateData(data: HeartRateData) {
+                // Discovery events describe scan results, not the active connection.
+                if (data.isScanning || data.deviceAddress.isEmpty()) return
                 if (data.heartRate > 0) {
                     currentHeartRate = data.heartRate
+                } else if (!data.isConnected) {
+                    currentHeartRate = 0
                 }
                 deviceName = data.deviceName
                 isConnected = data.isConnected
+                batteryLevel = if (data.isConnected) data.batteryLevel else null
             }
         }
 
@@ -156,6 +165,27 @@ fun HeartRatePanel(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center
                 )
+
+                batteryLevel?.let { level ->
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.BatteryStd,
+                                contentDescription = "Heart rate sensor battery",
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(text = "$level%", fontSize = 12.sp)
+                        }
+                    }
+                }
 
                 // Device name display (optional)
                 if (deviceName.isNotEmpty()) {

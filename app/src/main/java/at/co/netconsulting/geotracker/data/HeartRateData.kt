@@ -10,5 +10,6 @@ data class HeartRateData(
     val heartRate: Int,
     val isConnected: Boolean,
     val isScanning: Boolean,
-    val error: String? = null
+    val error: String? = null,
+    val batteryLevel: Int? = null
 )
