@@ -13,6 +13,7 @@ import org.json.JSONObject
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +42,31 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     private val _backgroundDownloadStatus = MutableStateFlow("")
     val backgroundDownloadStatus: StateFlow<String> = _backgroundDownloadStatus.asStateFlow()
     private val workManager = WorkManager.getInstance(application)
+    private val _isCancelling = MutableStateFlow(false)
+    val isCancelling = _isCancelling.asStateFlow()
+    private val _queueError = MutableStateFlow<String?>(null)
+    val queueError = _queueError.asStateFlow()
+    private var activeSessionIds = emptySet<String>()
+    private val observedFinishedWork = mutableSetOf<java.util.UUID>()
+
+    fun cancelDownloads() {
+        if (_isCancelling.value) return
+        _isCancelling.value = true
+        _queueError.value = null
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    workManager.cancelUniqueWork(SessionDownloadWorker.UNIQUE_WORK_NAME).result.get()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _queueError.value = "Could not cancel downloads: ${e.message}"
+            } finally {
+                _isCancelling.value = false
+            }
+        }
+    }
 
     sealed class DownloadState {
         object Idle : DownloadState()
@@ -202,6 +228,7 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private suspend fun checkSessionStatus(session: GeoTrackerApiClient.RemoteSessionSummary) {
+        if (session.sessionId in activeSessionIds) return
         Log.d(TAG, "Checking session: ${session.eventName} (ID: ${session.sessionId})")
         updateProgress(session.sessionId, DownloadState.Checking)
 
@@ -231,21 +258,25 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     }
 
     private fun enqueueReadySessions(sessions: List<GeoTrackerApiClient.RemoteSessionSummary>) {
+        if (_isCancelling.value || _isLoading.value) return
         val sessionsToQueue = sessions.distinctBy { it.sessionId }.filter { session ->
-            _downloadProgress.value[session.sessionId] == DownloadState.ReadyToDownload
+            session.sessionId !in activeSessionIds &&
+                _downloadProgress.value[session.sessionId] == DownloadState.ReadyToDownload
         }
         if (sessionsToQueue.isEmpty()) {
             Log.w(TAG, "No sessions ready to download (run check first or all already downloaded)")
             return
         }
 
+        _isLoading.value = true
         viewModelScope.launch {
-            _isLoading.value = true
             try {
+                sessionsToQueue.forEach { updateProgress(it.sessionId, DownloadState.Queued) }
                 withContext(Dispatchers.IO) {
                     SessionDownloadWorker.enqueue(getApplication<Application>(), sessionsToQueue.map { it.sessionId })
                 }
-                sessionsToQueue.forEach { updateProgress(it.sessionId, DownloadState.Queued) }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Could not queue event downloads", e)
                 sessionsToQueue.forEach { updateProgress(it.sessionId, DownloadState.Error("Could not start background download: ${e.message}")) }
@@ -258,28 +289,35 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
     private fun updateBackgroundDownloadState(workInfos: List<WorkInfo>) {
         val next = _downloadProgress.value.toMutableMap()
         var outstanding = 0
-        var completed = 0
-        workInfos.forEach { info ->
+        var running = false
+        activeSessionIds = workInfos.filter { !it.state.isFinished }.flatMap { info ->
+            info.tags.filter { it.startsWith(SessionDownloadWorker.SESSION_TAG_PREFIX) }
+                .map { it.removePrefix(SessionDownloadWorker.SESSION_TAG_PREFIX) }
+        }.toSet()
+        // Active work always wins over historical attempts for the same event.
+        workInfos.sortedBy { if (it.state.isFinished) 0 else 1 }.forEach { info ->
+            // Do not replay old results over a subsequent Check or retry selection.
+            if (info.state.isFinished && !observedFinishedWork.add(info.id)) return@forEach
             val inputIds = info.tags.filter { it.startsWith(SessionDownloadWorker.SESSION_TAG_PREFIX) }.map { it.removePrefix(SessionDownloadWorker.SESSION_TAG_PREFIX) }
             val pending = info.state == WorkInfo.State.ENQUEUED || info.state == WorkInfo.State.BLOCKED || info.state == WorkInfo.State.RUNNING
-            if (pending) outstanding += inputIds.size
+            if (info.state == WorkInfo.State.RUNNING) running = true
             val progress = if (info.state == WorkInfo.State.RUNNING) info.progress else info.outputData
             val completedIds = stringArray(progress.getString(SessionDownloadWorker.KEY_COMPLETED_IDS))
             val failedMessages = runCatching {
                 JSONObject(progress.getString(SessionDownloadWorker.KEY_FAILED_MESSAGES).orEmpty())
             }.getOrDefault(JSONObject())
-            completed += completedIds.size
-            completedIds.forEach { next[it] = DownloadState.Success("Downloaded") }
+            if (pending) outstanding += inputIds.count { it !in completedIds && !failedMessages.has(it) }
+            completedIds.forEach { if (pending || next[it] != DownloadState.ReadyToDownload) next[it] = DownloadState.Success("Downloaded") }
             failedMessages.keys().forEach { id ->
-                next[id] = DownloadState.Error(failedMessages.optString(id, "Download failed"))
+                if (pending || next[id] != DownloadState.ReadyToDownload) next[id] = DownloadState.Error(failedMessages.optString(id, "Download failed"))
             }
             when (info.state) {
                 WorkInfo.State.ENQUEUED, WorkInfo.State.BLOCKED -> inputIds.forEach { id ->
-                    if (next[id] !is DownloadState.Success && next[id] !is DownloadState.Error) next[id] = DownloadState.Queued
+                    if (id !in completedIds && !failedMessages.has(id)) next[id] = DownloadState.Queued
                 }
                 WorkInfo.State.RUNNING -> {
                     inputIds.forEach { id ->
-                        if (next[id] !is DownloadState.Success && next[id] !is DownloadState.Error) next[id] = DownloadState.Queued
+                        if (id !in completedIds && !failedMessages.has(id)) next[id] = DownloadState.Queued
                     }
                     info.progress.getString(SessionDownloadWorker.KEY_ACTIVE_SESSION_ID)?.let { next[it] = DownloadState.Downloading }
                 }
@@ -295,9 +333,10 @@ class DownloadEventsViewModel(application: Application) : AndroidViewModel(appli
             }
         }
         _downloadProgress.value = next
-        _hasBackgroundDownloads.value = outstanding > 0
-        _backgroundDownloadStatus.value = if (outstanding > 0) {
-            "$completed downloaded; $outstanding waiting or in progress"
+        _hasBackgroundDownloads.value = activeSessionIds.isNotEmpty()
+        _backgroundDownloadStatus.value = if (activeSessionIds.isNotEmpty()) {
+            if (running) "$outstanding events remaining. Downloading."
+            else "$outstanding events queued. Waiting for network, Android scheduling, or retry."
         } else ""
     }
 

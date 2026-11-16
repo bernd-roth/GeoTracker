@@ -46,6 +46,8 @@ fun DownloadEventsDialog(
     val downloadProgress by viewModel.downloadProgress.collectAsState()
     val hasBackgroundDownloads by viewModel.hasBackgroundDownloads.collectAsState()
     val backgroundDownloadStatus by viewModel.backgroundDownloadStatus.collectAsState()
+    val isCancelling by viewModel.isCancelling.collectAsState()
+    val queueError by viewModel.queueError.collectAsState()
     val selectedSessions by viewModel.selectedSessions.collectAsState()
 
     // Filter state - hide sessions with few GPS points
@@ -133,7 +135,16 @@ fun DownloadEventsDialog(
                         modifier = Modifier.fillMaxWidth()
                             .padding(vertical = 4.dp)
                     )
+                    TextButton(
+                        onClick = viewModel::cancelDownloads,
+                        enabled = !isCancelling && !isLoading
+                    ) {
+                        Text(if (isCancelling) "Cancelling..." else "Cancel downloads")
+                    }
+                    Text("Completed events are kept. To resume, select events, Check, then Download.",
+                        style = MaterialTheme.typography.bodySmall)
                 }
+                queueError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
                 // Compact filter toggle
                 Row(

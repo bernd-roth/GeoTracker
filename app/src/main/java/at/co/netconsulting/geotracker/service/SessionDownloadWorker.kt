@@ -21,6 +21,8 @@ import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.repository.RemoteSessionImporter
 import at.co.netconsulting.geotracker.sync.GeoTrackerApiClient
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
@@ -49,9 +51,16 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
             if (isStopped) return Result.failure()
             val sessionId = ids.optString(index)
             if (sessionId.isBlank()) continue
+            // The database transaction is the durable checkpoint, including for old batches.
+            if (database.eventDao().getEventBySessionId(sessionId) != null) {
+                completed.put(sessionId)
+                setProgress(progressData(ids, completed, failed, null, batchNumber, batchCount, index + 1))
+                continue
+            }
             setProgress(progressData(ids, completed, failed, sessionId, batchNumber, batchCount, index))
 
             val downloaded = api.downloadSessionWithDetails(sessionId)
+            currentCoroutineContext().ensureActive()
             downloaded.fold(
                 onSuccess = { session ->
                     try {
@@ -60,12 +69,13 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        if (e is IOException) return Result.retry()
+                        if (shouldRetry(e, runAttemptCount)) return Result.retry()
                         failed.put(sessionId, "Save failed: ${e.message.orEmpty().take(160)}")
                     }
                 },
                 onFailure = { error ->
-                    if (isRetryable(error)) return Result.retry()
+                    if (error is CancellationException) throw error
+                    if (shouldRetry(error, runAttemptCount)) return Result.retry()
                     failed.put(sessionId, error.message.orEmpty().take(160).ifBlank { "Download failed" })
                 }
             )
@@ -79,9 +89,6 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
                 .build()
         )
     }
-
-    private fun isRetryable(error: Throwable): Boolean =
-        error is IOException || Regex("API error: (408|425|429|5\\d\\d)").containsMatchIn(error.message.orEmpty())
 
     private fun progressData(
         ids: JSONArray,
@@ -136,7 +143,12 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
         
         private const val CHANNEL_ID = "remote_event_downloads"
         private const val NOTIFICATION_ID = 4107
-        private const val MAX_BATCH_SIZE = 25
+        private const val MAX_BATCH_SIZE = 1
+        private const val MAX_RETRIES = 2
+
+        internal fun shouldRetry(error: Throwable, attempt: Int): Boolean =
+            attempt < MAX_RETRIES && (error is IOException ||
+                Regex("API error: (408|425|429|5\\d\\d)").matches(error.message.orEmpty()))
 
         fun enqueue(context: Context, sessionIds: List<String>) {
             val uniqueIds = sessionIds.map(String::trim).filter(String::isNotEmpty).distinct()
@@ -161,7 +173,7 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
             var continuation = androidx.work.WorkManager.getInstance(context)
                 .beginUniqueWork(UNIQUE_WORK_NAME, androidx.work.ExistingWorkPolicy.APPEND_OR_REPLACE, requests.first())
             requests.drop(1).forEach { continuation = continuation.then(it) }
-            continuation.enqueue()
+            continuation.enqueue().result.get()
         }
     }
 }

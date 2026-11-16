@@ -6,6 +6,14 @@ import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import java.io.IOException
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType
 import okhttp3.MediaType.Companion.toMediaType
@@ -991,10 +999,10 @@ class GeoTrackerApiClient(private val context: Context) {
 
             Log.d(TAG, "Downloading session details: $sessionId")
 
-            val response = okHttpClient.newCall(request).execute()
-
-            if (response.isSuccessful) {
-                val json = JSONObject(response.body?.string() ?: "{}")
+            val body = downloadDetailsBody(request)
+            currentCoroutineContext().ensureActive()
+            run {
+                val json = JSONObject(body)
                 val data = json.optJSONObject("data")
                     ?: return@withContext Result.failure(Exception("No data in response"))
 
@@ -1002,6 +1010,7 @@ class GeoTrackerApiClient(private val context: Context) {
                 val gpsPointsArray = data.optJSONArray("gps_points") ?: JSONArray()
                 val gpsPoints = mutableListOf<GpsPointData>()
                 for (i in 0 until gpsPointsArray.length()) {
+                    currentCoroutineContext().ensureActive()
                     val point = gpsPointsArray.getJSONObject(i)
                     gpsPoints.add(
                         GpsPointData(
@@ -1071,14 +1080,34 @@ class GeoTrackerApiClient(private val context: Context) {
 
                 Log.d(TAG, "Downloaded session $sessionId with ${gpsPoints.size} GPS points and ${lapTimes.size} lap times")
                 Result.success(fullSession)
-            } else {
-                val errorBody = response.body?.string() ?: "Unknown error"
-                Log.e(TAG, "Download session failed: ${response.code} - $errorBody")
-                Result.failure(Exception("API error: ${response.code}"))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error downloading session", e)
             Result.failure(e)
         }
+    }
+
+    /** Cancellation closes the socket even while a large response body is being read. */
+    private suspend fun downloadDetailsBody(request: Request): String = suspendCancellableCoroutine { continuation ->
+        val call = okHttpClient.newCall(request)
+        call.timeout().timeout(3, TimeUnit.MINUTES)
+        continuation.invokeOnCancellation { call.cancel() }
+        call.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                continuation.resumeWith(Result.failure(e))
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val result = runCatching {
+                    response.use {
+                        if (!it.isSuccessful) throw Exception("API error: ${it.code}")
+                        it.body?.string() ?: throw IOException("Empty response body")
+                    }
+                }
+                continuation.resumeWith(result)
+            }
+        })
     }
 }

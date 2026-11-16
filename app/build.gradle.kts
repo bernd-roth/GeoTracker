@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.15 (15-11-2026: heart rate sensor battery percentage showing)"
+        versionName = "11.16 (16-11-2026: Cancel button in 'Download Events' implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
