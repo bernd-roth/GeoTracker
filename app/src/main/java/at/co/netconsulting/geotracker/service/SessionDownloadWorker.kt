@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -31,6 +32,7 @@ import java.util.concurrent.TimeUnit
 /** A durable, network-constrained batch in the background download queue. */
 class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
+        Log.i(LOG_TAG, "Starting download work $id, attempt ${runAttemptCount + 1}")
         val ids = runCatching { JSONArray(inputData.getString(KEY_SESSION_IDS).orEmpty()) }
             .getOrNull() ?: return Result.failure()
         if (ids.length() == 0) return Result.success()
@@ -46,6 +48,7 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
         val completed = JSONArray()
         val failed = JSONObject()
 
+        Log.i(LOG_TAG, "Starting foreground notification for ${ids.length()} events")
         setForeground(createForegroundInfo(batchNumber, batchCount, 0, ids.length()))
         for (index in 0 until ids.length()) {
             if (isStopped) return Result.failure()
@@ -53,28 +56,34 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
             if (sessionId.isBlank()) continue
             // The database transaction is the durable checkpoint, including for old batches.
             if (database.eventDao().getEventBySessionId(sessionId) != null) {
+                Log.i(LOG_TAG, "Skipping saved session $sessionId")
                 completed.put(sessionId)
                 setProgress(progressData(ids, completed, failed, null, batchNumber, batchCount, index + 1))
                 continue
             }
             setProgress(progressData(ids, completed, failed, sessionId, batchNumber, batchCount, index))
 
+            Log.i(LOG_TAG, "Downloading session $sessionId")
             val downloaded = api.downloadSessionWithDetails(sessionId)
             currentCoroutineContext().ensureActive()
             downloaded.fold(
                 onSuccess = { session ->
                     try {
+                        Log.i(LOG_TAG, "Importing session $sessionId with ${session.gpsPoints.size} GPS points")
                         importer.importSession(session)
+                        Log.i(LOG_TAG, "Saved session $sessionId")
                         completed.put(sessionId)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
+                        Log.e(LOG_TAG, "Import failed for $sessionId; retry=${shouldRetry(e, runAttemptCount)}", e)
                         if (shouldRetry(e, runAttemptCount)) return Result.retry()
                         failed.put(sessionId, "Save failed: ${e.message.orEmpty().take(160)}")
                     }
                 },
                 onFailure = { error ->
                     if (error is CancellationException) throw error
+                    Log.e(LOG_TAG, "Download failed for $sessionId; retry=${shouldRetry(error, runAttemptCount)}", error)
                     if (shouldRetry(error, runAttemptCount)) return Result.retry()
                     failed.put(sessionId, error.message.orEmpty().take(160).ifBlank { "Download failed" })
                 }
@@ -82,6 +91,7 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
             setProgress(progressData(ids, completed, failed, null, batchNumber, batchCount, index + 1))
             setForeground(createForegroundInfo(batchNumber, batchCount, index + 1, ids.length()))
         }
+        Log.i(LOG_TAG, "Finished work $id: ${completed.length()} saved, ${failed.length()} failed")
         return Result.success(
             Data.Builder()
                 .putString(KEY_COMPLETED_IDS, completed.toString())
@@ -130,6 +140,7 @@ class SessionDownloadWorker(context: Context, parameters: WorkerParameters) : Co
     }
 
     companion object {
+        private const val LOG_TAG = "SessionDownloadWorker"
         const val UNIQUE_WORK_NAME = "remote_event_downloads"
         const val TAG_DOWNLOAD = "remote_event_download"
         const val SESSION_TAG_PREFIX = "remote_event_session:"
