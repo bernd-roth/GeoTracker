@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import at.co.netconsulting.geotracker.data.LocationData
+import at.co.netconsulting.geotracker.location.MovementDistanceFilter
 import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -42,6 +43,7 @@ class BackgroundLocationService : Service(), LocationListener {
     private var oldLatitude: Double = -999.0
     private var oldLongitude: Double = -999.0
     private var coveredDistance: Double = 0.0
+    private val movementDistanceFilter = MovementDistanceFilter()
     private var startingAltitude: Double? = null
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
@@ -115,6 +117,7 @@ class BackgroundLocationService : Service(), LocationListener {
 
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
+        movementDistanceFilter.reset()
         try {
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
@@ -319,52 +322,13 @@ class BackgroundLocationService : Service(), LocationListener {
     }
 
     private fun calculateDistance(location: Location): Pair<Double, Double> {
-        val distanceIncrement: Double
-        if (checkSpeed(location)) {
-            if (oldLatitude != -999.0 && oldLongitude != -999.0) {
-                distanceIncrement = calculateDistanceBetweenCoordinates(
-                    oldLatitude,
-                    oldLongitude,
-                    location.latitude,
-                    location.longitude
-                )
-                coveredDistance += distanceIncrement
-            } else {
-                distanceIncrement = 0.0
-            }
-            oldLatitude = location.latitude
-            oldLongitude = location.longitude
-            Log.d(TAG, "Distance Increment: $distanceIncrement")
-            return Pair(coveredDistance, distanceIncrement)
-        } else {
-            // Still update the coordinates even if we're not moving fast enough
-            oldLatitude = location.latitude
-            oldLongitude = location.longitude
-            return Pair(coveredDistance, 0.0)
-        }
-    }
-
-    private fun checkSpeed(location: Location): Boolean {
-        val speed = location.speed
-        val thresholdInMetersPerSecond = MIN_SPEED_THRESHOLD / 3.6
-        return speed >= thresholdInMetersPerSecond
-    }
-
-    private fun calculateDistanceBetweenCoordinates(
-        oldLatitude: Double,
-        oldLongitude: Double,
-        newLatitude: Double,
-        newLongitude: Double
-    ): Double {
-        val result = FloatArray(1)
-        Location.distanceBetween(
-            oldLatitude,
-            oldLongitude,
-            newLatitude,
-            newLongitude,
-            result
-        )
-        return result[0].toDouble()
+        val distanceIncrement = movementDistanceFilter.update(location)
+        coveredDistance += distanceIncrement
+        // Keep live coordinates available even when distance is suppressed.
+        oldLatitude = location.latitude
+        oldLongitude = location.longitude
+        Log.d(TAG, "Distance Increment: $distanceIncrement")
+        return Pair(coveredDistance, distanceIncrement)
     }
 
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {
@@ -377,6 +341,7 @@ class BackgroundLocationService : Service(), LocationListener {
     }
 
     override fun onProviderDisabled(provider: String) {
+        movementDistanceFilter.reset()
         Log.d(TAG, "Provider disabled: $provider")
     }
 
@@ -434,7 +399,6 @@ class BackgroundLocationService : Service(), LocationListener {
         private const val MIN_TIME_BETWEEN_UPDATES: Long = 1000
         private const val MIN_DISTANCE_BETWEEN_UPDATES: Float = 1f
         private const val TAG: String = "BackgroundLocationService"
-        private const val MIN_SPEED_THRESHOLD: Double = 2.5 // km/h
         private const val KEEP_ALIVE_INTERVAL: Long = 5000 // 5 seconds
     }
 }

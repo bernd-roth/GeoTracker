@@ -114,10 +114,9 @@ class CustomLocationListener: LocationListener {
     private var textToSpeech: TextToSpeech? = null
     private var isTtsInitialized = false
 
-    // 3 seconds grace period if speed drops below threshold
-    private var belowThresholdStartTime: Long = 0
-    private var isCurrentlyTracking = false
-    private val THRESHOLD_TIMEOUT_MS = 3000 // 3 seconds
+    private val movementDistanceFilter = MovementDistanceFilter()
+    private val isCurrentlyTracking: Boolean
+        get() = movementDistanceFilter.isMoving
 
     // Pause/Resume functionality
     private var isPaused = false
@@ -266,6 +265,7 @@ class CustomLocationListener: LocationListener {
     }
 
     fun startListener() {
+        movementDistanceFilter.reset()
         Log.d(TAG_WEBSOCKET, "DIAG CLL startListener ENTER instance=${System.identityHashCode(this)}")
         acceptLocationUpdates = true
         createLocationManager()
@@ -289,6 +289,7 @@ class CustomLocationListener: LocationListener {
     }
 
     fun reloadSettings() {
+        movementDistanceFilter.reset()
         // Load updated settings
         loadSharedPreferences()
 
@@ -335,6 +336,7 @@ class CustomLocationListener: LocationListener {
 
     fun stopLocationCallbacks(reason: String) {
         acceptLocationUpdates = false
+        movementDistanceFilter.reset()
         try {
             locationManager?.removeUpdates(this)
             Log.d("CustomLocationListener", "Location callbacks stopped: $reason")
@@ -358,6 +360,7 @@ class CustomLocationListener: LocationListener {
                     "lastLocationAgeMs=$lastLocationAgeMs coveredDistance=$coveredDistance"
         )
         Handler(Looper.getMainLooper()).post {
+            movementDistanceFilter.reset()
             try {
                 locationManager?.removeUpdates(this)
                 Log.d(TAG_WEBSOCKET, "Removed stale location updates before restart")
@@ -370,10 +373,12 @@ class CustomLocationListener: LocationListener {
 
     fun pauseTracking() {
         isPaused = true
+        movementDistanceFilter.reset()
         Log.d("CustomLocationListener", "DIAG CLL pauseTracking instance=${System.identityHashCode(this)} -> isPaused=true")
     }
 
     fun resumeTracking() {
+        movementDistanceFilter.reset()
         isPaused = false
         Log.d("CustomLocationListener", "DIAG CLL resumeTracking instance=${System.identityHashCode(this)} -> isPaused=false")
     }
@@ -588,6 +593,7 @@ class CustomLocationListener: LocationListener {
         // Validate coordinates first - reject placeholder/invalid GPS values
         if (location.latitude == -999.0 || location.longitude == -999.0 ||
             (location.latitude == 0.0 && location.longitude == 0.0)) {
+            movementDistanceFilter.reset()
             Log.w("CustomLocationListener",
                 "DIAG CLL onLocationChanged RETURN(invalidCoords) instance=$instId lat=${location.latitude} lon=${location.longitude}")
             return  // Skip this location update entirely
@@ -615,80 +621,20 @@ class CustomLocationListener: LocationListener {
 
             // Get current speed in km/h; take into account hasSpeed() is true and not returning garbage
             var currentSpeedKmh = if(it.hasSpeed()) it.speed * 3.6 else 0.0
-            val isBelowThreshold = currentSpeedKmh < MIN_SPEED_THRESHOLD
+            val distanceIncrement = movementDistanceFilter.update(location)
+            if (distanceIncrement > 0.0) {
+                coveredDistance += distanceIncrement
+                if (!isBackyardUltraMode) {
+                    lap = calculateLap(distanceIncrement)
+                }
+                checkDistanceMilestone()
+            }
 
             Log.d("CustomLocationListener",
-                "DIAG CLL gate-decision instance=$instId speedKmh=$currentSpeedKmh threshold=$MIN_SPEED_THRESHOLD " +
-                        "isBelowThreshold=$isBelowThreshold isCurrentlyTracking=$isCurrentlyTracking " +
-                        "oldLatValid=${oldLatitude != -999.0 && oldLongitude != -999.0} " +
-                        "coordsChanged=${oldLatitude != location.latitude || oldLongitude != location.longitude}")
-
-            // Distance calculation with time-based approach
-            var distanceIncrement = 0.0
-
-            if (isBelowThreshold) {
-                if (isCurrentlyTracking) {
-                    // We were tracking but speed dropped below threshold
-                    if (belowThresholdStartTime == 0L) {
-                        // Start the timer
-                        belowThresholdStartTime = System.currentTimeMillis()
-                        Log.d(
-                            "CustomLocationListener",
-                            "Speed dropped below threshold, starting grace period"
-                        )
-                    } else if (System.currentTimeMillis() - belowThresholdStartTime > THRESHOLD_TIMEOUT_MS) {
-                        // We've been below threshold for too long, stop tracking
-                        isCurrentlyTracking = false
-                        belowThresholdStartTime = 0
-                        Log.d(
-                            "CustomLocationListener",
-                            "Grace period ended, stopped tracking movement"
-                        )
-                    } else {
-                        // Still in grace period - keep the movement state alive, but do not
-                        // add GPS drift while the reported speed is below the threshold.
-                        Log.d(
-                            "CustomLocationListener",
-                            "In grace period, holding movement state without adding distance"
-                        )
-                    }
-                }
-            } else {
-                // Above threshold - actively moving
-                // Reset the grace period timer since we're above threshold now
-                belowThresholdStartTime = 0
-
-                if (!isCurrentlyTracking) {
-                    // Start tracking if we weren't already
-                    isCurrentlyTracking = true
-                    Log.d(
-                        "CustomLocationListener",
-                        "Started tracking movement at speed: $currentSpeedKmh km/h"
-                    )
-                }
-
-                // Calculate distance when above threshold
-                if (oldLatitude != -999.0 && oldLongitude != -999.0 &&
-                    (oldLatitude != location.latitude || oldLongitude != location.longitude)
-                ) {
-                    // Calculate distance increment
-                    distanceIncrement = calculateDistanceBetweenOldLatLngNewLatLng(
-                        oldLatitude, oldLongitude, location.latitude, location.longitude
-                    )
-                    coveredDistance += distanceIncrement
-                    if (!isBackyardUltraMode) {
-                        lap = calculateLap(distanceIncrement)
-                    }
-
-                    Log.d(
-                        "CustomLocationListener",
-                        "Distance added while moving: $distanceIncrement"
-                    )
-
-                    // Check for distance milestone announcement
-                    checkDistanceMilestone()
-                }
-            }
+                "DIAG CLL movement-filter instance=$instId speedKmh=$currentSpeedKmh " +
+                        "hasSpeedAccuracy=${location.hasSpeedAccuracy()} " +
+                        "speedAccuracyMps=${location.speedAccuracyMetersPerSecond} " +
+                        "isCurrentlyTracking=$isCurrentlyTracking distanceIncrement=$distanceIncrement")
 
             // Always update coordinates and last known values for next calculation
             oldLatitude = location.latitude
@@ -892,24 +838,6 @@ class CustomLocationListener: LocationListener {
         lap += lapsToAdd
         lapCounter -= lapsToAdd * 1000
         return lap
-    }
-
-    private fun calculateDistanceBetweenOldLatLngNewLatLng(
-        oldLatitude: Double,
-        oldLongitude: Double,
-        newLatitude: Double,
-        newLongitude: Double
-    ): Double {
-        val result = FloatArray(1)
-        Location.distanceBetween(
-            oldLatitude,
-            oldLongitude,
-            newLatitude,
-            newLongitude,
-            result
-        )
-        Log.d("CustomLocationListener", "Distance Increment: ${result[0]}")
-        return result[0].toDouble()
     }
 
     //moving average speed calculation
@@ -1716,7 +1644,6 @@ class CustomLocationListener: LocationListener {
 
     companion object {
         // These static variables are no longer used directly
-        private const val MIN_SPEED_THRESHOLD: Double = 2.0 // km/h
         const val TAG_WEBSOCKET: String = "CustomLocationListener: WebSocketService"
 
         private const val MAX_RECONNECT_ATTEMPTS_BEFORE_RESET = 10

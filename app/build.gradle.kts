@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.16 (16-11-2026: Fix foreground service configuration for event downloads)"
+        versionName = "11.17 (19-11-2026: Fix, if mobile phone is stationary preventing adding up distance)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
