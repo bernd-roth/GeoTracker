@@ -67,6 +67,7 @@ import androidx.compose.material.icons.filled.Terrain
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Waves
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -116,6 +117,8 @@ import androidx.compose.ui.window.Dialog
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.PlannedEvent
+import at.co.netconsulting.geotracker.domain.expandCompetitionsByDate
+import at.co.netconsulting.geotracker.domain.plannedEventDateError
 import at.co.netconsulting.geotracker.reminder.ReminderManager
 import at.co.netconsulting.geotracker.service.PlannedEventsNetworkManager
 import at.co.netconsulting.geotracker.tools.AlarmPermissionHelper
@@ -134,26 +137,6 @@ import java.util.Locale
 
 // Gold/amber color for competitions
 private val CompetitionColor = Color(0xFFFF8F00)
-
-// Expands competitions so multi-day events appear on every covered date, not only the start date.
-// Why: a PlannedEvent with plannedEventEndDate set spans multiple days; the calendar must color and
-// list it on each one. Falls back to start-date-only for blank/invalid/before-start end dates.
-private fun expandCompetitionsByDate(competitions: List<PlannedEvent>): Map<String, List<PlannedEvent>> {
-    val result = mutableMapOf<String, MutableList<PlannedEvent>>()
-    for (comp in competitions) {
-        if (comp.plannedEventDate.isBlank()) continue
-        val start = runCatching { LocalDate.parse(comp.plannedEventDate) }.getOrNull() ?: continue
-        val end = if (comp.plannedEventEndDate.isBlank()) start
-                  else runCatching { LocalDate.parse(comp.plannedEventEndDate) }.getOrNull()
-                      ?.takeIf { !it.isBefore(start) } ?: start
-        var d = start
-        while (!d.isAfter(end)) {
-            result.getOrPut(d.toString()) { mutableListOf() }.add(comp)
-            d = d.plusDays(1)
-        }
-    }
-    return result
-}
 
 // Diamond shape to distinguish competition dots from activity dots
 private val CompetitionShape = object : Shape {
@@ -195,22 +178,10 @@ fun CalendarScreen(
     var showCompetitionForm by remember { mutableStateOf(false) }
     var editingCompetition by remember { mutableStateOf<PlannedEvent?>(null) }
     var formDate by remember { mutableStateOf("") }
+    var seriesToDelete by remember { mutableStateOf<PlannedEvent?>(null) }
 
     // Sync dialog state
     var showSyncDialog by remember { mutableStateOf(false) }
-
-    fun refreshCompetitions() {
-        coroutineScope.launch {
-            val competitions = withContext(Dispatchers.IO) {
-                database.plannedEventDao().getPlannedEventsForYear(
-                    currentUserId,
-                    "$selectedYear-01-01",
-                    "$selectedYear-12-31"
-                )
-            }
-            competitionsByDate = expandCompetitionsByDate(competitions)
-        }
-    }
 
     fun deleteCompetition(competition: PlannedEvent) {
         coroutineScope.launch {
@@ -229,26 +200,22 @@ fun CalendarScreen(
                 reminderManager.cancelReminder(competition.plannedEventId)
                 database.plannedEventDao().deletePlannedEvent(competition)
             }
-            refreshCompetitions()
         }
     }
 
-    // Load events and competitions when year changes
     LaunchedEffect(selectedYear) {
+        val year = selectedYear
         isLoading = true
-        coroutineScope.launch {
-            val events = withContext(Dispatchers.IO) {
-                database.eventDao().getEventsForYear(selectedYear.toString())
-            }
-            val competitions = withContext(Dispatchers.IO) {
-                database.plannedEventDao().getPlannedEventsForYear(
-                    currentUserId,
-                    "$selectedYear-01-01",
-                    "$selectedYear-12-31"
-                )
-            }
-            eventsByDate = events.groupBy { it.eventDate }
-            competitionsByDate = expandCompetitionsByDate(competitions)
+        val events = withContext(Dispatchers.IO) {
+            database.eventDao().getEventsForYear(year.toString())
+        }
+        eventsByDate = events.groupBy { it.eventDate }
+        database.plannedEventDao().getPlannedEventsForYear(
+            currentUserId,
+            "%04d-01-01".format(Locale.ROOT, year),
+            "%04d-12-31".format(Locale.ROOT, year)
+        ).collect { competitions ->
+            competitionsByDate = expandCompetitionsByDate(competitions, year)
             isLoading = false
         }
     }
@@ -268,7 +235,23 @@ fun CalendarScreen(
             onSaved = {
                 showCompetitionForm = false
                 editingCompetition = null
-                refreshCompetitions()
+            }
+        )
+    }
+
+    seriesToDelete?.let { competition ->
+        AlertDialog(
+            onDismissRequest = { seriesToDelete = null },
+            title = { Text("Delete annual series?") },
+            text = { Text("Delete ${competition.plannedEventName} from every year in this series?") },
+            confirmButton = {
+                TextButton(onClick = {
+                    seriesToDelete = null
+                    deleteCompetition(competition)
+                }) { Text("Delete series") }
+            },
+            dismissButton = {
+                TextButton(onClick = { seriesToDelete = null }) { Text("Cancel") }
             }
         )
     }
@@ -277,8 +260,7 @@ fun CalendarScreen(
     if (showSyncDialog) {
         SyncDialog(
             networkManager = networkManager,
-            onDismiss = { showSyncDialog = false },
-            onDownloaded = { refreshCompetitions() }
+            onDismiss = { showSyncDialog = false }
         )
     }
 
@@ -357,7 +339,8 @@ fun CalendarScreen(
                             showCompetitionForm = true
                         },
                         onDeleteCompetition = { competition ->
-                            deleteCompetition(competition)
+                            if (competition.annualRepeatYears > 1) seriesToDelete = competition
+                            else deleteCompetition(competition)
                         }
                     )
                 }
@@ -518,7 +501,7 @@ private fun MonthCard(
     val startOffset = (firstDayOfWeek.value - DayOfWeek.MONDAY.value)
 
     // Count activities and competitions in this month
-    val monthPrefix = String.format("%d-%02d", year, month.value)
+    val monthPrefix = yearMonth.toString()
     val monthEvents = eventsByDate.filter { it.key.startsWith(monthPrefix) }
     val monthCompetitions = competitionsByDate.filter { it.key.startsWith(monthPrefix) }
     val monthActivityCount = monthEvents.values.sumOf { it.size }
@@ -599,10 +582,11 @@ private fun MonthCard(
                         val day = cellIndex - startOffset + 1
 
                         if (day in 1..daysInMonth) {
-                            val dateStr = String.format("%d-%02d-%02d", year, month.value, day)
+                            val calendarDate = yearMonth.atDay(day)
+                            val dateStr = calendarDate.toString()
                             val dayEvents = eventsByDate[dateStr]
                             val dayCompetitions = competitionsByDate[dateStr]
-                            val isToday = LocalDate.of(year, month, day) == today
+                            val isToday = calendarDate == today
                             val isSelected = dateStr == selectedDate
 
                             DayCell(
@@ -826,6 +810,12 @@ private fun DayDetails(
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
+                        if (competition.annualRepeatYears > 1) {
+                            Text(
+                                text = "Repeats annually",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
                     }
                     IconButton(
                         onClick = { onEditCompetition(competition) },
@@ -916,6 +906,8 @@ private fun CompetitionFormDialog(
     var name by remember { mutableStateOf(competition?.plannedEventName ?: "") }
     var date by remember { mutableStateOf(competition?.plannedEventDate ?: initialDate) }
     var endDate by remember { mutableStateOf(competition?.plannedEventEndDate ?: "") }
+    var repeatAnnually by remember { mutableStateOf((competition?.annualRepeatYears ?: 1) > 1) }
+    var repeatYears by remember { mutableStateOf((competition?.annualRepeatYears ?: 2).coerceAtLeast(2).toString()) }
     var country by remember { mutableStateOf(competition?.plannedEventCountry ?: "") }
     var city by remember { mutableStateOf(competition?.plannedEventCity ?: "") }
     var type by remember { mutableStateOf(competition?.plannedEventType ?: "") }
@@ -980,6 +972,13 @@ private fun CompetitionFormDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     fun save() {
+        val years = repeatYears.toIntOrNull()
+        val dateError = plannedEventDateError(date, endDate, repeatAnnually, years)
+        if (dateError != null) {
+            errorMessage = dateError
+            return
+        }
+        val annualRepeatYears = if (repeatAnnually) requireNotNull(years) else 1
         scope.launch {
             isSaving = true
             errorMessage = null
@@ -989,6 +988,7 @@ private fun CompetitionFormDialog(
                         plannedEventName = name,
                         plannedEventDate = date,
                         plannedEventEndDate = endDate,
+                        annualRepeatYears = annualRepeatYears,
                         plannedEventCountry = country,
                         plannedEventCity = city,
                         plannedEventType = type,
@@ -1009,6 +1009,7 @@ private fun CompetitionFormDialog(
                         plannedEventName = name,
                         plannedEventDate = date,
                         plannedEventEndDate = endDate,
+                        annualRepeatYears = annualRepeatYears,
                         plannedEventCountry = country,
                         plannedEventCity = city,
                         plannedEventType = type,
@@ -1086,21 +1087,16 @@ private fun CompetitionFormDialog(
             ) {
                 // Title
                 Text(
-                    text = if (isEditing) "Edit Competition" else "Add Competition",
+                    text = when {
+                        competition != null && competition.annualRepeatYears > 1 -> "Edit Annual Series"
+                        isEditing -> "Edit Competition"
+                        else -> "Add Competition"
+                    },
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
-
-                errorMessage?.let {
-                    Text(
-                        text = it,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
 
                 // Name
                 OutlinedTextField(
@@ -1126,7 +1122,7 @@ private fun CompetitionFormDialog(
                             DatePickerDialog(
                                 context,
                                 { _, y, m, d ->
-                                    date = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                    date = LocalDate.of(y, m + 1, d).toString()
                                 },
                                 cal.get(Calendar.YEAR),
                                 cal.get(Calendar.MONTH),
@@ -1172,7 +1168,7 @@ private fun CompetitionFormDialog(
                                 val dlg = DatePickerDialog(
                                     context,
                                     { _, y, m, d ->
-                                        endDate = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                        endDate = LocalDate.of(y, m + 1, d).toString()
                                     },
                                     cal.get(Calendar.YEAR),
                                     cal.get(Calendar.MONTH),
@@ -1210,6 +1206,13 @@ private fun CompetitionFormDialog(
                         }
                     }
                 }
+
+                AnnualRepeatFields(
+                    repeatAnnually = repeatAnnually,
+                    onRepeatAnnuallyChange = { repeatAnnually = it },
+                    repeatYears = repeatYears,
+                    onRepeatYearsChange = { repeatYears = it }
+                )
 
                 // Country / City
                 Row(modifier = Modifier.fillMaxWidth()) {
@@ -1604,6 +1607,15 @@ private fun CompetitionFormDialog(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                errorMessage?.let {
+                    Text(
+                        text = it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                }
+
                 // Buttons
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1641,8 +1653,7 @@ private fun CompetitionFormDialog(
 @Composable
 private fun SyncDialog(
     networkManager: PlannedEventsNetworkManager,
-    onDismiss: () -> Unit,
-    onDownloaded: () -> Unit
+    onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var isSyncing by remember { mutableStateOf(false) }
@@ -1692,7 +1703,6 @@ private fun SyncDialog(
                         if (result.downloadedCount > 0) append("${result.downloadedCount} new events added, ")
                         if (result.duplicateCount > 0) append("${result.duplicateCount} duplicates skipped")
                     }
-                    onDownloaded()
                 } else {
                     syncSuccess = false
                     syncMessage = "Download failed: ${result.message}"

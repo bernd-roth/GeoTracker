@@ -9,6 +9,16 @@ from .errors import NotFoundError, ValidationError, ConflictError
 planned_events_bp = Blueprint('planned_events', __name__)
 
 
+def validate_annual_repeat_years(years, start_date, end_date):
+    if type(years) is not int or not 1 <= years <= 9999:
+        raise ValidationError("Annual repeat years must be a positive whole number")
+    if years > 1:
+        end_date = end_date or start_date
+        if not start_date or end_date < start_date or end_date.year + years - 1 > 9999:
+            raise ValidationError("Annual recurrence requires a valid date range for every year")
+    return years
+
+
 def get_or_create_user(firstname, lastname=None, birthdate=None):
     """Find or create a user by firstname, lastname, and birthdate."""
     user = User.query.filter_by(
@@ -258,6 +268,9 @@ def create_planned_event():
         planned_event_name=planned_event_name,
         planned_event_date=planned_event_date,
         planned_event_end_date=planned_event_end_date,
+        annual_repeat_years=validate_annual_repeat_years(
+            data.get('annual_repeat_years', 1), planned_event_date, planned_event_end_date
+        ),
         planned_event_type=data.get('planned_event_type'),
         planned_event_country=data.get('planned_event_country'),
         planned_event_city=data.get('planned_event_city'),
@@ -345,6 +358,10 @@ def upload_planned_events():
                 except Exception:
                     planned_event_end_date = None
 
+            annual_repeat_years = validate_annual_repeat_years(
+                event_data.get('annualRepeatYears', 1), planned_event_date, planned_event_end_date
+            )
+
             # Check for duplicates
             existing_event = PlannedEvent.query.filter(
                 PlannedEvent.planned_event_name == event_data.get('plannedEventName', ''),
@@ -355,7 +372,20 @@ def upload_planned_events():
             ).first()
 
             if existing_event:
-                duplicate_count += 1
+                if (
+                    existing_event.created_by_user_id == user_id
+                    and 'annualRepeatYears' in event_data
+                    and (existing_event.annual_repeat_years > 1 or annual_repeat_years > 1)
+                    and (
+                        existing_event.annual_repeat_years != annual_repeat_years
+                        or existing_event.planned_event_end_date != planned_event_end_date
+                    )
+                ):
+                    existing_event.annual_repeat_years = annual_repeat_years
+                    existing_event.planned_event_end_date = planned_event_end_date
+                    uploaded_count += 1
+                else:
+                    duplicate_count += 1
                 continue
 
             # Parse dates
@@ -379,6 +409,7 @@ def upload_planned_events():
                 planned_event_name=event_data.get('plannedEventName', ''),
                 planned_event_date=planned_event_date,
                 planned_event_end_date=planned_event_end_date,
+                annual_repeat_years=annual_repeat_years,
                 planned_event_type=event_data.get('plannedEventType', ''),
                 planned_event_country=event_data.get('plannedEventCountry', ''),
                 planned_event_city=event_data.get('plannedEventCity', ''),
@@ -448,6 +479,11 @@ def update_planned_event(event_id):
             event.planned_event_end_date = date_parser.parse(data['planned_event_end_date']).date() if data['planned_event_end_date'] else None
         except Exception:
             pass
+    event.annual_repeat_years = validate_annual_repeat_years(
+        data.get('annual_repeat_years', event.annual_repeat_years),
+        event.planned_event_date,
+        event.planned_event_end_date
+    )
     if 'planned_event_type' in data:
         event.planned_event_type = data['planned_event_type']
     if 'planned_event_country' in data:

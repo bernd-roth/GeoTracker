@@ -29,7 +29,7 @@ import android.util.Log
         DisciplineTransition::class,
         WaypointPhoto::class
     ],
-    version = 31,
+    version = 32,
     exportSchema = false
 )
 abstract class FitnessTrackerDatabase : RoomDatabase() {
@@ -885,6 +885,12 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_31_32 = object : Migration(31, 32) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE planned_events ADD COLUMN annualRepeatYears INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
         // Unknown upgrade/downgrade paths must fail without deleting saved recordings.
         internal fun buildDatabase(context: Context, databaseName: String = "fitness_tracker.db"): FitnessTrackerDatabase =
                     Room.databaseBuilder(
@@ -921,7 +927,8 @@ abstract class FitnessTrackerDatabase : RoomDatabase() {
                             MIGRATION_27_28,
                             MIGRATION_28_29,
                             MIGRATION_29_30,
-                            MIGRATION_30_31
+                            MIGRATION_30_31,
+                            MIGRATION_31_32
                         )
                         .addCallback(object : RoomDatabase.Callback() {
                             override fun onCreate(db: SupportSQLiteDatabase) {

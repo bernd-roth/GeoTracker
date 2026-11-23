@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.17 (19-11-2026: Fix, if mobile phone is stationary preventing adding up distance)"
+        versionName = "11.18 (23-11-2026: Recurring yearly events implemented)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

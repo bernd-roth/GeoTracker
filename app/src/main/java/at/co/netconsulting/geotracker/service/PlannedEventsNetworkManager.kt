@@ -122,6 +122,7 @@ class PlannedEventsNetworkManager(private val context: Context) {
                     put("plannedEventName", event.plannedEventName)
                     put("plannedEventDate", event.plannedEventDate)
                     put("plannedEventEndDate", event.plannedEventEndDate)
+                    put("annualRepeatYears", event.annualRepeatYears)
                     put("plannedEventType", event.plannedEventType)
                     put("plannedEventCountry", event.plannedEventCountry)
                     put("plannedEventCity", event.plannedEventCity)
@@ -318,7 +319,7 @@ class PlannedEventsNetworkManager(private val context: Context) {
 
                             val eventName = eventJson.optString("planned_event_name", "")
                             val eventDate = eventJson.optString("planned_event_date", "")
-                            val eventEndDate = eventJson.optString("planned_event_end_date", "")
+                            val eventEndDate = if (eventJson.isNull("planned_event_end_date")) "" else eventJson.getString("planned_event_end_date")
                             val eventCountry = eventJson.optString("planned_event_country", "")
                             val eventCity = eventJson.optString("planned_event_city", "")
 
@@ -345,6 +346,7 @@ class PlannedEventsNetworkManager(private val context: Context) {
                                 plannedEventName = eventName,
                                 plannedEventDate = eventDate,
                                 plannedEventEndDate = eventEndDate,
+                                annualRepeatYears = eventJson.optInt("annual_repeat_years", 1),
                                 plannedEventType = eventJson.optString("planned_event_type", ""),
                                 plannedEventCountry = eventCountry,
                                 plannedEventCity = eventCity,

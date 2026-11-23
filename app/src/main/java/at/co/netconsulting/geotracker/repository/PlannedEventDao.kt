@@ -68,17 +68,13 @@ interface PlannedEventDao {
     """)
     suspend fun getUpcomingReminders(): List<PlannedEvent>
 
-    // Returns every event whose [start, end] range overlaps [yearStart, yearEnd], so a multi-day
-    // event spanning a year boundary (e.g. Dec 31 -> Jan 1) shows up in BOTH years' calendars.
-    // Comparison is safe lexicographically because dates are stored as ISO yyyy-MM-dd strings.
-    // For single-day events plannedEventEndDate is '' (NOT NULL DEFAULT '' since v28), so we
-    // CASE it back to the start date.
+    // Include annual series that started before this year. The calendar computes their dates.
     @Query("""
         SELECT * FROM planned_events
         WHERE userId = :userId
         AND plannedEventDate <= :yearEnd
-        AND (CASE WHEN plannedEventEndDate = '' THEN plannedEventDate ELSE plannedEventEndDate END) >= :yearStart
+        AND (annualRepeatYears > 1 OR MAX(plannedEventDate, plannedEventEndDate) >= :yearStart)
         ORDER BY plannedEventDate ASC
     """)
-    suspend fun getPlannedEventsForYear(userId: Int, yearStart: String, yearEnd: String): List<PlannedEvent>
+    fun getPlannedEventsForYear(userId: Int, yearStart: String, yearEnd: String): Flow<List<PlannedEvent>>
 }

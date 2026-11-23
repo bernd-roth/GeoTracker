@@ -911,6 +911,7 @@ class TrackingServer:
                     planned_event_name VARCHAR(255) NOT NULL,
                     planned_event_date DATE NOT NULL,
                     planned_event_end_date DATE,
+                    annual_repeat_years INTEGER NOT NULL DEFAULT 1,
                     planned_event_type VARCHAR(100),
                     planned_event_country VARCHAR(100) NOT NULL,
                     planned_event_city VARCHAR(100) NOT NULL,
@@ -948,7 +949,8 @@ class TrackingServer:
 
             await conn.execute("""
                 ALTER TABLE planned_events
-                ADD COLUMN IF NOT EXISTS planned_event_end_date DATE
+                ADD COLUMN IF NOT EXISTS planned_event_end_date DATE,
+                ADD COLUMN IF NOT EXISTS annual_repeat_years INTEGER NOT NULL DEFAULT 1
             """)
 
             # Create indexes for performance

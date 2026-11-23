@@ -12,6 +12,7 @@ class PlannedEvent(db.Model):
     planned_event_name = db.Column(db.String(255), nullable=False)
     planned_event_date = db.Column(db.Date, nullable=True)
     planned_event_end_date = db.Column(db.Date, nullable=True)
+    annual_repeat_years = db.Column(db.Integer, nullable=False, server_default='1')
     planned_event_type = db.Column(db.String(100), nullable=True)
     planned_event_country = db.Column(db.String(100), nullable=True)
     planned_event_city = db.Column(db.String(100), nullable=True)
@@ -42,6 +43,7 @@ class PlannedEvent(db.Model):
             'planned_event_name': self.planned_event_name,
             'planned_event_date': self.planned_event_date.isoformat() if self.planned_event_date else None,
             'planned_event_end_date': self.planned_event_end_date.isoformat() if self.planned_event_end_date else None,
+            'annual_repeat_years': self.annual_repeat_years,
             'planned_event_type': self.planned_event_type,
             'planned_event_country': self.planned_event_country,
             'planned_event_city': self.planned_event_city,

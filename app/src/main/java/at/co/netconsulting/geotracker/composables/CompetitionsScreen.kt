@@ -71,11 +71,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.domain.PlannedEvent
+import at.co.netconsulting.geotracker.domain.plannedEventDateError
 import at.co.netconsulting.geotracker.reminder.ReminderManager
 import at.co.netconsulting.geotracker.service.PlannedEventsNetworkManager
 import at.co.netconsulting.geotracker.tools.AlarmPermissionHelper
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.time.LocalDate
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -113,6 +115,8 @@ fun CompetitionsScreen() {
     var competitionName by remember { mutableStateOf("") }
     var competitionDate by remember { mutableStateOf("") }
     var competitionEndDate by remember { mutableStateOf("") }
+    var repeatAnnually by remember { mutableStateOf(false) }
+    var repeatYears by remember { mutableStateOf("2") }
     var competitionCountry by remember { mutableStateOf("") }
     var competitionCity by remember { mutableStateOf("") }
     var competitionType by remember { mutableStateOf("") }
@@ -236,6 +240,8 @@ fun CompetitionsScreen() {
         competitionName = ""
         competitionDate = ""
         competitionEndDate = ""
+        repeatAnnually = false
+        repeatYears = "2"
         competitionCountry = ""
         competitionCity = ""
         competitionType = ""
@@ -259,6 +265,13 @@ fun CompetitionsScreen() {
 
     // ✅ Save competition function - WITH ENHANCED ERROR HANDLING
     fun saveCompetition() {
+        val years = repeatYears.toIntOrNull()
+        val dateError = plannedEventDateError(competitionDate, competitionEndDate, repeatAnnually, years)
+        if (dateError != null) {
+            errorMessage = dateError
+            return
+        }
+        val annualRepeatYears = if (repeatAnnually) requireNotNull(years) else 1
         scope.launch {
             isLoading = true
             errorMessage = null
@@ -271,6 +284,7 @@ fun CompetitionsScreen() {
                         plannedEventName = competitionName,
                         plannedEventDate = competitionDate,
                         plannedEventEndDate = competitionEndDate,
+                        annualRepeatYears = annualRepeatYears,
                         plannedEventCountry = competitionCountry,
                         plannedEventCity = competitionCity,
                         plannedEventType = competitionType,
@@ -293,6 +307,7 @@ fun CompetitionsScreen() {
                         plannedEventName = competitionName,
                         plannedEventDate = competitionDate,
                         plannedEventEndDate = competitionEndDate,
+                        annualRepeatYears = annualRepeatYears,
                         plannedEventCountry = competitionCountry,
                         plannedEventCity = competitionCity,
                         plannedEventType = competitionType,
@@ -586,7 +601,7 @@ fun CompetitionsScreen() {
                                         DatePickerDialog(
                                             context,
                                             { _, y, m, d ->
-                                                competitionDate = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                                competitionDate = LocalDate.of(y, m + 1, d).toString()
                                             },
                                             cal.get(Calendar.YEAR),
                                             cal.get(Calendar.MONTH),
@@ -634,7 +649,7 @@ fun CompetitionsScreen() {
                                             val dlg = DatePickerDialog(
                                                 context,
                                                 { _, y, m, d ->
-                                                    competitionEndDate = String.format("%04d-%02d-%02d", y, m + 1, d)
+                                                    competitionEndDate = LocalDate.of(y, m + 1, d).toString()
                                                 },
                                                 cal.get(Calendar.YEAR),
                                                 cal.get(Calendar.MONTH),
@@ -672,6 +687,13 @@ fun CompetitionsScreen() {
                                     }
                                 }
                             }
+
+                            AnnualRepeatFields(
+                                repeatAnnually = repeatAnnually,
+                                onRepeatAnnuallyChange = { repeatAnnually = it },
+                                repeatYears = repeatYears,
+                                onRepeatYearsChange = { repeatYears = it }
+                            )
 
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 OutlinedTextField(
@@ -1248,6 +1270,8 @@ fun CompetitionsScreen() {
                                                     competitionName = competition.plannedEventName
                                                     competitionDate = competition.plannedEventDate
                                                     competitionEndDate = competition.plannedEventEndDate
+                                                    repeatAnnually = competition.annualRepeatYears > 1
+                                                    repeatYears = competition.annualRepeatYears.coerceAtLeast(2).toString()
                                                     competitionCountry = competition.plannedEventCountry
                                                     competitionCity = competition.plannedEventCity
                                                     competitionType = competition.plannedEventType
@@ -1542,6 +1566,13 @@ fun CompetitionItem(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    if (competition.annualRepeatYears > 1) {
+                        Text(
+                            text = "Repeats annually for ${competition.annualRepeatYears} years",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
 
                     if (competition.plannedEventType.isNotBlank()) {
                         Text(

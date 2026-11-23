@@ -29,7 +29,8 @@ def ensure_database_schema(app):
         """))
         db.session.execute(text("""
             ALTER TABLE IF EXISTS planned_events
-            ADD COLUMN IF NOT EXISTS planned_event_end_date DATE
+            ADD COLUMN IF NOT EXISTS planned_event_end_date DATE,
+            ADD COLUMN IF NOT EXISTS annual_repeat_years INTEGER NOT NULL DEFAULT 1
         """))
         db.session.execute(text("""
             ALTER TABLE IF EXISTS gps_tracking_points

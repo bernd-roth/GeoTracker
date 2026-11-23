@@ -6,6 +6,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
@@ -25,6 +26,15 @@ class DatabaseUpgradeSafetyTest {
                     javaClass.getResourceAsStream("/database-v29.sql")!!.bufferedReader().use { it.readText() }
                         .split(';').filter { it.isNotBlank() }.forEach { db.execSQL(it) }
                     db.execSQL("INSERT INTO User (userId, firstName, lastName, birthDate, weight, height, bmi) VALUES (1, 'Saved', 'Owner', '2000-01-01', 70, 180, 21.6)")
+                    db.execSQL("""
+                        INSERT INTO planned_events (
+                            plannedEventId, userId, plannedEventName, plannedEventDate, plannedEventEndDate,
+                            plannedEventType, plannedEventCountry, plannedEventCity, isEnteredAndFinished,
+                            website, comment, reminderDateTime, isReminderActive, isRecurring, recurringType,
+                            recurringInterval, recurringEndDate, recurringDaysOfWeek
+                        ) VALUES (1, 1, 'Saved race', '2026-12-30', '2027-01-02', '', 'Austria', 'Vienna',
+                            0, '', '', '', 0, 0, '', 1, '', '')
+                    """.trimIndent())
                     db.execSQL("INSERT INTO events (eventId, userId, eventName, eventDate, artOfSport, comment, isUploaded) VALUES (7, 1, 'Saved event', '2026-10-01', 'Running', 'keep', 0)")
                     db.execSQL("INSERT INTO locations (eventId, latitude, longitude, altitude, backyardLap) VALUES (7, 48.0, 16.0, 100, 0)")
                     db.execSQL("INSERT INTO metrics (eventId, heartRate, heartRateDevice, speed, distance, lap, timeInMilliseconds, unity, elevation, elevationGain, elevationLoss, slope) VALUES (7, 120, 'sensor', 3, 1000, 1, 123456, 'km/h', 100, 5, 0, 0)")
@@ -60,13 +70,21 @@ class DatabaseUpgradeSafetyTest {
             // Older servers omit coordinates; uploading must retain locally extracted GPS.
             database.eventMediaDao().updateMediaUploadStatus(media.mediaId, true, "/thumb", "/full")
             assertEquals(48.2, database.eventMediaDao().getMediaById(media.mediaId)!!.latitude!!, 0.0)
-            assertEquals(31, database.openHelper.writableDatabase.version)
+            assertEquals(32, database.openHelper.writableDatabase.version)
+            val plannedEvents = database.plannedEventDao()
+            val savedRace = plannedEvents.getPlannedEventById(1)!!
+            assertEquals(1, savedRace.annualRepeatYears)
+            assertEquals(savedRace, plannedEvents.getPlannedEventsForYear(1, "2027-01-01", "2027-12-31").first().single())
+            assertTrue(plannedEvents.getPlannedEventsForYear(1, "2028-01-01", "2028-12-31").first().isEmpty())
+            val series = savedRace.copy(annualRepeatYears = 3)
+            plannedEvents.updatePlannedEvent(series)
+            assertEquals(series, plannedEvents.getPlannedEventsForYear(1, "2028-01-01", "2028-12-31").first().single())
         } finally { database.close(); context.deleteDatabase(name) }
     }
 
     @Test fun `missing upgrade and downgrade paths fail without deleting saved rows`() {
         val context = RuntimeEnvironment.getApplication()
-        for (version in listOf(2, 32)) {
+        for (version in listOf(2, 33)) {
             val name = "unsupported-$version.db"
             createSavedDatabase(name, version)
             val database = FitnessTrackerDatabase.buildDatabase(context, name)

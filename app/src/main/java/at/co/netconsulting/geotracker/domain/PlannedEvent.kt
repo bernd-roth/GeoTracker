@@ -1,5 +1,6 @@
 package at.co.netconsulting.geotracker.domain
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 import androidx.room.ForeignKey
@@ -35,5 +36,6 @@ data class PlannedEvent(
     val recurringType: String = "", // daily, weekly, monthly, yearly, custom
     val recurringInterval: Int = 1, // Every X days/weeks/months
     val recurringEndDate: String = "", // When to stop recurring (ISO date)
-    val recurringDaysOfWeek: String = "" // For weekly: "1,3,5" (Mon, Wed, Fri)
+    val recurringDaysOfWeek: String = "", // For weekly: "1,3,5" (Mon, Wed, Fri)
+    @ColumnInfo(defaultValue = "1") val annualRepeatYears: Int = 1
 )

@@ -1,15 +1,10 @@
--- public.planned_events definition
-
--- Drop table
-
--- DROP TABLE public.planned_events;
-
-CREATE TABLE public.planned_events (
+CREATE TABLE IF NOT EXISTS public.planned_events (
 	planned_event_id serial4 NOT NULL,
 	user_id int4 NOT NULL,
 	planned_event_name varchar(255) NOT NULL,
 	planned_event_date date NOT NULL,
 	planned_event_end_date date NULL,
+	annual_repeat_years int4 NOT NULL DEFAULT 1,
 	planned_event_type varchar(100) NULL,
 	planned_event_country varchar(100) NOT NULL,
 	planned_event_city varchar(100) NOT NULL,
@@ -33,19 +28,21 @@ CREATE TABLE public.planned_events (
 	CONSTRAINT chk_longitude_range CHECK (((planned_longitude >= ('-180'::integer)::numeric) AND (planned_longitude <= (180)::numeric))),
 	CONSTRAINT chk_recurring_interval CHECK ((recurring_interval > 0)),
 	CONSTRAINT chk_recurring_type CHECK ((((recurring_type)::text = ANY ((ARRAY['daily'::character varying, 'weekly'::character varying, 'monthly'::character varying, 'yearly'::character varying])::text[])) OR (recurring_type IS NULL))),
-	CONSTRAINT planned_events_pkey PRIMARY KEY (planned_event_id)
+	CONSTRAINT planned_events_pkey PRIMARY KEY (planned_event_id),
+	CONSTRAINT fk_planned_events_created_by FOREIGN KEY (created_by_user_id) REFERENCES public.users(user_id) ON DELETE CASCADE,
+	CONSTRAINT fk_planned_events_user_id FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE
 );
-CREATE INDEX idx_planned_events_country_city ON public.planned_events USING btree (planned_event_country, planned_event_city);
-CREATE INDEX idx_planned_events_created_at ON public.planned_events USING btree (created_at);
-CREATE INDEX idx_planned_events_created_by ON public.planned_events USING btree (created_by_user_id);
-CREATE INDEX idx_planned_events_date ON public.planned_events USING btree (planned_event_date);
-CREATE INDEX idx_planned_events_public ON public.planned_events USING btree (is_public) WHERE (is_public = true);
-CREATE INDEX idx_planned_events_type ON public.planned_events USING btree (planned_event_type);
-CREATE UNIQUE INDEX idx_planned_events_unique_event ON public.planned_events USING btree (planned_event_name, planned_event_date, planned_event_country, planned_event_city) WHERE (is_public = true);
-CREATE INDEX idx_planned_events_user_id ON public.planned_events USING btree (user_id);
 
+-- Upgrade existing installations in place.
+ALTER TABLE public.planned_events
+	ADD COLUMN IF NOT EXISTS planned_event_end_date date,
+	ADD COLUMN IF NOT EXISTS annual_repeat_years integer NOT NULL DEFAULT 1;
 
--- public.planned_events foreign keys
-
-ALTER TABLE public.planned_events ADD CONSTRAINT fk_planned_events_created_by FOREIGN KEY (created_by_user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
-ALTER TABLE public.planned_events ADD CONSTRAINT fk_planned_events_user_id FOREIGN KEY (user_id) REFERENCES public.users(user_id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_planned_events_country_city ON public.planned_events USING btree (planned_event_country, planned_event_city);
+CREATE INDEX IF NOT EXISTS idx_planned_events_created_at ON public.planned_events USING btree (created_at);
+CREATE INDEX IF NOT EXISTS idx_planned_events_created_by ON public.planned_events USING btree (created_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_planned_events_date ON public.planned_events USING btree (planned_event_date);
+CREATE INDEX IF NOT EXISTS idx_planned_events_public ON public.planned_events USING btree (is_public) WHERE (is_public = true);
+CREATE INDEX IF NOT EXISTS idx_planned_events_type ON public.planned_events USING btree (planned_event_type);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_planned_events_unique_event ON public.planned_events USING btree (planned_event_name, planned_event_date, planned_event_country, planned_event_city) WHERE (is_public = true);
+CREATE INDEX IF NOT EXISTS idx_planned_events_user_id ON public.planned_events USING btree (user_id);
