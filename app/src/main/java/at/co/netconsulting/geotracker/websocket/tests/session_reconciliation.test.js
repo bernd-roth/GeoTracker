@@ -217,6 +217,55 @@ test('historical pressure statistics exclude zero sentinels', () => {
 });
 
 
+test('live heart rate stats use valid history and live samples without counting a replay twice', () => {
+    const { context, sessionsList } = loadLivePageScript();
+    const min = {};
+    const avg = {};
+    const panel = { style: {}, querySelector() { return null; } };
+    const elements = {
+        sessionsList,
+        speedDisplay: panel,
+        'speed-container-example': panel,
+        'minHeartRate-example': min,
+        'avgHeartRate-example': avg
+    };
+    context.document.getElementById = id => elements[id] || null;
+    vm.runInContext(`
+        shouldDisplaySession = () => true;
+        updateMapTrack = () => {};
+        updateCharts = () => {};
+        const sample = (second, heartRate) => ({
+            sessionId: 'example',
+            latitude: 48.2,
+            longitude: 16.3,
+            distance: second * 10,
+            timestamp: '21-08-2026 18:47:0' + second,
+            heartRate
+        });
+        handleHistoryBatch([sample(0, 0), sample(1)]);
+        finalizeBatchProcessing();
+    `, context);
+    assert.equal(min.textContent, '--');
+    assert.equal(avg.textContent, '--');
+
+    vm.runInContext(`
+        handleHistoryBatch([sample(2, 101), sample(3, 126)]);
+        finalizeBatchProcessing();
+    `, context);
+    assert.equal(min.textContent, '101');
+    assert.equal(avg.textContent, '114');
+
+    panel.style.display = 'none';
+    vm.runInContext(`
+        statsVisible = false;
+        handlePoint(sample(4, 94));
+        handleHistoryBatch([sample(4, 94), sample(5, 'invalid')]);
+        finalizeBatchProcessing();
+    `, context);
+    assert.equal(min.textContent, '94');
+    assert.equal(avg.textContent, '107');
+});
+
 test('heart rate and altitude use a fourth graph only when HR samples exist', () => {
     const { context } = loadLivePageScript();
     const classes = new Set();

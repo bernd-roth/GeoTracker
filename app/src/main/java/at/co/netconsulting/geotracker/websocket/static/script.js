@@ -2953,6 +2953,30 @@ function getSlopeColor(slope) {
     return '#9C27B0';                   // Steep uphill - purple
 }
 
+function updateHeartRateSummary(sessionId) {
+    const minElement = document.getElementById(`minHeartRate-${sessionId}`);
+    const avgElement = document.getElementById(`avgHeartRate-${sessionId}`);
+    if (!minElement || !avgElement) return;
+
+    let min = Infinity;
+    let sum = 0;
+    const samples = new Set();
+    for (const point of trackPoints[sessionId] || []) {
+        const { heartRate, sourceSessionId, timestamp, lat, lng, rawDistance } = point;
+        if (!Number.isFinite(heartRate) || heartRate <= 0) continue;
+
+        // Reconnecting can replay points already received live.
+        const key = `${sourceSessionId}:${timestamp.getTime()}:${lat}:${lng}:${rawDistance}:${heartRate}`;
+        if (samples.has(key)) continue;
+        samples.add(key);
+        min = Math.min(min, heartRate);
+        sum += heartRate;
+    }
+
+    minElement.textContent = samples.size ? String(min) : '--';
+    avgElement.textContent = samples.size ? String(Math.round(sum / samples.size)) : '--';
+}
+
 function updateSpeedDisplay(sessionId, speed, data) {
     sessionId = getBaseSessionId(sessionId);
     // Extract temperature and pressure from nested objects for easier access
@@ -3014,6 +3038,8 @@ function updateSpeedDisplay(sessionId, speed, data) {
     history.lastUpdate = new Date();
 
     if (!statsVisible && document.getElementById('speedDisplay').style.display === 'none') {
+        updateHeartRateSummary(sessionId);
+
         if (data.maxSpeed !== undefined) {
             history.maxSpeed = Math.max(history.maxSpeed, data.maxSpeed);
         }
@@ -3170,6 +3196,10 @@ function updateSpeedDisplay(sessionId, speed, data) {
                 <div class="speed-label">Heart Rate</div>
                 <div class="speed-value" id="heartRate-${sessionId}">0</div>
                 <div class="speed-unit">bpm</div>
+                <div class="heart-rate-summary">
+                    <div>Min <span id="minHeartRate-${sessionId}">--</span></div>
+                    <div>Avg <span id="avgHeartRate-${sessionId}">--</span></div>
+                </div>
             </div>
             <div class="stat-box">
                 <div class="speed-label">Cadence</div>
@@ -3311,6 +3341,7 @@ function updateSpeedDisplay(sessionId, speed, data) {
     }
 
     const heartRateElement = document.getElementById(`heartRate-${sessionId}`);
+    updateHeartRateSummary(sessionId);
     if (heartRateElement && data.heartRate !== undefined) {
         history.heartRate = data.heartRate;
         animateStatValue(heartRateElement, history.heartRate, 0);

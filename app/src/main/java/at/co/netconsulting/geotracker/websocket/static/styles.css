@@ -197,7 +197,8 @@ html {
     height: 100% !important;
 }
 
-.cadence-rolling-average {
+.cadence-rolling-average,
+.heart-rate-summary {
     margin-top: 3px;
     font-size: 10px;
     color: var(--text-muted);
