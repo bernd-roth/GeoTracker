@@ -95,6 +95,7 @@ import at.co.netconsulting.geotracker.location.RecordingFlags
 import at.co.netconsulting.geotracker.location.WaypointOverlay
 import at.co.netconsulting.geotracker.location.WeatherOverlay
 import at.co.netconsulting.geotracker.location.WeatherIconsOverlay
+import at.co.netconsulting.geotracker.repository.RecordingStats
 import org.osmdroid.views.overlay.Marker
 import at.co.netconsulting.geotracker.service.BackgroundLocationService
 import at.co.netconsulting.geotracker.service.FollowingService
@@ -103,6 +104,7 @@ import at.co.netconsulting.geotracker.tools.Tools
 import at.co.netconsulting.geotracker.tools.GpxPersistenceUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -1327,8 +1329,21 @@ fun MapScreen(
 
                 // Add directional arrows along the route
                 routeDirectionArrowMarkersRef.value = DirectionArrowHelper.addDirectionArrows(mapView, routeToDisplay.points)
-                routeFlagsRef.value = RecordingFlags(mapView).apply {
-                    update(routeToDisplay.points.first(), routeToDisplay.points.last(), recording = false)
+                val flags = RecordingFlags(mapView)
+                routeFlagsRef.value = flags
+                val startPoint = routeToDisplay.points.first()
+                val endPoint = routeToDisplay.points.last()
+                flags.update(startPoint, endPoint, recording = false, stats = null)
+                launch {
+                    val stats = routeToDisplay.eventId?.let {
+                        database.metricDao().observeRecordingStats(it).first()
+                    } ?: RecordingStats(null, null, null)
+                    val distance = stats.distance ?: withContext(Dispatchers.Default) {
+                        routeToDisplay.points.asSequence().zipWithNext { a, b -> a.distanceToAsDouble(b) }.sum()
+                    }
+                    if (routeFlagsRef.value === flags) {
+                        flags.update(startPoint, endPoint, recording = false, stats = stats.copy(distance = distance))
+                    }
                 }
 
                 // Load waypoints for the route if we have an event ID

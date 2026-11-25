@@ -14,8 +14,9 @@ data class WeatherForecast(
     val relativeHumidity: Int,      // %
     val precipitation: Double,      // mm
     val snowfall: Double,          // cm
-    val weatherCode: Int,          // WMO weather code
-    val forecastTime: String       // ISO timestamp
+    val weatherCode: Int?,         // WMO weather code
+    val forecastTime: String,      // ISO timestamp
+    val isDay: Boolean? = null
 )
 
 /**

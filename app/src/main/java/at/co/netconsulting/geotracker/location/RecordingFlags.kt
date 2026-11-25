@@ -5,32 +5,44 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
+import at.co.netconsulting.geotracker.repository.RecordingStats
+import at.co.netconsulting.geotracker.tools.Tools
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 
 /** Opposing flags keep both endpoints visible even when a route ends where it began. */
 class RecordingFlags(private val mapView: MapView) {
+    private val tools = Tools()
     private var start: Marker? = null
     private var finish: Marker? = null
 
-    fun update(first: GeoPoint?, last: GeoPoint?, recording: Boolean) {
-        start = updateMarker(start, first, false)
-        finish = updateMarker(finish, last.takeUnless { recording }, true)
+    fun update(first: GeoPoint?, last: GeoPoint?, recording: Boolean, stats: RecordingStats? = null) {
+        val startTime = stats?.startTime ?: 0L
+        val endTime = stats?.endTime ?: 0L
+        start = updateMarker(start, first, false, "Start time: ${tools.formatTimestamp(startTime)}")
+        val finishDetails = if (recording) "" else {
+            val duration = if (startTime > 0L && endTime >= startTime) {
+                tools.formatDuration(endTime - startTime)
+            } else "N/A"
+            val distance = stats?.distance?.let { String.format("%.2f km", it / 1000.0) } ?: "N/A"
+            "End time: ${tools.formatTimestamp(endTime)}<br>Duration: $duration<br>Distance: $distance"
+        }
+        finish = updateMarker(finish, last.takeUnless { recording }, true, finishDetails)
         mapView.invalidate()
     }
 
     fun clear() {
-        start?.let { mapView.overlays.remove(it) }
-        finish?.let { mapView.overlays.remove(it) }
+        start?.let(::removeMarker)
+        finish?.let(::removeMarker)
         start = null
         finish = null
         mapView.invalidate()
     }
 
-    private fun updateMarker(existing: Marker?, point: GeoPoint?, checkered: Boolean): Marker? {
+    private fun updateMarker(existing: Marker?, point: GeoPoint?, checkered: Boolean, details: String): Marker? {
         if (point == null) {
-            existing?.let { mapView.overlays.remove(it) }
+            existing?.let(::removeMarker)
             return null
         }
         val marker = existing ?: Marker(mapView).apply {
@@ -38,10 +50,21 @@ class RecordingFlags(private val mapView: MapView) {
             icon = flagIcon(checkered)
             setAnchor(if (checkered) 0.125f else 0.875f, 1f)
         }
-        marker.position = point
+        val detailsChanged = marker.snippet != details
+        marker.snippet = details
+        if (marker.position != point) {
+            marker.position = point
+        } else if (detailsChanged && marker.isInfoWindowShown) {
+            marker.showInfoWindow()
+        }
         mapView.overlays.remove(marker)
         mapView.overlays.add(marker)
         return marker
+    }
+
+    private fun removeMarker(marker: Marker) {
+        if (marker.isInfoWindowShown) marker.closeInfoWindow()
+        marker.remove(mapView)
     }
 
     private fun flagIcon(checkered: Boolean): BitmapDrawable {

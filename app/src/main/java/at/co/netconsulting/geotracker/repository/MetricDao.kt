@@ -9,9 +9,24 @@ import androidx.room.Update
 import at.co.netconsulting.geotracker.data.TimeRange
 import at.co.netconsulting.geotracker.data.EventTimeRange
 import at.co.netconsulting.geotracker.domain.Metric
+import kotlinx.coroutines.flow.Flow
+
+data class RecordingStats(
+    val startTime: Long?,
+    val endTime: Long?,
+    val distance: Double?
+)
 
 @Dao
 interface MetricDao {
+    @Query("""
+        SELECT MIN(CASE WHEN timeInMilliseconds > 0 THEN timeInMilliseconds END) AS startTime,
+               MAX(CASE WHEN timeInMilliseconds > 0 THEN timeInMilliseconds END) AS endTime,
+               MAX(distance) AS distance
+        FROM metrics WHERE eventId = :eventId
+    """)
+    fun observeRecordingStats(eventId: Int): Flow<RecordingStats>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMetric(metric: Metric): Long
 

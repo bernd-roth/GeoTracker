@@ -59,7 +59,7 @@ class WeatherIconsOverlay(
             if (i in processedIndices) continue
 
             val forecast = routeWeatherData.weatherForecasts[i]
-            val weatherType = getWeatherTypeFromCode(forecast.weatherCode)
+            val weatherType = getWeatherTypeFromCode(forecast.weatherCode, forecast.isDay)
 
             if (weatherType != null) {
                 // Check if there's a nearby marker of same type to cluster
@@ -68,7 +68,7 @@ class WeatherIconsOverlay(
                     if (j in processedIndices) continue
 
                     val otherForecast = routeWeatherData.weatherForecasts[j]
-                    if (getWeatherTypeFromCode(otherForecast.weatherCode) == weatherType) {
+                    if (getWeatherTypeFromCode(otherForecast.weatherCode, otherForecast.isDay) == weatherType) {
                         val distance = calculateDistance(
                             GeoPoint(forecast.latitude, forecast.longitude),
                             GeoPoint(otherForecast.latitude, otherForecast.longitude)
@@ -99,9 +99,13 @@ class WeatherIconsOverlay(
     /**
      * Get weather type from WMO code
      */
-    private fun getWeatherTypeFromCode(code: Int): WeatherCodeType? {
+    private fun getWeatherTypeFromCode(code: Int?, isDay: Boolean?): WeatherCodeType? {
         return when (code) {
-            0, 1 -> WeatherCodeType.SUNNY // Clear sky, mainly clear
+            0, 1 -> when (isDay) {
+                true -> WeatherCodeType.SUNNY
+                false -> WeatherCodeType.CLEAR_NIGHT
+                null -> WeatherCodeType.CLEAR_SKY
+            }
             2, 3 -> WeatherCodeType.CLOUDY // Partly cloudy, overcast
             45, 48 -> WeatherCodeType.CLOUDY // Fog
             51, 53, 55, 56, 57 -> WeatherCodeType.RAIN // Drizzle
@@ -298,6 +302,8 @@ class WeatherIconsOverlay(
     private fun getWeatherCodeBackgroundColor(type: WeatherCodeType, temperature: Double): Int {
         return when (type) {
             WeatherCodeType.SUNNY -> if (temperature > 25) Color.rgb(255, 152, 0) else Color.rgb(255, 193, 7) // Orange/Amber
+            WeatherCodeType.CLEAR_NIGHT -> Color.rgb(48, 63, 119)
+            WeatherCodeType.CLEAR_SKY -> Color.rgb(96, 125, 139)
             WeatherCodeType.CLOUDY -> Color.rgb(158, 158, 158) // Gray
             WeatherCodeType.RAIN -> Color.rgb(33, 150, 243) // Blue
             WeatherCodeType.SNOW -> Color.rgb(176, 190, 197) // Blue Gray
@@ -311,6 +317,8 @@ class WeatherIconsOverlay(
     private fun getWeatherCodeSymbol(type: WeatherCodeType): String {
         return when (type) {
             WeatherCodeType.SUNNY -> "☀"
+            WeatherCodeType.CLEAR_NIGHT -> "☾"
+            WeatherCodeType.CLEAR_SKY -> "○"
             WeatherCodeType.CLOUDY -> "☁"
             WeatherCodeType.RAIN -> "🌧"
             WeatherCodeType.SNOW -> "❄"
@@ -324,6 +332,8 @@ class WeatherIconsOverlay(
     private fun getWeatherCodeTitle(type: WeatherCodeType): String {
         return when (type) {
             WeatherCodeType.SUNNY -> "Sunny"
+            WeatherCodeType.CLEAR_NIGHT -> "Clear night"
+            WeatherCodeType.CLEAR_SKY -> "Clear sky"
             WeatherCodeType.CLOUDY -> "Cloudy"
             WeatherCodeType.RAIN -> "Rain"
             WeatherCodeType.SNOW -> "Snow"
@@ -353,6 +363,8 @@ class WeatherIconsOverlay(
  */
 enum class WeatherCodeType {
     SUNNY,      // Clear sky, sunny
+    CLEAR_NIGHT,
+    CLEAR_SKY,
     CLOUDY,     // Cloudy, overcast, fog
     RAIN,       // Rain, drizzle, showers
     SNOW,       // Snow, snow showers

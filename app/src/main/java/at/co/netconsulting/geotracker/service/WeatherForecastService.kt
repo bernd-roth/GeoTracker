@@ -10,14 +10,15 @@ import com.google.gson.Gson
 import com.google.gson.annotations.SerializedName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.osmdroid.util.GeoPoint
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import java.util.Locale
-import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 import kotlin.math.*
 
@@ -30,6 +31,7 @@ class WeatherForecastService(private val context: Context) {
         private const val TAG = "WeatherForecastService"
         private const val API_BASE_URL = "https://api.open-meteo.com/v1/forecast"
         private const val MAX_SAMPLE_POINTS = 50
+        private const val SECONDS_PER_QUARTER_HOUR = 15 * 60L
 
         // Weather condition thresholds
         private const val RAIN_THRESHOLD_MM = 1.0
@@ -48,7 +50,7 @@ class WeatherForecastService(private val context: Context) {
     /**
      * Fetch weather forecast for a route
      * @param routePoints List of GeoPoints representing the route
-     * @param targetTime ISO timestamp for forecast (null = current time)
+     * @param targetTime ISO local date and time in the device's time zone (null = current time)
      * @return RouteWeatherData or null if fetch fails
      */
     suspend fun fetchRouteWeatherForecast(
@@ -60,6 +62,10 @@ class WeatherForecastService(private val context: Context) {
                 Log.e(TAG, "Route points list is empty")
                 return@withContext null
             }
+
+            val forecastInstant = targetTime?.let {
+                LocalDateTime.parse(it).atZone(ZoneId.systemDefault()).toInstant()
+            } ?: Instant.now()
 
             // Sample route points to limit API calls
             val sampledPoints = sampleRoutePoints(routePoints)
@@ -74,13 +80,13 @@ class WeatherForecastService(private val context: Context) {
                 .url(url)
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "API request failed with code: ${response.code}")
-                return@withContext null
+            val responseBody = client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "API request failed with code: ${response.code}")
+                    return@withContext null
+                }
+                response.body?.string()
             }
-
-            val responseBody = response.body?.string()
             if (responseBody == null) {
                 Log.e(TAG, "Response body is null")
                 return@withContext null
@@ -104,8 +110,9 @@ class WeatherForecastService(private val context: Context) {
             val weatherForecasts = parseWeatherForecastsFromMultipleResponses(
                 sampledPoints,
                 apiResponses,
-                targetTime
+                forecastInstant
             )
+            if (weatherForecasts.isEmpty()) return@withContext null
 
             RouteWeatherData(
                 routePoints = routePoints,
@@ -114,6 +121,8 @@ class WeatherForecastService(private val context: Context) {
                 targetTime = targetTime
             )
 
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching weather forecast", e)
             null
@@ -204,9 +213,9 @@ class WeatherForecastService(private val context: Context) {
         return "$API_BASE_URL" +
                 "?latitude=$latitudes" +
                 "&longitude=$longitudes" +
-                "&hourly=temperature_2m,windspeed_10m,winddirection_10m,relativehumidity_2m,precipitation,snowfall,weathercode" +
-                "&forecast_days=7" +
-                "&timezone=auto"
+                "&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,relative_humidity_2m,precipitation,snowfall,weather_code,is_day" +
+                "&minutely_15=is_day&past_minutely_15=96&forecast_minutely_15=96" +
+                "&forecast_days=7&past_days=1&timeformat=unixtime"
     }
 
     /**
@@ -215,7 +224,7 @@ class WeatherForecastService(private val context: Context) {
     private fun parseWeatherForecastsFromMultipleResponses(
         points: List<GeoPoint>,
         apiResponses: List<WeatherApiResponse>,
-        targetTime: String?
+        forecastInstant: Instant
     ): List<WeatherForecast> {
         val forecasts = mutableListOf<WeatherForecast>()
 
@@ -234,13 +243,7 @@ class WeatherForecastService(private val context: Context) {
                 continue
             }
 
-            // Determine which time index to use
-            val timeIndex = if (targetTime != null) {
-                findClosestTimeIndex(hourly.time, targetTime)
-            } else {
-                // Use current time (first future entry)
-                findCurrentTimeIndex(hourly.time)
-            }
+            val timeIndex = routeForecastHourIndex(hourly.time, forecastInstant)
 
             if (timeIndex == -1) {
                 Log.w(TAG, "Could not find suitable time index for point $i")
@@ -248,6 +251,12 @@ class WeatherForecastService(private val context: Context) {
             }
 
             try {
+                // Use the finer daylight reading near sunrise and sunset when it is available.
+                val daylight = apiResponse.minutely15?.let { minutely ->
+                    val epoch = forecastInstant.epochSecond
+                    val quarterHour = epoch - Math.floorMod(epoch, SECONDS_PER_QUARTER_HOUR)
+                    minutely.isDay?.getOrNull(minutely.time.indexOf(quarterHour))
+                } ?: hourly.isDay?.getOrNull(timeIndex)
                 forecasts.add(
                     WeatherForecast(
                         latitude = points[i].latitude,
@@ -258,8 +267,13 @@ class WeatherForecastService(private val context: Context) {
                         relativeHumidity = hourly.relativehumidity2m?.getOrNull(timeIndex) ?: 0,
                         precipitation = hourly.precipitation?.getOrNull(timeIndex) ?: 0.0,
                         snowfall = hourly.snowfall?.getOrNull(timeIndex) ?: 0.0,
-                        weatherCode = hourly.weathercode?.getOrNull(timeIndex) ?: 0,
-                        forecastTime = hourly.time.getOrNull(timeIndex) ?: ""
+                        weatherCode = hourly.weatherCode?.getOrNull(timeIndex),
+                        forecastTime = Instant.ofEpochSecond(hourly.time[timeIndex]).toString(),
+                        isDay = when (daylight) {
+                            1 -> true
+                            0 -> false
+                            else -> null
+                        }
                     )
                 )
             } catch (e: Exception) {
@@ -269,55 +283,6 @@ class WeatherForecastService(private val context: Context) {
 
         Log.d(TAG, "Parsed ${forecasts.size} weather forecasts from ${apiResponses.size} API responses")
         return forecasts
-    }
-
-    /**
-     * Find index of closest time to target
-     */
-    private fun findClosestTimeIndex(times: List<String>, targetTime: String): Int {
-        val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
-        format.timeZone = TimeZone.getTimeZone("UTC")
-
-        try {
-            val target = format.parse(targetTime) ?: return -1
-            var closestIndex = 0
-            var minDiff = Long.MAX_VALUE
-
-            for (i in times.indices) {
-                val time = format.parse(times[i]) ?: continue
-                val diff = abs(time.time - target.time)
-                if (diff < minDiff) {
-                    minDiff = diff
-                    closestIndex = i
-                }
-            }
-
-            return closestIndex
-        } catch (e: Exception) {
-            Log.e(TAG, "Error finding closest time index", e)
-            return -1
-        }
-    }
-
-    /**
-     * Find index of current/next hour
-     */
-    private fun findCurrentTimeIndex(times: List<String>): Int {
-        val format = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US)
-        val now = Date()
-
-        for (i in times.indices) {
-            try {
-                val time = format.parse(times[i]) ?: continue
-                if (time >= now) {
-                    return i
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing time: ${times[i]}", e)
-            }
-        }
-
-        return if (times.isNotEmpty()) 0 else -1
     }
 
     /**
@@ -382,26 +347,40 @@ class WeatherForecastService(private val context: Context) {
     }
 }
 
+internal fun routeForecastHourIndex(times: List<Long>, target: Instant): Int =
+    times.indexOf(target.truncatedTo(ChronoUnit.HOURS).epochSecond)
+
 /**
  * API response models for Open-Meteo
  */
 private data class WeatherApiResponse(
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val hourly: HourlyWeatherData?
+    val hourly: HourlyWeatherData?,
+    @SerializedName("minutely_15")
+    val minutely15: MinutelyDaylight?
+)
+
+private data class MinutelyDaylight(
+    val time: List<Long>,
+    @SerializedName("is_day")
+    val isDay: List<Int?>?
 )
 
 private data class HourlyWeatherData(
-    val time: List<String>,
+    val time: List<Long>,
     @SerializedName("temperature_2m")
     val temperature2m: List<Double>?,
-    @SerializedName("windspeed_10m")
+    @SerializedName("wind_speed_10m")
     val windspeed10m: List<Double>?,
-    @SerializedName("winddirection_10m")
+    @SerializedName("wind_direction_10m")
     val winddirection10m: List<Double>?,
-    @SerializedName("relativehumidity_2m")
+    @SerializedName("relative_humidity_2m")
     val relativehumidity2m: List<Int>?,
     val precipitation: List<Double>?,
     val snowfall: List<Double>?,
-    val weathercode: List<Int>?
+    @SerializedName("weather_code")
+    val weatherCode: List<Int?>?,
+    @SerializedName("is_day")
+    val isDay: List<Int?>?
 )

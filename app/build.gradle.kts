@@ -17,7 +17,7 @@ android {
         minSdk = 29
         targetSdk = 34
         versionCode = 5
-        versionName = "11.18 (23-11-2026: Recurring yearly events implemented)"
+        versionName = "11.19 (25-11-2026: Fix wrong weather forecast, and show additional stats when clicking on start and finish flag)"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

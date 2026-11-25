@@ -3,15 +3,22 @@ package at.co.netconsulting.geotracker.location
 import android.graphics.Color
 import android.util.Log
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
 import at.co.netconsulting.geotracker.repository.PathBounds
+import at.co.netconsulting.geotracker.repository.RecordingStats
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.util.BoundingBox
@@ -81,18 +88,36 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
     private var endpointJob: Job? = null
     private var firstRecordedPoint: GeoPoint? = null
     private var lastRecordedPoint: GeoPoint? = null
+    private var recordingStats: RecordingStats? = null
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun observeEndpoints(mapView: MapView) {
         if (currentEventId <= 0 || endpointJob?.isActive == true) return
         val eventId = currentEventId
         recordingFlags = recordingFlags ?: RecordingFlags(mapView)
         endpointJob = trackerScope.launch {
-            database.locationDao().observeRecordingEndpoints(eventId).collect { locations ->
+            val statsFlow = database.metricDao().observeRecordingStats(eventId)
+            val flagStats = snapshotFlow { isRecording.value }.flatMapLatest { recording ->
+                if (recording) {
+                    // The start flag only needs the first timestamp while the route is recording.
+                    statsFlow.transformWhile { stats ->
+                        emit(RecordingStats(stats.startTime, null, null))
+                        stats.startTime == null
+                    }
+                } else {
+                    statsFlow
+                }
+            }
+            combine(
+                database.locationDao().observeRecordingEndpoints(eventId).distinctUntilChanged(),
+                flagStats.distinctUntilChanged()
+            ) { locations, stats -> locations to stats }.collect { (locations, stats) ->
                 withContext(Dispatchers.Main) {
                     if (eventId == currentEventId) {
                         firstRecordedPoint = locations.firstOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
                         lastRecordedPoint = locations.lastOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
-                        recordingFlags?.update(firstRecordedPoint, lastRecordedPoint, isRecording.value)
+                        recordingStats = stats
+                        recordingFlags?.update(firstRecordedPoint, lastRecordedPoint, isRecording.value, stats)
                     }
                 }
             }
@@ -126,6 +151,7 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
             recordingFlags?.clear()
             firstRecordedPoint = null
             lastRecordedPoint = null
+            recordingStats = null
             currentEventId = eventId
             pointCache.clear()
 
@@ -143,7 +169,7 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
      */
     fun setRecording(recording: Boolean) {
         isRecording.value = recording
-        recordingFlags?.update(firstRecordedPoint, lastRecordedPoint, recording)
+        recordingFlags?.update(firstRecordedPoint, lastRecordedPoint, recording, recordingStats)
         // Always set zoomToPathEnabled to false regardless of recording state
         // This prevents any auto-zooming behavior
         zoomToPathEnabled = false
@@ -160,6 +186,7 @@ class ViewportPathTracker(private val database: FitnessTrackerDatabase) {
         recordingFlags?.clear()
         firstRecordedPoint = null
         lastRecordedPoint = null
+        recordingStats = null
         pointCache.clear()
         pathPolyline?.setPoints(emptyList())
         // Clear backyard lap polylines
