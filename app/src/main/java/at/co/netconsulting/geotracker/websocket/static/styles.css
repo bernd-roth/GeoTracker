@@ -719,6 +719,13 @@ html {
     border-left: 3px solid var(--accent-blue);
 }
 
+.session-color-swatch {
+    flex: 0 0 16px;
+    height: 4px;
+    margin-inline-end: 8px;
+    border-radius: 2px;
+}
+
 .session-item-info {
     flex: 1;
 }

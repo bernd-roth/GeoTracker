@@ -4342,6 +4342,7 @@ function updateSessionList() {
     filteredSessions.forEach(session => {
         const sessionId = session.sessionId;
         const isActive = session.isActive;
+        const sessionColor = getColorForUser(getBaseSessionId(sessionId));
 
         const displayInfo = getSessionDisplayInfo(session);
         const escapedSessionId = escapeHtml(sessionId);
@@ -4351,6 +4352,7 @@ function updateSessionList() {
 
         html += `
             <div class="session-item ${isActive ? 'active' : ''}" data-session-id="${escapedSessionId}">
+                <span class="session-color-swatch" style="background-color: ${sessionColor}" aria-hidden="true"></span>
                 <div class="session-item-info">
                     <div class="session-item-name">
                         ${name}

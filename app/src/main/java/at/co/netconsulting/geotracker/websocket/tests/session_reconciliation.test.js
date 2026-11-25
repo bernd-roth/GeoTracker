@@ -266,6 +266,34 @@ test('live heart rate stats use valid history and live samples without counting 
     assert.equal(avg.textContent, '107');
 });
 
+test('Session Manager swatches match the speed and altitude graphs for each run', () => {
+    const { context, sessionsList } = loadLivePageScript();
+    vm.runInContext(`
+        const points = [
+            { lat: 48.2, lng: 16.3, distance: 0, altitude: 200, speed: 8 },
+            { lat: 48.201, lng: 16.301, distance: 0.15, altitude: 210, speed: 9 }
+        ];
+        trackPoints.run_a = points;
+        trackPoints.run_b = points;
+        updateCharts('run_a');
+        handleSessionList([{ sessionId: 'run_a' }, { sessionId: 'run_b_reset_123', isActive: true }]);
+        updateCharts('run_b_reset_123');
+    `, context);
+
+    const matches = sessionsList.innerHTML.matchAll(
+        /data-session-id="([^"]+)">\s*<span class="session-color-swatch" style="background-color: (rgb\([^"]+\))"/g
+    );
+    const swatches = Object.fromEntries(Array.from(matches, ([, sessionId, color]) => [sessionId, color]));
+    for (const chart of ['speedChart', 'altitudeChart']) {
+        const colors = JSON.parse(vm.runInContext(`JSON.stringify(Object.fromEntries(
+            ${chart}.data.datasets.map(dataset => [dataset.sessionId, dataset.borderColor])
+        ))`, context));
+        assert.deepEqual(Object.keys(colors).sort(), ['run_a', 'run_b']);
+        assert.deepEqual(swatches, colors);
+    }
+    assert.notEqual(swatches.run_a, swatches.run_b);
+});
+
 test('heart rate and altitude use a fourth graph only when HR samples exist', () => {
     const { context } = loadLivePageScript();
     const classes = new Set();
