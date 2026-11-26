@@ -39,6 +39,16 @@ interface LocationDao {
     @Query("SELECT * FROM locations WHERE eventId = :eventId ORDER BY locationId ASC")
     suspend fun getLocationsByEventId(eventId: Int): List<Location>
 
+    @Query("""
+        SELECT l.latitude, l.longitude FROM locations l
+        JOIN events e ON e.eventId = l.eventId
+        WHERE (e.eventSource IS NULL OR e.eventSource = 'recorded')
+          AND l.latitude BETWEEN -90 AND 90
+          AND l.longitude BETWEEN -180 AND 180
+        ORDER BY l.longitude
+    """)
+    suspend fun getRecordedHeatmapCoordinates(): List<HeatmapCoordinate>
+
     /**
      * Get locations within a geographic bounding box with simplification based on sample rate
      * Higher sample rates = fewer points (1 = every point, 2 = every 2nd point, etc.)
@@ -108,3 +118,5 @@ interface LocationDao {
         limit: Int = 1000
     ): List<Location>
 }
+
+data class HeatmapCoordinate(val latitude: Double, val longitude: Double)

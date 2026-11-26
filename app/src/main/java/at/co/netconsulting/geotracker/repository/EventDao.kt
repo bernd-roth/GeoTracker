@@ -47,6 +47,9 @@ interface EventDao {
     """)
     fun getRecordedEvents(): Flow<List<Event>>
 
+    @Query("SELECT EXISTS(SELECT 1 FROM events WHERE eventSource IS NULL OR eventSource = 'recorded')")
+    fun observeHasRecordedEvents(): Flow<Boolean>
+
     @Query("""
         SELECT e.* FROM events e
         LEFT JOIN (

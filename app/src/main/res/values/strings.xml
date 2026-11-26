@@ -71,4 +71,10 @@
     <string name="photo">Photo</string>
     <string name="media_pending_upload">Media will be uploaded when event is synced</string>
     <string name="media_uploaded_with_event">%d media file(s) uploaded with event</string>
+    <string name="events_heatmap_title">Heatmap</string>
+    <string name="events_heatmap_return">Return to events</string>
+    <string name="events_heatmap_no_locations">Your events have no recorded GPS locations.</string>
+    <string name="events_heatmap_load_failed">Couldn’t load the heatmap.</string>
+    <string name="events_heatmap_lower_density">Lower GPS density</string>
+    <string name="events_heatmap_higher_density">Higher GPS density</string>
 </resources>

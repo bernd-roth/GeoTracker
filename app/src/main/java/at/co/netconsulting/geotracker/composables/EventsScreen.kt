@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
@@ -87,6 +88,7 @@ import androidx.compose.material3.DividerDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -117,6 +119,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -128,6 +131,7 @@ import at.co.netconsulting.geotracker.data.EventWithDetails
 import at.co.netconsulting.geotracker.data.RouteDisplayData
 import at.co.netconsulting.geotracker.data.RouteRerunData
 import at.co.netconsulting.geotracker.data.SportCatalog
+import at.co.netconsulting.geotracker.R
 import at.co.netconsulting.geotracker.domain.Event
 import at.co.netconsulting.geotracker.domain.EventMedia
 import at.co.netconsulting.geotracker.domain.FitnessTrackerDatabase
@@ -448,7 +452,11 @@ fun EventsScreen(
     val events by eventsViewModel.filteredEventsWithDetails.collectAsState()
     val stageDatabase = remember(context) { FitnessTrackerDatabase.getInstance(context) }
     val stageSummaries by remember(stageDatabase) { stageDatabase.stageGroupDao().observeStages() }.collectAsState(emptyList())
+    val hasRecordedEvents by remember(stageDatabase) {
+        stageDatabase.eventDao().observeHasRecordedEvents()
+    }.collectAsState(false)
     var groupStages by rememberSaveable { mutableStateOf(true) }
+    var showHeatmap by rememberSaveable { mutableStateOf(false) }
     val allEvents by eventsViewModel.eventsWithDetails.collectAsState()
     val isLoading by eventsViewModel.isLoading.collectAsState()
     val searchQuery by eventsViewModel.searchQuery.collectAsState()
@@ -1249,6 +1257,10 @@ fun EventsScreen(
         )
     }
 
+    if (showHeatmap) {
+        EventsHeatmapDialog(database = stageDatabase, onDismiss = { showHeatmap = false })
+    }
+
     // Upload dialog
     if (showUploadDialog) {
         UploadEventsDialog(
@@ -1688,13 +1700,35 @@ fun EventsScreen(
                 if (selectedTab == 1) it.event.eventSource == "imported"
                 else it.event.eventSource == null || it.event.eventSource == "recorded"
             }
-            if (tabStages.isNotEmpty()) {
+            val showHeatmapAction = selectedTab == 0 && hasRecordedEvents
+            if (tabStages.isNotEmpty() || showHeatmapAction) {
                 item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(checked = groupStages, onCheckedChange = { groupStages = it })
-                        Text("Group stage events", Modifier.padding(start = 8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (tabStages.isNotEmpty()) {
+                            Switch(checked = groupStages, onCheckedChange = { groupStages = it })
+                            Text("Group stage events", Modifier.weight(1f, fill = false).padding(start = 8.dp))
+                        }
+                        if (showHeatmapAction) {
+                            FilledTonalButton(
+                                onClick = { showHeatmap = true },
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.LocalFireDepartment,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(stringResource(R.string.events_heatmap_title))
+                            }
+                        }
                     }
                 }
+            }
+            if (tabStages.isNotEmpty()) {
                 if (showStageGroups) {
                     items(tabStages.groupBy { it.event.stageGroupId }.values.sortedByDescending { group ->
                         group.maxOf { it.event.eventDate }
