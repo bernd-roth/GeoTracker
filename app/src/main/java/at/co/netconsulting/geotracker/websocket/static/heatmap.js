@@ -12,6 +12,8 @@ const MAX_POINTS     = 80000;
 let map          = null;
 let currentTheme = localStorage.getItem('theme') || 'light';
 let heatmapData  = null;   // GeoJSON FeatureCollection
+let styleReady   = false;
+let heatmapRequest = 0;
 
 // ─────────────────────────────────────────────────────────────
 // INIT
@@ -40,11 +42,9 @@ function applyTheme(theme, updateMap = true) {
     document.getElementById('themeBtn').textContent = theme === 'dark' ? '\u2600' : '\u263E';
 
     if (updateMap && map) {
-        const style = mapStyle(theme);
-        map.setStyle(style);
-        map.once('styledata', () => {
-            if (heatmapData) addHeatmapLayer(heatmapData);
-        });
+        styleReady = false;
+        // A full style replacement fires style.load on each theme change.
+        map.setStyle(mapStyle(theme), { diff: false });
     }
 }
 
@@ -68,6 +68,11 @@ function initMap() {
         center: [13.4, 47.7],   // Austria default
         zoom: 7,
         attributionControl: false
+    });
+
+    map.on('style.load', () => {
+        styleReady = true;
+        renderHeatmap();
     });
 
     map.addControl(new maplibregl.AttributionControl({
@@ -113,6 +118,7 @@ function onFilterChange() {
 // HEATMAP DATA
 // ─────────────────────────────────────────────────────────────
 async function loadHeatmap() {
+    const request = ++heatmapRequest;
     const sport = document.getElementById('sportFilter').value;
     const year  = document.getElementById('yearFilter').value;
 
@@ -127,34 +133,24 @@ async function loadHeatmap() {
         const resp = await fetch(`${API_BASE}/heatmap?${params}`);
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         const json = await resp.json();
+        if (request !== heatmapRequest) return;
 
         const points = json.data.points;
         status.textContent = `${json.data.returned.toLocaleString()} of ${json.data.total.toLocaleString()} points`;
 
-        if (points.length === 0) {
-            removeHeatmapLayer();
-            return;
-        }
-
-        heatmapData = {
+        heatmapData = points.length ? {
             type: 'FeatureCollection',
             features: points.map(p => ({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [p[1], p[0]] }
             }))
-        };
+        } : null;
 
-        if (map.isStyleLoaded()) {
-            addHeatmapLayer(heatmapData);
-            fitToBounds(points);
-        } else {
-            map.once('load', () => {
-                addHeatmapLayer(heatmapData);
-                fitToBounds(points);
-            });
-        }
+        renderHeatmap();
+        fitToBounds(points);
 
     } catch (err) {
+        if (request !== heatmapRequest) return;
         console.error('loadHeatmap failed:', err);
         status.textContent = 'Failed to load data';
     }
@@ -182,20 +178,28 @@ function fitToBounds(points) {
 // ─────────────────────────────────────────────────────────────
 // HEATMAP LAYER
 // ─────────────────────────────────────────────────────────────
-function removeHeatmapLayer() {
-    if (map.getLayer('heatmap-heat'))  map.removeLayer('heatmap-heat');
-    if (map.getLayer('heatmap-point')) map.removeLayer('heatmap-point');
-    if (map.getSource('heatmap'))      map.removeSource('heatmap');
-    heatmapData = null;
-}
+function renderHeatmap() {
+    if (!styleReady) return;
 
-function addHeatmapLayer(geojson) {
-    removeHeatmapLayer();
+    const source = map.getSource('heatmap');
+    if (!heatmapData) {
+        if (source) {
+            map.removeLayer('heatmap-heat');
+            map.removeLayer('heatmap-point');
+            map.removeSource('heatmap');
+        }
+        return;
+    }
+
+    if (source) {
+        source.setData(heatmapData);
+        return;
+    }
 
     const radius  = parseFloat(document.getElementById('radiusSlider').value);
     const opacity = parseFloat(document.getElementById('opacitySlider').value);
 
-    map.addSource('heatmap', { type: 'geojson', data: geojson });
+    map.addSource('heatmap', { type: 'geojson', data: heatmapData });
 
     // Heatmap layer (visible at lower zoom)
     map.addLayer({
